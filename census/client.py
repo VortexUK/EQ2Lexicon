@@ -7,7 +7,7 @@ import aiohttp
 from census.constants import ITEM_DISPLAY, STAT_MAP, TYPEINFO_DISPLAY
 from census.models import ItemData, ItemEffect, ItemStat
 
-BASE_URL = "http://census.daybreakgames.com"
+BASE_URL = "https://census.daybreakgames.com"
 
 # JSON flag key → display label (order = display order in tooltip)
 _FLAG_LABELS: dict[str, str] = {
@@ -86,7 +86,7 @@ class CensusClient:
                 print(f"[Census] returned={data.get('returned')} items")
                 return data
         except Exception as exc:
-            print(f"[Census] API error: {exc}")
+            print(f"[Census] API error: {type(exc).__name__}: {exc!r}")
             return None
 
     # ------------------------------------------------------------------
