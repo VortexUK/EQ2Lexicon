@@ -30,7 +30,10 @@ async def main() -> None:
     client = CensusClient(service_id=service_id)
     try:
         data = await client.get_raw_item(name)
-        print(json.dumps(data, indent=2, default=str))
+        if data:
+            print(json.dumps(data, indent=2, default=str))
+        else:
+            print("No data returned.")
     finally:
         await client.close()
 

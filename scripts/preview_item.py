@@ -42,7 +42,7 @@ async def main() -> None:
         img = render_tooltip(item)
         out = Path("preview.png")
         img.save(out)
-        print(f"Saved → {out.resolve()}")
+        print(f"Saved: {out.resolve()}")
 
         # Open the image with the default viewer
         if sys.platform == "win32":

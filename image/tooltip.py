@@ -18,29 +18,35 @@ BORDER_INNER = (54, 76, 92)     # slate teal
 
 C_NAME = (232, 232, 232)
 C_WHITE = (220, 220, 220)
-C_BODY = (208, 208, 208)
+C_BODY  = (199, 207, 199)   # #c7cfc7 — base card text colour from CSS
+
+# Glow params shared between quality badges and effect names: (colour, radius, passes)
+EFFECT_GLOW: tuple[tuple[int, int, int], int, int] = ((223, 83, 95), 4, 2)
 
 # Rarity / quality  — text colour
 QUALITY_COLORS: dict[str, tuple[int, int, int]] = {
-    "fabled":    (255, 147, 157),   # #ff939d  — light pink
-    "legendary": (255, 138,   0),
-    "treasured": (176, 166,  96),
-    "uncommon":  ( 96, 206,  96),
-    "common":    (178, 178, 178),
+    "fabled":    (255, 147, 157),   # #ff939d
+    "legendary": (255, 201, 147),   # #ffc993
+    "treasured":     (147, 217, 255),   # #93d9ff
+    "mastercrafted": (147, 217, 255),   # same as treasured
+    "uncommon":     (190, 255, 147),   # #beff93
+    "handcrafted":  (190, 255, 147),   # same as uncommon
+    "common":       (190, 255, 147),   # same as uncommon
 }
 
-# Glow colour for qualities that have a bloom effect.
-# Value: (glow_rgb, glow_radius, glow_passes)
 QUALITY_GLOWS: dict[str, tuple[tuple[int, int, int], int, int]] = {
-    "fabled": ((223, 83, 95), 4, 2),    # #DF535F × 2 passes
+    "fabled":    EFFECT_GLOW,
+    "legendary": ((213, 105, 0), 4, 2),    # #D56900
+    "treasured":     ((213, 105, 0), 4, 2),   # #D56900
+    "mastercrafted": ((213, 105, 0), 4, 2),
 }
 
-C_STAT_PRIMARY = (44, 192, 72)     # green
-C_STAT_SECONDARY = (60, 192, 192)  # cyan
-C_VALUE = (60, 192, 192)
-C_CLASS = (44, 192, 72)
-C_GOLD = (196, 162, 28)
-C_EFFECT_NAME = (228, 58, 58)
+C_STAT_PRIMARY   = (34, 255, 34)    # #22ff22
+C_STAT_SECONDARY = (60, 192, 192)   # cyan
+C_VALUE       = (60, 192, 192)
+C_CLASS       = (34, 255, 34)    # #22ff22
+C_GOLD        = (230, 233, 112)     # #e6e970 — "Effects:" / "Adornment Slots:" headers
+C_EFFECT_NAME = (255, 147, 157)     # #ff939d — same pink as FABLED rarity
 
 # Adornment slot name → colour
 ADORN_COLORS: dict[str, tuple[int, int, int]] = {
@@ -57,13 +63,24 @@ ADORN_COLORS: dict[str, tuple[int, int, int]] = {
 # ---------------------------------------------------------------------------
 # Layout constants
 # ---------------------------------------------------------------------------
-WIDTH = 460
-PADDING = 18          # left/right margin inside border
-BORDER_W = 3
-INSET = 6             # gap to inner border
-LINE_GAP = 2          # extra pixels between lines
-SECTION_GAP = 8       # extra pixels between sections
-COL2_FRAC = 0.48      # second column starts at this fraction of content width
+# ZOOM: output size multiplier — change this to resize everything proportionally.
+# SCALE: supersampling factor for anti-aliasing — keep at 2, do not change.
+ZOOM        = 1.3
+SCALE       = 2
+
+def _z(n: float) -> int:
+    """Convert a base pixel value to render pixels, applying both ZOOM and SCALE."""
+    return round(n * ZOOM) * SCALE
+
+WIDTH_OUT   = round(460 * ZOOM)    # final output width in pixels
+WIDTH       = WIDTH_OUT * SCALE    # internal render width
+PADDING     = _z(18)
+BORDER_W    = _z(3)
+INSET       = _z(6)
+LINE_GAP    = _z(4)
+SECTION_GAP = _z(8)
+ICON_SIZE   = _z(64)               # render-space icon size
+COL2_FRAC   = 0.48                 # fraction — scale-independent
 
 
 # ---------------------------------------------------------------------------
@@ -93,16 +110,19 @@ class _TooltipRenderer:
         bottom = final_y + PADDING + BORDER_W + 2
         img = canvas.crop((0, 0, WIDTH, bottom))
 
-        # Borders drawn on final-sized image
+        # Borders drawn on full-resolution image before downscaling
         d = ImageDraw.Draw(img)
         w, h = img.size
         d.rectangle([0, 0, w - 1, h - 1], outline=BORDER_OUTER, width=BORDER_W)
         d.rectangle(
             [INSET, INSET, w - 1 - INSET, h - 1 - INSET],
             outline=BORDER_INNER,
-            width=1,
+            width=SCALE,
         )
-        return img
+
+        # Downscale to output size — Lanczos gives crisp anti-aliased result
+        out_h = h // SCALE
+        return img.resize((WIDTH_OUT, out_h), Image.LANCZOS)
 
     # ------------------------------------------------------------------
 
@@ -118,8 +138,7 @@ class _TooltipRenderer:
         content_w = WIDTH - 2 * x
         col2_x = x + int(content_w * COL2_FRAC)
 
-        # Icon (top-right corner)
-        ICON_SIZE = 64
+        # Icon (top-right corner) — ICON_SIZE is the module-level scaled constant
         icon_x = WIDTH - x - ICON_SIZE
         icon_y = y
         name_max_w = icon_x - x - 8
@@ -163,8 +182,11 @@ class _TooltipRenderer:
                 draw.text((x, y), item.quality.upper(), font=fonts["bold_lg"], fill=color)
             y += _lh(fonts["bold_lg"]) + 4
 
-        # Primary stats (green)
-        primary = [s for s in item.stats if s.stat_group == "primary"]
+        # Primary stats (green) — attributes first (str/sta), skills last
+        primary = sorted(
+            [s for s in item.stats if s.stat_group == "primary"],
+            key=lambda s: (1 if s.name in ("combatskills", "combatskill", "combat_skill") else 0),
+        )
         if primary:
             y = _draw_stat_cols(draw, primary, fonts["bold"], y, x, col2_x, C_STAT_PRIMARY)
             y += LINE_GAP
@@ -184,23 +206,26 @@ class _TooltipRenderer:
                 draw.text((x, y), header, font=fonts["bold"], fill=C_WHITE)
                 y += _lh(fonts["bold"]) + LINE_GAP
             if item.mitigation is not None:
-                y = _draw_kv(draw, x, y, "Mitigation", str(item.mitigation), fonts["regular"])
+                y = _draw_kv(draw, x, y, "Mitigation", str(item.mitigation), fonts["regular"], value_color=C_WHITE)
             if item.item_level is not None:
-                y = _draw_kv(draw, x, y, "Level", str(item.item_level), fonts["regular"])
+                y = _draw_kv(draw, x, y, "Level", str(item.item_level), fonts["regular"], value_color=C_STAT_PRIMARY)
             y += LINE_GAP
 
-        # Class restrictions
+        # Class restrictions (word-wrap if the string is too wide)
         if item.classes:
             y += 2
-            draw.text((x, y), _format_classes(item.classes), font=fonts["bold"], fill=C_CLASS)
-            y += _lh(fonts["bold"]) + SECTION_GAP
+            class_str = _format_classes(item.classes)
+            for line in _wrap(class_str, fonts["bold"], content_w):
+                draw.text((x, y), line, font=fonts["bold"], fill=C_CLASS)
+                y += _lh(fonts["bold"])
+            y += SECTION_GAP
 
         # Effects
         if item.effects:
             draw.text((x, y), "Effects:", font=fonts["bold"], fill=C_GOLD)
             y += _lh(fonts["bold"]) + LINE_GAP
             for eff in item.effects:
-                y = _draw_effect(draw, eff, fonts, y, x, content_w)
+                y = _draw_effect(draw, eff, fonts, y, x, content_w, canvas)
 
         # Adornment slots
         if item.adornment_slots:
@@ -215,13 +240,6 @@ class _TooltipRenderer:
             text = "   ".join(item.flags)
             draw.text((x, y), text, font=fonts["bold_lg"], fill=C_GOLD)
             y += _lh(fonts["bold_lg"]) + LINE_GAP
-
-        # Game link
-        if item.game_link:
-            y += SECTION_GAP
-            draw.text((x, y), "Game Link:", font=fonts["bold"], fill=C_WHITE)
-            y += _lh(fonts["bold"]) + LINE_GAP
-            y = _draw_game_link_box(draw, item.game_link, fonts["small"], y, x, content_w)
 
         return y
 
@@ -315,10 +333,11 @@ def _draw_kv(
     label: str,
     value: str,
     font: ImageFont.FreeTypeFont,
-    tab: int = 110,
+    tab: int = _z(110),
+    value_color: tuple = C_VALUE,
 ) -> int:
     draw.text((x, y), label, font=font, fill=C_WHITE)
-    draw.text((x + tab, y), value, font=font, fill=C_VALUE)
+    draw.text((x + tab, y), value, font=font, fill=value_color)
     return y + _lh(font) + 1
 
 
@@ -329,8 +348,14 @@ def _draw_effect(
     y: int,
     x: int,
     content_w: int,
+    canvas: Optional[Image.Image] = None,
 ) -> int:
-    draw.text((x, y), eff.name, font=fonts["bold"], fill=C_EFFECT_NAME)
+    # Effect name gets the same pink glow as FABLED rarity
+    glow_color, glow_radius, glow_passes = EFFECT_GLOW
+    if canvas is not None:
+        _draw_with_glow(canvas, x, y, eff.name, fonts["bold"], C_EFFECT_NAME, glow_color, glow_radius, glow_passes)
+    else:
+        draw.text((x, y), eff.name, font=fonts["bold"], fill=C_EFFECT_NAME)
     y += _lh(fonts["bold"]) + 1
 
     if eff.trigger:
@@ -339,8 +364,8 @@ def _draw_effect(
 
     BULLET = "• "
     bullet_w = fonts["regular"].getbbox(BULLET)[2]
-    indent_x = x + 8
-    wrap_w = WIDTH - x - PADDING - BORDER_W - 2 - bullet_w - 8
+    indent_x = x + _z(4)
+    wrap_w = WIDTH - x - PADDING - BORDER_W - _z(1) - bullet_w - _z(4)
 
     for line_text in eff.lines:
         wrapped = _wrap(line_text, fonts["regular"], wrap_w)
@@ -371,22 +396,6 @@ def _draw_adorn_slots(
             draw.text((cur_x, y), sep, font=font, fill=C_WHITE)
             cur_x += font.getbbox(sep)[2]
     return y + _lh(font) + LINE_GAP
-
-
-def _draw_game_link_box(
-    draw: ImageDraw.ImageDraw,
-    game_link: str,
-    font: ImageFont.FreeTypeFont,
-    y: int,
-    x: int,
-    content_w: int,
-) -> int:
-    pad = 4
-    h = _lh(font) + 2 * pad
-    box_w = min(content_w, font.getbbox(game_link)[2] + 2 * pad)
-    draw.rectangle([x, y, x + box_w, y + h], fill=(20, 20, 24), outline=C_WHITE, width=1)
-    draw.text((x + pad, y + pad), game_link, font=font, fill=C_BODY)
-    return y + h + LINE_GAP
 
 
 # ---------------------------------------------------------------------------
@@ -445,19 +454,28 @@ def _lh(font: ImageFont.FreeTypeFont) -> int:
 def _load_fonts() -> dict:
     project_fonts = Path("fonts")
 
+    # Times New Roman first (matches the in-game CSS), Georgia as fallback
     _SERIF_REGULAR = [
+        project_fonts / "times.ttf",
+        project_fonts / "Times New Roman.ttf",
+        Path("C:/Windows/Fonts/times.ttf"),
+        Path("/Library/Fonts/Times New Roman.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Times New Roman.ttf"),
+        # Georgia fallbacks
         project_fonts / "georgia.ttf",
-        project_fonts / "Georgia.ttf",
         Path("C:/Windows/Fonts/georgia.ttf"),
-        Path("/System/Library/Fonts/Supplemental/Georgia.ttf"),
         Path("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"),
         Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"),
     ]
     _SERIF_BOLD = [
+        project_fonts / "timesbd.ttf",
+        project_fonts / "Times New Roman Bold.ttf",
+        Path("C:/Windows/Fonts/timesbd.ttf"),
+        Path("/Library/Fonts/Times New Roman Bold.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf"),
+        # Georgia fallbacks
         project_fonts / "georgiab.ttf",
-        project_fonts / "georgia-bold.ttf",
         Path("C:/Windows/Fonts/georgiab.ttf"),
-        Path("/System/Library/Fonts/Supplemental/Georgia Bold.ttf"),
         Path("/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"),
         Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"),
     ]
@@ -483,9 +501,9 @@ def _load_fonts() -> dict:
     bold = _find(_SERIF_BOLD) or regular  # fall back to regular if no bold found
 
     return {
-        "name": _load(bold, 20),
-        "bold_lg": _load(bold, 16),
-        "bold": _load(bold, 14),
-        "regular": _load(regular, 13),
-        "small": _load(regular, 12),
+        "name":    _load(bold,    _z(20)),
+        "bold_lg": _load(bold,    _z(16)),
+        "bold":    _load(bold,    _z(14)),
+        "regular": _load(regular, _z(13)),
+        "small":   _load(regular, _z(12)),
     }

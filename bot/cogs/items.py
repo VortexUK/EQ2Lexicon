@@ -39,4 +39,6 @@ class ItemsCog(commands.Cog):
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
-        await interaction.followup.send(file=discord.File(buf, filename="item.png"))
+
+        content = f"```\n{item_data.game_link}\n```" if item_data.game_link else None
+        await interaction.followup.send(content=content, file=discord.File(buf, filename="item.png"))

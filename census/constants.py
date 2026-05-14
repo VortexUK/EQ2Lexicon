@@ -6,8 +6,9 @@ STAT_MAP: dict[str, tuple[str, str]] = {
     # Primary attributes (green)
     "primaryattribute": ("Primary Attributes", "primary"),
     "primary_attribute": ("Primary Attributes", "primary"),
-    "str": ("Strength", "primary"),
-    "strength": ("Strength", "primary"),
+    # In modern EQ2 the `strength` XML tag represents the combined Primary Attributes stat
+    "str": ("Primary Attributes", "primary"),
+    "strength": ("Primary Attributes", "primary"),
     "sta": ("Stamina", "primary"),
     "stamina": ("Stamina", "primary"),
     "agi": ("Agility", "primary"),
@@ -24,11 +25,14 @@ STAT_MAP: dict[str, tuple[str, str]] = {
     "crit_bonus": ("Crit Bonus", "secondary"),
     "castingspeed": ("Casting Speed", "secondary"),
     "casting_speed": ("Casting Speed", "secondary"),
+    "spelltimecastpct": ("Casting Speed", "secondary"),   # XML tag name from API
     "critchance": ("Crit Chance", "secondary"),
     "crit_chance": ("Crit Chance", "secondary"),
     "potency": ("Potency", "secondary"),
+    "basemodifier": ("Potency", "secondary"),             # XML tag name from API
     "maxhealth": ("Max Health", "secondary"),
     "max_health": ("Max Health", "secondary"),
+    "maxhpperc": ("Max Health", "secondary"),             # XML tag name from API
     "maxpower": ("Max Power", "secondary"),
     "max_power": ("Max Power", "secondary"),
     "abilitymod": ("Ability Mod", "secondary"),
@@ -63,8 +67,8 @@ STAT_MAP: dict[str, tuple[str, str]] = {
 
 # EQ2 class groups — used to collapse full class lists into group names
 _FIGHTERS = frozenset(["Guardian", "Berserker", "Monk", "Bruiser", "Shadowknight", "Paladin"])
-_PRIESTS = frozenset(["Templar", "Inquisitor", "Fury", "Warden", "Mystic", "Defiler"])
-_SCOUTS = frozenset(["Troubador", "Dirge", "Assassin", "Ranger", "Swashbuckler", "Brigand"])
+_PRIESTS = frozenset(["Templar", "Inquisitor", "Fury", "Warden", "Mystic", "Defiler", "Channeler"])
+_SCOUTS = frozenset(["Troubador", "Dirge", "Assassin", "Ranger", "Swashbuckler", "Brigand", "Beastlord"])
 _MAGES = frozenset(["Coercer", "Illusionist", "Conjuror", "Necromancer", "Wizard", "Warlock"])
 
 ALL_CLASSES: frozenset[str] = _FIGHTERS | _PRIESTS | _SCOUTS | _MAGES
