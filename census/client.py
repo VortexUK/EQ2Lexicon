@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import aiohttp
 
-from census.constants import STAT_MAP
+from census.constants import ITEM_DISPLAY, STAT_MAP, TYPEINFO_DISPLAY
 from census.models import ItemData, ItemEffect, ItemStat
 
 BASE_URL = "http://census.daybreakgames.com"
@@ -41,8 +41,8 @@ class CensusClient:
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_item(self, name: str) -> Optional[ItemData]:
-        data = await self._fetch(name)
+    async def get_item(self, query: str) -> Optional[ItemData]:
+        data = await self._fetch(self._build_params(query))
         if not data:
             return None
         item_list = data.get("item_list", [])
@@ -50,25 +50,41 @@ class CensusClient:
             return None
         return self._parse_item(item_list[0])
 
-    async def get_raw_item(self, name: str) -> Optional[dict]:
+    async def get_raw_item(self, query: str) -> Optional[dict]:
         """Return the raw parsed JSON — used by inspect_item.py."""
-        return await self._fetch(name)
+        return await self._fetch(self._build_params(query))
 
     # ------------------------------------------------------------------
     # HTTP
     # ------------------------------------------------------------------
 
-    async def _fetch(self, name: str) -> Optional[dict]:
+    def _build_params(self, query: str) -> dict:
+        """Return Census API query params for a name, numeric ID, or game link."""
+        import re
+        query = query.strip()
+        # Game link: \aITEM <id> <id2>:<name>\/a
+        m = re.match(r'\\?aITEM\s+(\d+)', query)
+        if m:
+            return {"id": m.group(1), "c:limit": "1"}
+        # Bare numeric ID
+        if re.fullmatch(r'\d+', query):
+            return {"id": query, "c:limit": "1"}
+        # Display name
+        return {"displayname": query, "c:limit": "1"}
+
+    async def _fetch(self, params: dict) -> Optional[dict]:
         url = f"{BASE_URL}/s:{self.service_id}/json/get/eq2/item/"
-        params = {"displayname": name, "c:limit": "1"}
+        print(f"[Census] GET {url} params={params}")
         try:
             async with self._session_().get(
                 url, params=params, timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
+                print(f"[Census] HTTP {resp.status} url={resp.url}")
                 if resp.status != 200:
-                    print(f"[Census] HTTP {resp.status}")
                     return None
-                return await resp.json(content_type=None)
+                data = await resp.json(content_type=None)
+                print(f"[Census] returned={data.get('returned')} items")
+                return data
         except Exception as exc:
             print(f"[Census] API error: {exc}")
             return None
@@ -88,6 +104,11 @@ class CensusClient:
             for k, v in classes_dict.items()
         ]
 
+        # Level comes from the first class entry; fall back to leveltouse
+        first_class = next(iter(classes_dict.values()), None)
+        class_level = _int(first_class.get("level")) if isinstance(first_class, dict) else None
+        item_level  = class_level or _int(item.get("leveltouse"))
+
         return ItemData(
             id          = str(item.get("id", "")),
             name        = item.get("displayname", "Unknown Item"),
@@ -95,10 +116,10 @@ class CensusClient:
             description = _str(item.get("description")),
             icon_id     = str(item["iconid"]) if item.get("iconid") else None,
             icon_bytes  = None,                                    # Icon API currently broken
-            armor_type  = typeinfo.get("knowledgedesc", ""),      # "Leather Armor"
+            armor_type  = _armor_type(typeinfo),
             mitigation  = _int(typeinfo.get("maxarmorclass")),
-            slot_type   = slot_list[0].get("name", "") if slot_list else "",
-            item_level  = _int(item.get("itemlevel") or item.get("leveltouse")),
+            slot_type   = _slot_type(slot_list, typeinfo),
+            item_level  = item_level,
             required_level = _int(item.get("leveltouse")),
             classes     = classes,
             stats       = self._parse_stats(item.get("modifiers") or {}),
@@ -111,12 +132,15 @@ class CensusClient:
                 for s in (item.get("adornmentslot_list") or [])
                 if isinstance(s, dict) and s.get("color")
             ],
-            flags       = self._parse_flags(item.get("flags") or {}),
-            game_link   = item.get("gamelink"),
+            flags           = self._parse_flags(item.get("flags") or {}),
+            game_link       = item.get("gamelink"),
+            container_slots = _int(typeinfo.get("slots")),
+            extra_info      = self._parse_extra_info(item, typeinfo),
         )
 
     def _parse_stats(self, modifiers: dict) -> list[ItemStat]:
         stats: list[ItemStat] = []
+        seen_display_names: set[str] = set()
         for tag, mod in modifiers.items():
             if not isinstance(mod, dict):
                 continue
@@ -129,6 +153,13 @@ class CensusClient:
                 # Use the API's displayname only if it looks like a real name (>3 chars)
                 display_name = api_dn if (api_dn and len(api_dn) > 3) else key.replace("_", " ").title()
                 group = "primary" if mod.get("type") == "attribute" else "secondary"
+            # The API sometimes returns "All" as the display name for ability modifier
+            if display_name.strip().lower() == "all":
+                display_name = "Ability Mod"
+                group = "secondary"
+            if display_name in seen_display_names:
+                continue
+            seen_display_names.add(display_name)
             stats.append(ItemStat(
                 name         = key,
                 display_name = display_name,
@@ -159,7 +190,7 @@ class CensusClient:
             else:
                 if current is None:
                     current = {"trigger": "", "lines": []}
-                current["lines"].append(desc)
+                current["lines"].append((indent, desc))
         if current is not None:
             groups.append(current)
 
@@ -168,6 +199,27 @@ class CensusClient:
             name = adornment_names[i] if i < len(adornment_names) else "Unknown Effect"
             effects.append(ItemEffect(name=name, trigger=group["trigger"], lines=group["lines"]))
         return effects
+
+    def _parse_extra_info(self, item: dict, typeinfo: dict) -> list[tuple[str, str]]:
+        rows: list[tuple[str, str]] = []
+        for field, label, fmt in ITEM_DISPLAY:
+            val = item.get(field)
+            if val is None:
+                continue
+            if fmt == "charges":
+                n = int(val)
+                rows.append((label, "Unlimited" if n == -1 else f"{n}/{n}"))
+            else:
+                rows.append((label, str(val)))
+        for field, label, fmt in TYPEINFO_DISPLAY:
+            val = typeinfo.get(field)
+            if val is None:
+                continue
+            if fmt == "duration":
+                rows.append((label, _fmt_duration(float(val))))
+            else:
+                rows.append((label, str(val)))
+        return rows
 
     def _parse_flags(self, flags_dict: dict) -> list[str]:
         flags: list[str] = []
@@ -198,3 +250,34 @@ def _str(value: Any) -> str:
     if value is None or isinstance(value, dict):
         return ""
     return str(value)
+
+
+def _armor_type(typeinfo: dict) -> str:
+    knowledgedesc = typeinfo.get("knowledgedesc", "")
+    if knowledgedesc and knowledgedesc != "Magic Affinity":
+        return knowledgedesc
+    # Fall back to building a label from typeinfo color + name (e.g. "Temporary Adornment")
+    name  = typeinfo.get("name", "").replace("_", " ").title()
+    color = typeinfo.get("color", "").replace("_", " ").title()
+    if color and name:
+        return f"{color} {name}"
+    return name  # may be empty string — that's fine, nothing will render
+
+
+def _slot_type(slot_list: list, typeinfo: dict) -> str:
+    # Top-level slot_list takes priority
+    if slot_list:
+        return slot_list[0].get("name", "")
+    # Adornments and some items store their slot inside typeinfo.slot_list
+    ti_slots = typeinfo.get("slot_list") or []
+    if ti_slots and isinstance(ti_slots[0], dict):
+        return ti_slots[0].get("displayname", "")
+    return ""
+
+
+def _fmt_duration(seconds: float) -> str:
+    if seconds >= 3600:
+        return f"{seconds / 3600:g} hr"
+    if seconds >= 60:
+        return f"{seconds / 60:g} min"
+    return f"{seconds:g} sec"
