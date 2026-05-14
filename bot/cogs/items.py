@@ -12,7 +12,7 @@ from image.tooltip import render_tooltip
 class ItemsCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.census = CensusClient(service_id=os.getenv("CENSUS_SERVICE_ID", "example"))
+        self.census = CensusClient(service_id=os.getenv("CENSUS_SERVICE_ID", "tovortex"))
 
     async def cog_unload(self) -> None:
         await self.census.close()

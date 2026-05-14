@@ -25,7 +25,7 @@ async def main() -> None:
         sys.exit(1)
 
     name = " ".join(sys.argv[1:])
-    service_id = os.getenv("CENSUS_SERVICE_ID", "example")
+    service_id = os.getenv("CENSUS_SERVICE_ID", "tovortex")
 
     client = CensusClient(service_id=service_id)
     try:
