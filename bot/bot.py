@@ -14,7 +14,7 @@ class EQ2Bot(commands.Bot):
         await self.add_cog(ItemsCog(self))
         await self.add_cog(GuildCog(self))
         await self.add_cog(SpellcheckCog(self))
-        for guild_id in (648253204760625160, 955890381847928892):
+        for guild_id in (648253204760625160, 955890381847928892, 1502314690041221260):
             guild = discord.Object(id=guild_id)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
