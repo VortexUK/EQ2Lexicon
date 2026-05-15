@@ -5,6 +5,7 @@ Print a character spell summary to the console without needing Discord.
 Usage:
     python scripts/preview_spellcheck.py Sihtric
     python scripts/preview_spellcheck.py Sihtric --debug
+    python scripts/preview_spellcheck.py Sihtric --details
 """
 import asyncio
 import os
@@ -17,13 +18,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from census.client import CensusClient
-from bot.cogs.spellcheck import _TIER_ORDER, _build_table, _unique_highest
+from bot.cogs.spellcheck import _TIER_ORDER, _build_details, _build_table, _unique_highest
 
 
 async def main() -> None:
     args = sys.argv[1:]
-    debug = "--debug" in args
-    name_parts = [a for a in args if a != "--debug"]
+    debug   = "--debug"   in args
+    details = "--details" in args
+    name_parts = [a for a in args if not a.startswith("--")]
 
     if not name_parts:
         print("Usage: python scripts/preview_spellcheck.py <character name> [--debug]")
@@ -54,7 +56,10 @@ async def main() -> None:
                 print(f"{e.name:<{col}}  {e.spell_type:<7}  {e.level:>3}  {e.tier}")
             print(f"\n{len(unique)} unique spells/arts counted\n")
 
-        print(_build_table(data))
+        if details:
+            print(_build_details(data))
+        else:
+            print(_build_table(data))
     finally:
         await client.close()
 
