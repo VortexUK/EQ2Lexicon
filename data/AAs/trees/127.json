@@ -1,0 +1,466 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Dragon",
+      "ts": 1778772988.622403,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Roar",
+          "title": "",
+          "name": "Terrify",
+          "classificationpointsrequired": 0,
+          "nodeid": 62668052,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 124079249,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 348,
+            "backdrop": 457
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Elder Dragon Scales",
+          "title": "",
+          "name": "Fierce Roar",
+          "classificationpointsrequired": 0,
+          "nodeid": 447155285,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 511606224,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 615,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Yelinak's Essence",
+          "title": "",
+          "name": "Armorbreak",
+          "classificationpointsrequired": 0,
+          "nodeid": 831152022,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 894643731,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 415,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Aggressor",
+          "title": "",
+          "name": "Aggressor's Power",
+          "classificationpointsrequired": 30,
+          "nodeid": 935437787,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 420765299,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 269,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Aggressor",
+          "title": "",
+          "name": "Strength Within",
+          "classificationpointsrequired": 0,
+          "nodeid": 1006279493,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1059318464,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 261,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Yelinak's Essence",
+          "title": "",
+          "name": "Resurgent Counter",
+          "classificationpointsrequired": 0,
+          "nodeid": 1183674112,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1112809093,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 291,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Aggressor",
+          "title": "",
+          "name": "Ancient Advance",
+          "classificationpointsrequired": 0,
+          "nodeid": 1291693011,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1210374742,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 433,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Elder Dragon Scales",
+          "title": "",
+          "name": "Last Stand",
+          "classificationpointsrequired": 0,
+          "nodeid": 1839217859,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1769557318,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 705,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Roar",
+          "title": "",
+          "name": "Strength of Mind",
+          "classificationpointsrequired": 0,
+          "nodeid": 1958415746,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1885502471,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 438,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Elder Dragon Scales",
+          "title": "",
+          "name": "Dragon Scales",
+          "classificationpointsrequired": 0,
+          "nodeid": 2209242607,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2272734314,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Roar",
+          "title": "",
+          "name": "Provocation",
+          "classificationpointsrequired": 30,
+          "nodeid": 2246146507,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2872345187,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 315,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Roar",
+          "title": "",
+          "name": "Ancient Focus",
+          "classificationpointsrequired": 0,
+          "nodeid": 2595581102,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2657885483,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 389,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Aggressor",
+          "title": "",
+          "name": "United Strength",
+          "classificationpointsrequired": 0,
+          "nodeid": 2778599142,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2705817443,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 442,
+            "backdrop": 460
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Yelinak's Essence",
+          "title": "",
+          "name": "Quick Regeneration",
+          "classificationpointsrequired": 0,
+          "nodeid": 2827161132,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2891612073,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 274,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Elder Dragon Scales",
+          "title": "",
+          "name": "Draconic Shout",
+          "classificationpointsrequired": 30,
+          "nodeid": 3095482491,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2522131411,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 223,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Aggressor",
+          "title": "",
+          "name": "Forward Stance",
+          "classificationpointsrequired": 0,
+          "nodeid": 3589601897,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3509423084,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 669,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Yelinak's Essence",
+          "title": "",
+          "name": "Outnumbered",
+          "classificationpointsrequired": 0,
+          "nodeid": 3639212707,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3694168870,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 675,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Roar",
+          "title": "",
+          "name": "Intimidation",
+          "classificationpointsrequired": 0,
+          "nodeid": 3940522017,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3993430436,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 656,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Elder Dragon Scales",
+          "title": "",
+          "name": "Layered Scales",
+          "classificationpointsrequired": 0,
+          "nodeid": 4089751904,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4145928421,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 678,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Yelinak's Essence",
+          "title": "",
+          "name": "Yelinak's Focus",
+          "classificationpointsrequired": 30,
+          "nodeid": 4280363691,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3522482435,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 362,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 100,
+          "level": 10
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778772988.622403,
+      "maximumpoints": 0,
+      "id": 127
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778772988.622403,
+  "max_ts": 1778772988.622403
+}

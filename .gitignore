@@ -217,9 +217,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Downloaded AA tree files (re-fetch with scripts/download_aa_trees.py)
-data/AAs/trees/
-data/AAs/index.json
-
 # Local preview output
-preview.png
+preview*.png
+test_*.png
+
+# Claude Code
+.claude/

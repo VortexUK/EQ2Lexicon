@@ -1,0 +1,466 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Dragon",
+      "ts": 1778772962.906201,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Noxious Dragon Scales",
+          "title": "",
+          "name": "Scaled Protection",
+          "classificationpointsrequired": 0,
+          "nodeid": 58144463,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2886799733,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 338,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Spellbinding",
+          "title": "",
+          "name": "True Bewilderment",
+          "classificationpointsrequired": 0,
+          "nodeid": 443287438,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3037339700,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 651,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Ancient Fury",
+          "title": "",
+          "name": "Improved Sorcery",
+          "classificationpointsrequired": 0,
+          "nodeid": 625436102,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2317435516,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 265,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Trakanon's Essence",
+          "title": "",
+          "name": "Trakanon's Alacrity",
+          "classificationpointsrequired": 0,
+          "nodeid": 677012748,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2268873398,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 270,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Ancient Fury",
+          "title": "",
+          "name": "Ancient Fury",
+          "classificationpointsrequired": 30,
+          "nodeid": 1096076181,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4153001716,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 721,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Ancient Fury",
+          "title": "",
+          "name": "Resist Break",
+          "classificationpointsrequired": 0,
+          "nodeid": 1429049673,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4199266035,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 304,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Trakanon's Essence",
+          "title": "",
+          "name": "Impatience",
+          "classificationpointsrequired": 0,
+          "nodeid": 1479577987,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4149655097,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 274,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Spellbinding",
+          "title": "",
+          "name": "Spellbinder's Mastery",
+          "classificationpointsrequired": 0,
+          "nodeid": 1778840321,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3311457467,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 296,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Noxious Dragon Scales",
+          "title": "",
+          "name": "Dragon Scales",
+          "classificationpointsrequired": 0,
+          "nodeid": 1931330112,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3699107322,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Spellbinding",
+          "title": "",
+          "name": "Weave",
+          "classificationpointsrequired": 0,
+          "nodeid": 2215154221,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 728675735,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 303,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Trakanon's Essence",
+          "title": "",
+          "name": "Draconic Recovery",
+          "classificationpointsrequired": 30,
+          "nodeid": 2310292709,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1063864708,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Noxious Dragon Scales",
+          "title": "",
+          "name": "Ancient Shield",
+          "classificationpointsrequired": 0,
+          "nodeid": 2635309932,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 846562518,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 745,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Trakanon's Essence",
+          "title": "",
+          "name": "Kinetic Absorption",
+          "classificationpointsrequired": 0,
+          "nodeid": 3057578159,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 425252629,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 327,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Ancient Fury",
+          "title": "",
+          "name": "Ancient Wave",
+          "classificationpointsrequired": 0,
+          "nodeid": 3159241852,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 321393606,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 668,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Trakanon's Essence",
+          "title": "",
+          "name": "Kinetic Assault",
+          "classificationpointsrequired": 0,
+          "nodeid": 3241787449,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1851778947,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 378,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Ancient Fury",
+          "title": "",
+          "name": "Reaction",
+          "classificationpointsrequired": 0,
+          "nodeid": 3410560234,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1680810832,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 638,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Noxious Dragon Scales",
+          "title": "",
+          "name": "Undeath",
+          "classificationpointsrequired": 30,
+          "nodeid": 3457433141,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2026451796,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 411,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Noxious Dragon Scales",
+          "title": "",
+          "name": "Scale Barrier",
+          "classificationpointsrequired": 0,
+          "nodeid": 3927217146,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1165145152,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 657,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Spellbinding",
+          "title": "",
+          "name": "Split Channeling",
+          "classificationpointsrequired": 0,
+          "nodeid": 4077888187,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1550419201,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 696,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Draconic Spellbinding",
+          "title": "",
+          "name": "Spellbind",
+          "classificationpointsrequired": 30,
+          "nodeid": 4084471685,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1168710372,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 413,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 100,
+          "level": 10
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778772962.906201,
+      "maximumpoints": 0,
+      "id": 129
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778772962.906201,
+  "max_ts": 1778772962.906201
+}

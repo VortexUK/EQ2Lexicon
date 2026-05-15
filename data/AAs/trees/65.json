@@ -1,0 +1,312 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Heroic",
+      "ts": 1778773069.484762,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Crit Bonus.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Critical Genius",
+          "classificationpointsrequired": 10,
+          "nodeid": 593578196,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3199723018,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 201,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Enhances the druid's heal stance with additional effects.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Natural Presence",
+          "classificationpointsrequired": 20,
+          "nodeid": 733140212,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 702891122,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 709,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases all stats except for Stamina.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Attribute Prowess",
+          "classificationpointsrequired": 0,
+          "nodeid": 1023175616,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2703934750,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 196,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Ability Reuse Speed.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Lightning Reflexes",
+          "classificationpointsrequired": 10,
+          "nodeid": 1416001602,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3383809692,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 194,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Improves the reuse speed and reduces the duration of Wrath of Nature, speeding up how fast the damage occurs. The final rank adds an additional tick.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Enhance: Wrath of Nature",
+          "classificationpointsrequired": 20,
+          "nodeid": 1555424354,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1591899364,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 698,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Protective Instinct records the druid's damage dealt to the target for 10 seconds.  When Protective Instinct expires, the druid's group receives a regenerating ward.  This spell can be toggled off early to trigger the ward on demand. The ward lasts for 10 seconds and cannot be more than 30% of the druid's maximum health.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Protective Instinct",
+          "classificationpointsrequired": 48,
+          "nodeid": 1952725706,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2890384619,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 720,
+            "backdrop": 459
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Howling with the Pack makes the druid immune to certain control effects and heals the druid's group every time the druid deals direct damage. The druid takes less damage while Howling with the Pack is active.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Howling with the Pack",
+          "classificationpointsrequired": 48,
+          "nodeid": 2590661606,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1112122823,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 700,
+            "backdrop": 458
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases Ability Modifier.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Ability Aptitude",
+          "classificationpointsrequired": 0,
+          "nodeid": 2784311930,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 941855908,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 26,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Grants the druid a chance to apply a small ward and increase the group's Ability Modifier and Casting Speed following any successful attack.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Spirit of Druidism",
+          "classificationpointsrequired": 20,
+          "nodeid": 3050717527,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3078738385,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 688,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Potency.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Expertise",
+          "classificationpointsrequired": 10,
+          "nodeid": 3127384430,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 666810288,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Increases the radius and cure amounts of Tunare's Grace and the duration of Fury of the Storm. The final rank adds an additional damage trigger to Fury of the Storm.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Enhance: Tunare's Grace",
+          "classificationpointsrequired": 20,
+          "nodeid": 3317478872,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3354076510,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 569,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases Maximum Health and Power.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Spirit and Body",
+          "classificationpointsrequired": 0,
+          "nodeid": 3539077868,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1327801394,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Faith of the Fallen heals the target to full health and applies a ward equal to the amount healed.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Faith of the Fallen",
+          "classificationpointsrequired": 48,
+          "nodeid": 3983371120,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 894342481,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 693,
+            "backdrop": 460
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 100,
+          "level": 10
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778773069.484762,
+      "maximumpoints": 0,
+      "id": 65
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773069.484762,
+  "max_ts": 1778773069.484762
+}

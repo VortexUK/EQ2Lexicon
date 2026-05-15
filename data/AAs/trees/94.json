@@ -1,0 +1,383 @@
+{
+  "alternateadvancement_list": [
+    {
+      "ofxclassification": "Rodent",
+      "name": "Rodent",
+      "foreveryxpoints": 20,
+      "ts": 1778773017.643667,
+      "petkey": "rodent",
+      "minimumpointsrequired": 0,
+      "ofyclassification": "Rodent Expertise",
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Rabies.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Enhance: Rabies",
+          "classificationpointsrequired": 0,
+          "nodeid": 200743736,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3109952528,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 382,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum health.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Stout Warder",
+          "classificationpointsrequired": 10,
+          "nodeid": 502022990,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2798395249,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal restores health to the group and improves their Crit Bonus. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Soulbreath",
+          "classificationpointsrequired": 0,
+          "nodeid": 698504341,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1695770421,
+          "xcoord": 25,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 458
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal inflicts moderate damage to the target and the beastlord lunges to their enemy if they are out of melee range. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Feral Charge",
+          "classificationpointsrequired": 0,
+          "nodeid": 799741318,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2994584408,
+          "xcoord": 19,
+          "titlelevel": 0,
+          "icon": {
+            "id": 748,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Improves the warder's damage when a combat art strikes critically.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Fatal Accuracy",
+          "classificationpointsrequired": 20,
+          "nodeid": 1005068189,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 32215902,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 368,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that inflicts damage and impairs physical, elemental and noxious mitigation.",
+          "classification": "Rodent Expertise",
+          "title": "",
+          "name": "Exposed Weaknesses",
+          "classificationpointsrequired": 0,
+          "nodeid": 1426869546,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3995865365,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 373,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum power.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Presence of Mind",
+          "classificationpointsrequired": 10,
+          "nodeid": 1607025715,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3840481292,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 421,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Ankle Bite.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Enhance: Ankle Bite",
+          "classificationpointsrequired": 0,
+          "nodeid": 2096114606,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3461950598,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 517,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's potency.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Powerful Body",
+          "classificationpointsrequired": 10,
+          "nodeid": 2472756397,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 675485842,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Rabid Bite.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Enhance: Rabid Bite",
+          "classificationpointsrequired": 0,
+          "nodeid": 2509475483,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 658147763,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 497,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal absorbs health from the target and restores it to the beastlord. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Devour",
+          "classificationpointsrequired": 0,
+          "nodeid": 2703495781,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1022540987,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 742,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal inflicts moderate damage to the target encounter and increases the group's Multi-Attack Chance. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Truespirit Strike",
+          "classificationpointsrequired": 0,
+          "nodeid": 2804765558,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3952894166,
+          "xcoord": 31,
+          "titlelevel": 0,
+          "icon": {
+            "id": 724,
+            "backdrop": 456
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Improves the combat art damage inflicted by the warder.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Empowered Strikes",
+          "classificationpointsrequired": 20,
+          "nodeid": 3043432574,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2405733565,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 357,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage and heal amount of Consume Flesh.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Enhance: Consume Flesh",
+          "classificationpointsrequired": 0,
+          "nodeid": 3858332180,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1464892732,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 490,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Improves the warder's attack speed and Multi-Attack Chance.",
+          "classification": "Rodent",
+          "title": "",
+          "name": "Enhanced Attacks",
+          "classificationpointsrequired": 20,
+          "nodeid": 4148305667,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3443626944,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 474,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new attack that inflicts high damage on the target enemy.",
+          "classification": "Rodent Expertise",
+          "title": "",
+          "name": "Brutal Decimation",
+          "classificationpointsrequired": 0,
+          "nodeid": 4253488666,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3347356377,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 194,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 40,
+          "level": 20
+        }
+      ],
+      "iswardertree": "true",
+      "last_update": 1778773017.643667,
+      "maximumpoints": 0,
+      "unlocksypoints": 1,
+      "id": 94
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773017.643667,
+  "max_ts": 1778773017.643667
+}

@@ -1,0 +1,568 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Beastlord",
+      "ts": 1778772955.55497,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "",
+          "description": "",
+          "classification": "Paragon of Shadows",
+          "title": "",
+          "name": "Spiral of Shadows",
+          "classificationpointsrequired": 0,
+          "nodeid": 793099180,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 68,
+          "spellcrc": 1049766626,
+          "xcoord": 17,
+          "titlelevel": 0,
+          "icon": {
+            "id": 121,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "When the caster takes melee damage and they are not the target of the attacker, they will become immune to AE Auto Attack for a short duration. The caster must be using abilities for this spell to take effect.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Guarded Awareness",
+          "firstparentrequiredtier": 5,
+          "firstparentid": 3715118260,
+          "nodeid": 1148806414,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 630148211,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 153,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "classificationpointsrequired": 0,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 13,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Body and Mind",
+          "classificationpointsrequired": 0,
+          "nodeid": 1301967758,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 50,
+          "spellcrc": 745298675,
+          "xcoord": 25,
+          "titlelevel": 0,
+          "icon": {
+            "id": 259,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "Orders the warder to teleport behind their current target and prevents all incoming damage for a short duration.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Warder's Shadow Step",
+          "classificationpointsrequired": 0,
+          "nodeid": 1337991205,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 25,
+          "spellcrc": 1589540948,
+          "xcoord": 21,
+          "titlelevel": 0,
+          "icon": {
+            "id": 608,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Weapon of the Mind",
+          "firstparentrequiredtier": 1,
+          "firstparentid": 1337991205,
+          "nodeid": 1376953315,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 870615710,
+          "xcoord": 37,
+          "titlelevel": 0,
+          "icon": {
+            "id": 160,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "classificationpointsrequired": 0,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases the caster's Crit Bonus by a portion of their primary attribute. The caster must be using abilities for this spell to take effect.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Accuracy from Strength",
+          "firstparentrequiredtier": 5,
+          "firstparentid": 3485834074,
+          "nodeid": 1456261856,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 926606237,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 121,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "classificationpointsrequired": 0,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 13,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Martial Vigor",
+          "classificationpointsrequired": 0,
+          "nodeid": 1760635986,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 50,
+          "spellcrc": 151455023,
+          "xcoord": 10,
+          "titlelevel": 0,
+          "icon": {
+            "id": 135,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Restores a portion of incoming magical damage. The caster must be using abilities for this spell to take effect.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Mystical Redirection",
+          "firstparentrequiredtier": 5,
+          "firstparentid": 3937322118,
+          "nodeid": 1940362556,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 307346497,
+          "xcoord": 29,
+          "titlelevel": 0,
+          "icon": {
+            "id": 196,
+            "backdrop": 458
+          },
+          "pointspertier": 2,
+          "classificationpointsrequired": 0,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Undeniable Power",
+          "firstparentrequiredtier": 1,
+          "firstparentid": 1337991205,
+          "nodeid": 2004483135,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 378524994,
+          "xcoord": 21,
+          "titlelevel": 0,
+          "icon": {
+            "id": 209,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "classificationpointsrequired": 0,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 13,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Find the Jugular",
+          "classificationpointsrequired": 0,
+          "nodeid": 2051310524,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 50,
+          "spellcrc": 464693953,
+          "xcoord": 3,
+          "titlelevel": 0,
+          "icon": {
+            "id": 68,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "",
+          "description": "",
+          "classification": "Paragon of Shadows",
+          "title": "",
+          "name": "Feral Rip",
+          "classificationpointsrequired": 0,
+          "nodeid": 2549734601,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 68,
+          "spellcrc": 2251181447,
+          "xcoord": 25,
+          "titlelevel": 0,
+          "icon": {
+            "id": 124,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Heavy Handed",
+          "classificationpointsrequired": 0,
+          "nodeid": 2673568086,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 60,
+          "spellcrc": 1199085431,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 153,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 3
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Ready Up",
+          "classificationpointsrequired": 0,
+          "nodeid": 2827327844,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 60,
+          "spellcrc": 1889953605,
+          "xcoord": 33,
+          "titlelevel": 0,
+          "icon": {
+            "id": 124,
+            "backdrop": 461
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 9,
+          "group": "",
+          "description": "Protects the warder with your own Savagery. The beastlord will gain increased Crit Bonus Overcap and Fervor.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Savage Defiance",
+          "classificationpointsrequired": 0,
+          "nodeid": 2855403223,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2313318452,
+          "xcoord": 16,
+          "titlelevel": 0,
+          "icon": {
+            "id": 603,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases the caster's Weapon Damage Bonus by a portion of their stamina. The caster must be using abilities for this spell to take effect.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Vitality to Strength",
+          "firstparentrequiredtier": 5,
+          "firstparentid": 1376953315,
+          "nodeid": 3407606361,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2867714852,
+          "xcoord": 37,
+          "titlelevel": 0,
+          "icon": {
+            "id": 108,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "classificationpointsrequired": 0,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Imbued Sight",
+          "firstparentrequiredtier": 1,
+          "firstparentid": 1337991205,
+          "nodeid": 3485834074,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2922623527,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 135,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "classificationpointsrequired": 0,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 13,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Strength of Arm",
+          "classificationpointsrequired": 0,
+          "nodeid": 3494726455,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 50,
+          "spellcrc": 2981847626,
+          "xcoord": 17,
+          "titlelevel": 0,
+          "icon": {
+            "id": 209,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 9,
+          "group": "",
+          "description": "The scout throws their knives, applying 12 total hits to enemies they are currently engaging in combat.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Dagger Storm",
+          "classificationpointsrequired": 0,
+          "nodeid": 3503390021,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3238456331,
+          "xcoord": 26,
+          "titlelevel": 0,
+          "icon": {
+            "id": 593,
+            "backdrop": 457
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "Increases maximum health percentage based on the sum of Crit Bonus and Potency.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Enhanced Vigor",
+          "firstparentrequiredtier": 1,
+          "firstparentid": 1337991205,
+          "nodeid": 3715118260,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3162906057,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 68,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "classificationpointsrequired": 0,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 13,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Expert's Understanding",
+          "classificationpointsrequired": 0,
+          "nodeid": 3885218565,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 50,
+          "spellcrc": 2254803576,
+          "xcoord": 39,
+          "titlelevel": 0,
+          "icon": {
+            "id": 160,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "Increases Ability Modifier based on primary attribute.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Modified Strength",
+          "firstparentrequiredtier": 1,
+          "firstparentid": 1337991205,
+          "nodeid": 3937322118,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2337861115,
+          "xcoord": 29,
+          "titlelevel": 0,
+          "icon": {
+            "id": 259,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "classificationpointsrequired": 0,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases the caster's Potency by a portion of their primary attribute. The caster must be using abilities for this spell to take effect.",
+          "classification": "Prismatic",
+          "title": "",
+          "name": "Power from the Soul",
+          "firstparentrequiredtier": 5,
+          "firstparentid": 2004483135,
+          "nodeid": 4000361861,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2407957752,
+          "xcoord": 21,
+          "titlelevel": 0,
+          "icon": {
+            "id": 124,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "classificationpointsrequired": 0,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 13,
+          "group": "",
+          "description": "",
+          "classification": "Reign of Shadows",
+          "title": "",
+          "name": "Precise Incantation",
+          "classificationpointsrequired": 0,
+          "nodeid": 4112913643,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 50,
+          "spellcrc": 2496675222,
+          "xcoord": 32,
+          "titlelevel": 0,
+          "icon": {
+            "id": 160,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 5,
+          "level": 95
+        },
+        {
+          "maxpoints": 10,
+          "level": 96
+        },
+        {
+          "maxpoints": 15,
+          "level": 97
+        },
+        {
+          "maxpoints": 20,
+          "level": 98
+        },
+        {
+          "maxpoints": 25,
+          "level": 99
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778772955.55497,
+      "maximumpoints": 0,
+      "id": 138
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778772955.55497,
+  "max_ts": 1778772955.55497
+}

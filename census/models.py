@@ -73,3 +73,24 @@ class ItemData:
     game_link: Optional[str] = None
     container_slots: Optional[int] = None
     extra_info: list[tuple[str, str]] = field(default_factory=list)  # (label, value) rows
+
+
+@dataclass
+class NodeAA:
+    node_id: int
+    tree_id: int
+    tier: int
+
+
+@dataclass
+class CharacterAAs:
+    character_name: str
+    aa_list: list[NodeAA]
+
+    def for_tree(self, tree_id: int) -> dict[int, int]:
+        """Return {node_id: tier} for all nodes in the given tree."""
+        return {aa.node_id: aa.tier for aa in self.aa_list if aa.tree_id == tree_id}
+
+    @property
+    def tree_ids(self) -> set[int]:
+        return {aa.tree_id for aa in self.aa_list}

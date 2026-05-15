@@ -1,0 +1,328 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Far Seas",
+      "ts": 1778772915.910184,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Increases transmuting of caster.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Disciplined Transmutations",
+          "classificationpointsrequired": 1,
+          "nodeid": 245217,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 365295692,
+          "xcoord": 37,
+          "titlelevel": 0,
+          "icon": {
+            "id": 664,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 10,
+          "group": "",
+          "description": "Increases durability gain while crafting.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Production Mastery",
+          "classificationpointsrequired": 1,
+          "nodeid": 81646818,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 287019343,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 689,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 15,
+          "group": "",
+          "description": "Increases the caster's experimentation progess.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Seasoned Experimentation",
+          "classificationpointsrequired": 0,
+          "nodeid": 206688532,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 272184649,
+          "xcoord": 29,
+          "titlelevel": 0,
+          "icon": {
+            "id": 670,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 10,
+          "group": "",
+          "description": "Grants a chance to double salvaging rewards.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Far Seas Salvager",
+          "classificationpointsrequired": 1,
+          "nodeid": 375945996,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 61750945,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 708,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 10,
+          "group": "",
+          "description": "Increases the chance for a crafting success.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Crafting Specialist",
+          "classificationpointsrequired": 1,
+          "nodeid": 565611326,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 879808147,
+          "xcoord": 29,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Increases crafting skills of your out of class crafting skills.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Crafting Generalist",
+          "classificationpointsrequired": 1,
+          "nodeid": 627630653,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 816752528,
+          "xcoord": 21,
+          "titlelevel": 0,
+          "icon": {
+            "id": 665,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Increases the maximum amount of resources you can refine.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Bulk Refining",
+          "classificationpointsrequired": 1,
+          "nodeid": 2405509814,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2594664219,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 694,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 15,
+          "group": "",
+          "description": "Increases the casters crafting progess.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Swift Crafting",
+          "classificationpointsrequired": 0,
+          "nodeid": 2505605294,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2301650163,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 685,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 10,
+          "group": "",
+          "description": "Increases the Artisan's harvesting skills.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Experienced Reaping",
+          "classificationpointsrequired": 1,
+          "nodeid": 2567629915,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2362223094,
+          "xcoord": 37,
+          "titlelevel": 0,
+          "icon": {
+            "id": 629,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Increases crafting skills of your primary crafting class.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Profession Mastery",
+          "classificationpointsrequired": 1,
+          "nodeid": 2647950680,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2282930421,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 678,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "Grants the ability to see special rare high level harvesting nodes.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Far Seas Harvest Technique",
+          "classificationpointsrequired": 0,
+          "nodeid": 2679017126,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2192698587,
+          "xcoord": 21,
+          "titlelevel": 0,
+          "icon": {
+            "id": 563,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Increases tinkering and adorning of caster.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Support Specialist",
+          "classificationpointsrequired": 1,
+          "nodeid": 3099581060,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2910428969,
+          "xcoord": 29,
+          "titlelevel": 0,
+          "icon": {
+            "id": 648,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 8
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 10,
+          "group": "",
+          "description": "Increases the chance to gain a critical success while crafting.",
+          "classification": "Far Seas",
+          "title": "",
+          "name": "Critical Combinations",
+          "classificationpointsrequired": 1,
+          "nodeid": 3160519559,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2846357034,
+          "xcoord": 21,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 5,
+          "level": 95
+        },
+        {
+          "maxpoints": 10,
+          "level": 96
+        },
+        {
+          "maxpoints": 15,
+          "level": 97
+        },
+        {
+          "maxpoints": 20,
+          "level": 98
+        },
+        {
+          "maxpoints": 25,
+          "level": 99
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778772915.910184,
+      "maximumpoints": 0,
+      "id": 158
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778772915.910184,
+  "max_ts": 1778772915.910184
+}

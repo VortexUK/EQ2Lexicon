@@ -1,0 +1,312 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Heroic",
+      "ts": 1778773070.80835,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Crit Bonus.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Critical Genius",
+          "classificationpointsrequired": 10,
+          "nodeid": 593578196,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3199723018,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 201,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Divine Armor will heal the cleric's group friend when they receive damage.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Divine Armor",
+          "classificationpointsrequired": 20,
+          "nodeid": 947972774,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2773894264,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 659,
+            "backdrop": 460
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases all stats except for Stamina.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Attribute Prowess",
+          "classificationpointsrequired": 0,
+          "nodeid": 1023175616,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2703934750,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 196,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Reduces the reuse time of Sacrifice and grants a small heal over time to the cleric after using Sacrifice. The final rank will allow Sacrifice to cure hostile effects from the target.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Enhance: Sacrifice",
+          "classificationpointsrequired": 20,
+          "nodeid": 1334303280,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3528553710,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 742,
+            "backdrop": 460
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Ability Reuse Speed.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Lightning Reflexes",
+          "classificationpointsrequired": 10,
+          "nodeid": 1416001602,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3383809692,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 194,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Equilibrium protects the cleric's non-fighter group members from death for a short duration.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Equilibrium",
+          "classificationpointsrequired": 48,
+          "nodeid": 1615026591,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3067693892,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 616,
+            "backdrop": 458
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Immaculate Revival resurrects the cleric and their grouped allies. This spell can be cast while the cleric is dead or alive. The reuse will be used even if nobody is resurrected.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Immaculate Revival",
+          "classificationpointsrequired": 48,
+          "nodeid": 2387425459,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1490496104,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 5,
+            "backdrop": 458
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases Ability Modifier.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Ability Aptitude",
+          "classificationpointsrequired": 0,
+          "nodeid": 2784311930,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 941855908,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 26,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Enhances the cleric's offensive stance with additional effects.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Retribution",
+          "classificationpointsrequired": 20,
+          "nodeid": 2799992581,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 993186267,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 733,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Potency.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Expertise",
+          "classificationpointsrequired": 10,
+          "nodeid": 3127384430,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 666810288,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases Maximum Health and Power.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Spirit and Body",
+          "classificationpointsrequired": 0,
+          "nodeid": 3539077868,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1327801394,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Increases the duration and the maximum health increase granted by Divine Guidance.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Enhance: Divine Guidance",
+          "classificationpointsrequired": 20,
+          "nodeid": 3599666058,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1264067924,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 620,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Perseverance of the Divine protects the target from harm, providing a two trigger stoneskin. Upon expiration, the target is granted a reactive heal.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Perseverance of the Divine",
+          "classificationpointsrequired": 48,
+          "nodeid": 4182378533,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 802167550,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 663,
+            "backdrop": 460
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 100,
+          "level": 10
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778773070.80835,
+      "maximumpoints": 0,
+      "id": 63
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773070.80835,
+  "max_ts": 1778773070.80835
+}

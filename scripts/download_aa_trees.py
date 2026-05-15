@@ -63,8 +63,15 @@ async def _download_tree(
     """Fetch one tree and save it. Returns True if downloaded, False if skipped."""
     dest = TREES_DIR / f"{tree_id}.json"
     if dest.exists():
-        print(f"  [skip] {tree_id}.json already exists")
-        return False
+        # Skip only if the file contains real data (not a rate-limit error response)
+        try:
+            content = json.loads(dest.read_text(encoding="utf-8"))
+            if "error" not in content:
+                print(f"  [skip] {tree_id}.json already exists")
+                return False
+            print(f"  [retry] {tree_id}.json was an error response, re-fetching")
+        except Exception:
+            pass  # Corrupt file — re-fetch
 
     url = f"{BASE_URL}/s:{service_id}/json/get/eq2/alternateadvancement/{tree_id}"
     try:
@@ -75,6 +82,11 @@ async def _download_tree(
             data = await resp.json(content_type=None)
     except Exception as exc:
         print(f"  [error] tree {tree_id}: {type(exc).__name__}: {exc}")
+        return False
+
+    if "error" in data:
+        print(f"  [flood] tree {tree_id}: rate limited — waiting 30s...")
+        await asyncio.sleep(30)
         return False
 
     dest.write_text(json.dumps(data, indent=2), encoding="utf-8")

@@ -1,0 +1,383 @@
+{
+  "alternateadvancement_list": [
+    {
+      "ofxclassification": "Bat",
+      "name": "Bat",
+      "foreveryxpoints": 20,
+      "ts": 1778773061.431923,
+      "petkey": "bat",
+      "minimumpointsrequired": 0,
+      "ofyclassification": "Bat Expertise",
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Moonlight Dive.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Enhance: Moonlight Dive",
+          "classificationpointsrequired": 0,
+          "nodeid": 40476726,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 871727804,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 343,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum health.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Stout Warder",
+          "classificationpointsrequired": 10,
+          "nodeid": 325499616,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2136624201,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal inflicts moderate damage to the target encounter and increases the group's Multi-Attack Chance. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Truespirit Strike",
+          "classificationpointsrequired": 0,
+          "nodeid": 663735185,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1182393068,
+          "xcoord": 31,
+          "titlelevel": 0,
+          "icon": {
+            "id": 724,
+            "backdrop": 456
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Improves the combat art damage inflicted by the warder.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Empowered Strikes",
+          "classificationpointsrequired": 20,
+          "nodeid": 1019247854,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 400244827,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 357,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Improves the warder's attack speed and Multi-Attack Chance.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Enhanced Attacks",
+          "classificationpointsrequired": 20,
+          "nodeid": 1174417294,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1830490939,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 474,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's potency.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Powerful Body",
+          "classificationpointsrequired": 10,
+          "nodeid": 1422311472,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 955922073,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal restores health to the group and improves their Crit Bonus. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Soulbreath",
+          "classificationpointsrequired": 0,
+          "nodeid": 1613738305,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 31037500,
+          "xcoord": 25,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 458
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum power.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Presence of Mind",
+          "classificationpointsrequired": 10,
+          "nodeid": 1772546432,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 93986601,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 421,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Piercing Fangs.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Enhance: Piercing Fangs",
+          "classificationpointsrequired": 0,
+          "nodeid": 1912820921,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1134523955,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 58,
+            "backdrop": 456
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Improves the warder's damage when a combat art strikes critically.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Fatal Accuracy",
+          "classificationpointsrequired": 20,
+          "nodeid": 2069890622,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1350253195,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 368,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the duration of Sonic Precision.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Enhance: Sonic Precision",
+          "classificationpointsrequired": 0,
+          "nodeid": 2618111381,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2911967007,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 63,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal inflicts moderate damage to the target and the beastlord lunges to their enemy if they are out of melee range. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Feral Charge",
+          "classificationpointsrequired": 0,
+          "nodeid": 3118408882,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2212276337,
+          "xcoord": 19,
+          "titlelevel": 0,
+          "icon": {
+            "id": 748,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that inflicts damage and impairs physical, elemental and noxious mitigation.",
+          "classification": "Bat Expertise",
+          "title": "",
+          "name": "Exposed Weaknesses",
+          "classificationpointsrequired": 0,
+          "nodeid": 3683005840,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3082470201,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 373,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Sonic Shriek.",
+          "classification": "Bat",
+          "title": "",
+          "name": "Enhance: Sonic Shriek",
+          "classificationpointsrequired": 0,
+          "nodeid": 3943302403,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3667273609,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 63,
+            "backdrop": 456
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new attack that inflicts high damage on the target enemy.",
+          "classification": "Bat Expertise",
+          "title": "",
+          "name": "Brutal Decimation",
+          "classificationpointsrequired": 0,
+          "nodeid": 4095800222,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3745238827,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 194,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal absorbs health from the target and restores it to the beastlord. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Devour",
+          "classificationpointsrequired": 0,
+          "nodeid": 4269760098,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3296514721,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 742,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 40,
+          "level": 20
+        }
+      ],
+      "iswardertree": "true",
+      "last_update": 1778773061.431923,
+      "maximumpoints": 0,
+      "unlocksypoints": 1,
+      "id": 82
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773061.431923,
+  "max_ts": 1778773061.431923
+}

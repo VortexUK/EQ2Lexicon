@@ -1,0 +1,383 @@
+{
+  "alternateadvancement_list": [
+    {
+      "ofxclassification": "Bear",
+      "name": "Bear",
+      "foreveryxpoints": 20,
+      "ts": 1778773035.646482,
+      "petkey": "bear",
+      "minimumpointsrequired": 0,
+      "ofyclassification": "Bear Expertise",
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "The warder has a chance to restore their power when attacking.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Spiritual Restoration",
+          "classificationpointsrequired": 20,
+          "nodeid": 67855025,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3207282318,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 679,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal inflicts moderate damage to the target encounter and increases the group's Multi-Attack Chance. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Truespirit Strike",
+          "classificationpointsrequired": 0,
+          "nodeid": 160985793,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 659392873,
+          "xcoord": 31,
+          "titlelevel": 0,
+          "icon": {
+            "id": 724,
+            "backdrop": 456
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the heal amount of Hibernating Restoration.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Enhance: Hibernating Restoration",
+          "classificationpointsrequired": 0,
+          "nodeid": 599051019,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 786971927,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 329,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal absorbs health from the target and restores it to the beastlord. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Devour",
+          "classificationpointsrequired": 0,
+          "nodeid": 771039730,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 799191412,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 742,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum health.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Stout Warder",
+          "classificationpointsrequired": 10,
+          "nodeid": 783211034,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2177432992,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the duration of Fierce Growl.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Enhance: Fierce Growl",
+          "classificationpointsrequired": 0,
+          "nodeid": 1421081501,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1508838785,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 385,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum power.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Presence of Mind",
+          "classificationpointsrequired": 10,
+          "nodeid": 1667660561,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3422575787,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 421,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that inflicts damage and impairs physical, elemental and noxious mitigation.",
+          "classification": "Bear Expertise",
+          "title": "",
+          "name": "Exposed Weaknesses",
+          "classificationpointsrequired": 0,
+          "nodeid": 2120436649,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3506793491,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 373,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Reduces the amount of damage the warder receives.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Solid Armor",
+          "classificationpointsrequired": 20,
+          "nodeid": 2191462431,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 968838176,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 745,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal restores health to the group and improves their Crit Bonus. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Soulbreath",
+          "classificationpointsrequired": 0,
+          "nodeid": 2399928431,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2715417543,
+          "xcoord": 25,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 458
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's potency.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Powerful Body",
+          "classificationpointsrequired": 10,
+          "nodeid": 2822416564,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 123506446,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal inflicts moderate damage to the target and the beastlord lunges to their enemy if they are out of melee range. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Feral Charge",
+          "classificationpointsrequired": 0,
+          "nodeid": 2875282268,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2838938586,
+          "xcoord": 19,
+          "titlelevel": 0,
+          "icon": {
+            "id": 748,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Crushing Paws.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Enhance: Crushing paws",
+          "classificationpointsrequired": 0,
+          "nodeid": 3132988081,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3085003949,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 580,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Maul.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Enhance: Maul",
+          "classificationpointsrequired": 0,
+          "nodeid": 3403116094,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3347814434,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 385,
+            "backdrop": 456
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "The warder gains a chance to restore some of their health when attacking.",
+          "classification": "Bear",
+          "title": "",
+          "name": "Restoring Soul",
+          "classificationpointsrequired": 20,
+          "nodeid": 3478630676,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1954016555,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 569,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that allows them to absorb health from the target encounter and heal the group.",
+          "classification": "Bear Expertise",
+          "title": "",
+          "name": "Spirit Drain",
+          "classificationpointsrequired": 0,
+          "nodeid": 3528622508,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1769135507,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 411,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 40,
+          "level": 20
+        }
+      ],
+      "iswardertree": "true",
+      "last_update": 1778773035.646482,
+      "maximumpoints": 0,
+      "unlocksypoints": 1,
+      "id": 84
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773035.646482,
+  "max_ts": 1778773035.646482
+}

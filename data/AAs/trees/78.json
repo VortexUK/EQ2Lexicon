@@ -1,0 +1,383 @@
+{
+  "alternateadvancement_list": [
+    {
+      "ofxclassification": "Aquatic",
+      "name": "Aquatic",
+      "foreveryxpoints": 20,
+      "ts": 1778773041.754922,
+      "petkey": "aquatic",
+      "minimumpointsrequired": 0,
+      "ofyclassification": "Aquatic Expertise",
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal restores health to the group and improves their Crit Bonus. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Soulbreath",
+          "classificationpointsrequired": 0,
+          "nodeid": 119698202,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3518521793,
+          "xcoord": 25,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 458
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum health.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Stout Warder",
+          "classificationpointsrequired": 10,
+          "nodeid": 370619985,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2697607984,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Wild Snapping.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Enhance: Wild Snapping",
+          "classificationpointsrequired": 0,
+          "nodeid": 713076474,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 528985863,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 519,
+            "backdrop": 456
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's potency.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Powerful Body",
+          "classificationpointsrequired": 10,
+          "nodeid": 798624404,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2571569141,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum power.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Presence of Mind",
+          "classificationpointsrequired": 10,
+          "nodeid": 954277591,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2386301878,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 421,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that allows them to absorb health from the target encounter and heal the group.",
+          "classification": "Aquatic Expertise",
+          "title": "",
+          "name": "Spirit Drain",
+          "classificationpointsrequired": 0,
+          "nodeid": 981503655,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 953622049,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 411,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal inflicts moderate damage to the target encounter and increases the group's Multi-Attack Chance. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Truespirit Strike",
+          "classificationpointsrequired": 0,
+          "nodeid": 1051676639,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3895811332,
+          "xcoord": 31,
+          "titlelevel": 0,
+          "icon": {
+            "id": 724,
+            "backdrop": 456
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "The warder has a chance to restore their power when attacking.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Spiritual Restoration",
+          "classificationpointsrequired": 20,
+          "nodeid": 1234892589,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1271752619,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 679,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that inflicts damage and impairs physical, elemental and noxious mitigation.",
+          "classification": "Aquatic Expertise",
+          "title": "",
+          "name": "Exposed Weaknesses",
+          "classificationpointsrequired": 0,
+          "nodeid": 1551921950,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3931995775,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 373,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the heal amount of Aquatic Regeneration.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Enhance: Aquatic Regeneration",
+          "classificationpointsrequired": 0,
+          "nodeid": 1569169004,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1753259921,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 329,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "The warder gains a chance to restore some of their health when attacking.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Restoring Soul",
+          "classificationpointsrequired": 20,
+          "nodeid": 1591862126,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1555461096,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 569,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Reduces the amount of damage the warder receives.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Solid Armor",
+          "classificationpointsrequired": 20,
+          "nodeid": 1880607720,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1916820334,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 745,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal inflicts moderate damage to the target and the beastlord lunges to their enemy if they are out of melee range. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Feral Charge",
+          "classificationpointsrequired": 0,
+          "nodeid": 2207923077,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3798733560,
+          "xcoord": 19,
+          "titlelevel": 0,
+          "icon": {
+            "id": 748,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Crushing Force.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Enhance: Crushing Force",
+          "classificationpointsrequired": 0,
+          "nodeid": 3012165440,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2257518269,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 580,
+            "backdrop": 456
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal absorbs health from the target and restores it to the beastlord. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Devour",
+          "classificationpointsrequired": 0,
+          "nodeid": 3122071360,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3688967741,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 742,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the duration of Impenetrable Hide.",
+          "classification": "Aquatic",
+          "title": "",
+          "name": "Enhance: Impenetrable Hide",
+          "classificationpointsrequired": 0,
+          "nodeid": 3286436815,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4142139954,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 434,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 40,
+          "level": 20
+        }
+      ],
+      "iswardertree": "true",
+      "last_update": 1778773041.754922,
+      "maximumpoints": 0,
+      "unlocksypoints": 1,
+      "id": 78
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773041.754922,
+  "max_ts": 1778773041.754922
+}

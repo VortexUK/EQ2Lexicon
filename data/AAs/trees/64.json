@@ -1,0 +1,312 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Heroic",
+      "ts": 1778773070.566082,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Increases the duration of Crusader's Faith. Crusader's Faith will grant increased strikethrough, accuracy and reduced spell resistibility to the group for the duration of the spell.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Enhance: Crusader's Faith",
+          "classificationpointsrequired": 20,
+          "nodeid": 542048563,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1828598419,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 744,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Crit Bonus.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Critical Genius",
+          "classificationpointsrequired": 10,
+          "nodeid": 593578196,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3199723018,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 201,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Soulclaim restores power to the group when any member of the raid strikes a death blow. For a short duration after the death blow, group members will also receive increased Crit Bonus.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Soulclaim",
+          "classificationpointsrequired": 48,
+          "nodeid": 771481577,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 655524638,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 665,
+            "backdrop": 458
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases all stats except for Stamina.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Attribute Prowess",
+          "classificationpointsrequired": 0,
+          "nodeid": 1023175616,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2703934750,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 196,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Increases the amount of heals that the crusader receives. Resilience does not increase the size of wards.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Resilience",
+          "classificationpointsrequired": 20,
+          "nodeid": 1344665020,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 479512092,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 97,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Ability Reuse Speed.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Lightning Reflexes",
+          "classificationpointsrequired": 10,
+          "nodeid": 1416001602,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3383809692,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 194,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases Ability Modifier.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Ability Aptitude",
+          "classificationpointsrequired": 0,
+          "nodeid": 2784311930,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 941855908,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 26,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Manawall blocks all incoming damage to the crusader for a short duration at the cost of the crusader's power.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Manawall",
+          "classificationpointsrequired": 48,
+          "nodeid": 3035795027,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3189494436,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 345,
+            "backdrop": 461
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Enhance: Aura of the Crusader",
+          "classificationpointsrequired": 20,
+          "nodeid": 3108393097,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4126630697,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 665,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases Potency.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Expertise",
+          "classificationpointsrequired": 10,
+          "nodeid": 3127384430,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 666810288,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "heroic_endline",
+          "description": "Zealous Smite inflicts crushing damage upon the target encounter and cures the crusader's allies. This spell cannot be resisted. This spell can be cast while under control effects.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Zealous Smite",
+          "classificationpointsrequired": 48,
+          "nodeid": 3287662277,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3374113330,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 657,
+            "backdrop": 456
+          },
+          "pointspertier": 2,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Improves the reuse speeds of Stonewall and Shadowknight's Furor.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Confidence",
+          "classificationpointsrequired": 20,
+          "nodeid": 3460390943,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2196788159,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 660,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases Maximum Health and Power.",
+          "classification": "Heroic",
+          "title": "",
+          "name": "Spirit and Body",
+          "classificationpointsrequired": 0,
+          "nodeid": 3539077868,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1327801394,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 100,
+          "level": 10
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778773070.566082,
+      "maximumpoints": 0,
+      "id": 64
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773070.566082,
+  "max_ts": 1778773070.566082
+}

@@ -1,0 +1,356 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "General",
+      "ts": 1778772969.895047,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "",
+          "description": "Has a chance to refine certain raw harvestables into pure harvestables.  An equipment item crafted with a pure primary component will have higher attributes.  Higher tiers of this ability will lower the cooldown.",
+          "classification": "Refining",
+          "title": "",
+          "name": "Refine",
+          "classificationpointsrequired": 15,
+          "nodeid": 73521303,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 427735786,
+          "xcoord": 7,
+          "titlelevel": 0,
+          "icon": {
+            "id": 726,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Increases the Artisan's Ground and Mount Speed.",
+          "classification": "Experimentation",
+          "title": "",
+          "name": "Innovative Insoles",
+          "classificationpointsrequired": 0,
+          "nodeid": 338196107,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2624120352,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 614,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Refunds a portion of a recipes build components upon recipe completion.",
+          "classification": "Mass Production",
+          "title": "",
+          "name": "Systematic Conservation",
+          "classificationpointsrequired": 0,
+          "nodeid": 390155741,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2667699574,
+          "xcoord": 37,
+          "titlelevel": 0,
+          "icon": {
+            "id": 225,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases the artisan's rate of progress.",
+          "classification": "Mass Production",
+          "title": "",
+          "name": "Artisan's Discipline",
+          "classificationpointsrequired": 0,
+          "nodeid": 491072059,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3416980995,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 269,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Increases the artisan's critical success rate.",
+          "classification": "Mass Production",
+          "title": "",
+          "name": "Grandmaster's Design",
+          "classificationpointsrequired": 0,
+          "nodeid": 1190980514,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2139831042,
+          "xcoord": 33,
+          "titlelevel": 0,
+          "icon": {
+            "id": 214,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Greatly increases the artisan's food and drink duration.",
+          "classification": "Experimentation",
+          "title": "",
+          "name": "Experimental Preservatives",
+          "classificationpointsrequired": 0,
+          "nodeid": 1426804374,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2212797102,
+          "xcoord": 26,
+          "titlelevel": 0,
+          "icon": {
+            "id": 629,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases your ability to get a bonus rare harvest.  This also grants the ability to track harvesting nodes.  Higher ranks of this ability lower the cooldown on the Track Harvestables ability.",
+          "classification": "Refining",
+          "title": "",
+          "name": "Seasoned Harvesting",
+          "classificationpointsrequired": 0,
+          "nodeid": 1946889240,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1762938469,
+          "xcoord": 7,
+          "titlelevel": 0,
+          "icon": {
+            "id": 737,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "",
+          "description": "Enables the artisan to craft multiple items at a time.  Higher tiers of this ability increase the maximum crafting quantity.  Conservation of Mass does not apply when Mass Producing, and Mass Produced items will not count for quest updates.",
+          "classification": "Mass Production",
+          "title": "",
+          "name": "Mass Production",
+          "classificationpointsrequired": 15,
+          "nodeid": 2300958846,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 23414997,
+          "xcoord": 37,
+          "titlelevel": 0,
+          "icon": {
+            "id": 211,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 16,
+          "group": "",
+          "description": "Allows the artisan to experiment on an item.  Experimentation can either add a proc, add a decoration, or boost the stats of an item.  Higher ranks of this ability increase the total amount of times you can experiment on an item.  Additionally, higher ranks of this ability will improve your experimentation reaction arts.",
+          "classification": "Experimentation",
+          "title": "",
+          "name": "Experimentation",
+          "classificationpointsrequired": 15,
+          "nodeid": 2320294696,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 34370435,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 716,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 11,
+          "group": "",
+          "description": "Salvages the target item into raw materials.  Higher quality items will result in higher quality raw materials.  Higher tiers of this ability will lower the cooldown.",
+          "classification": "Refining",
+          "title": "",
+          "name": "Salvage",
+          "classificationpointsrequired": 0,
+          "nodeid": 2584038708,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2266640201,
+          "xcoord": 7,
+          "titlelevel": 0,
+          "icon": {
+            "id": 0,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Summons an expert goblin harvester to help the Artisan Harvest.  This harvest helper has a chance of harvesting rares.",
+          "classification": "Refining",
+          "title": "",
+          "name": "Summon Artisan's Gathering Goblin",
+          "classificationpointsrequired": 0,
+          "nodeid": 2592509206,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3050987830,
+          "xcoord": 3,
+          "titlelevel": 0,
+          "icon": {
+            "id": 25,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Further increases the artisan's durability gain.",
+          "classification": "Experimentation",
+          "title": "",
+          "name": "Grandmaster's Will",
+          "classificationpointsrequired": 0,
+          "nodeid": 3131968773,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2212093349,
+          "xcoord": 18,
+          "titlelevel": 0,
+          "icon": {
+            "id": 234,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 6,
+          "group": "",
+          "description": "Grants the ability to summon mobile crafting stations.  Higher ranks of this ability lower the cooldown on the station summons.",
+          "classification": "Refining",
+          "title": "",
+          "name": "Summon Crafting Stations",
+          "classificationpointsrequired": 0,
+          "nodeid": 3500327614,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 105715334,
+          "xcoord": 11,
+          "titlelevel": 0,
+          "icon": {
+            "id": 21,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases the Artisan's Success Rate.",
+          "classification": "Mass Production",
+          "title": "",
+          "name": "Brilliant Technique",
+          "classificationpointsrequired": 0,
+          "nodeid": 4182715633,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1896856666,
+          "xcoord": 37,
+          "titlelevel": 0,
+          "icon": {
+            "id": 204,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Increases the artisan's durability gain.",
+          "classification": "Experimentation",
+          "title": "",
+          "name": "Steady Hands",
+          "classificationpointsrequired": 0,
+          "nodeid": 4196800423,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1919321868,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 157,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 5
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 25,
+          "level": 90
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778772969.895047,
+      "maximumpoints": 0,
+      "id": 121
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778772969.895047,
+  "max_ts": 1778772969.895047
+}

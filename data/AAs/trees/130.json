@@ -1,0 +1,466 @@
+{
+  "alternateadvancement_list": [
+    {
+      "name": "Dragon",
+      "ts": 1778772962.011384,
+      "minimumpointsrequired": 0,
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Claws",
+          "title": "",
+          "name": "Punishing Evasion",
+          "classificationpointsrequired": 0,
+          "nodeid": 730659,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3140188700,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 422,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Awakened Dragon Scales",
+          "title": "",
+          "name": "Power Through",
+          "classificationpointsrequired": 0,
+          "nodeid": 420484962,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2721074013,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 657,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Dozekar's Essence",
+          "title": "",
+          "name": "Cunning",
+          "classificationpointsrequired": 30,
+          "nodeid": 573977608,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 543270030,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Dozekar's Essence",
+          "title": "",
+          "name": "Vicious Counter",
+          "classificationpointsrequired": 0,
+          "nodeid": 842876065,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2300385438,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 378,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Dragonwrath",
+          "title": "",
+          "name": "Swift Wings",
+          "classificationpointsrequired": 0,
+          "nodeid": 944603250,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2205015117,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 328,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Dozekar's Essence",
+          "title": "",
+          "name": "Rallying Drive",
+          "classificationpointsrequired": 0,
+          "nodeid": 1161458743,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4263127048,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 291,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "",
+          "classification": "Dragonwrath",
+          "title": "",
+          "name": "Eliminator's Precision",
+          "classificationpointsrequired": 0,
+          "nodeid": 1330295012,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4100648155,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 744,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Claws",
+          "title": "",
+          "name": "Dragon Claws",
+          "classificationpointsrequired": 30,
+          "nodeid": 1492543336,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1520564206,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 259,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Awakened Dragon Scales",
+          "title": "",
+          "name": "Persistence",
+          "classificationpointsrequired": 30,
+          "nodeid": 1704349400,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1740758622,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 411,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Awakened Dragon Scales",
+          "title": "",
+          "name": "Shake Off",
+          "classificationpointsrequired": 0,
+          "nodeid": 1847011316,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3577183179,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 745,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 2,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Claws",
+          "title": "",
+          "name": "Known Enemy",
+          "classificationpointsrequired": 0,
+          "nodeid": 1997280949,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3425454730,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 510,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Awakened Dragon Scales",
+          "title": "",
+          "name": "Dragon's Vitality",
+          "classificationpointsrequired": 0,
+          "nodeid": 2149140184,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 993598183,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Claws",
+          "title": "",
+          "name": "Chained Claws",
+          "classificationpointsrequired": 0,
+          "nodeid": 2567075737,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 572664742,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 479,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Dragonwrath",
+          "title": "",
+          "name": "Subtle Movements",
+          "classificationpointsrequired": 0,
+          "nodeid": 2787710417,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 487148014,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 651,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Dozekar's Essence",
+          "title": "",
+          "name": "Impatience",
+          "classificationpointsrequired": 0,
+          "nodeid": 2872317211,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 269764900,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 274,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 0,
+          "group": "",
+          "description": "",
+          "classification": "Dragonwrath",
+          "title": "",
+          "name": "Elimination Stance",
+          "classificationpointsrequired": 0,
+          "nodeid": 3594772830,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1835253089,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 655,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Dozekar's Essence",
+          "title": "",
+          "name": "Sonic Reaction",
+          "classificationpointsrequired": 0,
+          "nodeid": 3680428436,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1618918827,
+          "xcoord": 1,
+          "titlelevel": 0,
+          "icon": {
+            "id": 270,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Dragon Claws",
+          "title": "",
+          "name": "Quick Tactics",
+          "classificationpointsrequired": 0,
+          "nodeid": 3915940630,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1380507433,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 640,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 4,
+          "group": "",
+          "description": "",
+          "classification": "Dragonwrath",
+          "title": "",
+          "name": "Dragonwrath",
+          "classificationpointsrequired": 30,
+          "nodeid": 3939941240,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3900779518,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 627,
+            "backdrop": 315
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 3,
+          "group": "",
+          "description": "",
+          "classification": "Awakened Dragon Scales",
+          "title": "",
+          "name": "Dozekar's Resilience",
+          "classificationpointsrequired": 0,
+          "nodeid": 4034114135,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1263791720,
+          "xcoord": 5,
+          "titlelevel": 0,
+          "icon": {
+            "id": 338,
+            "backdrop": 461
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 100,
+          "level": 10
+        }
+      ],
+      "iswardertree": "false",
+      "last_update": 1778772962.011384,
+      "maximumpoints": 0,
+      "id": 130
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778772962.011384,
+  "max_ts": 1778772962.011384
+}

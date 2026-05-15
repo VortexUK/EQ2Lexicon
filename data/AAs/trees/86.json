@@ -1,0 +1,383 @@
+{
+  "alternateadvancement_list": [
+    {
+      "ofxclassification": "Bovid",
+      "name": "Bovid",
+      "foreveryxpoints": 20,
+      "ts": 1778773063.46345,
+      "petkey": "bovid",
+      "minimumpointsrequired": 0,
+      "ofyclassification": "Bovid Expertise",
+      "version": 2,
+      "alternateadvancementnode_list": [
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "Reduces the amount of damage the warder receives.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Solid Armor",
+          "classificationpointsrequired": 20,
+          "nodeid": 414689711,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2926224590,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 745,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Crushing Hooves.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Enhance: Crushing Hooves",
+          "classificationpointsrequired": 0,
+          "nodeid": 605006756,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 805546781,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 580,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "The warder has a chance to restore their power when attacking.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Spiritual Restoration",
+          "classificationpointsrequired": 20,
+          "nodeid": 694137650,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2676145747,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 679,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that inflicts damage and impairs physical, elemental and noxious mitigation.",
+          "classification": "Bovid Expertise",
+          "title": "",
+          "name": "Exposed Weaknesses",
+          "classificationpointsrequired": 0,
+          "nodeid": 977879885,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 290619384,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 373,
+            "backdrop": 459
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal restores health to the group and improves their Crit Bonus. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Soulbreath",
+          "classificationpointsrequired": 0,
+          "nodeid": 1220496259,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2426189218,
+          "xcoord": 25,
+          "titlelevel": 0,
+          "icon": {
+            "id": 683,
+            "backdrop": 458
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 20,
+          "ycoord": 13,
+          "group": "",
+          "description": "Grants the warder a new ability that allows them to absorb health from the target encounter and heal the group.",
+          "classification": "Bovid Expertise",
+          "title": "",
+          "name": "Spirit Drain",
+          "classificationpointsrequired": 0,
+          "nodeid": 1250919944,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4233268073,
+          "xcoord": 28,
+          "titlelevel": 0,
+          "icon": {
+            "id": 411,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the duration of Nurturing Presence.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Enhance: Nurturing Presence",
+          "classificationpointsrequired": 0,
+          "nodeid": 1393072946,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1191484299,
+          "xcoord": 15,
+          "titlelevel": 0,
+          "icon": {
+            "id": 363,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's potency.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Powerful Body",
+          "classificationpointsrequired": 10,
+          "nodeid": 1503229559,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1921141442,
+          "xcoord": 22,
+          "titlelevel": 0,
+          "icon": {
+            "id": 672,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum health.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Stout Warder",
+          "classificationpointsrequired": 10,
+          "nodeid": 1752263914,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 1131040863,
+          "xcoord": 9,
+          "titlelevel": 0,
+          "icon": {
+            "id": 393,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Spiritual Primal inflicts moderate damage to the target encounter and increases the group's Multi-Attack Chance. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Truespirit Strike",
+          "classificationpointsrequired": 0,
+          "nodeid": 2035765534,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2708778815,
+          "xcoord": 31,
+          "titlelevel": 0,
+          "icon": {
+            "id": 724,
+            "backdrop": 456
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 9,
+          "group": "",
+          "description": "The warder gains a chance to restore some of their health when attacking.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Restoring Soul",
+          "classificationpointsrequired": 20,
+          "nodeid": 2401810566,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 972404199,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 569,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the heal amount of Territorial Regeneration.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Enhance: Territorial Regeneration",
+          "classificationpointsrequired": 0,
+          "nodeid": 3127590407,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 2926001854,
+          "xcoord": 41,
+          "titlelevel": 0,
+          "icon": {
+            "id": 329,
+            "backdrop": 458
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal absorbs health from the target and restores it to the beastlord. This ability equips in the fifth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Devour",
+          "classificationpointsrequired": 0,
+          "nodeid": 3332595035,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3262786782,
+          "xcoord": 13,
+          "titlelevel": 0,
+          "icon": {
+            "id": 742,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 1,
+          "group": "",
+          "description": "Improves the damage of Weighted Charge.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Enhance: Weighted Charge",
+          "classificationpointsrequired": 0,
+          "nodeid": 3389115016,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3725445681,
+          "xcoord": 2,
+          "titlelevel": 0,
+          "icon": {
+            "id": 407,
+            "backdrop": 456
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        },
+        {
+          "pointsspentintreetounlock": 28,
+          "ycoord": 17,
+          "group": "",
+          "description": "This Feral Primal inflicts moderate damage to the target and the beastlord lunges to their enemy if they are out of melee range. This ability equips in the sixth primal slot.",
+          "classification": "Warder Primals",
+          "title": "",
+          "name": "Feral Charge",
+          "classificationpointsrequired": 0,
+          "nodeid": 4148905926,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 4086445635,
+          "xcoord": 19,
+          "titlelevel": 0,
+          "icon": {
+            "id": 748,
+            "backdrop": 459
+          },
+          "pointspertier": 3,
+          "maxtier": 1
+        },
+        {
+          "pointsspentintreetounlock": 0,
+          "ycoord": 5,
+          "group": "",
+          "description": "Improves the warder's maximum power.",
+          "classification": "Bovid",
+          "title": "",
+          "name": "Presence of Mind",
+          "classificationpointsrequired": 10,
+          "nodeid": 4293819843,
+          "minlevel": 1,
+          "pointsspentgloballytounlock": 0,
+          "spellcrc": 3572842870,
+          "xcoord": 34,
+          "titlelevel": 0,
+          "icon": {
+            "id": 421,
+            "backdrop": -1
+          },
+          "pointspertier": 1,
+          "maxtier": 10
+        }
+      ],
+      "maxpointsperlevelnode_list": [
+        {
+          "maxpoints": 40,
+          "level": 20
+        }
+      ],
+      "iswardertree": "true",
+      "last_update": 1778773063.46345,
+      "maximumpoints": 0,
+      "unlocksypoints": 1,
+      "id": 86
+    }
+  ],
+  "returned": 1,
+  "limit": 1,
+  "min_ts": 1778773063.46345,
+  "max_ts": 1778773063.46345
+}
