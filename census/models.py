@@ -19,6 +19,20 @@ class ItemEffect:
 
 
 @dataclass
+class SpellEntry:
+    name: str
+    tier: str
+    spell_type: str   # 'spells' or 'arts'
+    level: int
+
+
+@dataclass
+class CharacterSpells:
+    character_name: str
+    entries: list[SpellEntry]
+
+
+@dataclass
 class GuildMember:
     name: str
     level: Optional[int]

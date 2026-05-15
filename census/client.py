@@ -5,7 +5,7 @@ from typing import Any, Optional
 import aiohttp
 
 from census.constants import ITEM_DISPLAY, STAT_MAP, TYPEINFO_DISPLAY
-from census.models import GuildData, GuildMember, ItemData, ItemEffect, ItemStat
+from census.models import CharacterSpells, GuildData, GuildMember, ItemData, ItemEffect, ItemStat, SpellEntry
 
 BASE_URL = "https://census.daybreakgames.com"
 
@@ -111,6 +111,50 @@ class CensusClient:
             world   = guild.get("world", world),
             members = members,
         )
+
+    async def get_character_spells(self, name: str, world: str) -> Optional[CharacterSpells]:
+        url = f"{BASE_URL}/s:{self.service_id}/json/get/eq2/character/"
+        params = {
+            "name.first": name,
+            "locationdata.world": world,
+            "c:resolve": "spells(name,tier_name,type,level,given_by)",
+            "c:show": "name,spell_list",
+            "c:limit": "1",
+        }
+        print(f"[Census] GET {url} params={params}")
+        try:
+            async with self._session_().get(
+                url, params=params, timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                print(f"[Census] HTTP {resp.status} url={resp.url}")
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+        except Exception as exc:
+            print(f"[Census] API error: {type(exc).__name__}: {exc!r}")
+            return None
+
+        char_list = data.get("character_list", [])
+        if not char_list:
+            return None
+        char = char_list[0]
+        char_name = (char.get("name") or {}).get("first", name)
+
+        entries: list[SpellEntry] = []
+        for spell in char.get("spell_list") or []:
+            level = _int(spell.get("level")) or 0
+            spell_type = spell.get("type", "")
+            if level == 0 or spell_type not in ("spells", "arts"):
+                continue
+            if spell.get("given_by") in ("alternateadvancement", "class"):
+                continue
+            entries.append(SpellEntry(
+                name       = spell.get("name", ""),
+                tier       = spell.get("tier_name", "Unknown"),
+                spell_type = spell_type,
+                level      = level,
+            ))
+        return CharacterSpells(character_name=char_name, entries=entries)
 
     # ------------------------------------------------------------------
     # HTTP
