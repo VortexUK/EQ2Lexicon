@@ -10,28 +10,47 @@ from discord import app_commands
 from discord.ext import commands
 
 from census.client import CensusClient
-from image.aa_tree import render_tree
+from image.aa_tree import detect_tree_type, render_tree
 
 _DATA_DIR  = Path(__file__).resolve().parent.parent.parent / "data" / "AAs"
 _TREES_DIR = _DATA_DIR / "trees"
 
-# tree_id → tree name, loaded once at import time
+# Loaded once at import: tree_id → (name, detected_type)
 _TREE_NAMES: dict[int, str] = {}
+_TREE_TYPES: dict[int, str] = {}
 
 
-def _load_tree_names() -> None:
+def _load_tree_index() -> None:
     for path in _TREES_DIR.glob("*.json"):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             aa_list = data.get("alternateadvancement_list") or []
             if aa_list:
-                name = aa_list[0].get("name", path.stem)
-                _TREE_NAMES[int(path.stem)] = name
+                tid = int(path.stem)
+                _TREE_NAMES[tid] = aa_list[0].get("name", path.stem)
+                _TREE_TYPES[tid] = detect_tree_type(data)
         except Exception:
             pass
 
 
-_load_tree_names()
+_load_tree_index()
+
+# Static choice value → detect_tree_type key(s) that satisfy it
+_CHOICE_TO_TYPES: dict[str, set[str]] = {
+    "class":      {"class"},
+    "subclass":   {"subclass"},
+    "shadows":    {"shadows"},
+    "heroic":     {"heroic"},
+    "tradeskill": {"tradeskill", "tradeskill_general"},
+}
+
+_TREE_CHOICES = [
+    app_commands.Choice(name="Class",    value="class"),
+    app_commands.Choice(name="Subclass", value="subclass"),
+    app_commands.Choice(name="Shadows",  value="shadows"),
+    app_commands.Choice(name="Heroic",   value="heroic"),
+    app_commands.Choice(name="Trade",    value="tradeskill"),
+]
 
 
 class AaCheckCog(commands.Cog):
@@ -43,41 +62,17 @@ class AaCheckCog(commands.Cog):
     async def cog_unload(self) -> None:
         await self.census.close()
 
-    async def tree_autocomplete(
-        self,
-        interaction: discord.Interaction,
-        current: str,
-    ) -> list[app_commands.Choice[str]]:
-        character: str = interaction.namespace.character or ""
-        if not character:
-            return []
-
-        char_aas = await self.census.get_character_aas(character, self.world)
-        if char_aas is None:
-            return []
-
-        choices: list[app_commands.Choice[str]] = []
-        current_lower = current.lower()
-        for tree_id in sorted(char_aas.tree_ids):
-            name = _TREE_NAMES.get(tree_id, str(tree_id))
-            if current_lower and current_lower not in name.lower():
-                continue
-            choices.append(app_commands.Choice(name=name, value=str(tree_id)))
-            if len(choices) >= 25:
-                break
-        return choices
-
     @app_commands.command(name="aacheck", description="Show a character's AA allocations for a tree")
     @app_commands.describe(
         character="Character name",
-        tree="AA tree to display",
+        tree="Which AA tree to display",
     )
-    @app_commands.autocomplete(tree=tree_autocomplete)
+    @app_commands.choices(tree=_TREE_CHOICES)
     async def aacheck(
         self,
         interaction: discord.Interaction,
         character: str,
-        tree: str,
+        tree: app_commands.Choice[str],
     ) -> None:
         await interaction.response.defer(thinking=True)
 
@@ -89,16 +84,15 @@ class AaCheckCog(commands.Cog):
             )
             return
 
-        try:
-            tree_id = int(tree)
-        except ValueError:
-            await interaction.followup.send("Invalid tree selection.", ephemeral=True)
-            return
-
-        if tree_id not in char_aas.tree_ids:
-            tree_name = _TREE_NAMES.get(tree_id, str(tree_id))
+        # Find the tree ID matching the chosen type
+        wanted_types = _CHOICE_TO_TYPES.get(tree.value, {tree.value})
+        tree_id = next(
+            (tid for tid in char_aas.tree_ids if _TREE_TYPES.get(tid) in wanted_types),
+            None,
+        )
+        if tree_id is None:
             await interaction.followup.send(
-                f"**{char_aas.character_name}** has no AAs in the **{tree_name}** tree.",
+                f"**{char_aas.character_name}** has no AAs in a **{tree.name}** tree.",
                 ephemeral=True,
             )
             return
