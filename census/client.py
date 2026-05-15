@@ -62,8 +62,8 @@ class CensusClient:
         """Return Census API query params for a name, numeric ID, or game link."""
         import re
         query = query.strip()
-        # Game link: \aITEM <id> <id2>:<name>\/a
-        m = re.match(r'\\?aITEM\s+(\d+)', query)
+        # Game link: \aITEM <id> ...:<name>/a  (id may be negative)
+        m = re.match(r'\\*aITEM\s+(-?\d+)', query)
         if m:
             return {"id": m.group(1), "c:limit": "1"}
         # Bare numeric ID (positive or negative)
