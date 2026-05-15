@@ -5,7 +5,7 @@ from typing import Any, Optional
 import aiohttp
 
 from census.constants import ITEM_DISPLAY, STAT_MAP, TYPEINFO_DISPLAY
-from census.models import ItemData, ItemEffect, ItemStat
+from census.models import GuildData, GuildMember, ItemData, ItemEffect, ItemStat
 
 BASE_URL = "https://census.daybreakgames.com"
 
@@ -53,6 +53,54 @@ class CensusClient:
     async def get_raw_item(self, query: str) -> Optional[dict]:
         """Return the raw parsed JSON — used by inspect_item.py."""
         return await self._fetch(self._build_params(query))
+
+    async def get_guild(self, name: str, world: str) -> Optional[GuildData]:
+        url = f"{BASE_URL}/s:{self.service_id}/json/get/eq2/guild/"
+        params = {
+            "name": name,
+            "world": world,
+            "c:resolve": "members(displayname,type.aa_level,type.deity,type.level,type.class,guild.rank,type.ts_class,type.ts_level)",
+            "c:show": "member_list,name,world",
+            "c:limit": "1",
+        }
+        print(f"[Census] GET {url} params={params}")
+        try:
+            async with self._session_().get(
+                url, params=params, timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                print(f"[Census] HTTP {resp.status} url={resp.url}")
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+        except Exception as exc:
+            print(f"[Census] API error: {type(exc).__name__}: {exc!r}")
+            return None
+
+        guild_list = data.get("guild_list", [])
+        if not guild_list:
+            return None
+        guild = guild_list[0]
+        members: list[GuildMember] = []
+        for m in guild.get("member_list") or []:
+            t = m.get("type")
+            if not isinstance(t, dict):
+                continue
+            rank_info = m.get("guild") or {}
+            members.append(GuildMember(
+                name     = m.get("displayname", "Unknown"),
+                level    = _int(t.get("level")),
+                cls      = t.get("class"),
+                ts_class = t.get("ts_class"),
+                ts_level = _int(t.get("ts_level")),
+                aa_level = _int(t.get("aa_level")),
+                deity    = t.get("deity") or None,
+                rank     = rank_info.get("rank"),
+            ))
+        return GuildData(
+            name    = guild.get("name", name),
+            world   = guild.get("world", world),
+            members = members,
+        )
 
     # ------------------------------------------------------------------
     # HTTP

@@ -19,6 +19,25 @@ class ItemEffect:
 
 
 @dataclass
+class GuildMember:
+    name: str
+    level: Optional[int]
+    cls: Optional[str]       # adventurer class
+    ts_class: Optional[str]  # tradeskill class
+    ts_level: Optional[int]
+    aa_level: Optional[int]
+    deity: Optional[str]
+    rank: Optional[str]
+
+
+@dataclass
+class GuildData:
+    name: str
+    world: str
+    members: list[GuildMember]
+
+
+@dataclass
 class ItemData:
     id: str
     name: str
