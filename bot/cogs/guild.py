@@ -1,3 +1,4 @@
+import io
 import os
 
 import discord
@@ -7,79 +8,63 @@ from discord.ext import commands
 from census.client import CensusClient
 from census.models import GuildData, GuildMember
 
-
-def _class_summary(members: list[GuildMember]) -> str:
-    from collections import Counter
-    counts: Counter[str] = Counter()
-    for m in members:
-        if m.cls:
-            counts[m.cls] += 1
-    if not counts:
-        return "—"
-    return ", ".join(f"{cls} ×{n}" for cls, n in sorted(counts.items(), key=lambda x: -x[1]))
+_COL_SEP = "  "
 
 
-def _level_band(level: int | None) -> str:
-    if level is None:
-        return "Unknown"
-    if level >= 120:
-        return "120+"
-    if level >= 110:
-        return "110–119"
-    if level >= 100:
-        return "100–109"
-    if level >= 90:
-        return "90–99"
-    return f"<90"
+def _trunc(s: str, width: int) -> str:
+    if len(s) <= width:
+        return s
+    return s[: width - 1] + "…"
 
 
-def _build_embed(data: GuildData) -> discord.Embed:
-    from collections import Counter
-
-    members = data.members
-    total = len(members)
-
-    # Level distribution
-    band_counts: Counter[str] = Counter(_level_band(m.level) for m in members)
-    level_lines = "\n".join(
-        f"**{band}**: {n}"
-        for band, n in sorted(band_counts.items(), key=lambda x: x[0], reverse=True)
-    ) or "—"
-
-    # Class distribution (top 10)
-    cls_counts: Counter[str] = Counter(m.cls for m in members if m.cls)
-    class_lines = "\n".join(
-        f"**{cls}**: {n}"
-        for cls, n in cls_counts.most_common(10)
-    ) or "—"
-
-    # AA stats
-    aa_values = [m.aa_level for m in members if m.aa_level is not None]
-    if aa_values:
-        avg_aa = sum(aa_values) / len(aa_values)
-        max_aa = max(aa_values)
-        aa_text = f"Avg {avg_aa:.0f} · Max {max_aa}"
-    else:
-        aa_text = "—"
-
-    # Deity distribution
-    deity_counts: Counter[str] = Counter(m.deity for m in members if m.deity)
-    deity_lines = "\n".join(
-        f"**{deity}**: {n}"
-        for deity, n in deity_counts.most_common(5)
-    ) or "—"
-
-    embed = discord.Embed(
-        title=f"{data.name} — {data.world}",
-        colour=discord.Colour.gold(),
+def _build_table(data: GuildData) -> str:
+    members = sorted(
+        data.members,
+        key=lambda m: (m.rank_id if m.rank_id is not None else 9999, -(m.level or 0)),
     )
-    embed.add_field(name="Members (with data)", value=str(total), inline=True)
-    embed.add_field(name="Alternate Advancements", value=aa_text, inline=True)
-    embed.add_field(name="​", value="​", inline=False)
-    embed.add_field(name="Level Distribution", value=level_lines, inline=True)
-    embed.add_field(name="Top Classes", value=class_lines, inline=True)
-    embed.add_field(name="Top Deities", value=deity_lines, inline=True)
-    return embed
+
+    # Column definitions: (header, callable, max_width)
+    def _cls(m: GuildMember) -> str:
+        if m.cls and m.level is not None:
+            return f"{m.cls} ({m.level})"
+        return m.cls or "—"
+
+    def _ts(m: GuildMember) -> str:
+        if m.ts_class and m.ts_level is not None:
+            return f"{m.ts_class} ({m.ts_level})"
+        return m.ts_class or "—"
+
+    cols: list[tuple[str, callable, int]] = [
+        ("Rank",       lambda m: m.rank or "—",       16),
+        ("Name",       lambda m: m.name,              22),
+        ("Class",      _cls,                          24),
+        ("Tradeskill", _ts,                           24),
+        ("Deity",      lambda m: m.deity or "—",      16),
+    ]
+
+    # Compute actual column widths (header vs data)
+    widths: list[int] = []
+    for header, fn, max_w in cols:
+        data_w = max((len(fn(m)) for m in members), default=0)
+        widths.append(min(max(len(header), data_w), max_w))
+
+    def _row(values: list[str]) -> str:
+        return _COL_SEP.join(v.ljust(widths[i]) for i, v in enumerate(values))
+
+    header_row = _row([h for h, _, _ in cols])
+    separator  = _COL_SEP.join("─" * w for w in widths)
+
+    lines = [
+        f"{data.name}  —  {data.world}  ({len(members)} members with data)",
+        "",
+        header_row,
+        separator,
+    ]
+    for m in members:
+        row_vals = [_trunc(fn(m), widths[i]) for i, (_, fn, _) in enumerate(cols)]
+        lines.append(_row(row_vals))
+
+    return "\n".join(lines)
 
 
 class GuildCog(commands.Cog):
@@ -91,7 +76,7 @@ class GuildCog(commands.Cog):
     async def cog_unload(self) -> None:
         await self.census.close()
 
-    @app_commands.command(name="guild", description="Show a summary of an EverQuest 2 guild")
+    @app_commands.command(name="guild", description="Show a member summary for an EverQuest 2 guild")
     @app_commands.describe(name="Guild name (e.g. Exordium)")
     async def guild(self, interaction: discord.Interaction, name: str) -> None:
         await interaction.response.defer(thinking=True)
@@ -104,5 +89,15 @@ class GuildCog(commands.Cog):
             )
             return
 
-        embed = _build_embed(data)
-        await interaction.followup.send(embed=embed)
+        table = _build_table(data)
+        wrapped = f"```\n{table}\n```"
+
+        # Discord message limit is 2000 chars; send as file if too large
+        if len(wrapped) <= 2000:
+            await interaction.followup.send(wrapped)
+        else:
+            buf = io.BytesIO(table.encode("utf-8"))
+            await interaction.followup.send(
+                f"**{data.name}** — {data.world} ({len(data.members)} members)",
+                file=discord.File(buf, filename=f"{data.name.replace(' ', '_')}_guild.txt"),
+            )

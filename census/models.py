@@ -28,6 +28,7 @@ class GuildMember:
     aa_level: Optional[int]
     deity: Optional[str]
     rank: Optional[str]
+    rank_id: Optional[int]   # numeric rank for sort order
 
 
 @dataclass
