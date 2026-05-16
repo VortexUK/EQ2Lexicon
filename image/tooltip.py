@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 from typing import Optional
 
+
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from census.constants import ARCHETYPES, CLASS_GROUPS, ALL_CLASSES
@@ -79,8 +80,20 @@ BORDER_W    = _z(3)
 INSET       = _z(6)
 LINE_GAP    = _z(4)
 SECTION_GAP = _z(8)
-ICON_SIZE   = _z(64)               # render-space icon size
+ICON_SIZE   = round(_z(64) * 0.9)  # render-space icon size (90% of base)
 COL2_FRAC   = 0.48                 # fraction — scale-independent
+
+_SLOT_BACKDROP_PATH = Path(__file__).resolve().parent.parent / "data" / "AAs" / "slot-empty-blue.png"
+_slot_backdrop: Image.Image | None = None
+
+
+def _get_slot_backdrop(size: int) -> Image.Image:
+    global _slot_backdrop
+    if _slot_backdrop is None or _slot_backdrop.size != (size, size):
+        _slot_backdrop = (
+            Image.open(_SLOT_BACKDROP_PATH).convert("RGBA").resize((size, size), Image.LANCZOS)
+        )
+    return _slot_backdrop
 
 
 # ---------------------------------------------------------------------------
@@ -145,12 +158,12 @@ class _TooltipRenderer:
 
         if item.icon_bytes:
             try:
+                backdrop = _get_slot_backdrop(ICON_SIZE)
                 icon = Image.open(io.BytesIO(item.icon_bytes)).convert("RGBA")
                 icon = icon.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
-                bg = Image.new("RGB", (ICON_SIZE, ICON_SIZE), (20, 20, 20))
-                bg.paste(icon.convert("RGB"), (0, 0))
+                composed = Image.alpha_composite(backdrop, icon).convert("RGB")
                 framed = Image.new("RGB", (ICON_SIZE + 2, ICON_SIZE + 2), BORDER_INNER)
-                framed.paste(bg, (1, 1))
+                framed.paste(composed, (1, 1))
                 canvas.paste(framed, (icon_x - 1, icon_y - 1))
             except Exception:
                 _draw_icon_placeholder(draw, icon_x, icon_y, ICON_SIZE)
