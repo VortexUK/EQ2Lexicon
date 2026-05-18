@@ -11,6 +11,13 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "items" / "items.db"
 # Schema
 # ---------------------------------------------------------------------------
 
+_CREATE_META = """
+CREATE TABLE IF NOT EXISTS _meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+"""
+
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS items (
     -- Identity
@@ -324,11 +331,22 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute(_CREATE_META)
     conn.execute(_CREATE_TABLE)
     for idx in _CREATE_INDEXES:
         conn.execute(idx)
     conn.commit()
     return conn
+
+
+def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
+    row = conn.execute("SELECT value FROM _meta WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
 
 
 def upsert_items(items: list[dict], conn: sqlite3.Connection) -> int:
