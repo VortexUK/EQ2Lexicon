@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 import aiohttp
 
+from census import db as item_db
 from census.constants import ITEM_DISPLAY, STAT_MAP, TYPEINFO_DISPLAY
 from census.models import CharacterAAs, CharacterSpells, GuildData, GuildMember, ItemData, ItemEffect, ItemStat, NodeAA, SpellEntry
 
@@ -49,6 +50,11 @@ class CensusClient:
     # ------------------------------------------------------------------
 
     async def get_item(self, query: str) -> Optional[ItemData]:
+        # Try local DB first (fast, no rate limits)
+        raw = await self._find_in_db(query)
+        if raw:
+            return self._parse_item(raw)
+        # Fall back to live Census API
         data = await self._fetch(self._build_params(query))
         if not data:
             return None
@@ -56,6 +62,23 @@ class CensusClient:
         if not item_list:
             return None
         return self._parse_item(item_list[0])
+
+    async def _find_in_db(self, query: str) -> Optional[dict]:
+        """Look up an item in the local SQLite DB. Returns raw Census dict or None."""
+        import re
+        query = query.strip()
+        # Game link
+        m = re.match(r'\\*aITEM\s+(-?\d+)', query)
+        if m:
+            item_id = int(m.group(1))
+            if item_id < 0:
+                item_id += 2 ** 32
+            return await item_db.find_by_id(item_id)
+        # Bare numeric ID
+        if re.fullmatch(r'-?\d+', query):
+            return await item_db.find_by_id(int(query))
+        # Display name
+        return await item_db.find_by_name(query)
 
     async def get_raw_item(self, query: str) -> Optional[dict]:
         """Return the raw parsed JSON — used by inspect_item.py."""

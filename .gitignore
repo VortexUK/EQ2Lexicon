@@ -217,6 +217,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Item database (generated locally, not committed)
+data/items/items.db
+data/items/items.db-wal
+data/items/items.db-shm
+
 # Local preview output
 preview*.png
 test_*.png
