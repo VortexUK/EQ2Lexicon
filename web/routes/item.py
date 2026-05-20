@@ -1,22 +1,43 @@
 from __future__ import annotations
 
-import asyncio
-import io
 import os
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
 from pydantic import BaseModel
 
 from census.client import CensusClient
-from image.tooltip import render_tooltip
+from census.constants import ARCHETYPES, CLASS_GROUPS
 
 router = APIRouter(tags=["item"])
 _SERVICE_ID = os.getenv("CENSUS_SERVICE_ID", "example")
 
-# In-memory PNG cache — render_tooltip is CPU-heavy (PIL), cache the bytes.
-_image_cache: dict[str, bytes] = {}
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _format_classes(classes: list[str]) -> str:
+    """Collapse a class list into a human-readable label (mirrors image/tooltip.py)."""
+    if not classes:
+        return ""
+    class_set = frozenset(classes)
+    for group_set, group_name in CLASS_GROUPS.items():
+        if class_set == group_set:
+            return group_name
+    remaining = class_set
+    matched: list[str] = []
+    for archetype_set, archetype_name in ARCHETYPES:
+        if archetype_set <= remaining:
+            matched.append(archetype_name)
+            remaining -= archetype_set
+    if not remaining and matched:
+        return ", ".join(matched)
+    return ", ".join(sorted(classes))
+
+
+# ---------------------------------------------------------------------------
+# Response models
+# ---------------------------------------------------------------------------
 
 class ItemStatResponse(BaseModel):
     display_name: str
@@ -39,13 +60,15 @@ class ItemResponse(BaseModel):
     id: str
     name: str
     quality: str
+    description: str = ""
     icon_id: str | None = None
     slot_type: str = ""
     armor_type: str = ""
     mitigation: int | None = None
     item_level: int | None = None
     required_level: int | None = None
-    classes: list[str] = []
+    container_slots: int | None = None
+    classes_label: str = ""
     stats: list[ItemStatResponse] = []
     effects: list[ItemEffectResponse] = []
     adornment_slots: list[str] = []
@@ -53,11 +76,15 @@ class ItemResponse(BaseModel):
     extra_info: list[tuple[str, str]] = []
 
 
+# ---------------------------------------------------------------------------
+# Endpoint
+# ---------------------------------------------------------------------------
+
 @router.get("/item/{item_id}", response_model=ItemResponse)
 async def get_item(item_id: str) -> ItemResponse:
     """Return full item detail — local DB first, falls back to Census API if missing."""
     try:
-        int(item_id)   # validate it's numeric before passing to client
+        int(item_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Item ID must be numeric")
 
@@ -74,13 +101,15 @@ async def get_item(item_id: str) -> ItemResponse:
         id=item.id,
         name=item.name,
         quality=item.quality,
+        description=item.description or "",
         icon_id=item.icon_id,
         slot_type=item.slot_type,
         armor_type=item.armor_type,
         mitigation=item.mitigation,
         item_level=item.item_level,
         required_level=item.required_level,
-        classes=item.classes,
+        container_slots=item.container_slots,
+        classes_label=_format_classes(item.classes),
         stats=[
             ItemStatResponse(
                 display_name=s.display_name,
@@ -101,35 +130,3 @@ async def get_item(item_id: str) -> ItemResponse:
         flags=item.flags,
         extra_info=item.extra_info,
     )
-
-
-@router.get("/item/{item_id}/image", response_class=Response)
-async def get_item_image(item_id: str) -> Response:
-    """Render the item tooltip as a PNG image (same as Discord bot output)."""
-    try:
-        int(item_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Item ID must be numeric")
-
-    if item_id in _image_cache:
-        return Response(content=_image_cache[item_id], media_type="image/png")
-
-    client = CensusClient(service_id=_SERVICE_ID)
-    try:
-        item = await client.get_item(item_id)
-    finally:
-        await client.close()
-
-    if item is None:
-        raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
-
-    # render_tooltip is synchronous PIL work — run off the event loop
-    loop = asyncio.get_event_loop()
-    img = await loop.run_in_executor(None, render_tooltip, item)
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    png_bytes = buf.getvalue()
-
-    _image_cache[item_id] = png_bytes
-    return Response(content=png_bytes, media_type="image/png")
