@@ -97,6 +97,7 @@ class CharacterOverview:
     world: str
     ts_class: Optional[str] = None  # tradeskill class
     ts_level: Optional[int] = None
+    stats: dict = field(default_factory=dict)
     equipment: list[EquipmentSlot] = field(default_factory=list)
 
 

@@ -170,7 +170,7 @@ class CensusClient:
         params = {
             "name.first": name,
             "locationdata.world": world,
-            "c:show": "name,type,equipmentslot_list",
+            "c:show": "name,type,stats,equipmentslot_list",
             "c:limit": "1",
         }
         print(f"[Census] GET {url} params={params}")
@@ -233,6 +233,7 @@ class CensusClient:
 
         gender   = t.get("gender", "")
         ts_class = t.get("ts_class", "")
+        raw_stats = char.get("stats") or {}
         return CharacterOverview(
             id        = str(char.get("id", "")),
             name      = (char.get("name") or {}).get("first", name),
@@ -245,6 +246,7 @@ class CensusClient:
             world     = world,
             ts_class  = ts_class.capitalize() if ts_class else None,
             ts_level  = _int(t.get("ts_level")),
+            stats     = raw_stats,
             equipment = equipment,
         )
 
