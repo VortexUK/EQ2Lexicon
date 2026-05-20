@@ -40,6 +40,8 @@ async def test_character_returns_data(app):
         deity=None,
         aa_count=50,
         world="Varsoon",
+        ts_class="Sage",
+        ts_level=70,
         equipment=[],
     )
 
@@ -57,3 +59,5 @@ async def test_character_returns_data(app):
     assert data["level"] == 70
     assert data["cls"] == "Wizard"
     assert data["aa_count"] == 50
+    assert data["ts_class"] == "Sage"
+    assert data["ts_level"] == 70

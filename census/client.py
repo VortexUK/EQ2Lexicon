@@ -231,7 +231,8 @@ class CensusClient:
                 tier      = item_tier,
             ))
 
-        gender = t.get("gender", "")
+        gender   = t.get("gender", "")
+        ts_class = t.get("ts_class", "")
         return CharacterOverview(
             id        = str(char.get("id", "")),
             name      = (char.get("name") or {}).get("first", name),
@@ -242,6 +243,8 @@ class CensusClient:
             deity     = deity_val if deity_val and str(deity_val).lower() != "none" else None,
             aa_count  = aa_count,
             world     = world,
+            ts_class  = ts_class.capitalize() if ts_class else None,
+            ts_level  = _int(t.get("ts_level")),
             equipment = equipment,
         )
 

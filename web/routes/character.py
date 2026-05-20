@@ -30,6 +30,8 @@ class CharacterResponse(BaseModel):
     deity: str | None = None
     aa_count: int = 0
     world: str
+    ts_class: str | None = None
+    ts_level: int | None = None
     equipment: list[EquipmentSlotResponse] = []
 
 
@@ -55,6 +57,8 @@ async def get_character(name: str) -> CharacterResponse:
         deity     = char.deity,
         aa_count  = char.aa_count,
         world     = char.world,
+        ts_class  = char.ts_class,
+        ts_level  = char.ts_level,
         equipment = [
             EquipmentSlotResponse(
                 slot    = s.slot_name,

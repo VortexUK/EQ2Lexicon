@@ -95,6 +95,8 @@ class CharacterOverview:
     deity: Optional[str]
     aa_count: int
     world: str
+    ts_class: Optional[str] = None  # tradeskill class
+    ts_level: Optional[int] = None
     equipment: list[EquipmentSlot] = field(default_factory=list)
 
 
