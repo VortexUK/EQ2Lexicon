@@ -162,10 +162,33 @@ const ADORN_COLOUR: Record<string, string> = {
   Purple:    '#b060e0',
   Orange:    '#e08830',
   Turquoise: '#30c8c0',
-  Black:     '#a0a0a0',  // render dark slots in mid-grey so they're visible
+  Black:     '#a0a0a0',
 }
 function adornColour(color: string) {
   return ADORN_COLOUR[color] ?? '#888'
+}
+
+// Adorn name shortening --------------------------------------------------------
+// "<Adjective> Adornment of <Name> (<Quality>)"  →  "Adj <Name> (X)"
+const ADORN_QUALITY_TIER: Record<string, { letter: string; color: string }> = {
+  Superior:      { letter: 'F', color: '#ff939d' },
+  Fabled:        { letter: 'F', color: '#ff939d' },
+  Legendary:     { letter: 'L', color: '#ffc993' },
+  Treasured:     { letter: 'T', color: '#92d7fd' },
+  Mastercrafted: { letter: 'T', color: '#92d7fd' },
+  Uncommon:      { letter: 'U', color: '#a8d4a8' },
+  Common:        { letter: 'C', color: 'var(--text)' },
+}
+const _ADORN_RE = /^(\w+)\s+Adornment\s+of\s+(.+?)\s*\((.+?)\)\s*$/i
+
+interface ParsedAdorn { short: string; tierLetter: string; tierColor: string }
+
+function parseAdornName(name: string): ParsedAdorn | null {
+  const m = name.match(_ADORN_RE)
+  if (!m) return null
+  const tier = ADORN_QUALITY_TIER[m[3]]
+  if (!tier) return null
+  return { short: `${m[1].slice(0, 3)} ${m[2]}`, ...tier }
 }
 
 type TierStyle = { color: string; textShadow?: string }
@@ -507,26 +530,33 @@ function SlotRow({ label, item, iconSide, onShow, onHide }: {
         : <span style={{ color: 'var(--border)', fontSize: '0.82rem', fontStyle: 'italic', lineHeight: 1.2 }}>Empty</span>}
       {hasAdorns && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 3px', marginTop: 1 }}>
-          {item!.adorn_slots.map((a, i) => (
-            <span
-              key={i}
-              style={{
-                fontSize: '0.62rem', lineHeight: 1, padding: '1px 4px',
-                borderRadius: 2,
-                border: `1px solid ${adornColour(a.color)}`,
-                color: a.adorn_name ? adornColour(a.color) : 'var(--text-muted)',
-                fontStyle: a.adorn_name ? 'normal' : 'italic',
-                opacity: a.adorn_name ? 1 : 0.6,
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                maxWidth: 120,
-                cursor: a.adorn_id ? 'default' : undefined,
-              }}
-              onMouseEnter={a.adorn_id ? e => { e.stopPropagation(); onShow(a.adorn_id!, e) } : undefined}
-              onMouseLeave={a.adorn_id ? e => { e.stopPropagation(); onHide() } : undefined}
-            >
-              {a.adorn_name ?? 'Empty'}
-            </span>
-          ))}
+          {item!.adorn_slots.map((a, i) => {
+            const parsed = a.adorn_name ? parseAdornName(a.adorn_name) : null
+            return (
+              <span
+                key={i}
+                style={{
+                  fontSize: '0.62rem', lineHeight: 1, padding: '1px 4px',
+                  borderRadius: 2,
+                  border: `1px solid ${adornColour(a.color)}`,
+                  color: a.adorn_name ? adornColour(a.color) : 'var(--text-muted)',
+                  fontStyle: a.adorn_name ? 'normal' : 'italic',
+                  opacity: a.adorn_name ? 1 : 0.6,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  maxWidth: 150,
+                  cursor: a.adorn_id ? 'default' : undefined,
+                }}
+                onMouseEnter={a.adorn_id ? e => { e.stopPropagation(); onShow(a.adorn_id!, e) } : undefined}
+                onMouseLeave={a.adorn_id ? e => { e.stopPropagation(); onHide() } : undefined}
+              >
+                {parsed ? (
+                  <>{parsed.short} <span style={{ color: parsed.tierColor }}>({parsed.tierLetter})</span></>
+                ) : (
+                  a.adorn_name ?? 'Empty'
+                )}
+              </span>
+            )
+          })}
         </div>
       )}
     </div>
