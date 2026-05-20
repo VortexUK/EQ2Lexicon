@@ -162,13 +162,15 @@ class CensusClient:
             members = members,
         )
 
+    # Slots to exclude from the equipment display
+    _SKIP_SLOTS = frozenset({"food", "drink", "ammo", "event slot", "mount adornment", "mount armor"})
+
     async def get_character(self, name: str, world: str) -> Optional[CharacterOverview]:
         url = f"{BASE_URL}/s:{self.service_id}/json/get/eq2/character/"
         params = {
             "name.first": name,
             "locationdata.world": world,
-            "c:resolve": "equipment(displayname,id,iconid,slot,tier)",
-            "c:show": "name,type,equipmentslot_list,alternateadvancements",
+            "c:show": "name,type,equipmentslot_list",
             "c:limit": "1",
         }
         print(f"[Census] GET {url} params={params}")
@@ -192,35 +194,51 @@ class CensusClient:
         t = char.get("type") or {}
         deity_val = t.get("deity")
 
-        # AA count — sum all spent points
-        aas = char.get("alternateadvancements") or {}
-        aa_count = _int(aas.get("pointsspent")) or 0
+        # aa_level in type is the total AA level shown in-game
+        aa_count = _int(t.get("aa_level")) or 0
 
-        # Equipment slots
+        # Equipment — items come back with only an id; look up names in local DB
         equipment: list[EquipmentSlot] = []
         for slot in char.get("equipmentslot_list") or []:
             if not isinstance(slot, dict):
                 continue
-            slot_name = slot.get("slot") or slot.get("name") or ""
-            item = slot.get("item") or slot  # resolved item may be nested or flat
-            item_name = item.get("displayname", "")
-            if not item_name:
+            slot_display = slot.get("displayname", "")
+            if slot_display.lower() in self._SKIP_SLOTS:
                 continue
+            item_data = slot.get("item")
+            if not isinstance(item_data, dict):
+                continue
+            item_id = _int(item_data.get("id"))
+            if item_id is None:
+                continue
+
+            # Look up item name + tier from local DB
+            db_row = await item_db.find_by_id(item_id)
+            if db_row:
+                item_name = db_row.get("displayname") or f"Item #{item_id}"
+                item_tier = db_row.get("tier")
+                icon_id   = str(db_row["iconid"]) if db_row.get("iconid") else None
+            else:
+                item_name = f"Item #{item_id}"
+                item_tier = None
+                icon_id   = None
+
             equipment.append(EquipmentSlot(
-                slot_name = slot_name,
+                slot_name = slot_display,
                 item_name = item_name,
-                item_id   = str(item["id"]) if item.get("id") else None,
-                icon_id   = str(item["iconid"]) if item.get("iconid") else None,
-                tier      = item.get("tier"),
+                item_id   = str(item_id),
+                icon_id   = icon_id,
+                tier      = item_tier,
             ))
 
+        gender = t.get("gender", "")
         return CharacterOverview(
             id        = str(char.get("id", "")),
             name      = (char.get("name") or {}).get("first", name),
             level     = _int(t.get("level")),
             cls       = t.get("class"),
             race      = t.get("race"),
-            gender    = t.get("gender"),
+            gender    = gender.capitalize() if gender else None,
             deity     = deity_val if deity_val and str(deity_val).lower() != "none" else None,
             aa_count  = aa_count,
             world     = world,
