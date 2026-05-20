@@ -208,25 +208,31 @@ function CharacterView({ char }: { char: Character }) {
   const bySlot = buildSlotMap(char.equipment)
 
   return (
-    <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
-      {/* Left: stats panel */}
-      <div style={{ width: 260, flexShrink: 0 }}>
-        <StatsPanel char={char} />
-      </div>
+    <div style={{ marginTop: '1.5rem' }}>
+      {/* Full-width general banner */}
+      <GeneralBanner char={char} />
 
-      {/* Right: paperdoll */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h2 style={sectionHeading}>Equipment</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {LEFT_SLOTS.map(([label, key]) => (
-              <SlotRow key={key} label={label} item={bySlot.get(key) ?? null} iconSide="left" />
-            ))}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {RIGHT_SLOTS.map(([label, key]) => (
-              <SlotRow key={key} label={label} item={bySlot.get(key) ?? null} iconSide="right" />
-            ))}
+      {/* Below: stats panel + paperdoll side by side */}
+      <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', marginTop: '1rem' }}>
+        {/* Left: detailed stats */}
+        <div style={{ width: 260, flexShrink: 0 }}>
+          <StatsPanel char={char} />
+        </div>
+
+        {/* Right: paperdoll */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={sectionHeading}>Equipment</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {LEFT_SLOTS.map(([label, key]) => (
+                <SlotRow key={key} label={label} item={bySlot.get(key) ?? null} iconSide="left" />
+              ))}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {RIGHT_SLOTS.map(([label, key]) => (
+                <SlotRow key={key} label={label} item={bySlot.get(key) ?? null} iconSide="right" />
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -234,31 +240,56 @@ function CharacterView({ char }: { char: Character }) {
   )
 }
 
-// ── Stats panel ───────────────────────────────────────────────────────────────
+// ── General banner (full width, above equipment) ──────────────────────────────
+
+function GeneralBanner({ char }: { char: Character }) {
+  const s = char.stats
+
+  // Build the stat cells: [label, display value]
+  const cells: [string, string][] = [
+    ['Level', `${char.level ?? '—'} ${char.cls ?? ''}`.trim()],
+    ...(char.ts_class ? [['Tradeskill', `${char.ts_level ?? '—'} ${char.ts_class}`] as [string, string]] : []),
+    ...(char.deity    ? [['Deity',      char.deity] as [string, string]] : []),
+    ['AAs',        char.aa_count.toLocaleString()],
+    ...(s.health_max   != null ? [['Health',     s.health_max.toLocaleString()]          as [string, string]] : []),
+    ...(s.power_max    != null ? [['Power',      s.power_max.toLocaleString()]           as [string, string]] : []),
+    ...(s.run_speed    != null ? [['Run Speed',  `${Math.round(s.run_speed)}%`]          as [string, string]] : []),
+    ...(s.status_points != null ? [['Status',   s.status_points.toLocaleString()]        as [string, string]] : []),
+  ]
+
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 6, padding: '0.75rem 1rem',
+    }}>
+      {/* Name + subtitle row */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', marginBottom: '0.6rem' }}>
+        <h1 style={{ fontSize: '1.4rem', margin: 0 }}>{char.name}</h1>
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          {[char.world, char.race, char.gender].filter(Boolean).join(' · ')}
+        </span>
+      </div>
+
+      {/* Stat chips */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+        {cells.map(([label, val]) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+            <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>{label}</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{val}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Stats panel (left of paperdoll, no General group) ─────────────────────────
 
 function StatsPanel({ char }: { char: Character }) {
   const s = char.stats
 
   return (
     <div>
-      <h1 style={{ fontSize: '1.4rem', marginBottom: '0.1rem' }}>{char.name}</h1>
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-        {[char.world, char.race, char.gender].filter(Boolean).join(' · ')}
-      </p>
-
-      <StatGroup title="General">
-        <StatRow label="Level"              value={`${char.level ?? '—'} ${char.cls ?? ''}`} />
-        {char.ts_class && <StatRow label="Tradeskill" value={`${char.ts_level ?? '—'} ${char.ts_class}`} />}
-        {char.deity    && <StatRow label="Deity"      value={char.deity} />}
-        <StatRow label="AAs"                value={char.aa_count} />
-        <StatRow label="Health"             value={char.stats.health_max}   fmt="int" />
-        <StatRow label="Health Regen (OOC)" value={s.health_regen}           fmt="int" />
-        <StatRow label="Power"              value={s.power_max}              fmt="int" />
-        <StatRow label="Power Regen (OOC)"  value={s.power_regen}            fmt="int" />
-        <StatRow label="Run Speed"          value={s.run_speed}              fmt="pct" />
-        <StatRow label="Status Points"      value={s.status_points}          fmt="int" />
-      </StatGroup>
-
       <StatGroup title="Attributes">
         <StatRow label="Strength"     value={s.str_eff} fmt="int" />
         <StatRow label="Stamina"      value={s.sta_eff} fmt="int" />
