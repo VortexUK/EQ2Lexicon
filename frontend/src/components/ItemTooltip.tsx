@@ -97,6 +97,22 @@ const ADORN_COLOR: Record<string, string> = {
 
 const _cache = new Map<string, ItemDetail>()
 
+/** Read an already-fetched item without triggering a network request. */
+export function getCachedItem(id: string): ItemDetail | undefined {
+  return _cache.get(id)
+}
+
+/** Populate the cache for `id` if not already present (fire-and-forget safe). */
+export async function prefetchItem(id: string): Promise<void> {
+  if (_cache.has(id)) return
+  try {
+    const r = await fetch(`/api/item/${id}`)
+    if (!r.ok) return
+    const data: ItemDetail = await r.json()
+    _cache.set(id, data)
+  } catch { /* swallow network errors */ }
+}
+
 // ── Tooltip portal ────────────────────────────────────────────────────────────
 
 const TIP_W   = 360

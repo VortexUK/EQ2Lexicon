@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from web.db import upsert_user
+
 router = APIRouter(tags=["auth"])
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
@@ -18,12 +20,17 @@ DISCORD_REDIRECT_URI = os.getenv(
 _DISCORD_API = "https://discord.com/api/v10"
 _SCOPES = "identify"
 
+_ADMIN_IDS: frozenset[str] = frozenset(
+    filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(","))
+)
+
 
 class UserResponse(BaseModel):
     id: str
     username: str
     global_name: str | None = None
     avatar: str | None = None
+    is_admin: bool = False
 
 
 @router.get("/auth/login")
@@ -73,6 +80,15 @@ async def callback(code: str, request: Request) -> RedirectResponse:
         "global_name": user.get("global_name"),
         "avatar": user.get("avatar"),
     }
+
+    # Persist / update user record in our DB
+    await upsert_user(
+        discord_id=user["id"],
+        discord_name=user.get("global_name") or user["username"],
+        discord_username=user["username"],
+        avatar=user.get("avatar"),
+    )
+
     return RedirectResponse("/")
 
 
@@ -82,7 +98,7 @@ async def me(request: Request) -> UserResponse:
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return UserResponse(**user)
+    return UserResponse(**user, is_admin=user["id"] in _ADMIN_IDS)
 
 
 @router.post("/auth/logout")

@@ -235,3 +235,14 @@ test_*.png
 # Frontend build output and dependencies
 frontend/dist/
 frontend/node_modules/
+
+# Users / claims database (runtime data, not committed)
+data/users.db
+data/users.db-wal
+data/users.db-shm
+
+# Frontend build artefacts
+frontend/tsconfig.app.tsbuildinfo
+
+# Local test/debug dumps
+test_character.json

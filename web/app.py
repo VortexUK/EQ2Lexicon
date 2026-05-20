@@ -15,6 +15,9 @@ from web.routes.health import router as health_router
 from web.routes.auth import router as auth_router
 from web.routes.character import router as character_router
 from web.routes.item import router as item_router
+from web.routes.claim import router as claim_router
+from web.routes.admin import router as admin_router
+from web import db as users_db
 
 _FRONTEND_DIST  = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 _ICONS_DIR      = Path(__file__).resolve().parent.parent / "data" / "items" / "icons"
@@ -23,6 +26,7 @@ _SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-in-production")
 
 def create_app(session_secret: str | None = None) -> FastAPI:
     app = FastAPI(
+        on_startup=[lambda: users_db.init_db()],
         title="EQ2 TLE Companion",
         version="0.1.0",
         docs_url="/api/docs",
@@ -46,6 +50,8 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     app.include_router(auth_router, prefix="/api")
     app.include_router(character_router, prefix="/api")
     app.include_router(item_router, prefix="/api")
+    app.include_router(claim_router, prefix="/api")
+    app.include_router(admin_router, prefix="/api")
 
     # Item icons — served from local data directory
     if _ICONS_DIR.exists():

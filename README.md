@@ -1,122 +1,200 @@
 # EQ2CensusBot
 
-A Discord bot for EverQuest 2 that queries the [Daybreak Census API](https://census.daybreakgames.com) and renders item tooltips, guild summaries, spell tier breakdowns, and AA tree visualisations.
+A Discord bot **and** web companion site for EverQuest 2 (TLE server). Queries the [Daybreak Census API](https://census.daybreakgames.com) to provide item tooltips, guild summaries, character sheets, and more.
 
-## Commands
+---
+
+## Discord Bot Commands
 
 | Command | Description |
 |---|---|
-| `/item <name\|id\|game link>` | Renders an EQ2 item tooltip as a PNG image |
-| `/guild <name>` | Shows a tabular member summary for a guild on the configured world |
-| `/spellcheck <name>` | Summarises a character's spell/art tiers (unique highest-level only) |
+| `/item <name\|id\|game link>` | Renders an EQ2 item tooltip as an image |
+| `/guild <name>` | Tabular member summary for a guild on the configured world |
+| `/spellcheck <name>` | Summarises a character's spell/art tiers |
 | `/spellcheck <name> details:True` | Full spell list ordered by tier then level |
-| `/aacheck <character> <tree>` | Renders a character's AA allocations for a chosen tree type |
+| `/aacheck <character> <tree>` | Renders a character's AA allocations for a chosen tree |
 
-### `/aacheck` tree options
+**`/aacheck` tree options:** Class · Subclass · Shadows · Heroic · Trade
 
-| Choice | Tree type |
-|---|---|
-| Class | Archetype/class tree (e.g. Cleric) |
-| Subclass | Subclass tree (e.g. Templar) |
-| Shadows | Shadows of Fate tree |
-| Heroic | Heroic tree |
-| Trade | Tradeskill tree |
+---
 
-Each node shows a **yellow badge** if points are invested but not maxed, or a **green badge** if the node is maxed. The caption includes the character's real tree name (e.g. "Templar") and total points spent.
+## Web Companion Site
+
+A React + FastAPI site served at `http://localhost:8000` (dev: `http://localhost:5173`).
+
+### Features
+
+- **Character sheet** — full stat panel, paperdoll with tier-coloured item names, adornment chips, item and adorn tooltips on hover, stat-to-item highlight (hover a stat on the left to see which items contribute it)
+- **Item tooltips** — rendered in HTML matching the in-game style, with quality glow colours, stats, effects, adornment slots, and flags
+- **Discord login** — OAuth2 sign-in via Discord
+- **Character claiming** — users link their Discord account to their EQ2 character; claims require admin approval before taking effect
+- **Admin panel** — approve or reject pending claims with an optional rejection note; view full claim history
+
+---
 
 ## Project Structure
 
 ```
-main.py                  # Entry point — loads .env, starts the bot
+main.py                  # Discord bot entry point
+
 bot/
-  bot.py                 # EQ2Bot class — registers cogs, syncs slash commands
+  bot.py                 # EQ2Bot — registers cogs, syncs slash commands
   cogs/
     items.py             # /item command
     guild.py             # /guild command
     spellcheck.py        # /spellcheck command
     aacheck.py           # /aacheck command
+
 census/
-  client.py              # CensusClient — all HTTP calls to the Census API
-  models.py              # Dataclasses: ItemData, GuildData, CharacterSpells, CharacterAAs, etc.
-  constants.py           # STAT_MAP, class groups, ARCHETYPES, display config
+  client.py              # CensusClient — all Census API HTTP calls
+  models.py              # Dataclasses: ItemData, EquipmentSlot, AdornSlot, CharacterOverview, …
+  constants.py           # STAT_MAP, class groups, ARCHETYPES, CLASS_GROUPS
+  db.py                  # Item catalogue SQLite DB (data/items/items.db)
+
 image/
-  tooltip.py             # PIL tooltip renderer (2x supersampling, ZOOM=1.3)
-  aa_tree.py             # AA tree renderers (class, subclass, shadows, heroic, tradeskill)
+  tooltip.py             # PIL item tooltip renderer (2× supersampling)
+  aa_tree.py             # AA tree renderers
+
+web/
+  app.py                 # FastAPI application factory
+  db.py                  # Users / character_claims SQLite DB (data/users.db)
+  routes/
+    health.py            # GET /api/health
+    auth.py              # Discord OAuth2 — login, callback, /me, logout
+    character.py         # GET /api/character/{name}
+    item.py              # GET /api/item/{item_id}
+    claim.py             # GET|POST|DELETE /api/claim  (character claiming)
+    admin.py             # GET /api/admin/claims  +  approve/reject endpoints
+
+frontend/
+  src/
+    App.tsx              # React Router routes
+    pages/
+      HomePage.tsx       # Search + login + claim status strip
+      CharacterPage.tsx  # Full character sheet with stat panel, paperdoll, tooltips
+      ClaimPage.tsx      # Claim submission / status / change character
+      AdminPage.tsx      # Admin claim queue + history
+    hooks/
+      useAuth.ts         # Discord auth state hook
+      useClaim.ts        # Character claim state hook
+    components/
+      ItemTooltip.tsx    # HTML item tooltip (portal, viewport-clamped)
+
 data/
-  AAs/
-    trees/               # 157 AA tree JSON files (one per tree ID)
-    icons/               # AA node icon PNGs
-    background.jpg       # Shared dark background for all tree renders
-    bg_class.png         # Golden connector overlay for class trees
-    bg_subclass.png      # Bow-tie connector overlay for subclass trees
-    bg_shadows.png       # Shadows tree background overlay
-    bg_sprite.png        # Sprite sheet: backdrop circles + tier badge sprites
-    index.json           # Maps subclass name → list of tree IDs
-scripts/
-  preview_item.py        # Render an item tooltip to preview.png locally
-  inspect_item.py        # Dump raw Census JSON for an item
-  preview_guild.py       # Print guild table to console locally
-  preview_spellcheck.py  # Print spell summary to console locally
-  preview_aa_tree.py     # Render any AA tree to preview_aa_tree.png locally
-  preview_aacheck.py     # Fetch character AAs + render tree to preview_aacheck.png
-  download_aa_trees.py   # Download all AA tree JSONs from Census API
-  download_aa_icons.py   # Download all AA node icon PNGs from Census API
+  items/
+    items.db             # Local item catalogue (SQLite, downloaded from Census)
+    icons/               # Item icon PNGs
+  users.db               # Users + character claims (created automatically)
+  AAs/                   # AA tree JSON files and node icons
+
+scripts/                 # Local preview and download scripts (see below)
 ```
+
+---
 
 ## Setup
 
-### Requirements
+### Prerequisites
 
 - Python 3.11+
-- Dependencies: `discord.py`, `aiohttp`, `Pillow`, `python-dotenv`
+- Node.js 18+ (for the web frontend)
 
-```
+### 1. Install dependencies
+
+```bash
 pip install -r requirements.txt
+cd frontend && npm install
 ```
 
-### Environment Variables
+### 2. Configure environment
 
-Copy `.env.example` to `.env` and fill in:
-
-```
-DISCORD_TOKEN=your_discord_bot_token
-CENSUS_SERVICE_ID=example        # Register at census.daybreakgames.com for a higher rate limit
-EQ2_WORLD=Varsoon                # EQ2 world/server name used for guild, spellcheck, and aacheck lookups
+```bash
+cp .env.example .env
+# Edit .env and fill in your values
 ```
 
-### Running Locally
+Key variables:
 
+| Variable | Description |
+|---|---|
+| `DISCORD_TOKEN` | Bot token from the Discord developer portal |
+| `CENSUS_SERVICE_ID` | Census API service ID — register at census.daybreakgames.com for a higher rate limit (default `example` is rate-limited) |
+| `EQ2_WORLD` | EQ2 server name (default `Varsoon`) |
+| `DISCORD_CLIENT_ID` | OAuth2 client ID for the web login |
+| `DISCORD_CLIENT_SECRET` | OAuth2 client secret |
+| `DISCORD_REDIRECT_URI` | OAuth2 callback URL (default `http://localhost:8000/api/auth/callback`) |
+| `SESSION_SECRET` | Random secret for signing session cookies — generate with `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `ADMIN_DISCORD_IDS` | Comma-separated Discord user IDs who can approve character claims |
+| `SERVER_MAX_LEVEL` | Optional — cap item lookups to a TLE expansion level (e.g. `70`) |
+
+### 3. Running locally
+
+**Quickest — use Make:**
+
+```bash
+make dev        # starts both backend and frontend dev servers
 ```
+
+Or start each manually in separate terminals:
+
+```bash
+# Terminal 1 — backend
+python -m uvicorn web.app:app --reload --port 8000
+
+# Terminal 2 — frontend dev server
+cd frontend && npm run dev
+```
+
+Then open **http://localhost:5173** (Vite dev server, proxies API to port 8000).
+
+To run just the Discord bot:
+
+```bash
 python main.py
 ```
 
-### Preview Scripts (no Discord needed)
+### 4. Building for production
 
+```bash
+make build      # builds the React frontend into frontend/dist/
 ```
-python scripts/preview_item.py "Faded Black Hood"
-python scripts/inspect_item.py "Faded Black Hood"
-python scripts/preview_guild.py "Exordium"
-python scripts/preview_spellcheck.py Sihtric
-python scripts/preview_spellcheck.py Sihtric --details
-python scripts/preview_spellcheck.py Sihtric --debug
-python scripts/preview_aa_tree.py 25              # render tree by ID
-python scripts/preview_aacheck.py Menludiir       # list a character's AA trees
-python scripts/preview_aacheck.py Menludiir Templar  # render by tree name
-```
+
+The FastAPI app serves the built frontend automatically when `frontend/dist/` exists.
+
+---
 
 ## Deployment (Railway)
 
-The repo includes a `railway.toml` configured for Nixpacks. Set the following environment variables in the Railway dashboard:
+The repo includes a `railway.toml` configured for Nixpacks.  
+Set all required environment variables in the Railway dashboard, then push to `main` to trigger a redeploy.
 
-- `DISCORD_TOKEN`
-- `CENSUS_SERVICE_ID`
-- `EQ2_WORLD`
+---
 
-Push to `main` to trigger a redeploy.
+## Preview / Utility Scripts
+
+```bash
+# Item inspection
+python scripts/preview_item.py "Faded Black Hood"   # render tooltip image
+python scripts/inspect_item.py "Faded Black Hood"   # dump raw Census JSON
+
+# Guild & characters
+python scripts/preview_guild.py "Exordium"
+python scripts/preview_spellcheck.py Sihtric
+python scripts/preview_spellcheck.py Sihtric --details
+python scripts/preview_aa_tree.py 25               # render AA tree by ID
+python scripts/preview_aacheck.py Menludiir        # list character AA trees
+python scripts/preview_aacheck.py Menludiir Templar # render a specific tree
+
+# Data downloads
+python scripts/download_aa_trees.py               # fetch all AA tree JSONs from Census
+python scripts/download_aa_icons.py               # fetch all AA node icon PNGs
+```
+
+---
 
 ## Census API Notes
 
 - Base URL: `https://census.daybreakgames.com`
-- Item lookup supports: display name, numeric ID, or in-game link (e.g. `\aITEM 12345 ...`)
+- Item lookup supports display name, numeric ID, or in-game link (`\aITEM 12345 ...`)
 - Game link IDs are signed 32-bit integers; the client converts negative values to unsigned automatically
-- The `example` service ID is rate-limited — register your own at the Census site for production use
+- The `example` service ID is rate-limited — register at the Census site for production use

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ItemTooltip, TooltipState } from '../components/ItemTooltip'
+import { ItemTooltip, TooltipState, getCachedItem, prefetchItem } from '../components/ItemTooltip'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -231,6 +231,36 @@ function tierStyle(tier: string | null): TierStyle {
   return { color: 'var(--text)' }
 }
 
+// ── Stat ↔ item-stat matching ─────────────────────────────────────────────────
+//
+// Panel labels sometimes differ from the Census stat display_name.
+// Each entry maps a lowercased panel label to alternative strings to try.
+const STAT_ALIASES: Record<string, string[]> = {
+  // Panel "Armor" (armor class) and "Physical Mit" both derive from the
+  // "Mitigation" stat on armour pieces.
+  'armor':              ['mitigation'],
+  'physical mit':       ['mitigation'],
+  // Elemental / Noxious / Arcane resistances are a single combined
+  // "Resistances" stat on items.
+  'elemental mit':      ['resistances', 'resistance'],
+  'noxious mit':        ['resistances', 'resistance'],
+  'arcane mit':         ['resistances', 'resistance'],
+  'crit chance':        ['critical chance'],
+  'crit bonus':         ['critical bonus'],
+  'ability mod':        ['ability modifier'],
+  'weapon damage':      ['weapon damage bonus'],
+  'ability doublecast': ['ability double cast'],
+  'attack speed':       ['haste'],
+}
+
+function statMatches(panelLabel: string, itemStatName: string): boolean {
+  const label = panelLabel.toLowerCase()
+  const stat  = itemStatName.toLowerCase()
+  if (label === stat) return true
+  if (stat.includes(label) || label.includes(stat)) return true
+  return (STAT_ALIASES[label] ?? []).some(a => stat === a || stat.includes(a))
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 // Module-level cache: survives re-renders and Vite HMR remounts.
@@ -286,6 +316,46 @@ export default function CharacterPage() {
 function CharacterView({ char }: { char: Character }) {
   const bySlot = buildSlotMap(char.equipment)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+  const [hoveredStat, setHoveredStat] = useState<string | null>(null)
+  // Tracks when background prefetch completes so highlights re-evaluate.
+  const [, setItemsReady] = useState(false)
+
+  // Eagerly fetch stats for every equipped item + adorn so highlights work
+  // without the user having to hover each item first.
+  useEffect(() => {
+    const ids: string[] = []
+    for (const slot of char.equipment) {
+      if (slot.item_id) ids.push(slot.item_id)
+      for (const a of slot.adorn_slots) {
+        if (a.adorn_id) ids.push(a.adorn_id)
+      }
+    }
+    if (ids.length === 0) { setItemsReady(true); return }
+    Promise.allSettled(ids.map(prefetchItem)).then(() => setItemsReady(true))
+  }, [char])
+
+  /** Returns whether this slot's item or adorns contribute to the hovered stat. */
+  function getHighlight(item: EquipmentSlot | null): 'direct' | 'adorn' | null {
+    if (!hoveredStat || !item) return null
+    // Mitigation is a top-level property on ItemDetail, not in stats[].
+    // Physical Mit and Armor both derive from it.
+    const isMitStat = hoveredStat === 'Physical Mit' || hoveredStat === 'Armor'
+    if (item.item_id) {
+      const d = getCachedItem(item.item_id)
+      if (d) {
+        const hasStat = d.stats.some(s => statMatches(hoveredStat, s.display_name))
+        const hasMit  = isMitStat && d.mitigation != null && d.mitigation > 0
+        if (hasStat || hasMit) return 'direct'
+      }
+    }
+    const adornHit = item.adorn_slots.some(a => {
+      if (!a.adorn_id) return false
+      const d = getCachedItem(a.adorn_id)
+      if (!d) return false
+      return d.stats.some(s => statMatches(hoveredStat, s.display_name))
+    })
+    return adornHit ? 'adorn' : null
+  }
 
   const showTip = useCallback((itemId: string, e: React.MouseEvent) => {
     setTooltip({ itemId, x: e.clientX, y: e.clientY })
@@ -304,7 +374,9 @@ function CharacterView({ char }: { char: Character }) {
       <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', marginTop: '1rem' }}>
         {/* Left: detailed stats */}
         <div style={{ width: 260, flexShrink: 0 }}>
-          <StatsPanel char={char} />
+          <StatsPanel char={char}
+            onStatHover={setHoveredStat}
+            onStatLeave={() => setHoveredStat(null)} />
         </div>
 
         {/* Right: paperdoll */}
@@ -312,22 +384,25 @@ function CharacterView({ char }: { char: Character }) {
           <h2 style={sectionHeading}>Equipment</h2>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {LEFT_SLOTS.map(([label, key]) => (
-                <SlotRow key={key} label={label} item={bySlot.get(key) ?? null} iconSide="left" onShow={showTip} onHide={hideTip} />
-              ))}
+              {LEFT_SLOTS.map(([label, key]) => {
+                const item = bySlot.get(key) ?? null
+                return <SlotRow key={key} label={label} item={item} iconSide="left" onShow={showTip} onHide={hideTip} highlight={getHighlight(item)} />
+              })}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {RIGHT_SLOTS.map(([label, key]) => (
-                <SlotRow key={key} label={label} item={bySlot.get(key) ?? null} iconSide="right" onShow={showTip} onHide={hideTip} />
-              ))}
+              {RIGHT_SLOTS.map(([label, key]) => {
+                const item = bySlot.get(key) ?? null
+                return <SlotRow key={key} label={label} item={item} iconSide="right" onShow={showTip} onHide={hideTip} highlight={getHighlight(item)} />
+              })}
             </div>
           </div>
 
           <h2 style={{ ...sectionHeading, marginTop: '1rem' }}>Consumables</h2>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-            {CONSUMABLE_SLOTS.map(([label, key]) => (
-              <SlotRow key={key} label={label} item={bySlot.get(key) ?? null} iconSide="left" onShow={showTip} onHide={hideTip} />
-            ))}
+            {CONSUMABLE_SLOTS.map(([label, key]) => {
+              const item = bySlot.get(key) ?? null
+              return <SlotRow key={key} label={label} item={item} iconSide="left" onShow={showTip} onHide={hideTip} highlight={getHighlight(item)} />
+            })}
           </div>
         </div>
       </div>
@@ -410,52 +485,58 @@ function BannerStat({ label, value }: { label: string; value: string }) {
 
 // ── Stats panel (left of paperdoll, no General group) ─────────────────────────
 
-function StatsPanel({ char }: { char: Character }) {
+function StatsPanel({ char, onStatHover, onStatLeave }: {
+  char: Character
+  onStatHover: (label: string) => void
+  onStatLeave: () => void
+}) {
   const s = char.stats
+  // Convenience: create hover/leave props for a given label
+  const h = (label: string) => ({ onHover: () => onStatHover(label), onLeave: onStatLeave })
 
   return (
     <div>
       <StatGroup title="Attributes">
-        <StatRow label="Strength"     value={s.str_eff} fmt="int" />
-        <StatRow label="Stamina"      value={s.sta_eff} fmt="int" />
-        <StatRow label="Agility"      value={s.agi_eff} fmt="int" />
-        <StatRow label="Wisdom"       value={s.wis_eff} fmt="int" />
-        <StatRow label="Intelligence" value={s.int_eff} fmt="int" />
+        <StatRow label="Strength"     value={s.str_eff} fmt="int"  {...h('Strength')} />
+        <StatRow label="Stamina"      value={s.sta_eff} fmt="int"  {...h('Stamina')} />
+        <StatRow label="Agility"      value={s.agi_eff} fmt="int"  {...h('Agility')} />
+        <StatRow label="Wisdom"       value={s.wis_eff} fmt="int"  {...h('Wisdom')} />
+        <StatRow label="Intelligence" value={s.int_eff} fmt="int"  {...h('Intelligence')} />
       </StatGroup>
 
       <StatGroup title="Defense">
-        <StatRow label="Armor"              value={s.armor}        fmt="int" />
-        <StatRow label="Avoidance"          value={s.avoidance}    fmt="int" />
-        <StatRow label="Block Chance"       value={s.block_chance} fmt="pct1" />
-        <StatRow label="Parry"              value={s.parry}        fmt="int" />
-        <StatRow label="Physical Mit"       value={s.mit_physical}  fmt="pct1" />
-        <StatRow label="Elemental Mit"      value={s.mit_elemental} fmt="pct1" />
-        <StatRow label="Noxious Mit"        value={s.mit_noxious}   fmt="pct1" />
-        <StatRow label="Arcane Mit"         value={s.mit_arcane}    fmt="pct1" />
+        <StatRow label="Armor"              value={s.armor}         fmt="int"  {...h('Armor')} />
+        <StatRow label="Avoidance"          value={s.avoidance}     fmt="int"  {...h('Avoidance')} />
+        <StatRow label="Block Chance"       value={s.block_chance}  fmt="pct1" {...h('Block Chance')} />
+        <StatRow label="Parry"              value={s.parry}         fmt="int"  {...h('Parry')} />
+        <StatRow label="Physical Mit"       value={s.mit_physical}  fmt="pct1" {...h('Physical Mit')} />
+        <StatRow label="Elemental Mit"      value={s.mit_elemental} fmt="pct1" {...h('Elemental Mit')} />
+        <StatRow label="Noxious Mit"        value={s.mit_noxious}   fmt="pct1" {...h('Noxious Mit')} />
+        <StatRow label="Arcane Mit"         value={s.mit_arcane}    fmt="pct1" {...h('Arcane Mit')} />
       </StatGroup>
 
       <StatGroup title="Combat">
-        <StatRow label="Potency"            value={s.potency}              fmt="dec1" />
-        <StatRow label="Crit Chance"        value={s.crit_chance}          fmt="pct1" />
-        <StatRow label="Crit Bonus"         value={s.crit_bonus}           fmt="pct1" />
-        <StatRow label="Fervor"             value={s.fervor}               fmt="dec1" />
-        <StatRow label="DPS"                value={s.dps}                  fmt="dec1" />
-        <StatRow label="Double Attack"      value={s.double_attack}        fmt="pct1" />
-        <StatRow label="Ability Doublecast" value={s.ability_doublecast}   fmt="pct1" />
-        <StatRow label="Attack Speed"       value={s.attack_speed}         fmt="pct1" />
-        <StatRow label="Ability Mod"        value={s.ability_mod}          fmt="int" />
-        <StatRow label="Weapon Damage"      value={s.weapon_damage_bonus}  fmt="pct1" />
-        <StatRow label="Flurry"             value={s.flurry}               fmt="pct1" />
-        <StatRow label="Strikethrough"      value={s.strikethrough}        fmt="pct1" />
-        <StatRow label="Accuracy"           value={s.accuracy}             fmt="pct1" />
-        <StatRow label="Lethality"          value={s.lethality}            fmt="pct1" />
-        <StatRow label="Toughness"          value={s.toughness}            fmt="dec1" />
+        <StatRow label="Potency"            value={s.potency}             fmt="dec1" {...h('Potency')} />
+        <StatRow label="Crit Chance"        value={s.crit_chance}         fmt="pct1" {...h('Crit Chance')} />
+        <StatRow label="Crit Bonus"         value={s.crit_bonus}          fmt="pct1" {...h('Crit Bonus')} />
+        <StatRow label="Fervor"             value={s.fervor}              fmt="dec1" {...h('Fervor')} />
+        <StatRow label="DPS"                value={s.dps}                 fmt="dec1" {...h('DPS')} />
+        <StatRow label="Double Attack"      value={s.double_attack}       fmt="pct1" {...h('Double Attack')} />
+        <StatRow label="Ability Doublecast" value={s.ability_doublecast}  fmt="pct1" {...h('Ability Doublecast')} />
+        <StatRow label="Attack Speed"       value={s.attack_speed}        fmt="pct1" {...h('Attack Speed')} />
+        <StatRow label="Ability Mod"        value={s.ability_mod}         fmt="int"  {...h('Ability Mod')} />
+        <StatRow label="Weapon Damage"      value={s.weapon_damage_bonus} fmt="pct1" {...h('Weapon Damage')} />
+        <StatRow label="Flurry"             value={s.flurry}              fmt="pct1" {...h('Flurry')} />
+        <StatRow label="Strikethrough"      value={s.strikethrough}       fmt="pct1" {...h('Strikethrough')} />
+        <StatRow label="Accuracy"           value={s.accuracy}            fmt="pct1" {...h('Accuracy')} />
+        <StatRow label="Lethality"          value={s.lethality}           fmt="pct1" {...h('Lethality')} />
+        <StatRow label="Toughness"          value={s.toughness}           fmt="dec1" {...h('Toughness')} />
       </StatGroup>
 
       <StatGroup title="Casting">
-        <StatRow label="Reuse Speed"    value={s.reuse_speed}    fmt="pct1" />
-        <StatRow label="Casting Speed"  value={s.casting_speed}  fmt="pct1" />
-        <StatRow label="Recovery Speed" value={s.recovery_speed} fmt="pct1" />
+        <StatRow label="Reuse Speed"    value={s.reuse_speed}    fmt="pct1" {...h('Reuse Speed')} />
+        <StatRow label="Casting Speed"  value={s.casting_speed}  fmt="pct1" {...h('Casting Speed')} />
+        <StatRow label="Recovery Speed" value={s.recovery_speed} fmt="pct1" {...h('Recovery Speed')} />
       </StatGroup>
 
       <StatGroup title="Weapon">
@@ -484,15 +565,21 @@ function fmt(value: number, format?: Fmt): string {
   }
 }
 
-function StatRow({ label, value, fmt: format }: {
+function StatRow({ label, value, fmt: format, onHover, onLeave }: {
   label: string
   value: number | string | null | undefined
   fmt?: Fmt
+  onHover?: () => void
+  onLeave?: () => void
 }) {
   if (value === null || value === undefined) return null
   const display = typeof value === 'number' ? fmt(value, format) : value
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '2px 0', borderBottom: '1px solid var(--border)' }}>
+    <div
+      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '2px 0', borderBottom: '1px solid var(--border)', cursor: onHover ? 'default' : undefined }}
+      onMouseEnter={onHover}
+      onMouseLeave={onLeave}
+    >
       <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', paddingRight: '0.5rem' }}>{label}</span>
       <span style={{ fontSize: '0.85rem', fontWeight: 500, textAlign: 'right' }}>{display}</span>
     </div>
@@ -514,12 +601,13 @@ function StatGroup({ title, children }: { title: string; children: React.ReactNo
 
 // ── Paperdoll helpers ─────────────────────────────────────────────────────────
 
-function SlotRow({ label, item, iconSide, onShow, onHide }: {
+function SlotRow({ label, item, iconSide, onShow, onHide, highlight }: {
   label: string
   item: EquipmentSlot | null
   iconSide: 'left' | 'right'
   onShow: (itemId: string, e: React.MouseEvent) => void
   onHide: () => void
+  highlight: 'direct' | 'adorn' | null
 }) {
   const url = item?.icon_id ? `/icons/${item.icon_id}.png` : null
   const hasAdorns = (item?.adorn_slots.length ?? 0) > 0
@@ -542,6 +630,7 @@ function SlotRow({ label, item, iconSide, onShow, onHide }: {
             return (
               <span
                 key={i}
+                data-adorn-id={a.adorn_id ?? undefined}
                 style={{
                   fontSize: '0.62rem', lineHeight: 1, padding: '1px 4px',
                   borderRadius: 2,
@@ -553,8 +642,6 @@ function SlotRow({ label, item, iconSide, onShow, onHide }: {
                   maxWidth: 150,
                   cursor: a.adorn_id ? 'default' : undefined,
                 }}
-                onMouseEnter={a.adorn_id ? e => { e.stopPropagation(); onShow(a.adorn_id!, e) } : undefined}
-                onMouseLeave={a.adorn_id ? e => { e.stopPropagation(); onHide() } : undefined}
               >
                 {parsed ? (
                   <>{parsed.short} <span style={{ color: parsed.tierColor }}>({parsed.tierLetter})</span></>
@@ -568,10 +655,31 @@ function SlotRow({ label, item, iconSide, onShow, onHide }: {
       )}
     </div>
   )
+  const hlBg     = highlight === 'direct' ? 'rgba(34,255,34,0.13)'
+                 : highlight === 'adorn'  ? 'rgba(34,255,34,0.05)'
+                 : undefined
+  const hlBorder = highlight === 'direct' ? 'rgba(34,255,34,0.50)'
+                 : highlight === 'adorn'  ? 'rgba(34,255,34,0.22)'
+                 : undefined
+
   return (
     <div
-      style={{ ...slotRow, flexDirection: iconSide === 'left' ? 'row' : 'row-reverse', height: 'auto', minHeight: 50, alignItems: 'center' }}
-      onMouseEnter={item?.item_id ? e => onShow(item.item_id!, e) : undefined}
+      style={{
+        ...slotRow,
+        flexDirection: iconSide === 'left' ? 'row' : 'row-reverse',
+        height: 'auto', minHeight: 50, alignItems: 'center',
+        background:   hlBg     ?? 'var(--surface)',
+        borderColor:  hlBorder ?? 'var(--border)',
+        transition: 'background 0.12s ease, border-color 0.12s ease',
+      }}
+      onMouseOver={item?.item_id ? e => {
+        const adornEl = (e.target as HTMLElement).closest('[data-adorn-id]')
+        if (adornEl) {
+          const adornId = adornEl.getAttribute('data-adorn-id')
+          if (adornId) { onShow(adornId, e); return }
+        }
+        onShow(item.item_id!, e)
+      } : undefined}
       onMouseLeave={item?.item_id ? onHide : undefined}
     >
       {iconEl}{textEl}

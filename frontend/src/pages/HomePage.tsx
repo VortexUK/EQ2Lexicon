@@ -1,11 +1,81 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { avatarUrl, useAuth } from '../hooks/useAuth'
+import { useClaim } from '../hooks/useClaim'
 
 async function logout() {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
   window.location.reload()
 }
+
+// ── Claim status strip ────────────────────────────────────────────────────────
+
+function ClaimStrip() {
+  const claimState = useClaim()
+
+  if (claimState.status === 'loading' || claimState.status === 'unauthenticated') return null
+  if (claimState.status === 'error') return null
+
+  const { approved, pending } = claimState.data
+  const primary = approved.find(c => c.is_primary === 1) ?? approved[0] ?? null
+  const alts = approved.filter(c => c !== primary)
+
+  // No claims at all
+  if (approved.length === 0 && !pending) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem' }}>
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No character claimed.</span>
+        <Link to="/claim" style={linkBtn}>Claim character</Link>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+      {/* Primary character — prominent */}
+      {primary && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <Link
+            to={`/character/${encodeURIComponent(primary.character_name)}`}
+            style={{ ...linkBtn, background: 'var(--accent)', fontWeight: 600, fontSize: '0.95rem' }}
+          >
+            {primary.character_name}
+          </Link>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Primary</span>
+          <Link to="/claim" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginLeft: 'auto' }}>manage</Link>
+        </div>
+      )}
+
+      {/* Alt characters — smaller */}
+      {alts.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', paddingLeft: '0.25rem' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Alts:</span>
+          {alts.map(c => (
+            <Link
+              key={c.id}
+              to={`/character/${encodeURIComponent(c.character_name)}`}
+              style={{ ...linkBtn, fontSize: '0.82rem', padding: '0.25rem 0.7rem' }}
+            >
+              {c.character_name}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Pending claim */}
+      {pending && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span style={{ fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+            ⏳ Pending: <em>{pending.character_name}</em>
+          </span>
+          <Link to="/claim" style={{ ...linkBtn, fontSize: '0.82rem' }}>View</Link>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 function HomePage() {
   const auth = useAuth()
@@ -49,21 +119,38 @@ function HomePage() {
       )}
 
       {auth.status === 'authenticated' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <img
-            src={avatarUrl(auth.user)}
-            alt="avatar"
-            style={{ width: 40, height: 40, borderRadius: '50%' }}
-          />
-          <span>{auth.user.global_name ?? auth.user.username}</span>
-          <button onClick={logout} style={{ ...btnStyle('var(--surface-raised)'), marginLeft: 'auto' }}>
-            Sign out
-          </button>
+        <div>
+          {/* User row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <img
+              src={avatarUrl(auth.user)}
+              alt="avatar"
+              style={{ width: 40, height: 40, borderRadius: '50%' }}
+            />
+            <span>{auth.user.global_name ?? auth.user.username}</span>
+            <button onClick={logout} style={{ ...btnStyle('var(--surface-raised)'), marginLeft: 'auto' }}>
+              Sign out
+            </button>
+          </div>
+
+          {/* Claim status */}
+          <ClaimStrip />
+
+          {/* Admin link */}
+          {auth.user.is_admin && (
+            <div style={{ marginTop: '1rem' }}>
+              <Link to="/admin" style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                ⚙ Admin panel
+              </Link>
+            </div>
+          )}
         </div>
       )}
     </main>
   )
 }
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 function btnStyle(bg: string): React.CSSProperties {
   return {
@@ -77,6 +164,19 @@ function btnStyle(bg: string): React.CSSProperties {
     fontSize: '0.95rem',
     whiteSpace: 'nowrap',
   }
+}
+
+const linkBtn: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '0.35rem 0.9rem',
+  background: 'var(--surface)',
+  color: 'var(--text)',
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  cursor: 'pointer',
+  fontSize: '0.85rem',
+  textDecoration: 'none',
+  whiteSpace: 'nowrap',
 }
 
 export default HomePage

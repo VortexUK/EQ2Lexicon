@@ -5,6 +5,7 @@ export interface User {
   username: string
   global_name: string | null
   avatar: string | null
+  is_admin: boolean
 }
 
 export type AuthState =
