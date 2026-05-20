@@ -514,8 +514,12 @@ class CensusClient:
                 continue
             if fmt == "charges":
                 n = int(val)
+                if n == 0:
+                    continue
                 rows.append((label, "Unlimited" if n == -1 else f"{n}/{n}"))
             else:
+                if str(val) == "0":
+                    continue
                 rows.append((label, str(val)))
         for field, label, fmt in TYPEINFO_DISPLAY:
             val = typeinfo.get(field)
@@ -523,11 +527,19 @@ class CensusClient:
                 continue
             if fmt == "duration":
                 try:
-                    rows.append((label, _fmt_duration(float(val))))
+                    seconds = float(val)
+                    if seconds == 0:
+                        continue
+                    rows.append((label, _fmt_duration(seconds)))
                 except (TypeError, ValueError):
                     # Already a pre-formatted string (e.g. '45 minutes')
-                    rows.append((label, str(val)))
+                    formatted = str(val)
+                    if formatted in ("0", "0 sec", "0 min", "0 hr"):
+                        continue
+                    rows.append((label, formatted))
             else:
+                if str(val) == "0":
+                    continue
                 rows.append((label, str(val)))
         return rows
 

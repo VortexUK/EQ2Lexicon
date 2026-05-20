@@ -1,11 +1,11 @@
 /**
- * HTML tooltip that mirrors the PIL renderer in image/tooltip.py.
- * Colours, layout order, and section logic are kept in sync with that file.
+ * HTML tooltip mirroring image/tooltip.py.
+ * Colours, layout order, and section logic kept in sync with that file.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-// ── Types (mirror web/routes/item.py) ─────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ItemStat {
   display_name: string
@@ -52,9 +52,8 @@ export interface TooltipState {
 
 // ── Colours (from tooltip.py) ─────────────────────────────────────────────────
 
-const BG           = '#0a0a0e'
-const BORDER_OUTER = '#c49e2c'   // golden amber
-const BORDER_INNER = '#364c5c'   // slate teal
+const BORDER_OUTER = '#c49e2c'
+const BORDER_INNER = '#364c5c'
 const C_BODY       = '#c7cfc7'
 const C_NAME       = '#e8e8e8'
 const C_PRIMARY    = '#22ff22'
@@ -77,20 +76,14 @@ const QUALITY: Record<string, QualityStyle> = {
   handcrafted:   { color: '#beff93' },
   common:        { color: '#beff93' },
 }
-function qualityStyle(quality: string): QualityStyle {
-  return QUALITY[quality.toLowerCase()] ?? { color: C_WHITE }
+function qualityStyle(q: string): QualityStyle {
+  return QUALITY[q.toLowerCase()] ?? { color: C_WHITE }
 }
 
 const ADORN_COLOR: Record<string, string> = {
-  white:     '#dcdcdc',
-  turquoise: '#3cc0c0',
-  orange:    '#ff8a00',
-  red:       '#d73737',
-  blue:      '#5076da',
-  green:     '#37c037',
-  yellow:    '#d7c037',
-  purple:    '#b04eda',
-  black:     '#a0a0a0',
+  white: '#dcdcdc', turquoise: '#3cc0c0', orange: '#ff8a00',
+  red: '#d73737', blue: '#5076da', green: '#37c037',
+  yellow: '#d7c037', purple: '#b04eda', black: '#a0a0a0',
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
@@ -99,11 +92,15 @@ const _cache = new Map<string, ItemDetail>()
 
 // ── Tooltip portal ────────────────────────────────────────────────────────────
 
-const TIP_W = 360
+const TIP_W   = 360
+const MARGIN  = 12
 
 export function ItemTooltip({ state }: { state: TooltipState }) {
-  const [item, setItem] = useState<ItemDetail | null>(_cache.get(state.itemId) ?? null)
+  const [item, setItem]   = useState<ItemDetail | null>(_cache.get(state.itemId) ?? null)
   const [loading, setLoading] = useState(!_cache.has(state.itemId))
+  const tipRef = useRef<HTMLDivElement>(null)
+  // top position, adjusted after render to prevent viewport overflow
+  const [top, setTop] = useState(Math.max(MARGIN, state.y - 8))
 
   useEffect(() => {
     if (_cache.has(state.itemId)) {
@@ -118,24 +115,33 @@ export function ItemTooltip({ state }: { state: TooltipState }) {
       .catch(() => setLoading(false))
   }, [state.itemId])
 
-  const MARGIN = 12
-  const x = state.x + 16 + TIP_W > window.innerWidth ? state.x - TIP_W - 8 : state.x + 16
-  const y = Math.max(MARGIN, state.y - 8)
+  // After content renders, clamp top so tooltip doesn't overflow the bottom
+  useLayoutEffect(() => {
+    if (!tipRef.current) return
+    const h = tipRef.current.offsetHeight
+    const ideal = Math.max(MARGIN, state.y - 8)
+    const maxTop = window.innerHeight - h - MARGIN
+    setTop(Math.min(ideal, Math.max(MARGIN, maxTop)))
+  }, [item, loading, state.y])
+
+  const x = state.x + 16 + TIP_W > window.innerWidth
+    ? state.x - TIP_W - 8
+    : state.x + 16
 
   const qs = item ? qualityStyle(item.quality) : null
 
   return createPortal(
-    <div style={{
-      position: 'fixed', left: x, top: y, width: TIP_W, zIndex: 9999,
+    <div ref={tipRef} style={{
+      position: 'fixed', left: x, top,
+      width: TIP_W, zIndex: 9999,
       pointerEvents: 'none', userSelect: 'none',
       fontFamily: '"Times New Roman", Times, serif',
-      background: BG,
+      background: '#0a0a0e',
       border: `2px solid ${BORDER_OUTER}`,
       boxShadow: `inset 0 0 0 1px ${BORDER_INNER}, 0 8px 32px rgba(0,0,0,0.9)`,
       borderRadius: 2,
       padding: 6,
     }}>
-      {/* Inner slate teal border */}
       <div style={{ border: `1px solid ${BORDER_INNER}`, padding: '8px 10px' }}>
         {loading && <div style={{ color: '#777', fontSize: '0.82rem' }}>Loading…</div>}
         {!loading && !item && <div style={{ color: '#f87171', fontSize: '0.82rem' }}>Item not found</div>}
@@ -146,17 +152,19 @@ export function ItemTooltip({ state }: { state: TooltipState }) {
   )
 }
 
-// ── Main content ──────────────────────────────────────────────────────────────
+// ── Content ───────────────────────────────────────────────────────────────────
 
 function TooltipContent({ item, qs }: { item: ItemDetail; qs: QualityStyle }) {
-  const primary   = item.stats.filter(s => s.stat_group === 'primary')
-  const secondary = item.stats.filter(s => s.stat_group === 'secondary')
+  const primary   = item.stats.filter(s => s.stat_group === 'primary'   && s.value !== 0)
+  const secondary = item.stats.filter(s => s.stat_group === 'secondary' && s.value !== 0)
   const isAdorn   = item.armor_type.toLowerCase().includes('adornment')
+  // Food/drink: don't show individual effect name headers, just list content
+  const isConsumable = ['food', 'drink'].some(t => item.slot_type.toLowerCase().includes(t))
 
   return (
     <div style={{ fontSize: '0.83rem', lineHeight: 1.4, color: C_BODY }}>
 
-      {/* ── Header: name + icon ── */}
+      {/* Name + icon */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: C_NAME, fontWeight: 'bold', fontSize: '0.97rem', lineHeight: 1.25 }}>
@@ -184,11 +192,10 @@ function TooltipContent({ item, qs }: { item: ItemDetail; qs: QualityStyle }) {
         )}
       </div>
 
-      {/* ── Quality badge ── */}
+      {/* Quality badge */}
       {item.quality && (
         <div style={{
-          color: qs.color,
-          fontWeight: 'bold', fontSize: '0.9rem',
+          color: qs.color, fontWeight: 'bold', fontSize: '0.9rem',
           textShadow: qs.glowColor ? glow(qs.glowColor) : undefined,
           marginBottom: 6,
         }}>
@@ -196,56 +203,59 @@ function TooltipContent({ item, qs }: { item: ItemDetail; qs: QualityStyle }) {
         </div>
       )}
 
-      {/* ── Adornment item preamble ── */}
+      {/* Adornment preamble */}
       {isAdorn && (
         <div style={{ color: C_BODY, marginBottom: 4 }}>Adds the following to an item:</div>
       )}
 
-      {/* ── Primary stats (bright green, 2-col) ── */}
+      {/* Primary stats */}
       {primary.length > 0 && (
         <Section>
           <StatCols stats={primary} color={C_PRIMARY} />
         </Section>
       )}
 
-      {/* ── Secondary stats (cyan, 2-col) ── */}
+      {/* Secondary stats */}
       {secondary.length > 0 && (
         <Section>
           <StatCols stats={secondary} color={C_SECONDARY} />
         </Section>
       )}
 
-      {/* ── Item properties block ── */}
-      {(item.armor_type || item.slot_type || item.mitigation || item.item_level != null || item.extra_info.length > 0) && (
+      {/* Properties block — skip zero mitigation */}
+      {(item.armor_type || item.slot_type || (item.mitigation != null && item.mitigation > 0) ||
+        item.item_level != null || item.extra_info.length > 0) && (
         <Section>
           {item.armor_type && <KV label="Type"       value={item.armor_type} />}
           {item.slot_type  && <KV label="Slot"       value={item.slot_type} />}
-          {item.mitigation != null && <KV label="Mitigation" value={item.mitigation.toLocaleString()} />}
-          {item.item_level != null && <KV label="Level"      value={String(item.item_level)} valueColor={C_PRIMARY} />}
+          {item.mitigation != null && item.mitigation > 0 &&
+            <KV label="Mitigation" value={item.mitigation.toLocaleString()} />}
+          {item.item_level != null &&
+            <KV label="Level" value={String(item.item_level)} valueColor={C_PRIMARY} />}
           {item.extra_info.map(([label, val]) => (
             <KV key={label} label={label} value={val} />
           ))}
         </Section>
       )}
 
-      {/* ── Class restrictions ── */}
+      {/* Classes */}
       {item.classes_label && (
         <div style={{ color: C_PRIMARY, fontWeight: 'bold', marginTop: 5 }}>
           {item.classes_label}
         </div>
       )}
 
-      {/* ── Effects ── */}
+      {/* Effects */}
       {item.effects.length > 0 && (
         <Section>
           <div style={{ color: C_GOLD, fontWeight: 'bold', marginBottom: 4 }}>Effects:</div>
           {item.effects.map((eff, i) => (
-            <EffectBlock key={i} eff={eff} qs={qs} />
+            <EffectBlock key={i} eff={eff} qs={qs} showName={!isConsumable} />
           ))}
         </Section>
       )}
 
-      {/* ── Adornment slots ── */}
+      {/* Adornment slots */}
       {item.adornment_slots.length > 0 && (
         <Section>
           <div style={{ color: C_GOLD, fontWeight: 'bold', marginBottom: 3 }}>Adornment Slots:</div>
@@ -253,14 +263,15 @@ function TooltipContent({ item, qs }: { item: ItemDetail; qs: QualityStyle }) {
             {item.adornment_slots.map((slot, i) => (
               <span key={i}>
                 <span style={{ color: ADORN_COLOR[slot.toLowerCase()] ?? C_WHITE }}>{slot}</span>
-                {i < item.adornment_slots.length - 1 && <span style={{ color: C_WHITE }}>, </span>}
+                {i < item.adornment_slots.length - 1 &&
+                  <span style={{ color: C_WHITE }}>, </span>}
               </span>
             ))}
           </div>
         </Section>
       )}
 
-      {/* ── Flags ── */}
+      {/* Flags */}
       {item.flags.length > 0 && (
         <Section>
           <div style={{ color: C_GOLD, fontWeight: 'bold', letterSpacing: '0.04em' }}>
@@ -285,7 +296,7 @@ function Section({ children }: { children: React.ReactNode }) {
 
 function KV({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
-    <div style={{ display: 'flex', gap: 0 }}>
+    <div style={{ display: 'flex' }}>
       <span style={{ color: C_WHITE, minWidth: 90 }}>{label}</span>
       <span style={{ color: valueColor ?? C_SECONDARY }}>{value}</span>
     </div>
@@ -294,9 +305,7 @@ function KV({ label, value, valueColor }: { label: string; value: string; valueC
 
 function StatCols({ stats, color }: { stats: ItemStat[]; color: string }) {
   const rows: [ItemStat, ItemStat | null][] = []
-  for (let i = 0; i < stats.length; i += 2) {
-    rows.push([stats[i], stats[i + 1] ?? null])
-  }
+  for (let i = 0; i < stats.length; i += 2) rows.push([stats[i], stats[i + 1] ?? null])
   return (
     <>
       {rows.map(([a, b], i) => (
@@ -309,18 +318,17 @@ function StatCols({ stats, color }: { stats: ItemStat[]; color: string }) {
   )
 }
 
-function EffectBlock({ eff, qs }: { eff: ItemEffect; qs: QualityStyle }) {
-  const effColor = qs.color ?? '#ff939d'
-  const effGlow  = qs.glowColor
-
+function EffectBlock({ eff, qs, showName }: { eff: ItemEffect; qs: QualityStyle; showName: boolean }) {
   return (
     <div style={{ marginBottom: 5 }}>
-      <div style={{
-        color: effColor, fontWeight: 'bold',
-        textShadow: effGlow ? glow(effGlow) : undefined,
-      }}>
-        {eff.name}
-      </div>
+      {showName && (
+        <div style={{
+          color: qs.color, fontWeight: 'bold',
+          textShadow: qs.glowColor ? glow(qs.glowColor) : undefined,
+        }}>
+          {eff.name}
+        </div>
+      )}
       {eff.trigger && (
         <div style={{ color: C_BODY, fontStyle: 'italic', fontSize: '0.8rem' }}>{eff.trigger}</div>
       )}
@@ -335,8 +343,6 @@ function EffectBlock({ eff, qs }: { eff: ItemEffect; qs: QualityStyle }) {
     </div>
   )
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtStat(s: ItemStat): string {
   const v = s.value
