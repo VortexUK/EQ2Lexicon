@@ -205,11 +205,10 @@ export default function ItemSearchPage() {
   }
 
   function removeStatFilter(id: number) {
-    setStatFilters(prev => {
-      const removed = prev.find(f => f.id === id)
-      if (removed && sortBy === removed.stat) setSortBy('name')
-      return prev.filter(f => f.id !== id)
-    })
+    // Find the filter BEFORE updating state (avoid calling setSortBy inside an updater)
+    const removed = statFilters.find(f => f.id === id)
+    if (removed && sortBy === removed.stat) setSortBy('name')
+    setStatFilters(prev => prev.filter(f => f.id !== id))
   }
 
   function updateStatFilter(id: number, field: 'stat' | 'minValue', value: string) {
@@ -534,74 +533,12 @@ export default function ItemSearchPage() {
             onPrev={() => runSearch(page - 1)} onNext={() => runSearch(page + 1)}
           />
 
-          {results.total > 0 && (() => {
-            const sortingByStat = !['name', 'level', 'tier'].includes(sortBy)
-            return (
-              <div style={{
-                overflowX: 'auto', background: 'var(--surface)',
-                border: '1px solid var(--border)', borderRadius: 8,
-              }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={TH}>Name</th>
-                      <th style={TH}>Quality</th>
-                      <th style={TH}>Slot</th>
-                      <th style={{ ...TH, textAlign: 'right' }}>Level</th>
-                      {sortingByStat && (
-                        <th style={{ ...TH, textAlign: 'right', color: 'var(--accent)' }}>
-                          {sortBy} {sortDir === 'desc' ? '↓' : '↑'}
-                        </th>
-                      )}
-                      <th style={TH}>Classes</th>
-                      <th style={TH}>Stats</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.results.map(item => (
-                      <tr
-                        key={item.id}
-                        style={{ transition: 'background 0.1s' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-raised)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '')}
-                      >
-                        <td style={TD}>
-                          <Link
-                            to={`/item/${item.id}`}
-                            style={{ color: TIER_COLOUR[item.tier ?? ''] ?? 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}
-                          >
-                            {item.name}
-                          </Link>
-                        </td>
-                        <td style={{ ...TD, color: TIER_COLOUR[item.tier ?? ''] ?? 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500 }}>
-                          {item.tier === 'COMMON' ? 'Common' : (item.tier ?? '—')}
-                        </td>
-                        <td style={{ ...TD, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                          {item.slot ?? (item.item_type ?? '—')}
-                        </td>
-                        <td style={{ ...TD, textAlign: 'right' }}>
-                          {item.level ?? '—'}
-                        </td>
-                        {sortingByStat && (
-                          <td style={{ ...TD, textAlign: 'right', fontWeight: 600, color: 'var(--accent)' }}>
-                            {item.sort_stat_value != null && item.sort_stat_value !== 0
-                              ? item.sort_stat_value
-                              : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>—</span>}
-                          </td>
-                        )}
-                        <td style={{ ...TD, color: 'var(--text-muted)', fontSize: '0.8rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {item.class_label ?? '—'}
-                        </td>
-                        <td style={{ ...TD, fontSize: '0.78rem', color: 'var(--text-muted)', maxWidth: 260 }}>
-                          <StatPills stats={item.stats} highlight={statFilters.map(f => f.stat)} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          })()}
+          {results.total > 0 && <ItemTable
+            items={results.results}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            statFilters={statFilters}
+          />}
 
           {totalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', marginTop: '0.75rem' }}>
@@ -686,6 +623,79 @@ function StatPills({ stats, highlight }: { stats: string[]; highlight: string[] 
           {s}
         </span>
       ))}
+    </div>
+  )
+}
+
+function ItemTable({
+  items, sortBy, sortDir, statFilters,
+}: {
+  items: ItemSearchResult[]
+  sortBy: string
+  sortDir: 'asc' | 'desc'
+  statFilters: StatFilter[]
+}) {
+  const sortingByStat = !['name', 'level', 'tier'].includes(sortBy)
+  return (
+    <div style={{ overflowX: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={TH}>Name</th>
+            <th style={TH}>Quality</th>
+            <th style={TH}>Slot</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Level</th>
+            {sortingByStat && (
+              <th style={{ ...TH, textAlign: 'right', color: 'var(--accent)' }}>
+                {sortBy} {sortDir === 'desc' ? '↓' : '↑'}
+              </th>
+            )}
+            <th style={TH}>Classes</th>
+            <th style={TH}>Stats</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(item => (
+            <tr
+              key={item.id}
+              style={{ transition: 'background 0.1s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-raised)')}
+              onMouseLeave={e => (e.currentTarget.style.background = '')}
+            >
+              <td style={TD}>
+                <Link
+                  to={`/item/${item.id}`}
+                  style={{ color: TIER_COLOUR[item.tier ?? ''] ?? 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}
+                >
+                  {item.name}
+                </Link>
+              </td>
+              <td style={{ ...TD, color: TIER_COLOUR[item.tier ?? ''] ?? 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500 }}>
+                {item.tier === 'COMMON' ? 'Common' : (item.tier ?? '—')}
+              </td>
+              <td style={{ ...TD, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                {item.slot ?? (item.item_type ?? '—')}
+              </td>
+              <td style={{ ...TD, textAlign: 'right' }}>
+                {item.level ?? '—'}
+              </td>
+              {sortingByStat && (
+                <td style={{ ...TD, textAlign: 'right', fontWeight: 600, color: 'var(--accent)' }}>
+                  {item.sort_stat_value != null && item.sort_stat_value !== 0
+                    ? item.sort_stat_value
+                    : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>—</span>}
+                </td>
+              )}
+              <td style={{ ...TD, color: 'var(--text-muted)', fontSize: '0.8rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {item.class_label ?? '—'}
+              </td>
+              <td style={{ ...TD, fontSize: '0.78rem', color: 'var(--text-muted)', maxWidth: 260 }}>
+                <StatPills stats={item.stats} highlight={statFilters.map(f => f.stat)} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

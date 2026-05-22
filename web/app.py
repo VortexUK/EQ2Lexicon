@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
@@ -21,14 +22,69 @@ from web.routes.guild import router as guild_router
 from web.routes.characters import router as characters_router
 from web import db as users_db
 
+
+# ---------------------------------------------------------------------------
+# Item-stats startup check
+# ---------------------------------------------------------------------------
+
+def _ensure_item_stats() -> None:
+    """
+    Called in a background thread at startup.
+
+    * Creates the item_stats table / indexes if missing (idempotent).
+    * If the table is empty but the items table has data, runs the stats
+      backfill automatically.  This happens once after a fresh deployment
+      or after the code is upgraded on an existing DB.
+    """
+    import sqlite3
+    from census.db import DB_PATH as items_db_path, init_db as items_init_db
+
+    if not items_db_path.exists():
+        return  # No items DB yet — nothing to initialise
+
+    try:
+        items_init_db(items_db_path)   # creates tables/indexes if missing
+
+        conn = sqlite3.connect(items_db_path)
+        stat_count  = conn.execute("SELECT COUNT(*) FROM item_stats").fetchone()[0]
+        item_count  = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        conn.close()
+
+        if stat_count == 0 and item_count > 0:
+            print(
+                f"[startup] item_stats is empty ({item_count:,} items) — "
+                "running background backfill…",
+                flush=True,
+            )
+            # Ensure repo root is on sys.path so the scripts package is importable
+            import sys
+            repo_root = str(Path(__file__).resolve().parent.parent)
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
+            from scripts.backfill_item_stats import run as _backfill  # type: ignore[import]
+            _backfill(rebuild=False)
+            print("[startup] item_stats backfill complete.", flush=True)
+
+    except Exception as exc:
+        print(f"[startup] item_stats init/backfill error: {exc}", flush=True)
+
 _FRONTEND_DIST  = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 _ICONS_DIR      = Path(__file__).resolve().parent.parent / "data" / "items" / "icons"
 _SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-in-production")
 
 
 def create_app(session_secret: str | None = None) -> FastAPI:
+    def _startup() -> None:
+        users_db.init_db()
+        # Run the item-stats check in a background thread so it never blocks
+        # startup or Railway health checks.  On a fresh deployment the backfill
+        # may take ~60–90 s; stat-filter searches will return 0 results until it
+        # finishes, but name/tier/slot/class/level searches work immediately.
+        t = threading.Thread(target=_ensure_item_stats, daemon=True, name="item-stats-backfill")
+        t.start()
+
     app = FastAPI(
-        on_startup=[lambda: users_db.init_db()],
+        on_startup=[_startup],
         title="EQ2 TLE Companion",
         version="0.1.0",
         docs_url="/api/docs",
