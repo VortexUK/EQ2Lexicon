@@ -8,11 +8,7 @@ import GuildPage from './pages/GuildPage'
 import ItemPage from './pages/ItemPage'
 import CharacterSearchPage from './pages/CharacterSearchPage'
 import ItemSearchPage from './pages/ItemSearchPage'
-import {
-  GuildSearchPage,
-  SpellSearchPage,
-  AASearchPage,
-} from './pages/SearchPage'
+import { GuildSearchPage } from './pages/SearchPage'
 import UserWidget from './components/UserWidget'
 import { useAuth } from './hooks/useAuth'
 import { Link } from 'react-router-dom'
@@ -86,8 +82,6 @@ function NavLinks() {
       <NavLink to="/characters" style={navLinkStyle}>Character</NavLink>
       <NavLink to="/guilds"     style={navLinkStyle}>Guild</NavLink>
       <NavLink to="/items"      style={navLinkStyle}>Item</NavLink>
-      <NavLink to="/spells"     style={navLinkStyle}>Spell</NavLink>
-      <NavLink to="/aa"         style={navLinkStyle}>AA</NavLink>
     </nav>
   )
 }
@@ -132,8 +126,6 @@ function App() {
         <Route path="/characters" element={<CharacterSearchPage />} />
         <Route path="/guilds"     element={<GuildSearchPage />} />
         <Route path="/items"      element={<ItemSearchPage />} />
-        <Route path="/spells"     element={<SpellSearchPage />} />
-        <Route path="/aa"         element={<AASearchPage />} />
         <Route path="/character/:name" element={<CharacterPage />} />
         <Route path="/guild/:guildName" element={<GuildPage />} />
         <Route path="/item/:itemId"    element={<ItemPage />} />

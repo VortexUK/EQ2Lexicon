@@ -1,7 +1,7 @@
 /**
  * Generic search page shell.
- * Each of the five search pages (Character, Guild, Item, Spell, AA)
- * is a thin wrapper around this component with its own config.
+ * Each search page (Character, Guild, Item) is a thin wrapper around
+ * this component with its own config.
  */
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -108,24 +108,3 @@ export function GuildSearchPage() {
   )
 }
 
-export function SpellSearchPage() {
-  return (
-    <SearchPage config={{
-      title: 'Spell Search',
-      subtitle: 'Look up a character\'s spell book — see their upgrade tiers across all abilities.',
-      placeholder: 'Character name…',
-      getTarget: q => `/character/${encodeURIComponent(q)}`,
-    }} />
-  )
-}
-
-export function AASearchPage() {
-  return (
-    <SearchPage config={{
-      title: 'AA Search',
-      subtitle: 'View a character\'s Alternate Advancement trees and see which abilities are maxed.',
-      placeholder: 'Character name…',
-      getTarget: q => `/character/${encodeURIComponent(q)}`,
-    }} />
-  )
-}
