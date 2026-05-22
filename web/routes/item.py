@@ -184,48 +184,53 @@ async def search_items(
 
     # ── Build WHERE clause ────────────────────────────────────────────────────
     conditions: list[str] = ["i.visible = 1"]
-    params: list = []
+    where_params: list = []  # bound to the WHERE clause
 
     if name:
         conditions.append("i.displayname_lower LIKE ?")
-        params.append(f"%{name.lower()}%")
+        where_params.append(f"%{name.lower()}%")
 
     if tier:
         conditions.append("i.tier_display = ?")
-        params.append(tier)
+        where_params.append(tier)
 
     if slot:
         conditions.append("i.slot = ?")
-        params.append(slot)
+        where_params.append(slot)
 
     if item_type:
         conditions.append("i.typeinfo_name LIKE ?")
-        params.append(f"%{item_type}%")
+        where_params.append(f"%{item_type}%")
 
     if class_name:
         # classes_json is a JSON object keyed by lowercase class name
         conditions.append("LOWER(i.classes_json) LIKE ?")
-        params.append(f'%"{class_name.lower()}"%')
+        where_params.append(f'%"{class_name.lower()}"%')
 
     if min_level is not None:
         conditions.append("i.level_to_use >= ?")
-        params.append(min_level)
+        where_params.append(min_level)
 
     if max_level is not None:
         conditions.append("i.level_to_use <= ?")
-        params.append(max_level)
+        where_params.append(max_level)
 
     where = " AND ".join(conditions)
 
     # ── Stats JOINs (one per required stat) ──────────────────────────────────
-    # Build an index of stat_name → alias for potential reuse when sorting
+    # IMPORTANT: JOIN clauses appear *before* WHERE in the SQL string, so their
+    # bound parameters must also come first in the params tuple.  We collect them
+    # in a separate list and prepend to where_params when building the final
+    # params tuple (see `params = join_params + where_params` below).
     stat_alias: dict[str, str] = {}
     stat_joins = ""
+    join_params: list = []  # bound to ON conditions inside each JOIN
+
     for i, stat in enumerate(has_stat):
         alias = f"s{i}"
         stat_alias[stat] = alias
         stat_joins += f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = ?"
-        params.append(stat)
+        join_params.append(stat)
 
     # ── Sort ──────────────────────────────────────────────────────────────────
     direction = "DESC" if sort_dir == "desc" else "ASC"
@@ -243,9 +248,12 @@ async def search_items(
         else:
             # Add a LEFT JOIN so items without the stat still appear (sorted last)
             stat_joins += " LEFT JOIN item_stats ssort ON i.id = ssort.item_id AND ssort.stat = ?"
-            params.append(sort_by)
+            join_params.append(sort_by)
             sort_stat_col = "ssort.value"
         order_clause = f"COALESCE({sort_stat_col}, 0) {direction}, i.displayname_lower ASC"
+
+    # JOIN params precede WHERE params because JOINs appear before WHERE in SQL
+    params = join_params + where_params
 
     offset = (page - 1) * per_page
 
