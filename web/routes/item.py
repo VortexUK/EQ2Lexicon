@@ -99,6 +99,7 @@ class ItemSearchResult(BaseModel):
     class_label: str | None = None
     icon_id: int | None = None
     stats: list[str] = []          # canonical stat names present on this item
+    sort_stat_value: float | None = None  # value of the sort stat (when sorting by stat)
 
 
 class ItemSearchResponse(BaseModel):
@@ -217,40 +218,56 @@ async def search_items(
     where = " AND ".join(conditions)
 
     # ── Stats JOINs (one per required stat) ──────────────────────────────────
+    # Build an index of stat_name → alias for potential reuse when sorting
+    stat_alias: dict[str, str] = {}
     stat_joins = ""
     for i, stat in enumerate(has_stat):
         alias = f"s{i}"
+        stat_alias[stat] = alias
         stat_joins += f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = ?"
         params.append(stat)
 
     # ── Sort ──────────────────────────────────────────────────────────────────
-    order_col = {
-        "level": "i.level_to_use",
-        "tier":  "i.tierid",
-        "name":  "i.displayname_lower",
-    }.get(sort_by, "i.displayname_lower")
     direction = "DESC" if sort_dir == "desc" else "ASC"
-    # secondary sort always by name asc
-    order_clause = f"{order_col} {direction}, i.displayname_lower ASC"
+    sort_stat_col: str | None = None  # SQL expression for stat value when sorting by stat
+
+    _FIXED_SORT = {"level": "i.level_to_use", "tier": "i.tierid", "name": "i.displayname_lower"}
+
+    if sort_by in _FIXED_SORT:
+        order_clause = f"{_FIXED_SORT[sort_by]} {direction}, i.displayname_lower ASC"
+    else:
+        # sort_by is a canonical stat name — JOIN item_stats for it
+        if sort_by in stat_alias:
+            # Reuse existing INNER JOIN alias — value is already accessible
+            sort_stat_col = f"{stat_alias[sort_by]}.value"
+        else:
+            # Add a LEFT JOIN so items without the stat still appear (sorted last)
+            stat_joins += " LEFT JOIN item_stats ssort ON i.id = ssort.item_id AND ssort.stat = ?"
+            params.append(sort_by)
+            sort_stat_col = "ssort.value"
+        order_clause = f"COALESCE({sort_stat_col}, 0) {direction}, i.displayname_lower ASC"
 
     offset = (page - 1) * per_page
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
-        # Total count
+        # Total count  (use subquery to avoid DISTINCT issues with LEFT JOINs)
         count_sql = (
             f"SELECT COUNT(DISTINCT i.id) FROM items i{stat_joins} WHERE {where}"
         )
         async with db.execute(count_sql, params) as cur:
             total = (await cur.fetchone())[0]
 
-        # Paged results
+        # Paged results — include sort stat value so frontend can display it
+        sort_val_select = f", COALESCE({sort_stat_col}, 0) AS _sort_val" if sort_stat_col else ""
         select_sql = (
-            f"SELECT DISTINCT i.id, i.displayname, i.tier_display, i.slot, "
-            f"i.typeinfo_name, i.level_to_use, i.class_label, i.icon_id "
+            f"SELECT i.id, i.displayname, i.tier_display, i.slot, "
+            f"i.typeinfo_name, i.level_to_use, i.class_label, i.icon_id"
+            f"{sort_val_select} "
             f"FROM items i{stat_joins} "
             f"WHERE {where} "
+            f"GROUP BY i.id "
             f"ORDER BY {order_clause} "
             f"LIMIT {per_page} OFFSET {offset}"
         )
@@ -267,15 +284,18 @@ async def search_items(
             ) as scur:
                 stat_names = [r[0] for r in await scur.fetchall()]
 
+            sort_val = float(row["_sort_val"]) if sort_stat_col and row["_sort_val"] else None
+
             results.append(ItemSearchResult(
-                id         = item_id,
-                name       = row["displayname"],
-                tier       = row["tier_display"],
-                slot       = row["slot"],
-                item_type  = row["typeinfo_name"],
-                level      = row["level_to_use"],
-                class_label= row["class_label"],
-                icon_id    = row["icon_id"],
+                id              = item_id,
+                name            = row["displayname"],
+                tier            = row["tier_display"],
+                slot            = row["slot"],
+                item_type       = row["typeinfo_name"],
+                level           = row["level_to_use"],
+                class_label     = row["class_label"],
+                icon_id         = row["icon_id"],
+                sort_stat_value = sort_val,
                 stats      = stat_names,
             ))
 
