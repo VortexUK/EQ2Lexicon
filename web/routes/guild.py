@@ -875,6 +875,16 @@ async def add_item_watch_entry(
         if match:
             canon_name = match
 
+    # Use the officer's primary in-game character name as the attribution,
+    # falling back to their Discord display name if no primary is set.
+    officer_claims = await get_active_claims(user["id"])
+    primary_claim  = next((c for c in officer_claims["approved"] if c.get("is_primary")), None)
+    added_by_name  = (
+        primary_claim["character_name"]
+        if primary_claim
+        else (user.get("global_name") or user.get("username", "Unknown"))
+    )
+
     try:
         row = await add_item_watch(
             guild_name     = guild_name,
@@ -882,7 +892,7 @@ async def add_item_watch_entry(
             item_id        = item_id,
             item_name      = item_name,
             added_by       = user["id"],
-            added_by_name  = user.get("global_name") or user.get("username", "Unknown"),
+            added_by_name  = added_by_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
