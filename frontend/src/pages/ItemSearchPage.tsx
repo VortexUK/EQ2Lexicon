@@ -201,17 +201,40 @@ export default function ItemSearchPage() {
   // ── Stat filter management ──────────────────────────────────────────────────
 
   function addStatFilter() {
-    setStatFilters(prev => [...prev, { id: nextId(), stat: STAT_OPTIONS_SECONDARY[0], minValue: '' }])
+    const newFilter = { id: nextId(), stat: STAT_OPTIONS_SECONDARY[0], minValue: '' }
+    // First stat filter added → start sorting by it descending
+    if (statFilters.length === 0) {
+      setSortBy(newFilter.stat)
+      setSortDir('desc')
+    }
+    setStatFilters(prev => [...prev, newFilter])
   }
 
   function removeStatFilter(id: number) {
-    // Find the filter BEFORE updating state (avoid calling setSortBy inside an updater)
-    const removed = statFilters.find(f => f.id === id)
-    if (removed && sortBy === removed.stat) setSortBy('name')
+    const removed  = statFilters.find(f => f.id === id)
+    const remaining = statFilters.filter(f => f.id !== id)
+    if (removed && sortBy === removed.stat) {
+      // Switch sort to the next available stat filter, or fall back to name
+      if (remaining.length > 0) {
+        setSortBy(remaining[0].stat)
+        setSortDir('desc')
+      } else {
+        setSortBy('name')
+        setSortDir('asc')
+      }
+    } else if (remaining.length === 0) {
+      // All filters removed — reset to name sort regardless
+      setSortBy('name')
+      setSortDir('asc')
+    }
     setStatFilters(prev => prev.filter(f => f.id !== id))
   }
 
   function updateStatFilter(id: number, field: 'stat' | 'minValue', value: string) {
+    // If renaming the stat we're currently sorting by, keep sort in sync
+    if (field === 'stat' && sortBy === statFilters.find(f => f.id === id)?.stat) {
+      setSortBy(value)
+    }
     setStatFilters(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f))
   }
 
@@ -368,7 +391,7 @@ export default function ItemSearchPage() {
 
           </div>
 
-          {/* Row 2: levels + sort + search */}
+          {/* Row 2: levels + search */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end', marginBottom: '0.75rem' }}>
 
             <Field label="Min Level">
@@ -387,40 +410,6 @@ export default function ItemSearchPage() {
               />
             </Field>
 
-            <Field label="Sort By">
-              <select
-                value={sortBy}
-                onChange={e => {
-                  const v = e.target.value
-                  setSortBy(v)
-                  // When switching to a stat sort, default to descending (highest first)
-                  if (!['name', 'level', 'tier'].includes(v)) setSortDir('desc')
-                  // When switching to name, default to ascending
-                  if (v === 'name') setSortDir('asc')
-                }}
-                style={CTRL}
-              >
-                <option value="name">Name</option>
-                <option value="level">Level</option>
-                <option value="tier">Quality</option>
-                {/* Dynamic entries for active stat filters */}
-                {statFilters.filter(f => f.stat).map(f => (
-                  <option key={f.id} value={f.stat}>{f.stat}</option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Order">
-              <button
-                type="button"
-                onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                style={{ ...CTRL, cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                {sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
-              </button>
-            </Field>
-
-            {/* Spacer + search button */}
             <Field label=" " transparent>
               <button
                 type="submit"
