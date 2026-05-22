@@ -224,10 +224,21 @@ data/items/items.db-shm
 
 # Spell database (generated locally via scripts/download_spells.py)
 data/spells/spells.db
+data/spells/spells.db-wal
+data/spells/spells.db-shm
+
+# Recipe database (generated locally via scripts/download_recipes.py)
+data/recipes/recipes.db
+data/recipes/recipes.db-wal
+data/recipes/recipes.db-shm
 
 # Census API dump files (analysis artifacts)
 example_items.json
 example_character.json
+example_character2.json
+example_character3.json
+example_guild.json
+example_recipe.json
 
 # Local preview output
 preview*.png
