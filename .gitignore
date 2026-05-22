@@ -225,9 +225,6 @@ data/items/items.db-shm
 # Spell database (generated locally via scripts/download_spells.py)
 data/spells/spells.db
 
-# Spell icons (downloaded locally via scripts/download_spell_icons.py — ~1200 PNGs)
-data/spells/icons/
-
 # Census API dump files (analysis artifacts)
 example_items.json
 example_character.json
