@@ -172,14 +172,18 @@ async def submit_claim(
     """
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        # Reject duplicates — character already approved for this user
+        # Reject if this character is already claimed (approved or pending) by anyone
         async with db.execute(
-            "SELECT id FROM character_claims "
-            "WHERE discord_id = ? AND character_name = ? AND status = 'approved'",
-            (discord_id, character_name),
+            "SELECT discord_id FROM character_claims "
+            "WHERE character_name = ? AND status IN ('approved', 'pending')",
+            (character_name,),
         ) as cur:
-            if await cur.fetchone():
-                raise ValueError(f"'{character_name}' is already an approved character on your account.")
+            existing = await cur.fetchone()
+        if existing:
+            if existing["discord_id"] == discord_id:
+                raise ValueError(f"'{character_name}' is already claimed on your account.")
+            else:
+                raise ValueError(f"'{character_name}' has already been claimed by another player.")
         # Cancel any existing pending claim (one pending at a time)
         await db.execute(
             "UPDATE character_claims SET status = 'withdrawn' "

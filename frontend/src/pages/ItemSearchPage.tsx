@@ -558,6 +558,7 @@ export default function ItemSearchPage() {
                     <input
                       type="number"
                       min={0}
+                      step="any"
                       placeholder="any"
                       value={f.value}
                       onChange={e => updateStatFilter(f.id, 'value', e.target.value)}
