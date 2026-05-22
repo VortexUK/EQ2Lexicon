@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { ItemTooltip, TooltipState } from '../components/ItemTooltip'
 
 // ── Stat options (canonical display names from STAT_MAP) ──────────────────────
 
@@ -206,6 +207,16 @@ export default function ItemSearchPage() {
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
+
+  // Tooltip state
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+  const showTip = useCallback((itemId: string, e: React.MouseEvent) => {
+    setTooltip({ itemId, x: e.clientX, y: e.clientY })
+  }, [])
+  const hideTip  = useCallback(() => setTooltip(null), [])
+  const moveTip  = useCallback((e: React.MouseEvent) => {
+    setTooltip(t => t ? { ...t, x: e.clientX, y: e.clientY } : null)
+  }, [])
 
   // Filter options from server
   const [filterOpts, setFilterOpts] = useState<FilterOptions>({ tiers: [], slots: [], item_types: [] })
@@ -535,7 +546,7 @@ export default function ItemSearchPage() {
 
       {/* ── Results ────────────────────────────────────────────────────────── */}
       {searched && !loading && !error && results && (
-        <>
+        <div onMouseMove={moveTip}>
           <ResultsHeader
             total={results.total} page={page} totalPages={totalPages}
             onPrev={() => runSearch(page - 1)} onNext={() => runSearch(page + 1)}
@@ -554,6 +565,8 @@ export default function ItemSearchPage() {
                 setSortDir('desc')
               }
             }}
+            onShowTip={showTip}
+            onHideTip={hideTip}
           />}
 
           {totalPages > 1 && (
@@ -562,8 +575,10 @@ export default function ItemSearchPage() {
               <button onClick={() => runSearch(page + 1)} disabled={page >= totalPages} style={PAGIN_BTN}>Next →</button>
             </div>
           )}
-        </>
+        </div>
       )}
+
+      {tooltip && <ItemTooltip state={tooltip} />}
     </main>
   )
 }
@@ -644,13 +659,15 @@ function StatPills({ stats, highlight }: { stats: string[]; highlight: string[] 
 }
 
 function ItemTable({
-  items, sortBy, sortDir, statFilters, onSortByStat,
+  items, sortBy, sortDir, statFilters, onSortByStat, onShowTip, onHideTip,
 }: {
   items: ItemSearchResult[]
   sortBy: string
   sortDir: 'asc' | 'desc'
   statFilters: StatFilter[]
   onSortByStat: (stat: string) => void
+  onShowTip: (itemId: string, e: React.MouseEvent) => void
+  onHideTip: () => void
 }) {
   // Show one column per active stat filter, capped at 3
   const statCols = statFilters.filter(f => f.stat).slice(0, 3)
@@ -692,17 +709,37 @@ function ItemTable({
           {items.map(item => (
             <tr
               key={item.id}
-              style={{ transition: 'background 0.1s' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-raised)')}
-              onMouseLeave={e => (e.currentTarget.style.background = '')}
+              style={{ transition: 'background 0.1s', cursor: 'default' }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'var(--surface-raised)'
+                onShowTip(String(item.id), e)
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = ''
+                onHideTip()
+              }}
             >
               <td style={TD}>
-                <Link
-                  to={`/item/${item.id}`}
-                  style={{ color: TIER_COLOUR[item.tier ?? ''] ?? 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}
-                >
-                  {item.name}
-                </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  {item.icon_id ? (
+                    <img
+                      src={`/icons/${item.icon_id}.png`}
+                      alt=""
+                      width={28}
+                      height={28}
+                      style={{ borderRadius: 3, border: '1px solid var(--border)', flexShrink: 0, display: 'block' }}
+                      onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden' }}
+                    />
+                  ) : (
+                    <div style={{ width: 28, height: 28, flexShrink: 0 }} />
+                  )}
+                  <Link
+                    to={`/item/${item.id}`}
+                    style={{ color: TIER_COLOUR[item.tier ?? ''] ?? 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}
+                  >
+                    {item.name}
+                  </Link>
+                </div>
               </td>
               <td style={{ ...TD, color: TIER_COLOUR[item.tier ?? ''] ?? 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500 }}>
                 {displayTier(item.tier)}
