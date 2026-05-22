@@ -328,7 +328,7 @@ async def search_items(
         raise HTTPException(status_code=503, detail="Item database not available")
 
     # ── Build WHERE clause ────────────────────────────────────────────────────
-    conditions: list[str] = ["i.visible = 1"]
+    conditions: list[str] = ["i.visible = 1", "i.flag_pvp = 0"]
     where_params: list = []  # bound to the WHERE clause
 
     if name:

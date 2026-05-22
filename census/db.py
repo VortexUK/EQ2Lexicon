@@ -264,6 +264,7 @@ CREATE TABLE IF NOT EXISTS items (
     flag_refined         INTEGER DEFAULT 0,
     flag_infusable       INTEGER DEFAULT 0,
     flag_indestructible  INTEGER DEFAULT 0,
+    flag_pvp             INTEGER DEFAULT 0,  -- 1 = PvP item (has pvp stats or pvp effect text)
 
     -- Full raw Census JSON — used by _parse_item(); all nested data lives here
     raw_json             TEXT
@@ -320,6 +321,7 @@ _MIGRATIONS = [
     ("spell_range",                "TEXT"),
     ("spell_power_cost",           "INTEGER"),
     ("spell_resistability",        "TEXT"),
+    ("flag_pvp",                   "INTEGER DEFAULT 0"),
 ]
 
 _UPSERT_SQL = """
@@ -345,7 +347,7 @@ INSERT OR REPLACE INTO items (
     skill_type, spell_target, spell_range, spell_power_cost, spell_resistability,
     flag_heirloom, flag_lore, flag_lore_equip, flag_no_trade, flag_no_value,
     flag_no_zone, flag_prestige, flag_relic, flag_attunable, flag_ornate,
-    flag_refined, flag_infusable, flag_indestructible,
+    flag_refined, flag_infusable, flag_indestructible, flag_pvp,
     raw_json
 ) VALUES (
     :id, :displayname, :displayname_lower, :gamelink, :description, :last_update,
@@ -369,7 +371,7 @@ INSERT OR REPLACE INTO items (
     :skill_type, :spell_target, :spell_range, :spell_power_cost, :spell_resistability,
     :flag_heirloom, :flag_lore, :flag_lore_equip, :flag_no_trade, :flag_no_value,
     :flag_no_zone, :flag_prestige, :flag_relic, :flag_attunable, :flag_ornate,
-    :flag_refined, :flag_infusable, :flag_indestructible,
+    :flag_refined, :flag_infusable, :flag_indestructible, :flag_pvp,
     :raw_json
 )
 """
@@ -446,6 +448,31 @@ def extract_item_stats(raw: dict) -> dict[str, float]:
         if value and display_name not in result:
             result[display_name] = value
     return result
+
+
+_PVP_STAT_PREFIXES = ("pvp",)
+
+
+def _is_pvp_item(item: dict) -> int:
+    """Return 1 if the item is PvP-specific, 0 otherwise.
+
+    Detection strategy (either condition is sufficient):
+    1. Has a stat whose Census name starts with 'pvp' (pvptoughness, pvplethality,
+       pvpcriticalmitigation, etc.).
+    2. The raw item JSON contains the substring 'pvp' (case-insensitive), which
+       catches effect restrictions like 'Must be engaged in pvp combat'.
+    """
+    # Check stat modifiers
+    for mod_list_key in ("modifiers", "stat_list", "stats"):
+        for mod in item.get(mod_list_key) or []:
+            name = str(mod.get("name") or mod.get("stat") or "").lower()
+            if any(name.startswith(p) for p in _PVP_STAT_PREFIXES):
+                return 1
+    # Check raw JSON text (catches effects + any other pvp references)
+    raw = json.dumps(item).lower()
+    if "pvp" in raw:
+        return 1
+    return 0
 
 
 def item_to_row(item: dict) -> dict:
@@ -537,6 +564,7 @@ def item_to_row(item: dict) -> dict:
         "flag_refined":         _flag(flags, "refined"),
         "flag_infusable":       _flag(flags, "infusable"),
         "flag_indestructible":  _flag(flags, "indestructible"),
+        "flag_pvp":             _is_pvp_item(item),
         "raw_json":             json.dumps(item),
     }
 
@@ -566,7 +594,27 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     for idx in _CREATE_STAT_INDEXES:
         conn.execute(idx)
     conn.commit()
+    # Backfill flag_pvp for items that predate this column.
+    # Uses LOWER(raw_json) LIKE '%pvp%' — catches both pvp stats and effect text.
+    # Safe to run every startup; is a no-op once all rows are set.
+    _backfill_pvp_flag(conn)
     return conn
+
+
+def _backfill_pvp_flag(conn: sqlite3.Connection) -> None:
+    """Set flag_pvp=1 on any existing item whose raw_json mentions 'pvp'.
+
+    Only touches rows where flag_pvp IS NULL or 0 and raw_json contains the
+    string, so it runs quickly after the first pass (nearly all rows are 0).
+    """
+    conn.execute("""
+        UPDATE items
+        SET flag_pvp = 1
+        WHERE flag_pvp = 0
+          AND raw_json IS NOT NULL
+          AND LOWER(raw_json) LIKE '%pvp%'
+    """)
+    conn.commit()
 
 
 def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
