@@ -23,6 +23,12 @@ from census.recipes_db import (
     DB_PATH as _RECIPES_DB,
     find_spells_by_tier as _find_spell_recipes,
 )
+from web.routes.recipes import (
+    RecipeResult as _RecipeResult,
+    IngredientResponse as _RecipeIngredientResponse,
+    _bench_label as _recipe_bench_label,
+    _fuel_to_craft_tier as _recipe_fuel_to_craft_tier,
+)
 from census.db import DB_PATH as _ITEMS_DB
 from web.cache import character_cache
 from web.config import SERVICE_ID as _SERVICE_ID, WORLD as _WORLD
@@ -635,4 +641,98 @@ async def get_upgrade_materials(name: str) -> UpgradeMaterialsResponse:
         spells_needing_upgrade = len(sub_expert),
         spells_with_recipe     = len(recipes),
         ingredients            = ingredients,
+    )
+
+
+class UpgradeRecipesResponse(BaseModel):
+    results:               list[_RecipeResult]
+    spells_needing_upgrade: int
+    spells_with_recipe:     int
+
+
+@router.get("/character/{name}/upgrade-recipes", response_model=UpgradeRecipesResponse)
+async def get_upgrade_recipes(name: str) -> UpgradeRecipesResponse:
+    """Return full recipe objects needed to upgrade all sub-Expert spells to Expert tier.
+
+    The response matches the RecipeResult shape used by the Recipes page so the
+    caller can write the list directly into the shopping-list localStorage entry.
+    """
+    if len(name) > 64:
+        raise HTTPException(status_code=400, detail="Character name is too long")
+    if not _SPELLS_DB.exists():
+        raise HTTPException(status_code=503, detail="Spells database not available")
+    if not _RECIPES_DB.exists():
+        raise HTTPException(status_code=503, detail="Recipes database not available")
+
+    # Reuse cached character record (same pattern as get_upgrade_materials)
+    cache_key = f"{name.lower()}:{_WORLD.lower()}"
+    cached, _ = character_cache.get_stale(cache_key)
+    if cached is not None:
+        spell_ids = cached.spell_ids
+    else:
+        client = CensusClient(service_id=_SERVICE_ID)
+        try:
+            char = await client.get_character(name, _WORLD)
+        finally:
+            await client.close()
+        if char is None:
+            raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {_WORLD}")
+        result = _build_char_response(char)
+        character_cache.set(cache_key, result)
+        spell_ids = result.spell_ids
+
+    if not spell_ids:
+        return UpgradeRecipesResponse(results=[], spells_needing_upgrade=0, spells_with_recipe=0)
+
+    # Get spell rows, apply same filter as the spells endpoint
+    spell_db: dict[int, dict] = _spell_find_by_ids(spell_ids)
+    blocklist = _load_spell_blocklist()
+    rows = [
+        r for r in spell_db.values()
+        if (r.get("level") or 0) > 0
+        and r.get("type") in ("spells", "arts")
+        and r.get("given_by") == "spellscroll"
+        and _strip_roman(r.get("name") or "").lower() not in blocklist
+    ]
+    rows = _unique_highest_rows(rows)
+
+    sub_expert = [r for r in rows if (r.get("tier_name") or "") in _SUB_EXPERT_TIERS]
+    if not sub_expert:
+        return UpgradeRecipesResponse(results=[], spells_needing_upgrade=0, spells_with_recipe=0)
+
+    # Bulk recipe lookup
+    spell_names = [r["name"] for r in sub_expert]
+    recipes = _find_spell_recipes(spell_names, "Expert", path=_RECIPES_DB)
+
+    results = [
+        _RecipeResult(
+            id               = recipe["id"],
+            name             = recipe["name"],
+            bench            = recipe.get("bench"),
+            bench_label      = _recipe_bench_label(recipe.get("bench")),
+            craft_tier       = _recipe_fuel_to_craft_tier(recipe.get("fuel_comp")),
+            crafted_tier     = recipe.get("crafted_tier"),
+            primary_comp     = recipe.get("primary_comp"),
+            primary_qty      = recipe.get("primary_qty"),
+            secondary_comps  = [
+                _RecipeIngredientResponse(
+                    description = sc.get("description", ""),
+                    quantity    = sc.get("quantity", 1),
+                )
+                for sc in (recipe.get("secondary_comps") or [])
+                if sc.get("description")
+            ],
+            fuel_comp        = recipe.get("fuel_comp"),
+            fuel_qty         = recipe.get("fuel_qty"),
+            out_formed_id    = recipe.get("out_formed_id"),
+            out_formed_count = recipe.get("out_formed_count"),
+            class_label      = None,
+        )
+        for recipe in recipes.values()
+    ]
+
+    return UpgradeRecipesResponse(
+        results                = results,
+        spells_needing_upgrade = len(sub_expert),
+        spells_with_recipe     = len(recipes),
     )

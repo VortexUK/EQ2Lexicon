@@ -276,7 +276,7 @@ export default function RecipesPage() {
 
   // ── Shopping list state (localStorage) ───────────────────────────────────────
   const [list,     setList]     = useState<ShoppingEntry[]>(() => loadList())
-  const [listOpen, setListOpen] = useState(false)
+  const [listOpen, setListOpen] = useState(() => searchParams.get('list') === 'open')
 
   // ── URL sync ─────────────────────────────────────────────────────────────────
   useEffect(() => {

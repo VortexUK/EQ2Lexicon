@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { StatGroup } from './CharacterPage'
 import { SpellTierPip } from '../components/SpellScrollTooltip'
 import {
@@ -12,6 +13,35 @@ import {
   SPELL_TIER_ICON,
   SPELL_TIER_COLOURS,
 } from './spellConstants'
+
+// ── Shopping-list types (mirrors RecipesPage.tsx) ─────────────────────────────
+
+const _SHOPPING_KEY = 'eq2-shopping-list'
+
+interface _ShoppingIngredient { description: string; quantity: number }
+
+interface _ShoppingEntry {
+  recipeId:        number
+  recipeName:      string
+  qty:             number
+  primary_comp:    string | null
+  primary_qty:     number | null
+  secondary_comps: _ShoppingIngredient[]
+  fuel_comp:       string | null
+  fuel_qty:        number | null
+}
+
+interface _UpgradeRecipe {
+  id:              number
+  name:            string
+  primary_comp:    string | null
+  primary_qty:     number | null
+  secondary_comps: _ShoppingIngredient[]
+  fuel_comp:       string | null
+  fuel_qty:        number | null
+}
+
+// ── Spell table styles ────────────────────────────────────────────────────────
 
 const _SPELL_TH: React.CSSProperties = {
   padding: '0.4rem 0.6rem',
@@ -232,10 +262,13 @@ function IngredientRow({ ing }: { ing: Ingredient }) {
 function MaterialsSection({ charName }: { charName: string }) {
   const cacheKey = charName.toLowerCase()
   const cached   = _materialsCache.get(cacheKey)
+  const navigate = useNavigate()
 
-  const [data, setData]       = useState<UpgradeMaterialsData | null>(cached ?? null)
-  const [loading, setLoading] = useState(!cached)
-  const [error, setError]     = useState<string | null>(null)
+  const [data, setData]             = useState<UpgradeMaterialsData | null>(cached ?? null)
+  const [loading, setLoading]       = useState(!cached)
+  const [error, setError]           = useState<string | null>(null)
+  const [addingToList, setAdding]   = useState(false)
+  const [addError, setAddError]     = useState<string | null>(null)
 
   useEffect(() => {
     if (_materialsCache.has(cacheKey)) return
@@ -276,6 +309,32 @@ function MaterialsSection({ charName }: { charName: string }) {
   )
 
   const missing = data.spells_needing_upgrade - data.spells_with_recipe
+
+  async function handleAddToList() {
+    setAdding(true)
+    setAddError(null)
+    try {
+      const resp = await fetch(`/api/character/${encodeURIComponent(charName)}/upgrade-recipes`)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const json: { results: _UpgradeRecipe[] } = await resp.json()
+      const entries: _ShoppingEntry[] = json.results.map(r => ({
+        recipeId:        r.id,
+        recipeName:      r.name,
+        qty:             1,
+        primary_comp:    r.primary_comp,
+        primary_qty:     r.primary_qty,
+        secondary_comps: r.secondary_comps,
+        fuel_comp:       r.fuel_comp,
+        fuel_qty:        r.fuel_qty,
+      }))
+      try { localStorage.setItem(_SHOPPING_KEY, JSON.stringify(entries)) } catch { /* full */ }
+      navigate('/recipes?list=open')
+    } catch (err) {
+      setAddError(String(err))
+    } finally {
+      setAdding(false)
+    }
+  }
 
   return (
     <StatGroup title="Upgrade Materials">
@@ -323,6 +382,39 @@ function MaterialsSection({ charName }: { charName: string }) {
           </div>
         ))
       })()}
+
+      {/* Add-to-shopping-list button */}
+      {data.spells_with_recipe > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <button
+            onClick={handleAddToList}
+            disabled={addingToList}
+            style={{
+              width: '100%',
+              padding: '5px 0',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: addingToList ? 'var(--text-muted)' : '#c8a96e',
+              background: 'none',
+              border: '1px solid ' + (addingToList ? 'var(--border)' : '#c8a96e55'),
+              borderRadius: 4,
+              cursor: addingToList ? 'default' : 'pointer',
+              transition: 'border-color 0.15s, color 0.15s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.4rem',
+            }}
+          >
+            {addingToList ? '⏳ Adding…' : '🛒 Add upgrades to shopping list'}
+          </button>
+          {addError && (
+            <div style={{ fontSize: '0.68rem', color: '#f87171', marginTop: 3 }}>
+              Error: {addError}
+            </div>
+          )}
+        </div>
+      )}
     </StatGroup>
   )
 }
