@@ -480,10 +480,12 @@ class CensusClient:
 
     async def get_guild_full(
         self, name: str, world: str
-    ) -> Optional[tuple[GuildData, list[CharacterOverview]]]:
+    ) -> Optional[tuple[GuildData, list[CharacterOverview], dict]]:
         """
         Fetch guild with full member profiles (type + stats + equipment + spell IDs).
-        Returns (GuildData, list[CharacterOverview]) for cache pre-warming.
+        Returns (GuildData, list[CharacterOverview], guild_info_dict) for cache
+        pre-warming.  guild_info_dict contains the same fields as get_guild_info()
+        so callers can warm the info cache without a second Census round-trip.
         Spell IDs are raw integers stored in CharacterOverview.spell_ids; callers
         should resolve them against the local spells DB rather than making
         per-character Census calls.
@@ -493,7 +495,9 @@ class CensusClient:
             "name": name,
             "world": world,
             "c:resolve": "members(displayname,type,stats,guild.rank,guild.status,playedtime,equipmentslot_list,spell_list)",
-            "c:show": "member_list,name,world,rank_list",
+            # Also request info-level fields so callers can warm the info cache
+            # from the same Census call (avoids a second round-trip).
+            "c:show": "member_list,name,world,rank_list,dateformed,description,alignment,type,level,members,accounts,achievement_list",
             "c:limit": "1",
         }
         _log.info("[Census] GET %s params=%s", url, params)
@@ -589,6 +593,18 @@ class CensusClient:
                 spell_ids  = spell_ids,
             ))
 
+        guild_info = {
+            "name":              guild.get("name", name),
+            "world":             guild.get("world", world),
+            "dateformed":        guild.get("dateformed"),
+            "description":       guild.get("description") or None,
+            "alignment":         guild.get("alignment") or None,
+            "type":              guild.get("type") or None,
+            "level":             _int(guild.get("level")),
+            "members":           _int(guild.get("members")),
+            "accounts":          _int(guild.get("accounts")),
+            "achievement_count": len(guild.get("achievement_list") or []),
+        }
         return (
             GuildData(
                 name    = guild.get("name", name),
@@ -596,6 +612,7 @@ class CensusClient:
                 members = members,
             ),
             overviews,
+            guild_info,
         )
 
     async def get_character_guild_name(self, character_name: str, world: str) -> Optional[str]:

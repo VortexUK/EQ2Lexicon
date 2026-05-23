@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from census.client import CensusClient
-from web.cache import claim_cache
+from web.cache import character_cache, claim_cache
 from web.config import SERVICE_ID as _SERVICE_ID, WORLD as _WORLD
 from web.db import get_active_claims, set_primary, submit_claim, upsert_user, withdraw_claim
 
@@ -62,35 +62,59 @@ async def _build_claims_response(discord_id: str) -> tuple[ClaimsResponse, bool]
     Fetch claim + guild data from DB/Census.
     Returns (response, cacheable) — cacheable is False if any Census guild
     fetch failed, meaning the result should not be stored (retry next request).
+
+    Guild names are sourced from character_cache when available (no Census call
+    needed).  Census is only called for characters not already in cache.
     """
     data = await get_active_claims(discord_id)
     approved_raw = data["approved"]
 
-    client = CensusClient(service_id=_SERVICE_ID)
-    try:
-        # return_exceptions=True so a Census timeout/error comes back as an
-        # Exception instance rather than propagating and losing all results
-        guild_results = await asyncio.gather(
-            *[client.get_character_guild_name(c["character_name"], _WORLD) for c in approved_raw],
-            return_exceptions=True,
+    world_lower = _WORLD.lower()
+
+    # Check character_cache first — guild members loaded via the guild page
+    # will already have their guild_name populated there.
+    need_census: list[str] = []
+    cached_guild: dict[str, str | None] = {}
+    for c in approved_raw:
+        char_name = c["character_name"]
+        cached_char, _ = character_cache.get_stale(f"{char_name.lower()}:{world_lower}")
+        if cached_char is not None:
+            cached_guild[char_name] = getattr(cached_char, "guild_name", None)
+        else:
+            need_census.append(char_name)
+
+    # Fire Census calls only for characters not in character_cache
+    any_failed = False
+    census_guild: dict[str, str | None | BaseException] = {}
+    if need_census:
+        client = CensusClient(service_id=_SERVICE_ID)
+        try:
+            # return_exceptions=True so a Census timeout/error comes back as an
+            # Exception instance rather than propagating and losing all results
+            results = await asyncio.gather(
+                *[client.get_character_guild_name(n, _WORLD) for n in need_census],
+                return_exceptions=True,
+            )
+        finally:
+            await client.close()
+        census_guild = dict(zip(need_census, results))
+        failed_names = [n for n, gn in census_guild.items() if isinstance(gn, BaseException)]
+        if failed_names:
+            any_failed = True
+            _log.warning("[Claims] Guild fetch failed for: %s — result will not be cached", failed_names)
+
+    # Merge cache + Census results back in original order
+    approved = []
+    for c in approved_raw:
+        char_name = c["character_name"]
+        if char_name in cached_guild:
+            gn: str | None | BaseException = cached_guild[char_name]
+        else:
+            gn = census_guild.get(char_name)
+        approved.append(
+            ClaimResponse(**{**c, "guild_name": gn if isinstance(gn, str) else None})
         )
-    finally:
-        await client.close()
 
-    # Any Exception in guild_results means that fetch failed (not the same as
-    # a character genuinely having no guild, which returns None)
-    any_failed = any(isinstance(gn, BaseException) for gn in guild_results)
-    if any_failed:
-        failed_names = [
-            c["character_name"] for c, gn in zip(approved_raw, guild_results)
-            if isinstance(gn, BaseException)
-        ]
-        _log.warning("[Claims] Guild fetch failed for: %s — result will not be cached", failed_names)
-
-    approved = [
-        ClaimResponse(**{**c, "guild_name": gn if isinstance(gn, str) else None})
-        for c, gn in zip(approved_raw, guild_results)
-    ]
     result = ClaimsResponse(
         approved=approved,
         pending=ClaimResponse(**data["pending"]) if data["pending"] else None,
