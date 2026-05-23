@@ -433,7 +433,7 @@ export default function HomePage() {
           color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: 1.6,
           marginTop: '-0.5rem',  // pull up slightly under the faded bottom of the image
         }}>
-          Guild companion for <em>Wuoshi</em> — track characters, spells,
+          EverQuest 2 companion — track characters, spells,
           gear and guild rosters across the realm of Norrath.
         </p>
         <ServerLaunchTimer />

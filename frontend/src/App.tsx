@@ -10,6 +10,7 @@ import ItemSearchPage from './pages/ItemSearchPage'
 import RecipesPage from './pages/RecipesPage'
 import { CharacterSearchPage, GuildSearchPage } from './pages/SearchPage'
 import UserWidget from './components/UserWidget'
+import NotFoundPage from './pages/NotFoundPage'
 import NotificationBell from './components/NotificationBell'
 import { useAuth } from './hooks/useAuth'
 import { Link } from 'react-router-dom'
@@ -39,7 +40,7 @@ function LoginGate() {
         }}
       />
       <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', maxWidth: 340 }}>
-        Sign in with Discord to access the guild companion.
+        Sign in with Discord to access your EQ2 Lexicon.
       </p>
       <ServerLaunchTimer />
       <a
@@ -219,6 +220,7 @@ function App() {
         <Route path="/claim" element={<ClaimPage />} />
         <Route path="/admin"   element={<AdminPage />} />
         <Route path="/recipes" element={<RecipesPage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   )
