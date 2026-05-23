@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useClaim } from '../hooks/useClaim'
 import type { Claim } from '../hooks/useClaim'
@@ -43,11 +43,16 @@ function CharacterCard({ claim, detail, isPrimary }: {
   isPrimary: boolean
 }) {
   const accentColour = detail?.cls ? (CLASS_COLOURS[detail.cls] ?? '#c8a96e') : '#c8a96e'
+  const navigate = useNavigate()
 
   return (
-    <Link
-      to={`/character/${encodeURIComponent(claim.character_name)}`}
-      style={{ textDecoration: 'none', display: 'block' }}
+    // Use a div + onClick instead of <Link> so the guild <Link> inside is not a nested <a>
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={() => navigate(`/character/${encodeURIComponent(claim.character_name)}`)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') navigate(`/character/${encodeURIComponent(claim.character_name)}`) }}
+      style={{ textDecoration: 'none', display: 'block', cursor: 'pointer' }}
     >
       <div style={{
         position: 'relative',
@@ -174,7 +179,7 @@ function CharacterCard({ claim, detail, isPrimary }: {
           </div>
         </div>
       </div>
-    </Link>
+    </div>
   )
 }
 

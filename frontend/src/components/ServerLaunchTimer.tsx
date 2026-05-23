@@ -2,7 +2,7 @@
  * Countdown timer to the EQ2 server launch.
  * Hides automatically once the launch time has passed.
  */
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 
 const LAUNCH_UTC = new Date('2026-06-09T20:00:00Z').getTime()
 
@@ -78,8 +78,8 @@ export default function ServerLaunchTimer() {
       {/* Countdown units */}
       <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem' }}>
         {units.map(({ value, label }, i) => (
-          <>
-            <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
+          <Fragment key={label}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
               <div style={{
                 fontFamily: "'Cinzel', serif",
                 fontSize: '2rem',
@@ -108,7 +108,7 @@ export default function ServerLaunchTimer() {
             </div>
             {/* Separator between units, not after last */}
             {i < units.length - 1 && (
-              <div key={`sep-${i}`} style={{
+              <div style={{
                 alignSelf: 'flex-start',
                 paddingTop: '0.55rem',
                 fontSize: '1.4rem',
@@ -119,7 +119,7 @@ export default function ServerLaunchTimer() {
                 :
               </div>
             )}
-          </>
+          </Fragment>
         ))}
       </div>
 
