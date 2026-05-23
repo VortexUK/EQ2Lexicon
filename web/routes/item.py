@@ -316,7 +316,9 @@ async def search_items(
         cl_pattern = _ITEM_TYPE_CLASSIFICATION.get(item_type)
         if cl_pattern:
             # Filter via classification_list column (e.g. "Material")
-            conditions.append("i.classification_list LIKE ?")
+            # Also require type = 'Item' to exclude containers/strongboxes that
+            # happen to carry a materials classification tag.
+            conditions.append("i.classification_list LIKE ? AND i.type = 'Item'")
             where_params.append(cl_pattern)
         else:
             # Map display name back to raw DB typeinfo_name value(s)
