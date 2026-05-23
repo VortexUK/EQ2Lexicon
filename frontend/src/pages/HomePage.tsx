@@ -421,7 +421,7 @@ export default function HomePage() {
           Lore <span style={{ fontWeight: 300, opacity: 0.8 }}>&</span> Legend
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: 1.6, marginTop: '0.25rem' }}>
-          Guild companion for <em>Woushi</em> — track characters, spells,
+          Guild companion for <em>Wuoshi</em> — track characters, spells,
           gear and guild rosters across the realm of Norrath.
         </p>
       </div>
