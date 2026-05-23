@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time as _time
 from collections import Counter
 from typing import Any, Optional
 
@@ -14,6 +15,61 @@ from census.models import AAProfile, AdornSlot, CharacterAAs, CharacterOverview,
 BASE_URL = "https://census.daybreakgames.com"
 
 
+# ---------------------------------------------------------------------------
+# aiohttp TraceConfig for Prometheus metrics
+# ---------------------------------------------------------------------------
+# Uses a lazy import of web.metrics so the Discord bot (which also imports
+# this module) works fine even if prometheus-client is absent or the web
+# package isn't on sys.path.
+
+def _build_trace_config() -> aiohttp.TraceConfig:
+    """Return an aiohttp TraceConfig that records Census API metrics."""
+
+    tc = aiohttp.TraceConfig()
+
+    async def _on_start(
+        session: aiohttp.ClientSession,
+        ctx: aiohttp.TraceRequestStartParams,
+        params: aiohttp.TraceRequestStartParams,
+    ) -> None:
+        ctx.start_time = _time.perf_counter()  # type: ignore[attr-defined]
+
+    async def _on_end(
+        session: aiohttp.ClientSession,
+        ctx: aiohttp.TraceRequestEndParams,
+        params: aiohttp.TraceRequestEndParams,
+    ) -> None:
+        elapsed = _time.perf_counter() - getattr(ctx, "start_time", _time.perf_counter())
+        try:
+            from web.metrics import CENSUS_DURATION, CENSUS_REQUESTS, census_endpoint_label
+            endpoint = census_endpoint_label(str(params.url))
+            http_ok  = 200 <= params.response.status < 300
+            CENSUS_REQUESTS.labels(
+                endpoint=endpoint,
+                status="success" if http_ok else "http_error",
+            ).inc()
+            CENSUS_DURATION.labels(endpoint=endpoint).observe(elapsed)
+        except Exception:
+            pass
+
+    async def _on_exception(
+        session: aiohttp.ClientSession,
+        ctx: aiohttp.TraceRequestExceptionParams,
+        params: aiohttp.TraceRequestExceptionParams,
+    ) -> None:
+        try:
+            from web.metrics import CENSUS_REQUESTS, census_endpoint_label
+            endpoint = census_endpoint_label(str(params.url))
+            CENSUS_REQUESTS.labels(endpoint=endpoint, status="error").inc()
+        except Exception:
+            pass
+
+    tc.on_request_start.append(_on_start)
+    tc.on_request_end.append(_on_end)
+    tc.on_request_exception.append(_on_exception)
+    return tc
+
+
 class CensusClient:
     def __init__(self, service_id: str = "example") -> None:
         self.service_id = service_id
@@ -21,7 +77,9 @@ class CensusClient:
 
     def _session_(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            self._session = aiohttp.ClientSession(
+                trace_configs=[_build_trace_config()],
+            )
         return self._session
 
     async def close(self) -> None:
