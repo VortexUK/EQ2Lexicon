@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import BackLink from '../components/BackLink'
 import { ItemTooltip, TooltipState } from '../components/ItemTooltip'
 
@@ -237,18 +237,35 @@ function nextId() { return ++_statFilterId }
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ItemSearchPage() {
-  // Filter state
-  const [name,       setName]       = useState('')
-  const [tier,       setTier]       = useState('')
-  const [slot,       setSlot]       = useState('')
-  const [itemType,   setItemType]   = useState('')
-  const [classVal,   setClassVal]   = useState('')
-  const [minLevel,   setMinLevel]   = useState('')
-  const [maxLevel,   setMaxLevel]   = useState('')
-  const [statFilters, setStatFilters] = useState<StatFilter[]>([])
-  const [sortBy,     setSortBy]     = useState<string>('name')
-  const [sortDir,    setSortDir]    = useState<'asc' | 'desc'>('asc')
-  const [page,       setPage]       = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // ── Filter state — initialised from URL so Back navigation restores everything ─
+
+  // Parse stat filters from URL: each `sf` param is "StatName:op:value" or "StatName"
+  const [statFilters, setStatFilters] = useState<StatFilter[]>(() =>
+    searchParams.getAll('sf').map(sf => {
+      const parts = sf.split(':')
+      return parts.length === 3
+        ? { id: nextId(), stat: parts[0], op: parts[1] as 'gte' | 'lte', value: parts[2] }
+        : { id: nextId(), stat: sf, op: 'gte' as const, value: '' }
+    }),
+  )
+
+  const [name,     setName]     = useState(() => searchParams.get('q')    ?? '')
+  const [tier,     setTier]     = useState(() => searchParams.get('tier') ?? '')
+  const [slot,     setSlot]     = useState(() => searchParams.get('slot') ?? '')
+  const [itemType, setItemType] = useState(() => searchParams.get('type') ?? '')
+  const [classVal, setClassVal] = useState(() => searchParams.get('cls')  ?? '')
+  const [minLevel, setMinLevel] = useState(() => searchParams.get('minLv') ?? '')
+  const [maxLevel, setMaxLevel] = useState(() => searchParams.get('maxLv') ?? '')
+  const [sortBy,   setSortBy]   = useState<string>(() => searchParams.get('sort') ?? 'name')
+  const [sortDir,  setSortDir]  = useState<'asc' | 'desc'>(() =>
+    (searchParams.get('dir') as 'asc' | 'desc' | null) ?? 'asc',
+  )
+  const [page, setPage] = useState(() => {
+    const p = Number(searchParams.get('page'))
+    return p > 0 ? p : 1
+  })
 
   // Results state
   const [results,  setResults]  = useState<ItemSearchResponse | null>(null)
@@ -266,19 +283,48 @@ export default function ItemSearchPage() {
     setTooltip(t => t ? { ...t, x: e.clientX, y: e.clientY } : null)
   }, [])
 
-  // On mount: fetch only server_max_level to set level-range defaults.
-  // Tiers, slots, and item types are static constants — no DB scan needed.
+  // ── Keep URL in sync with filter state ─────────────────────────────────────
+  // Uses replace:true so filter tweaks don't pollute the browser history stack.
+
+  useEffect(() => {
+    const p = new URLSearchParams()
+    if (name.trim())     p.set('q',     name.trim())
+    if (tier)            p.set('tier',  tier)
+    if (slot)            p.set('slot',  slot)
+    if (itemType)        p.set('type',  itemType)
+    if (classVal)        p.set('cls',   classVal)
+    if (minLevel.trim()) p.set('minLv', minLevel.trim())
+    if (maxLevel.trim()) p.set('maxLv', maxLevel.trim())
+    if (sortBy !== 'name') p.set('sort', sortBy)
+    if (sortDir !== 'asc') p.set('dir',  sortDir)
+    if (page > 1)          p.set('page', String(page))
+    for (const f of statFilters) {
+      if (!f.stat) continue
+      const v = f.value.trim()
+      p.append('sf', v ? `${f.stat}:${f.op}:${v}` : f.stat)
+    }
+    setSearchParams(p, { replace: true })
+  }, [name, tier, slot, itemType, classVal, minLevel, maxLevel, sortBy, sortDir, page, statFilters]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── On mount: fetch server_max_level for level defaults (only if not in URL) ─
+
   useEffect(() => {
     fetch('/api/items/filters', { credentials: 'include' })
       .then(r => r.json())
       .then((opts: FilterOptions) => {
         if (opts.server_max_level) {
-          setMaxLevel(String(opts.server_max_level))
-          setMinLevel(String(opts.server_max_level - 9))
+          // Don't override values the user already has in the URL
+          if (!searchParams.has('maxLv')) setMaxLevel(String(opts.server_max_level))
+          if (!searchParams.has('minLv')) setMinLevel(String(opts.server_max_level - 9))
         }
       })
       .catch(() => {})
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-run search on mount if the URL already has search params ───────────
+  // runSearch reads current state, which is already initialised from URL above.
+
+  const didAutoSearch = useRef(false)
 
   // ── Stat filter management ──────────────────────────────────────────────────
 
@@ -370,6 +416,15 @@ export default function ItemSearchPage() {
       setLoading(false)
     }
   }
+
+  // Auto-search on mount when URL already has params (e.g. returning via Back)
+  useEffect(() => {
+    if (didAutoSearch.current) return
+    didAutoSearch.current = true
+    const hasParams = ['q', 'tier', 'slot', 'type', 'cls', 'minLv', 'maxLv'].some(k => searchParams.has(k))
+      || searchParams.has('sf')
+    if (hasParams) runSearch(page)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

@@ -5,7 +5,7 @@
  * with a fallback to locally-registered data when Census is unavailable.
  */
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import BackLink from '../components/BackLink'
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -48,11 +48,24 @@ interface SearchConfig {
 }
 
 function NameSearchPage({ config }: { config: SearchConfig }) {
-  const [query,   setQuery]   = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [query,   setQuery]   = useState(() => searchParams.get('q') ?? '')
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep URL in sync so Back navigation restores the query
+  useEffect(() => {
+    const q = query.trim()
+    const current = searchParams.get('q') ?? ''
+    if (q === current) return
+    if (q) {
+      setSearchParams({ q }, { replace: true })
+    } else {
+      setSearchParams({}, { replace: true })
+    }
+  }, [query]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const q = query.trim()

@@ -581,7 +581,7 @@ class CensusClient:
         params = {
             "name.first": name,
             "locationdata.world": world,
-            "c:show": "displayname,type,guild",
+            "c:show": "name,type,guild",
             "c:limit": "1",
         }
         print(f"[Census] GET {url} params={params}")
@@ -603,7 +603,7 @@ class CensusClient:
         char = char_list[0]
         t     = char.get("type") or {}
         guild = char.get("guild") or {}
-        char_name = char.get("displayname") or (char.get("name") or {}).get("first", name)
+        char_name = (char.get("name") or {}).get("first", name)
         return {
             "name":       char_name,
             "cls":        t.get("class"),
@@ -630,7 +630,7 @@ class CensusClient:
         params = {
             "name.first_lower": f"^{name.lower()}",
             "locationdata.world": world,
-            "c:show": "displayname,type,guild",
+            "c:show": "name,type,guild",
             "c:limit": str(limit),
         }
         print(f"[Census] GET {url} params={params}")
@@ -650,7 +650,7 @@ class CensusClient:
         for char in data.get("character_list") or []:
             t = char.get("type") or {}
             guild = char.get("guild") or {}
-            char_name = char.get("displayname") or (char.get("name") or {}).get("first", "")
+            char_name = (char.get("name") or {}).get("first", "")
             if not char_name:
                 continue
             results.append({
