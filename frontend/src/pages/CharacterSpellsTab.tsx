@@ -29,6 +29,60 @@ const _SPELL_TD: React.CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
+// ── Spell Raid Ready card ─────────────────────────────────────────────────────
+
+function SpellRaidReady({ expertOrBetter, totalSpells }: { expertOrBetter: number; totalSpells: number }) {
+  if (totalSpells === 0) return null
+  const pct       = Math.min(100, Math.round(expertOrBetter / totalSpells * 100))
+  const raidReady = pct >= 90
+  const color     = raidReady ? '#4ade80' : pct >= 70 ? '#fbbf24' : '#f87171'
+
+  return (
+    <div style={{ marginBottom: '0.75rem' }}>
+      <div style={{
+        fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.08em',
+        color: 'var(--accent)', fontWeight: 600, marginBottom: 3,
+      }}>
+        Raid Ready
+      </div>
+      <div style={{
+        background: 'var(--surface)',
+        border: `1px solid ${raidReady ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
+        borderRadius: 5,
+        padding: '8px 10px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <div style={{
+            fontFamily: "'Cinzel', serif",
+            fontSize: '2rem', fontWeight: 700, lineHeight: 1,
+            color, textShadow: `0 0 20px ${color}55`,
+            flexShrink: 0, minWidth: '3ch', textAlign: 'center',
+          }}>
+            {pct}%
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: raidReady ? '#4ade80' : '#f87171', marginBottom: '0.2rem' }}>
+              {raidReady ? '✓ Raid Ready' : '✗ Not Ready'}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              {expertOrBetter} / {totalSpells} at Expert+
+            </div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>
+              (90% required)
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 7, height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', width: `${pct}%`, borderRadius: 2,
+            background: color, transition: 'width 0.3s ease',
+          }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Spell progress bar ────────────────────────────────────────────────────────
 
 function SpellProgressBar({ label, subtitle, value, total, pct, color }: {
@@ -318,7 +372,6 @@ export function SpellsTab({ charName }: { charName: string }) {
   const totalSpells    = data.spells.length
   const expertOrBetter = (data.tier_counts['Expert'] ?? 0) + (data.tier_counts['Master'] ?? 0) + (data.tier_counts['Grandmaster'] ?? 0)
   const masterOrBetter = (data.tier_counts['Master'] ?? 0) + (data.tier_counts['Grandmaster'] ?? 0)
-  const raidReadyPct   = totalSpells > 0 ? expertOrBetter / totalSpells * 100 : 0
   const masteredPct    = totalSpells > 0 ? masterOrBetter / totalSpells * 100 : 0
 
   // Filter the list
@@ -342,6 +395,8 @@ export function SpellsTab({ charName }: { charName: string }) {
 
       {/* ── Left sidebar ── */}
       <div style={{ width: 240, flexShrink: 0 }}>
+        <SpellRaidReady expertOrBetter={expertOrBetter} totalSpells={totalSpells} />
+
         <StatGroup title="By Tier">
           {SPELL_TIER_ORDER.map(tier => {
             const count    = data.tier_counts[tier] ?? 0
@@ -381,16 +436,8 @@ export function SpellsTab({ charName }: { charName: string }) {
           </div>
         </StatGroup>
 
-        {/* Progress bars */}
-        <StatGroup title="Readiness">
-          <SpellProgressBar
-            label="Raid Ready"
-            subtitle="Expert or better"
-            value={expertOrBetter}
-            total={totalSpells}
-            pct={raidReadyPct}
-            color="#84cc16"
-          />
+        {/* Mastery progress */}
+        <StatGroup title="Mastery">
           <SpellProgressBar
             label="Fully Mastered"
             subtitle="Master or better"
