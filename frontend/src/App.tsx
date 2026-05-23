@@ -7,6 +7,7 @@ import AdminPage from './pages/AdminPage'
 import GuildPage from './pages/GuildPage'
 import ItemPage from './pages/ItemPage'
 import ItemSearchPage from './pages/ItemSearchPage'
+import RecipesPage from './pages/RecipesPage'
 import { CharacterSearchPage, GuildSearchPage } from './pages/SearchPage'
 import UserWidget from './components/UserWidget'
 import NotificationBell from './components/NotificationBell'
@@ -85,6 +86,7 @@ function NavLinks() {
       <NavLink to="/characters" style={navLinkStyle}>Character</NavLink>
       <NavLink to="/guilds"     style={navLinkStyle}>Guild</NavLink>
       <NavLink to="/items"      style={navLinkStyle}>Item</NavLink>
+      <NavLink to="/recipes"    style={navLinkStyle}>Recipes</NavLink>
     </nav>
   )
 }
@@ -181,7 +183,8 @@ function App() {
         <Route path="/guild/:guildName" element={<GuildPage />} />
         <Route path="/item/:itemId"    element={<ItemPage />} />
         <Route path="/claim" element={<ClaimPage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin"   element={<AdminPage />} />
+        <Route path="/recipes" element={<RecipesPage />} />
       </Route>
     </Routes>
   )

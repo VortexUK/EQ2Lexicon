@@ -10,8 +10,8 @@
     },
     {
       "label":        "recent",
-      "description":  "Within 5–10 levels of the expansion cap (e.g. 60–65 on a 70-cap server)",
-      "min_below_max": 10
+      "description":  "Within 5–9 levels of the expansion cap (e.g. 61–65 on a 70-cap server)",
+      "min_below_max": 9
     }
   ],
   "fallback_band": "outdated",

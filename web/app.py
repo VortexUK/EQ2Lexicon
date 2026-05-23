@@ -26,6 +26,7 @@ from web.routes.item_watch import router as item_watch_router
 from web.routes.characters import router as characters_router
 from web.routes.aa import router as aa_router
 from web.routes.notifications import router as notifications_router
+from web.routes.recipes import router as recipes_router
 from web.metrics import (
     APP_INFO,
     CONTENT_TYPE_LATEST,
@@ -185,6 +186,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     app.include_router(characters_router, prefix="/api")
     app.include_router(aa_router, prefix="/api")
     app.include_router(notifications_router, prefix="/api")
+    app.include_router(recipes_router, prefix="/api")
 
     # ── /metrics — Prometheus text format ───────────────────────────────────
     # Runs synchronously (FastAPI auto-offloads sync def to a thread pool)
