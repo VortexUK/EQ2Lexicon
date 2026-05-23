@@ -30,7 +30,7 @@ function LoginGate() {
       textAlign: 'center',
     }}>
       <img
-        src="/logo.png"
+        src={logo}
         alt="EQ2 Lexicon"
         style={{
           width: '100%',

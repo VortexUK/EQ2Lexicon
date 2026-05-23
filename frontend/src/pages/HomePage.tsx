@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useClaim } from '../hooks/useClaim'
 import type { Claim } from '../hooks/useClaim'
 import ServerLaunchTimer from '../components/ServerLaunchTimer'
+import logo from '../assets/EQ2L.png'
 
 // ── Class colours (adventure archetype) ──────────────────────────────────────
 
@@ -415,7 +416,7 @@ export default function HomePage() {
         {/* Logo image — dark edges blend into page background */}
         <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
           <img
-            src="/logo.png"
+            src={logo}
             alt="EQ2 Lexicon"
             style={{
               width: '100%',
