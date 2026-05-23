@@ -4,7 +4,8 @@ import { useAuth } from '../hooks/useAuth'
 import { useClaim } from '../hooks/useClaim'
 import type { Claim } from '../hooks/useClaim'
 import ServerLaunchTimer from '../components/ServerLaunchTimer'
-import logo from '../assets/EQ2L.png'
+// logo.png lives in frontend/public/ → served at site root by Vite
+const logo = '/logo.png'
 import { CLASS_COLOURS } from '../classConstants'
 
 // ── Character detail (fetched from Census cache) ──────────────────────────────
