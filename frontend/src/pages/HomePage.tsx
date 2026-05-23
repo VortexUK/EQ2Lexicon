@@ -409,24 +409,30 @@ export default function HomePage() {
   return (
     <main style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem 1.5rem 4rem' }}>
 
-      {/* Title */}
-      <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-        <h1 style={{
-          fontFamily: "'Cinzel', serif",
-          fontSize: '2.6rem',
-          fontWeight: 700,
-          letterSpacing: '0.06em',
-          lineHeight: 1.1,
-          marginBottom: '0.5rem',
-          background: 'linear-gradient(135deg, #c8a96e 0%, #e8d5a3 40%, #c8a96e 70%, #a07840 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text',
-          display: 'inline-block',
+      {/* Hero */}
+      <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+
+        {/* Logo image — dark edges blend into page background */}
+        <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
+          <img
+            src="/logo.png"
+            alt="EQ2 Lexicon"
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              display: 'block',
+              margin: '0 auto',
+              // Mask the bottom edge so it dissolves into the page rather than cutting hard
+              WebkitMaskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)',
+              maskImage:        'linear-gradient(to bottom, black 60%, transparent 100%)',
+            }}
+          />
+        </div>
+
+        <p style={{
+          color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: 1.6,
+          marginTop: '-0.5rem',  // pull up slightly under the faded bottom of the image
         }}>
-          Lore <span style={{ fontWeight: 300, opacity: 0.8 }}>&</span> Legend
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: 1.6, marginTop: '0.25rem' }}>
           Guild companion for <em>Wuoshi</em> — track characters, spells,
           gear and guild rosters across the realm of Norrath.
         </p>
