@@ -6,6 +6,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from web.cache import claim_cache
 from web.db import (
     get_claim_by_id,
     list_claims,
@@ -106,6 +107,7 @@ async def officer_approve_claim(guild_name: str, claim_id: int, request: Request
     result = await review_claim(claim_id, "approved", user["id"])
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
+    claim_cache.delete(f"claims:{result['discord_id']}")
     asyncio.create_task(_refresh_claim_cache(result["discord_id"]))
     return GuildClaimItem(
         id             = result["id"],
@@ -141,6 +143,7 @@ async def officer_reject_claim(
     result = await review_claim(claim_id, "rejected", user["id"], note=body.note)
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
+    claim_cache.delete(f"claims:{result['discord_id']}")
     asyncio.create_task(_refresh_claim_cache(result["discord_id"]))
     return {"ok": True}
 

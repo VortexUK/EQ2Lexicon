@@ -6,6 +6,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from web.cache import claim_cache
 from web.db import delete_claim, delete_claims_for_user, get_claim_by_id, list_claims, review_claim
 from web.routes.claim import _refresh_claim_cache
 
@@ -76,6 +77,7 @@ async def approve_claim(claim_id: int, request: Request) -> ClaimDetail:
     result = await review_claim(claim_id, "approved", admin["id"])
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
+    claim_cache.delete(f"claims:{result['discord_id']}")
     asyncio.create_task(_refresh_claim_cache(result["discord_id"]))
     return ClaimDetail(**result)
 
@@ -88,6 +90,7 @@ async def remove_claim(claim_id: int, request: Request) -> dict:
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
     await delete_claim(claim_id)
+    claim_cache.delete(f"claims:{claim['discord_id']}")
     asyncio.create_task(_refresh_claim_cache(claim["discord_id"]))
     return {"ok": True}
 
@@ -103,6 +106,7 @@ async def reject_claim(
     result = await review_claim(claim_id, "rejected", admin["id"], note=body.note)
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
+    claim_cache.delete(f"claims:{result['discord_id']}")
     asyncio.create_task(_refresh_claim_cache(result["discord_id"]))
     return ClaimDetail(**result)
 
@@ -112,5 +116,6 @@ async def remove_all_user_claims(discord_id: str, request: Request) -> dict:
     """Permanently delete every claim record for a user."""
     _require_admin(request)
     count = await delete_claims_for_user(discord_id)
+    claim_cache.delete(f"claims:{discord_id}")
     asyncio.create_task(_refresh_claim_cache(discord_id))
     return {"ok": True, "deleted": count}
