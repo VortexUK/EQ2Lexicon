@@ -10,9 +10,11 @@ export default function BackLink() {
     <button
       onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/')}
       style={{
+        display: 'block',
         background: 'none',
         border: 'none',
         padding: 0,
+        marginBottom: '0.6rem',
         cursor: 'pointer',
         color: 'var(--text-muted)',
         fontSize: '0.9rem',
