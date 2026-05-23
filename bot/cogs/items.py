@@ -1,4 +1,5 @@
 import io
+import logging
 
 import discord
 from discord import app_commands
@@ -7,6 +8,8 @@ from discord.ext import commands
 from census.client import CensusClient
 from census.config import SERVICE_ID
 from image.tooltip import render_tooltip
+
+_log = logging.getLogger(__name__)
 
 
 class ItemsCog(commands.Cog):
@@ -22,9 +25,9 @@ class ItemsCog(commands.Cog):
     async def item(self, interaction: discord.Interaction, name: str) -> None:
         await interaction.response.defer(thinking=True)
 
-        print(f"[item] query={name!r} params={self.census._build_params(name)}")
+        _log.debug("item query=%r params=%s", name, self.census._build_params(name))
         item_data = await self.census.get_item(name)
-        print(f"[item] result={'found: ' + item_data.name if item_data else 'not found'}")
+        _log.debug("item result=%s", "found: " + item_data.name if item_data else "not found")
         if item_data is None:
             await interaction.followup.send(
                 f"No item found for **{name}**. Check the spelling or try a more specific name.",

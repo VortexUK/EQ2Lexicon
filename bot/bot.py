@@ -1,7 +1,11 @@
+import logging
+
 import discord
 from discord.ext import commands
 
 from census.config import DISCORD_SYNC_GUILD_IDS
+
+_log = logging.getLogger(__name__)
 
 
 class EQ2Bot(commands.Bot):
@@ -26,8 +30,8 @@ class EQ2Bot(commands.Bot):
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
         await self.tree.sync()
-        print("[Bot] Slash commands synced.")
+        _log.info("Slash commands synced.")
 
     async def on_ready(self) -> None:
         assert self.user is not None
-        print(f"[Bot] Logged in as {self.user} (ID: {self.user.id})")
+        _log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
