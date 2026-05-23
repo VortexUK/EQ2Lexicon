@@ -272,7 +272,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
       <div style={{ width: 240, flexShrink: 0 }}>
 
         {/* Raid Ready */}
-        <AARaidReady spent={charAAs.total_spent} cap={config.aa_cap} />
+        <AARaidReady spent={spentInView} cap={config.aa_cap} />
 
         {/* Profile selector */}
         {charAAs.profiles.length > 0 && (
