@@ -28,19 +28,16 @@ function LoginGate() {
       padding: '2rem',
       textAlign: 'center',
     }}>
-      <h1 style={{
-        fontFamily: "'Cinzel', serif",
-        fontSize: '2.6rem',
-        fontWeight: 700,
-        letterSpacing: '0.06em',
-        background: 'linear-gradient(135deg, #c8a96e 0%, #e8d5a3 40%, #c8a96e 70%, #a07840 100%)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        backgroundClip: 'text',
-        display: 'inline-block',
-      }}>
-        Lore <span style={{ fontWeight: 300, opacity: 0.8 }}>&</span> Legend
-      </h1>
+      <img
+        src="/logo.png"
+        alt="EQ2 Lexicon"
+        style={{
+          width: '100%',
+          maxWidth: 420,
+          WebkitMaskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)',
+          maskImage:        'linear-gradient(to bottom, black 60%, transparent 100%)',
+        }}
+      />
       <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', maxWidth: 340 }}>
         Sign in with Discord to access the guild companion.
       </p>
@@ -155,7 +152,7 @@ function Layout() {
         borderBottom: '1px solid var(--border)',
       }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center', lineHeight: 0 }}>
-          <img src={logo} alt="Lore & Legend" style={{ height: 40, width: 'auto' }} />
+          <img src={logo} alt="EQ2 Lexicon" style={{ height: 40, width: 'auto' }} />
         </Link>
         <NavLinks />
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
