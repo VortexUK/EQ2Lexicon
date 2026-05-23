@@ -164,8 +164,45 @@ function Layout() {
         </div>
       </div>
       {/* Push content below fixed header (~52px) */}
-      <div style={{ paddingTop: '3.5rem' }}>
-        <Outlet />
+      <div style={{ paddingTop: '3.5rem', minHeight: 'calc(100vh - 3.5rem)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1 }}>
+          <Outlet />
+        </div>
+        <footer style={{
+          borderTop: '1px solid var(--border)',
+          padding: '1.1rem 1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.5rem',
+          fontSize: '0.72rem',
+          color: 'var(--text-muted)',
+          opacity: 0.7,
+        }}>
+          <span>
+            © {new Date().getFullYear()}{' '}
+            <a
+              href="https://github.com/VortexUK"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              VortexUK
+            </a>
+          </span>
+          <span>
+            Game data provided by the{' '}
+            <a
+              href="https://census.daybreakgames.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Daybreak Games Census API
+            </a>
+          </span>
+        </footer>
       </div>
     </>
   )
