@@ -248,12 +248,16 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     # Metrics middleware (added last = outermost after security headers)
     app.add_middleware(_MetricsMiddleware)
 
-    # Sessions must be added before CORS so the cookie is available everywhere
+    # Sessions must be added before CORS so the cookie is available everywhere.
+    # same_site="lax" is required for the Discord OAuth callback to receive the
+    # session cookie (strict would block the cookie on the redirect from
+    # discord.com → /api/auth/callback, breaking CSRF state validation).
+    # Lax still blocks cross-site POST/DELETE (the CSRF vector we care about).
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret or _SESSION_SECRET,
         https_only=_HTTPS_ONLY,
-        same_site="strict",
+        same_site="lax",
     )
 
     app.add_middleware(
@@ -320,7 +324,20 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def serve_spa(full_path: str) -> FileResponse:
-            """Catch-all: serve index.html so React Router handles navigation."""
+            """Catch-all: serve real files from the build root if they exist
+            (favicon.svg, favicon.ico, robots.txt, og-image.png, etc.) and fall
+            back to index.html so React Router can handle in-app navigation."""
+            if full_path:
+                candidate = _FRONTEND_DIST / full_path
+                # Resolve to defeat path-traversal (../../etc/passwd) and ensure
+                # the resolved path stays within _FRONTEND_DIST.
+                try:
+                    resolved = candidate.resolve()
+                    resolved.relative_to(_FRONTEND_DIST.resolve())
+                except (ValueError, OSError):
+                    resolved = None
+                if resolved is not None and resolved.is_file():
+                    return FileResponse(resolved)
             return FileResponse(_FRONTEND_DIST / "index.html")
 
     return app
