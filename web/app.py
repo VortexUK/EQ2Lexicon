@@ -23,6 +23,7 @@ from web.routes.guild_officer import router as guild_officer_router
 from web.routes.item_watch import router as item_watch_router
 from web.routes.characters import router as characters_router
 from web.routes.aa import router as aa_router
+from web.routes.notifications import router as notifications_router
 from web import db as users_db
 
 
@@ -126,6 +127,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     app.include_router(item_watch_router, prefix="/api")
     app.include_router(characters_router, prefix="/api")
     app.include_router(aa_router, prefix="/api")
+    app.include_router(notifications_router, prefix="/api")
 
     # Item icons — served from local data directory
     if _ICONS_DIR.exists():

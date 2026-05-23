@@ -9,6 +9,7 @@ import ItemPage from './pages/ItemPage'
 import ItemSearchPage from './pages/ItemSearchPage'
 import { CharacterSearchPage, GuildSearchPage } from './pages/SearchPage'
 import UserWidget from './components/UserWidget'
+import NotificationBell from './components/NotificationBell'
 import { useAuth } from './hooks/useAuth'
 import { Link } from 'react-router-dom'
 import logo from './L&L.png'
@@ -155,7 +156,10 @@ function Layout() {
           <img src={logo} alt="Lore & Legend" style={{ height: 40, width: 'auto' }} />
         </Link>
         <NavLinks />
-        <UserWidget />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <NotificationBell />
+          <UserWidget />
+        </div>
       </div>
       {/* Push content below fixed header (~52px) */}
       <div style={{ paddingTop: '3.5rem' }}>
