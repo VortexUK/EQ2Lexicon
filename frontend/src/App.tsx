@@ -10,6 +10,7 @@ import ItemSearchPage from './pages/ItemSearchPage'
 import ParsePage from './pages/ParsePage'
 import ParsesPage from './pages/ParsesPage'
 import RecipesPage from './pages/RecipesPage'
+import TokensPage from './pages/TokensPage'
 import { CharacterSearchPage, GuildSearchPage } from './pages/SearchPage'
 import UserWidget from './components/UserWidget'
 import NotFoundPage from './pages/NotFoundPage'
@@ -235,6 +236,7 @@ function App() {
         <Route path="/recipes" element={<RecipesPage />} />
         <Route path="/parses"      element={<ParsesPage />} />
         <Route path="/parse/:id"   element={<ParsePage />} />
+        <Route path="/settings/tokens" element={<TokensPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

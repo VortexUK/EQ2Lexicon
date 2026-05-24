@@ -14,11 +14,26 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import time
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from parses import db as parses_db
+from parses.ingest import _resolve_guild_sync
+from parses.models import (
+    AttackType,
+    Combatant,
+    DamageType,
+    Encounter,
+    _to_bool_tf,
+    _to_float,
+    _to_int,
+    _to_str_or_none,
+    _to_ts,
+)
+from web.auth_deps import require_user_session_or_token
 from web.limiter import limiter
 
 router = APIRouter(tags=["parses"])
@@ -429,4 +444,309 @@ async def get_parse(
         kills=enc["kills"],
         deaths=enc["deaths"],
         combatants=combatants,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/parses/ingest — upload endpoint for the ACT plugin
+# ---------------------------------------------------------------------------
+#
+# Accepts an ACT-shaped payload: the same row dicts ACT writes to its ODBC
+# tables (encounter_table / combatant_table / damagetype_table /
+# attacktype_table). Plugin sends the *raw* ACT values; transformation to
+# our normalised parses.db schema happens server-side, reusing the same
+# coercion helpers (_to_int, _to_perc, _to_bool_tf, etc.) that the local
+# `parses.ingest` uses for direct-from-SQLite reads.
+#
+# `logger_name` is taken straight from the plugin (which reads
+# ActGlobals.charName), so it's authoritative — no need to guess from the
+# combatant table. Guild is resolved server-side via Census so the user
+# can't spoof it.
+
+
+class IngestEncounter(BaseModel):
+    encid: str = Field(min_length=1, max_length=16)
+    title: str
+    zone: str | None = None
+    starttime: str
+    endtime: str
+    duration: int = 0
+    damage: int = 0
+    encdps: float = 0
+    kills: int = 0
+    deaths: int = 0
+
+
+class IngestRequest(BaseModel):
+    """ACT-shaped upload payload. dict[str, Any] used for combatants/damage_
+    types/attack_types so the plugin can pass through raw ACT row dicts
+    without us having to mirror every column in Pydantic — the column names
+    are documented in parses/act_reader.py."""
+
+    logger_name: str = Field(min_length=1, max_length=64)
+    encounter: IngestEncounter
+    combatants: list[dict[str, Any]] = []
+    damage_types: list[dict[str, Any]] = []
+    attack_types: list[dict[str, Any]] = []
+
+
+class IngestResponse(BaseModel):
+    status: str  # 'inserted' or 'skipped'
+    encounter_id: int | None  # our internal id (None for skipped)
+    act_encid: str
+    combatants: int
+    damage_types: int
+    attack_types: int
+    guild_name: str | None
+
+
+# Map raw ACT row dicts to our typed dataclasses — same column-name handling
+# as parses/act_reader.py. Mirrors `combatant_table.class`/`damagetype_table.
+# combatant`/`attacktype_table.attacker` quirks observed against real data.
+
+
+def _encounter_from_payload(p: IngestEncounter) -> Encounter | None:
+    started = _to_ts(p.starttime)
+    ended = _to_ts(p.endtime)
+    if started is None or ended is None:
+        return None
+    return Encounter(
+        encid=p.encid,
+        title=p.title or "",
+        zone=_to_str_or_none(p.zone),
+        started_at=started,
+        ended_at=ended,
+        duration_s=_to_int(p.duration),
+        total_damage=_to_int(p.damage),
+        encdps=_to_float(p.encdps),
+        kills=_to_int(p.kills),
+        deaths=_to_int(p.deaths),
+    )
+
+
+def _combatants_from_payload(rows: list[dict], encid: str) -> list[Combatant]:
+    from parses.models import _to_perc
+
+    out: list[Combatant] = []
+    for r in rows:
+        name = str(r.get("name") or "").strip()
+        if not name:
+            continue
+        out.append(
+            Combatant(
+                encid=encid,
+                name=name,
+                ally=_to_bool_tf(r.get("ally")),
+                started_at=_to_ts(r.get("starttime")),
+                ended_at=_to_ts(r.get("endtime")),
+                duration_s=_to_int(r.get("duration")),
+                damage=_to_int(r.get("damage")),
+                damage_perc=_to_perc(r.get("damageperc")),
+                kills=_to_int(r.get("kills")),
+                healed=_to_int(r.get("healed")),
+                healed_perc=_to_perc(r.get("healedperc")),
+                crit_heals=_to_int(r.get("critheals")),
+                heals=_to_int(r.get("heals")),
+                cure_dispels=_to_int(r.get("curedispels")),
+                power_drain=_to_int(r.get("powerdrain")),
+                power_replenish=_to_int(r.get("powerreplenish")),
+                dps=_to_float(r.get("dps")),
+                encdps=_to_float(r.get("encdps")),
+                enchps=_to_float(r.get("enchps")),
+                hits=_to_int(r.get("hits")),
+                crit_hits=_to_int(r.get("crithits")),
+                blocked=_to_int(r.get("blocked")),
+                misses=_to_int(r.get("misses")),
+                swings=_to_int(r.get("swings")),
+                heals_taken=_to_int(r.get("healstaken")),
+                damage_taken=_to_int(r.get("damagetaken")),
+                deaths=_to_int(r.get("deaths")),
+                to_hit=_to_float(r.get("tohit")),
+                crit_dam_perc=_to_perc(r.get("critdamperc")),
+                crit_heal_perc=_to_perc(r.get("crithealperc")),
+                crit_types=_to_str_or_none(r.get("crittypes")),
+                threat_str=_to_str_or_none(r.get("threatstr")),
+                threat_delta=_to_int(r.get("threatdelta")),
+            )
+        )
+    return out
+
+
+def _damage_types_from_payload(rows: list[dict], encid: str) -> list[DamageType]:
+    from parses.models import _to_perc
+
+    out: list[DamageType] = []
+    for r in rows:
+        combatant = str(r.get("combatant") or "").strip()
+        damage_type = str(r.get("type") or "").strip()
+        if not combatant or not damage_type:
+            continue
+        out.append(
+            DamageType(
+                encid=encid,
+                combatant_name=combatant,
+                grouping_label=_to_str_or_none(r.get("grouping")),
+                damage_type=damage_type,
+                started_at=_to_ts(r.get("starttime")),
+                ended_at=_to_ts(r.get("endtime")),
+                duration_s=_to_int(r.get("duration")),
+                damage=_to_int(r.get("damage")),
+                encdps=_to_float(r.get("encdps")),
+                char_dps=_to_float(r.get("chardps")),
+                dps=_to_float(r.get("dps")),
+                average=_to_float(r.get("average")),
+                median=_to_int(r.get("median")),
+                min_hit=_to_int(r.get("minhit")),
+                max_hit=_to_int(r.get("maxhit")),
+                hits=_to_int(r.get("hits")),
+                crit_hits=_to_int(r.get("crithits")),
+                blocked=_to_int(r.get("blocked")),
+                misses=_to_int(r.get("misses")),
+                swings=_to_int(r.get("swings")),
+                to_hit=_to_float(r.get("tohit")),
+                average_delay=_to_float(r.get("averagedelay")),
+                crit_perc=_to_perc(r.get("critperc")),
+                crit_types=_to_str_or_none(r.get("crittypes")),
+            )
+        )
+    return out
+
+
+def _attack_types_from_payload(rows: list[dict], encid: str) -> list[AttackType]:
+    """ACT writes per-combatant rollups as type='All' across various
+    swingtypes — strip those (same rule as the file-based reader)."""
+    from parses.models import _to_perc
+
+    out: list[AttackType] = []
+    for r in rows:
+        attacker = str(r.get("attacker") or "").strip()
+        attack_name = str(r.get("type") or "").strip()
+        if not attacker or not attack_name or attack_name == "All":
+            continue
+        out.append(
+            AttackType(
+                encid=encid,
+                combatant_name=attacker,
+                victim=_to_str_or_none(r.get("victim")),
+                swing_type=_to_int(r.get("swingtype")),
+                attack_name=attack_name,
+                started_at=_to_ts(r.get("starttime")),
+                ended_at=_to_ts(r.get("endtime")),
+                duration_s=_to_int(r.get("duration")),
+                damage=_to_int(r.get("damage")),
+                encdps=_to_float(r.get("encdps")),
+                char_dps=_to_float(r.get("chardps")),
+                dps=_to_float(r.get("dps")),
+                average=_to_float(r.get("average")),
+                median=_to_int(r.get("median")),
+                min_hit=_to_int(r.get("minhit")),
+                max_hit=_to_int(r.get("maxhit")),
+                resist=_to_str_or_none(r.get("resist")),
+                hits=_to_int(r.get("hits")),
+                crit_hits=_to_int(r.get("crithits")),
+                blocked=_to_int(r.get("blocked")),
+                misses=_to_int(r.get("misses")),
+                swings=_to_int(r.get("swings")),
+                to_hit=_to_float(r.get("tohit")),
+                average_delay=_to_float(r.get("averagedelay")),
+                crit_perc=_to_perc(r.get("critperc")),
+                crit_types=_to_str_or_none(r.get("crittypes")),
+            )
+        )
+    return out
+
+
+def _ingest_payload_sync(
+    payload: IngestRequest,
+    uploaded_by: str,
+    guild_name: str | None,
+    source_dsn: str,
+) -> tuple[str, int | None, int, int, int]:
+    """Write the payload into parses.db. Returns (status, encounter_id,
+    n_combatants, n_damage_types, n_attack_types).
+
+    status: 'inserted' on success, 'skipped' if (act_encid, uploaded_by)
+    already ingested by this user — the upload is idempotent on retries."""
+    enc = _encounter_from_payload(payload.encounter)
+    if enc is None:
+        raise HTTPException(status_code=400, detail="Encounter starttime/endtime unparseable")
+    combatants = _combatants_from_payload(payload.combatants, enc.encid)
+    if not combatants:
+        raise HTTPException(status_code=400, detail="No combatants in payload")
+    damage_types = _damage_types_from_payload(payload.damage_types, enc.encid)
+    attack_types = _attack_types_from_payload(payload.attack_types, enc.encid)
+
+    conn = parses_db.init_db()
+    try:
+        # Idempotency: skip if this uploader has already ingested this encid.
+        # NOTE: the current UNIQUE constraint is on act_encid alone, so a
+        # different uploader's payload with the same encid will collide at
+        # insert time. Phase 3+ will switch to UNIQUE(act_encid, uploaded_by).
+        if parses_db.is_ingested(conn, enc.encid):
+            existing = parses_db.find_encounter_by_act_encid(conn, enc.encid)
+            return ("skipped", existing["id"] if existing else None, 0, 0, 0)
+
+        ingested_at = int(time.time())
+        with conn:
+            encounter_id = parses_db.insert_encounter(
+                conn,
+                enc,
+                source_dsn=source_dsn,
+                ingested_at=ingested_at,
+                uploaded_by=uploaded_by,
+                guild_name=guild_name,
+            )
+            name_to_id = parses_db.insert_combatants_bulk(conn, encounter_id, combatants)
+            n_dt = parses_db.insert_damage_types_bulk(conn, name_to_id, damage_types)
+            n_at = parses_db.insert_attack_types_bulk(conn, name_to_id, attack_types)
+            parses_db.mark_ingested(
+                conn,
+                enc.encid,
+                encounter_id,
+                source_dsn=source_dsn,
+                ingested_at=ingested_at,
+            )
+        return ("inserted", encounter_id, len(combatants), n_dt, n_at)
+    finally:
+        conn.close()
+
+
+@router.post("/parses/ingest", response_model=IngestResponse, status_code=201)
+@limiter.limit("60/minute")
+async def ingest_parse(
+    request: Request,
+    body: IngestRequest,
+) -> IngestResponse:
+    user = await require_user_session_or_token(request)
+
+    # Trust the plugin's logger_name (it reads ActGlobals.charName) and
+    # use it as the uploader identifier on the encounter row. The session/
+    # token user_id is what we'd surface for "who uploaded this" if/when
+    # we add an uploader-by-user-id column in Phase 3+.
+    uploader = body.logger_name.strip()
+    if not uploader:
+        raise HTTPException(status_code=400, detail="logger_name must not be empty")
+
+    # Resolve guild via Census from the logger character. Single call per
+    # upload — same pattern as local ingest's _resolve_guild_sync.
+    loop = asyncio.get_event_loop()
+    guild_name = await loop.run_in_executor(None, _resolve_guild_sync, uploader)
+
+    status, encounter_id, n_c, n_dt, n_at = await loop.run_in_executor(
+        None,
+        _ingest_payload_sync,
+        body,
+        uploader,
+        guild_name,
+        f"plugin:{user['id']}",  # source_dsn marks the auth path
+    )
+
+    return IngestResponse(
+        status=status,
+        encounter_id=encounter_id,
+        act_encid=body.encounter.encid,
+        combatants=n_c,
+        damage_types=n_dt,
+        attack_types=n_at,
+        guild_name=guild_name,
     )

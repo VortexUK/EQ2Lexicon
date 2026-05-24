@@ -89,6 +89,17 @@ export default function UserWidget() {
           >
             ★ My Characters
           </Link>
+          <Link
+            to="/settings/tokens"
+            onClick={() => setOpen(false)}
+            style={{
+              display: 'block', padding: '0.6rem 1rem',
+              color: 'var(--text-muted)', fontSize: '0.88rem',
+              textDecoration: 'none', borderBottom: '1px solid var(--border)',
+            }}
+          >
+            ⚿ API Tokens
+          </Link>
           {user.is_admin && (
             <Link
               to="/admin"
