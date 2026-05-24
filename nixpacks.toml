@@ -4,8 +4,10 @@ nixPkgs = ["python313Full", "nodejs_20"]
 [phases.install]
 cmds = [
   # Bootstrap uv from pip, then let uv handle venv + deps from uv.lock.
+  # Nix's python313Full ships without pip — ensurepip pulls it in first.
   # --frozen: error if lockfile is out of date (catches missing `uv lock` commits)
   # --no-dev: skip the dev dependency-group (ruff, pyright, pytest)
+  "python3.13 -m ensurepip",
   "python3.13 -m pip install uv",
   "python3.13 -m uv sync --frozen --no-dev --python python3.13",
   "cd frontend && npm install"
