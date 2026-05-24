@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -26,13 +27,11 @@ from web.config import WORLD as _WORLD
 from web.limiter import limiter
 from web.metrics import (
     APP_INFO,
-    CONTENT_TYPE_LATEST,
     HTTP_REQUEST_DURATION,
     HTTP_REQUESTS,
     USER_PAGE_VIEWS,
     _register_db_collector,
     check_metrics_auth,
-    generate_latest,
     should_track_path,
     should_track_user_view,
 )

@@ -418,3 +418,214 @@ async def test_get_parse_clamps_top_attacks(app):
             assert captured["top"] == 50
             await client.get("/api/parses/1?top_attacks=0")
             assert captured["top"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Permission helpers
+# ---------------------------------------------------------------------------
+
+
+class TestUploaderDiscordId:
+    def test_plugin_prefix_returns_id(self):
+        from web.routes.parses import _uploader_discord_id
+
+        assert _uploader_discord_id("plugin:12345") == "12345"
+
+    def test_eq2act_returns_none(self):
+        from web.routes.parses import _uploader_discord_id
+
+        assert _uploader_discord_id("eq2act") is None
+
+    def test_empty_returns_none(self):
+        from web.routes.parses import _uploader_discord_id
+
+        assert _uploader_discord_id("") is None
+        assert _uploader_discord_id(None) is None
+
+    def test_plugin_with_no_id_returns_none(self):
+        from web.routes.parses import _uploader_discord_id
+
+        assert _uploader_discord_id("plugin:") is None
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/parses/{id}
+# ---------------------------------------------------------------------------
+
+
+def _fake_conn_for_fetch(row: dict | None) -> MagicMock:
+    """Build a MagicMock connection whose `execute().fetchone()` returns the
+    given row. Used to fake the per-id encounter lookup inside delete_parse."""
+    conn = MagicMock()
+    cur = MagicMock()
+    cur.fetchone.return_value = row
+    conn.execute.return_value = cur
+    return conn
+
+
+@pytest.mark.asyncio
+async def test_delete_parse_requires_auth(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.delete("/api/parses/1")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_delete_parse_404_when_missing(app):
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(None)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_parse_admin_can_delete(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:99999"}
+    delete_mock = MagicMock(return_value=True)
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=True),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("web.routes.parses.parses_db.delete_encounter", delete_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 1}
+    delete_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_parse_uploader_can_delete(app):
+    # _fake_user returns id="123456789"; source_dsn matches → uploader-allowed
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:123456789"}
+    delete_mock = MagicMock(return_value=True)
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=False),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("web.routes.parses.parses_db.delete_encounter", delete_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200
+    delete_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_parse_officer_can_delete(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER_USER"}
+    delete_mock = MagicMock(return_value=True)
+
+    async def fake_officer_chars(discord_id, guild):
+        return {"menludiir"} if guild == "Exordium" else set()
+
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=False),
+        patch("web.routes.guild._officer_chars", fake_officer_chars),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("web.routes.parses.parses_db.delete_encounter", delete_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200
+    delete_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_parse_random_user_403(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER_USER"}
+
+    async def fake_officer_chars(discord_id, guild):
+        return set()
+
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=False),
+        patch("web.routes.guild._officer_chars", fake_officer_chars),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/parses (bulk by filter)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_bulk_requires_auth(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.delete("/api/parses?guild=Exordium")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_delete_bulk_requires_guild(app):
+    with patch("web.routes.parses._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses")
+    assert r.status_code == 422  # FastAPI validation: missing required query param
+
+
+@pytest.mark.asyncio
+async def test_delete_bulk_admin_passes_filters(app):
+    captured = {}
+
+    def fake_delete(conn, *, guild_name, zone=None, date=None, uploaded_by=None):
+        captured.update(guild_name=guild_name, zone=zone, date=date, uploaded_by=uploaded_by)
+        return 7
+
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=True),
+        patch("web.routes.parses.parses_db.delete_encounters_by_filter", fake_delete),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses?guild=Exordium&zone=Great+Divide&date=2026-05-24&uploader=Menludiir")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 7}
+    assert captured == {
+        "guild_name": "Exordium",
+        "zone": "Great Divide",
+        "date": "2026-05-24",
+        "uploaded_by": "Menludiir",
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_bulk_officer_allowed(app):
+    async def fake_officer_chars(discord_id, guild):
+        return {"menludiir"} if guild == "Exordium" else set()
+
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=False),
+        patch("web.routes.guild._officer_chars", fake_officer_chars),
+        patch("web.routes.parses.parses_db.delete_encounters_by_filter", MagicMock(return_value=3)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses?guild=Exordium")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 3}
+
+
+@pytest.mark.asyncio
+async def test_delete_bulk_random_user_403(app):
+    async def fake_officer_chars(discord_id, guild):
+        return set()
+
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=False),
+        patch("web.routes.guild._officer_chars", fake_officer_chars),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses?guild=Exordium")
+    assert r.status_code == 403

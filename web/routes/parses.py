@@ -13,6 +13,7 @@ filtering is a Phase 3 concern (when uploads are added).
 from __future__ import annotations
 
 import asyncio
+import os
 import sqlite3
 import time
 from typing import Any
@@ -38,10 +39,36 @@ from web.limiter import limiter
 
 router = APIRouter(tags=["parses"])
 
+# Admin allow-list mirrors the one in web/routes/admin.py — duplicated rather
+# than imported so this route doesn't depend on the admin route module.
+_ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
+
+
+def _is_admin(user: dict | None) -> bool:
+    return bool(user and user.get("id") in _ADMIN_IDS)
+
+
+def _uploader_discord_id(source_dsn: str | None) -> str | None:
+    """At ingest, plugin uploads stamp source_dsn as 'plugin:<discord_id>'.
+    Returns the discord ID for plugin-uploaded rows, None for local ingests
+    or malformed values."""
+    if not source_dsn or not source_dsn.startswith("plugin:"):
+        return None
+    return source_dsn[len("plugin:") :] or None
+
 
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
+
+
+class ParsePermissions(BaseModel):
+    """Per-row flags so the UI can render delete buttons only when allowed.
+    Computed against the logged-in session: admin gets all true, officer of
+    the row's guild gets can_delete=true, original uploader gets it for their
+    own rows."""
+
+    can_delete: bool = False
 
 
 class ParseEncounterSummary(BaseModel):
@@ -56,10 +83,12 @@ class ParseEncounterSummary(BaseModel):
     encdps: float
     kills: int
     deaths: int
+    success_level: int  # ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
     combatant_count: int
     player_count: int  # ally combatants with single-word names, excluding 'Unknown'
     uploaded_by: str  # who ingested this encounter; 'local' for the local-only era
     guild_name: str | None  # stamped at ingest time from uploader's Census guild
+    permissions: ParsePermissions = ParsePermissions()
 
 
 class ParsesListResponse(BaseModel):
@@ -290,6 +319,41 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int) ->
 # ---------------------------------------------------------------------------
 
 
+async def _compute_permissions(
+    request: Request,
+    encounters: list[dict],
+) -> dict[int, ParsePermissions]:
+    """Return {encounter_id: ParsePermissions} for the rendered list. Admin
+    short-circuits all-true; otherwise we run one cached officer check per
+    unique guild that appears in the result set, then combine with the
+    uploader match."""
+    user = request.session.get("user")
+    if not user:
+        return {e["id"]: ParsePermissions() for e in encounters}
+
+    if _is_admin(user):
+        return {e["id"]: ParsePermissions(can_delete=True) for e in encounters}
+
+    # Local import to dodge any circular dependency through web.routes.guild.
+    from web.routes.guild import _officer_chars
+
+    user_id = user["id"]
+    # Filter→str-cast keeps pyright happy: `e.get("guild_name")` is `Any | None`
+    # and a comprehension `if` doesn't narrow the type through the set→list.
+    guild_list: list[str] = sorted({str(e["guild_name"]) for e in encounters if e.get("guild_name")})
+    officer_results = await asyncio.gather(*(_officer_chars(user_id, g) for g in guild_list))
+    officer_of = {g for g, chars in zip(guild_list, officer_results, strict=True) if chars}
+
+    out: dict[int, ParsePermissions] = {}
+    for e in encounters:
+        gname = e.get("guild_name")
+        is_uploader = _uploader_discord_id(e.get("source_dsn")) == user_id
+        out[e["id"]] = ParsePermissions(
+            can_delete=is_uploader or (gname in officer_of),
+        )
+    return out
+
+
 @router.get("/parses", response_model=ParsesListResponse)
 @limiter.limit("30/minute")
 async def list_parses(
@@ -310,6 +374,7 @@ async def list_parses(
 
     loop = asyncio.get_event_loop()
     encounters, total = await loop.run_in_executor(None, _list_encounters_sync, limit, zone, size)
+    permissions = await _compute_permissions(request, encounters)
 
     results = [
         ParseEncounterSummary(
@@ -324,10 +389,12 @@ async def list_parses(
             encdps=e["encdps"],
             kills=e["kills"],
             deaths=e["deaths"],
+            success_level=e.get("success_level", 0) or 0,
             combatant_count=e.get("combatant_count", 0),
             player_count=e.get("player_count", 0),
             uploaded_by=e.get("uploaded_by") or "local",
             guild_name=e.get("guild_name"),
+            permissions=permissions.get(e["id"], ParsePermissions()),
         )
         for e in encounters
     ]
@@ -475,6 +542,8 @@ class IngestEncounter(BaseModel):
     encdps: float = 0
     kills: int = 0
     deaths: int = 0
+    # ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=loss, 3=mixed.
+    success: int = 0
 
 
 class IngestRequest(BaseModel):
@@ -521,6 +590,7 @@ def _encounter_from_payload(p: IngestEncounter) -> Encounter | None:
         encdps=_to_float(p.encdps),
         kills=_to_int(p.kills),
         deaths=_to_int(p.deaths),
+        success_level=_to_int(p.success),
     )
 
 
@@ -750,3 +820,113 @@ async def ingest_parse(
         attack_types=n_at,
         guild_name=guild_name,
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/parses/{encounter_id} — single encounter
+# DELETE /api/parses?guild=...     — bulk by filter
+#
+# Permission tiers (any one is sufficient):
+#   * admin (Discord ID in ADMIN_DISCORD_IDS)
+#   * officer of the encounter's guild_name (via Census rank lookup)
+#   * the encounter's original uploader (source_dsn = "plugin:<discord_id>")
+# Cascades to combatants / damage_types / attack_types / ingest_log via the
+# FK ON DELETE CASCADE on those tables.
+# ---------------------------------------------------------------------------
+
+
+class DeleteParsesResponse(BaseModel):
+    deleted: int
+
+
+@router.delete("/parses/{encounter_id}", response_model=DeleteParsesResponse)
+@limiter.limit("30/minute")
+async def delete_parse(
+    request: Request,
+    encounter_id: int,
+) -> DeleteParsesResponse:
+    user = _require_user(request)
+
+    # Look up the row so we can authorise against its real guild_name and
+    # source_dsn — never trust the caller for either.
+    loop = asyncio.get_event_loop()
+
+    def _fetch_sync() -> dict | None:
+        conn = parses_db.init_db()
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT id, guild_name, source_dsn FROM encounters WHERE id = ?",
+                (encounter_id,),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    enc = await loop.run_in_executor(None, _fetch_sync)
+    if enc is None:
+        raise HTTPException(status_code=404, detail="Parse not found")
+
+    allowed = _is_admin(user) or _uploader_discord_id(enc.get("source_dsn")) == user["id"]
+    if not allowed and enc.get("guild_name"):
+        from web.routes.guild import _officer_chars
+
+        if await _officer_chars(user["id"], enc["guild_name"]):
+            allowed = True
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not authorised to delete this parse")
+
+    def _delete_sync() -> bool:
+        conn = parses_db.init_db()
+        try:
+            return parses_db.delete_encounter(conn, encounter_id)
+        finally:
+            conn.close()
+
+    removed = await loop.run_in_executor(None, _delete_sync)
+    return DeleteParsesResponse(deleted=1 if removed else 0)
+
+
+@router.delete("/parses", response_model=DeleteParsesResponse)
+@limiter.limit("10/minute")
+async def delete_parses_bulk(
+    request: Request,
+    guild: str,
+    zone: str | None = None,
+    date: str | None = None,  # YYYY-MM-DD in server local timezone
+    uploader: str | None = None,
+) -> DeleteParsesResponse:
+    """Bulk delete by filter. `guild` is required — there is deliberately no
+    "delete everything across all guilds" path. Permission: admin or officer
+    of the named guild."""
+    user = _require_user(request)
+    guild = guild.strip()
+    if not guild:
+        raise HTTPException(status_code=400, detail="guild parameter must not be empty")
+
+    allowed = _is_admin(user)
+    if not allowed:
+        from web.routes.guild import _officer_chars
+
+        if await _officer_chars(user["id"], guild):
+            allowed = True
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not authorised to delete parses for this guild")
+
+    loop = asyncio.get_event_loop()
+
+    def _delete_sync() -> int:
+        conn = parses_db.init_db()
+        try:
+            return parses_db.delete_encounters_by_filter(
+                conn,
+                guild_name=guild,
+                zone=zone,
+                date=date,
+                uploaded_by=uploader,
+            )
+        finally:
+            conn.close()
+
+    n = await loop.run_in_executor(None, _delete_sync)
+    return DeleteParsesResponse(deleted=n)

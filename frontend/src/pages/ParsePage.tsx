@@ -183,14 +183,26 @@ export default function ParsePage() {
     return () => { cancelled = true }
   }, [data])
 
-  const { allies, enemies } = useMemo(() => {
-    if (!data) return { allies: [], enemies: [] }
+  const { allies, pets, enemies } = useMemo(() => {
+    if (!data) return { allies: [], pets: [], enemies: [] }
     const byEncdps = (a: CombatantSummary, b: CombatantSummary) => b.encdps - a.encdps
+    // Pet rule: ally + (multi-word/`Unknown` name OR Census lookup attempted
+    // and not found). Single-word allies start out under Allies and only
+    // migrate to Pets once we hear back from /api/characters/lookup, to
+    // avoid showing real players as pets while the lookup is in-flight.
+    const isPet = (c: CombatantSummary): boolean => {
+      if (!c.ally) return false
+      if (!isLikelyPlayer(c)) return true
+      const entry = lookup[c.name]
+      return entry !== undefined && entry.found === false
+    }
+    const allyCombatants = data.combatants.filter(c => c.ally)
     return {
-      allies:  data.combatants.filter(c => c.ally).sort(byEncdps),
+      allies:  allyCombatants.filter(c => !isPet(c)).sort(byEncdps),
+      pets:    allyCombatants.filter(isPet).sort(byEncdps),
       enemies: data.combatants.filter(c => !c.ally).sort(byEncdps),
     }
-  }, [data])
+  }, [data, lookup])
 
   if (loading) {
     return (
@@ -216,6 +228,9 @@ export default function ParsePage() {
       <Header data={data} />
       {allies.length > 0 && (
         <CombatantSection title="Allies" combatants={allies} lookup={lookup} />
+      )}
+      {pets.length > 0 && (
+        <CombatantSection title="Pets" combatants={pets} lookup={lookup} dimmed />
       )}
       {enemies.length > 0 && (
         <CombatantSection title="Enemies" combatants={enemies} lookup={lookup} dimmed />

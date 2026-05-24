@@ -17,13 +17,11 @@ import re
 import sqlite3
 
 from prometheus_client import (
-    CONTENT_TYPE_LATEST,  # noqa: F401  re-exported to web/app.py
     REGISTRY,
     Counter,
     Gauge,
     Histogram,
     Info,
-    generate_latest,  # noqa: F401  re-exported to web/app.py
 )
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.registry import Collector

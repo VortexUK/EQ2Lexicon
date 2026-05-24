@@ -34,6 +34,86 @@ class TestInitDb:
             parses_db_conn.execute(stmt)
         for idx in parses_db._CREATE_INDEXES:
             parses_db_conn.execute(idx)
+        # Migration runner is also idempotent on an already-migrated DB.
+        parses_db._migrate_attack_types_unique(parses_db_conn)
+
+    def test_migrates_legacy_attack_types_unique(self):
+        """A DB created with the old UNIQUE(combatant_id, attack_name)
+        constraint gets transparently recreated with the new tuple, and
+        existing rows are preserved."""
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute("PRAGMA foreign_keys = ON;")
+            # Hand-build the legacy schema (encounters + combatants minimal,
+            # attack_types with the OLD UNIQUE).
+            conn.execute(parses_db._CREATE_ENCOUNTERS)
+            conn.execute(parses_db._CREATE_COMBATANTS)
+            conn.execute("""
+                CREATE TABLE attack_types (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    combatant_id INTEGER NOT NULL,
+                    victim TEXT,
+                    swing_type INTEGER NOT NULL DEFAULT 0,
+                    attack_name TEXT NOT NULL,
+                    started_at INTEGER NOT NULL DEFAULT 0,
+                    ended_at INTEGER NOT NULL DEFAULT 0,
+                    duration_s INTEGER NOT NULL DEFAULT 0,
+                    damage INTEGER NOT NULL DEFAULT 0,
+                    encdps REAL NOT NULL DEFAULT 0,
+                    char_dps REAL NOT NULL DEFAULT 0,
+                    dps REAL NOT NULL DEFAULT 0,
+                    average REAL NOT NULL DEFAULT 0,
+                    median INTEGER NOT NULL DEFAULT 0,
+                    min_hit INTEGER NOT NULL DEFAULT 0,
+                    max_hit INTEGER NOT NULL DEFAULT 0,
+                    resist TEXT,
+                    hits INTEGER NOT NULL DEFAULT 0,
+                    crit_hits INTEGER NOT NULL DEFAULT 0,
+                    blocked INTEGER NOT NULL DEFAULT 0,
+                    misses INTEGER NOT NULL DEFAULT 0,
+                    swings INTEGER NOT NULL DEFAULT 0,
+                    to_hit REAL NOT NULL DEFAULT 0,
+                    average_delay REAL NOT NULL DEFAULT 0,
+                    crit_perc REAL NOT NULL DEFAULT 0,
+                    crit_types TEXT,
+                    FOREIGN KEY (combatant_id) REFERENCES combatants(id) ON DELETE CASCADE,
+                    UNIQUE (combatant_id, attack_name)
+                )
+            """)
+            # Seed an encounter + combatant + one attack_types row.
+            conn.execute(
+                "INSERT INTO encounters (act_encid, title, zone, started_at, ended_at, "
+                "duration_s, total_damage, encdps, kills, deaths, source_dsn, ingested_at) "
+                "VALUES ('legacy', 't', 'z', 0, 0, 0, 0, 0, 0, 0, 'eq2act', 0)"
+            )
+            eid = conn.execute("SELECT id FROM encounters").fetchone()[0]
+            conn.execute(
+                "INSERT INTO combatants (encounter_id, name, ally, started_at, ended_at, "
+                "duration_s, damage, damage_perc, kills, healed, healed_perc, crit_heals, "
+                "heals, cure_dispels, power_drain, power_replenish, dps, encdps, enchps, "
+                "hits, crit_hits, blocked, misses, swings, heals_taken, damage_taken, "
+                "deaths, to_hit, crit_dam_perc, crit_heal_perc, crit_types, threat_str, "
+                "threat_delta) VALUES (?, 'M', 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+                "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', 0)",
+                (eid,),
+            )
+            cid = conn.execute("SELECT id FROM combatants").fetchone()[0]
+            conn.execute(
+                "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage) VALUES (?, 1, 'Smite', 500)",
+                (cid,),
+            )
+            # Run the migration.
+            parses_db._migrate_attack_types_unique(conn)
+            # Existing row survived.
+            assert conn.execute("SELECT damage FROM attack_types WHERE attack_name = 'Smite'").fetchone()[0] == 500
+            # New constraint now allows same-name across swing types.
+            conn.execute(
+                "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage) VALUES (?, 2, 'Smite', 999)",
+                (cid,),
+            )
+            assert conn.execute("SELECT COUNT(*) FROM attack_types WHERE attack_name = 'Smite'").fetchone()[0] == 2
+        finally:
+            conn.close()
 
 
 def _sample_encounter() -> Encounter:
@@ -273,6 +353,62 @@ class TestUniqueConstraints:
         with pytest.raises(sqlite3.IntegrityError):
             parses_db.insert_combatants_bulk(parses_db_conn, eid, cs)
 
+    def test_same_attack_name_across_swing_types_allowed(self, parses_db_conn):
+        """Cleanse-style spells deal damage (swing_type=2) AND heal (swing_type=3)
+        — both rows must coexist for the same combatant. Old UNIQUE
+        constraint of (combatant_id, attack_name) blocked this."""
+        eid = parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+        )
+        parses_db.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)])
+        cid = parses_db_conn.execute(
+            "SELECT id FROM combatants WHERE encounter_id = ? AND name = ?",
+            (eid, "Menludiir"),
+        ).fetchone()[0]
+        parses_db_conn.executemany(
+            "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
+            "damage, hits, swings, crit_hits, max_hit, resist) "
+            "VALUES (?, '', ?, 'Cleanse', ?, 1, 1, 0, 0, '')",
+            [(cid, 2, 1000), (cid, 3, 500)],
+        )
+        rows = parses_db_conn.execute(
+            "SELECT swing_type, damage FROM attack_types "
+            "WHERE combatant_id = ? AND attack_name = 'Cleanse' ORDER BY swing_type",
+            (cid,),
+        ).fetchall()
+        assert [(r[0], r[1]) for r in rows] == [(2, 1000), (3, 500)]
+
+    def test_duplicate_attack_within_same_swing_type_rejected(self, parses_db_conn):
+        """The new tuple is (combatant_id, swing_type, attack_name) — same
+        attack twice at the same swing type still collides."""
+        eid = parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+        )
+        parses_db.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)])
+        cid = parses_db_conn.execute(
+            "SELECT id FROM combatants WHERE encounter_id = ? AND name = ?",
+            (eid, "Menludiir"),
+        ).fetchone()[0]
+        parses_db_conn.execute(
+            "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
+            "damage, hits, swings, crit_hits, max_hit, resist) "
+            "VALUES (?, '', 2, 'Cleanse', 1000, 1, 1, 0, 0, '')",
+            (cid,),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            parses_db_conn.execute(
+                "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
+                "damage, hits, swings, crit_hits, max_hit, resist) "
+                "VALUES (?, '', 2, 'Cleanse', 2000, 1, 1, 0, 0, '')",
+                (cid,),
+            )
+
 
 class TestLookupHelpers:
     def test_recent_encounters_orders_by_started_desc(self, parses_db_conn):
@@ -421,3 +557,99 @@ class TestSwingTypeSplit:
             [_sample_combatant("Sihtric", ally=True, damage=5000)],
         )
         assert parses_db.get_top_heals_for_combatant(parses_db_conn, name_to_id["Sihtric"]) == []
+
+
+class TestDeleteHelpers:
+    def _seed(self, conn, *, encid: str, guild_name: str, uploaded_by: str = "Menludiir") -> int:
+        from dataclasses import replace
+
+        enc = replace(_sample_encounter(), encid=encid)
+        eid = parses_db.insert_encounter(
+            conn,
+            enc,
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            uploaded_by=uploaded_by,
+            guild_name=guild_name,
+        )
+        parses_db.insert_combatants_bulk(
+            conn,
+            eid,
+            [_sample_combatant("Menludiir", ally=True, damage=1000)],
+        )
+        parses_db.mark_ingested(conn, encid, eid, source_dsn="eq2act", ingested_at=1700000000)
+        return eid
+
+    def test_delete_encounter_removes_row(self, parses_db_conn):
+        eid = self._seed(parses_db_conn, encid="enc1", guild_name="Exordium")
+        assert parses_db.delete_encounter(parses_db_conn, eid) is True
+        assert parses_db_conn.execute("SELECT COUNT(*) FROM encounters").fetchone()[0] == 0
+
+    def test_delete_encounter_returns_false_when_missing(self, parses_db_conn):
+        assert parses_db.delete_encounter(parses_db_conn, 99999) is False
+
+    def test_delete_encounter_cascades_children(self, parses_db_conn):
+        eid = self._seed(parses_db_conn, encid="enc2", guild_name="Exordium")
+        # Sanity: rows exist before delete.
+        assert (
+            parses_db_conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = ?", (eid,)).fetchone()[0] > 0
+        )
+        assert (
+            parses_db_conn.execute("SELECT COUNT(*) FROM ingest_log WHERE encounter_id = ?", (eid,)).fetchone()[0] == 1
+        )
+        parses_db.delete_encounter(parses_db_conn, eid)
+        # All children gone via FK cascade.
+        assert (
+            parses_db_conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = ?", (eid,)).fetchone()[0] == 0
+        )
+        assert (
+            parses_db_conn.execute("SELECT COUNT(*) FROM ingest_log WHERE encounter_id = ?", (eid,)).fetchone()[0] == 0
+        )
+
+    def test_delete_by_filter_requires_guild(self, parses_db_conn):
+        with pytest.raises(ValueError):
+            parses_db.delete_encounters_by_filter(parses_db_conn, guild_name="")
+
+    def test_delete_by_filter_guild_only(self, parses_db_conn):
+        self._seed(parses_db_conn, encid="ex1", guild_name="Exordium")
+        self._seed(parses_db_conn, encid="ex2", guild_name="Exordium")
+        self._seed(parses_db_conn, encid="ot1", guild_name="OtherGuild")
+        n = parses_db.delete_encounters_by_filter(parses_db_conn, guild_name="Exordium")
+        assert n == 2
+        remaining = {r[0] for r in parses_db_conn.execute("SELECT act_encid FROM encounters").fetchall()}
+        assert remaining == {"ot1"}
+
+    def test_delete_by_filter_with_zone(self, parses_db_conn):
+        from dataclasses import replace
+
+        # Two encounters: same guild, different zones.
+        e1 = replace(_sample_encounter(), encid="z1", zone="Great Divide")
+        e2 = replace(_sample_encounter(), encid="z2", zone="The Sinking Sands")
+        for e in (e1, e2):
+            parses_db.insert_encounter(
+                parses_db_conn,
+                e,
+                source_dsn="eq2act",
+                ingested_at=1700000000,
+                guild_name="Exordium",
+            )
+        n = parses_db.delete_encounters_by_filter(
+            parses_db_conn,
+            guild_name="Exordium",
+            zone="Great Divide",
+        )
+        assert n == 1
+        remaining = {r[0] for r in parses_db_conn.execute("SELECT act_encid FROM encounters").fetchall()}
+        assert remaining == {"z2"}
+
+    def test_delete_by_filter_with_uploader(self, parses_db_conn):
+        self._seed(parses_db_conn, encid="u1", guild_name="Exordium", uploaded_by="Menludiir")
+        self._seed(parses_db_conn, encid="u2", guild_name="Exordium", uploaded_by="Sihtric")
+        n = parses_db.delete_encounters_by_filter(
+            parses_db_conn,
+            guild_name="Exordium",
+            uploaded_by="Menludiir",
+        )
+        assert n == 1
+        remaining = {r[0] for r in parses_db_conn.execute("SELECT act_encid FROM encounters").fetchall()}
+        assert remaining == {"u2"}

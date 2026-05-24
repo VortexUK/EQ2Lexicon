@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from web import db as users_db
+from web.auth_deps import require_user_session_or_token
 from web.limiter import limiter
 
 router = APIRouter(tags=["auth"])
@@ -91,3 +92,28 @@ async def revoke_token(request: Request, token_id: int) -> None:
     if not ok:
         # Either the token doesn't exist, isn't ours, or was already revoked.
         raise HTTPException(status_code=404, detail="Token not found or already revoked.")
+
+
+# ---------------------------------------------------------------------------
+# Token validation (for the ACT plugin's "Test connection" button)
+# ---------------------------------------------------------------------------
+
+
+class WhoAmIResponse(BaseModel):
+    discord_id: str
+    discord_name: str
+    auth_source: str  # 'token' for plugin calls; 'session' for browser calls
+
+
+@router.get("/auth/whoami", response_model=WhoAmIResponse)
+@limiter.limit("60/minute")
+async def whoami(request: Request) -> WhoAmIResponse:
+    """Returns the authenticated user. Accepts session cookie OR bearer
+    token, so the ACT plugin can hit this with its token to verify the
+    server is reachable and the token is valid."""
+    user = await require_user_session_or_token(request)
+    return WhoAmIResponse(
+        discord_id=user["id"],
+        discord_name=user.get("discord_name") or user.get("username") or user["id"],
+        auth_source=user.get("auth_source", "unknown"),
+    )

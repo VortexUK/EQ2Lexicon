@@ -104,6 +104,10 @@ class Encounter:
     encdps: float
     kills: int
     deaths: int
+    # ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=loss, 3=mixed.
+    # Defaults to 0 so the local-ingest reader (which can't compute it) and
+    # existing tests don't need to thread it through.
+    success_level: int = 0
 
 
 @dataclass(frozen=True)

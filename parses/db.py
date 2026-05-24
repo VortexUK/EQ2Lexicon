@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS encounters (
     encdps          REAL    NOT NULL DEFAULT 0,
     kills           INTEGER NOT NULL DEFAULT 0,
     deaths          INTEGER NOT NULL DEFAULT 0,
+    -- ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=loss, 3=mixed.
+    -- Used by /parses to colour the encounter title green/red.
+    success_level   INTEGER NOT NULL DEFAULT 0,
     source_dsn      TEXT    NOT NULL,
     uploaded_by     TEXT    NOT NULL DEFAULT 'local',
     guild_name      TEXT,
@@ -163,7 +166,7 @@ CREATE TABLE IF NOT EXISTS attack_types (
     crit_perc       REAL    NOT NULL DEFAULT 0,
     crit_types      TEXT,
     FOREIGN KEY (combatant_id) REFERENCES combatants(id) ON DELETE CASCADE,
-    UNIQUE (combatant_id, attack_name)
+    UNIQUE (combatant_id, swing_type, attack_name)
 );
 """
 
@@ -201,6 +204,9 @@ _MIGRATIONS: list[str] = [
     # character isn't currently in a guild). Pre-existing rows stay NULL
     # until backfilled via `ingest.py --backfill-guilds`.
     "ALTER TABLE encounters ADD COLUMN guild_name TEXT",
+    # Win/loss flag from ACT's GetEncounterSuccessLevel(). 0 for pre-existing
+    # rows where the uploader didn't supply it.
+    "ALTER TABLE encounters ADD COLUMN success_level INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -229,10 +235,40 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
             conn.execute(stmt)
         except sqlite3.OperationalError:
             pass
+    _migrate_attack_types_unique(conn)
     for idx in _CREATE_INDEXES:
         conn.execute(idx)
     conn.commit()
     return conn
+
+
+def _migrate_attack_types_unique(conn: sqlite3.Connection) -> None:
+    """Recreate attack_types if the legacy UNIQUE(combatant_id, attack_name)
+    constraint is still in place. The natural key needs swing_type too —
+    spells like Cleanse legitimately appear under both damage and heal."""
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND tbl_name='attack_types' "
+        "AND name LIKE 'sqlite_autoindex_%'"
+    ).fetchall()
+    target = ["combatant_id", "swing_type", "attack_name"]
+    for (idx_name,) in rows:
+        cols = [r[2] for r in conn.execute(f"PRAGMA index_info({idx_name})").fetchall()]
+        if cols == target:
+            return  # already migrated
+    # Commit any pending implicit transaction so `with conn:` can scope a
+    # fresh atomic one around the table swap.
+    conn.commit()
+    with conn:
+        conn.execute(
+            _CREATE_ATTACK_TYPES.replace(
+                "CREATE TABLE IF NOT EXISTS attack_types",
+                "CREATE TABLE attack_types_new",
+            )
+        )
+        conn.execute("INSERT INTO attack_types_new SELECT * FROM attack_types")
+        conn.execute("DROP TABLE attack_types")
+        conn.execute("ALTER TABLE attack_types_new RENAME TO attack_types")
 
 
 # ---------------------------------------------------------------------------
@@ -262,9 +298,9 @@ def insert_encounter(
         INSERT INTO encounters (
             act_encid, title, zone,
             started_at, ended_at, duration_s,
-            total_damage, encdps, kills, deaths,
+            total_damage, encdps, kills, deaths, success_level,
             source_dsn, uploaded_by, guild_name, ingested_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             enc.encid,
@@ -277,6 +313,7 @@ def insert_encounter(
             enc.encdps,
             enc.kills,
             enc.deaths,
+            enc.success_level,
             source_dsn,
             uploaded_by,
             guild_name,
@@ -522,6 +559,48 @@ def recent_encounters(
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def delete_encounter(conn: sqlite3.Connection, encounter_id: int) -> bool:
+    """Delete one encounter. Returns True if a row was removed, False if not
+    found. ON DELETE CASCADE handles combatants / damage_types / attack_types
+    / ingest_log."""
+    with conn:
+        cur = conn.execute("DELETE FROM encounters WHERE id = ?", (encounter_id,))
+    return cur.rowcount > 0
+
+
+def delete_encounters_by_filter(
+    conn: sqlite3.Connection,
+    *,
+    guild_name: str,
+    zone: str | None = None,
+    date: str | None = None,  # 'YYYY-MM-DD' in the server's local timezone
+    uploaded_by: str | None = None,
+) -> int:
+    """Bulk delete encounters matching the filter. `guild_name` is mandatory
+    so we can never accidentally delete across guilds. Returns the row count
+    removed. Cascades to children."""
+    if not guild_name:
+        raise ValueError("guild_name is required")
+    clauses = ["guild_name = ?"]
+    params: list = [guild_name]
+    if zone:
+        clauses.append("zone = ?")
+        params.append(zone)
+    if uploaded_by:
+        clauses.append("uploaded_by = ?")
+        params.append(uploaded_by)
+    if date:
+        # SQLite has no native YYYY-MM-DD-on-unix-seconds helper but `date(?,
+        # 'unixepoch', 'localtime')` does the right thing. Matches what
+        # ParsesPage groups on (fmtLocalDate, server clock).
+        clauses.append("date(started_at, 'unixepoch', 'localtime') = ?")
+        params.append(date)
+    sql = f"DELETE FROM encounters WHERE {' AND '.join(clauses)}"
+    with conn:
+        cur = conn.execute(sql, params)
+    return cur.rowcount
 
 
 def get_combatants_for_encounter(conn: sqlite3.Connection, encounter_id: int) -> list[dict]:
