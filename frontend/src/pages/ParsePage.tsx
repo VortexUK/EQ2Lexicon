@@ -374,16 +374,14 @@ function NameCell({
     >
       <Link
         to={`/character/${encodeURIComponent(c.name)}`}
-        className="text-text no-underline border-b border-dotted border-text-muted overflow-hidden text-ellipsis whitespace-nowrap"
+        className="text-text underline decoration-dotted decoration-text-muted underline-offset-[3px] overflow-hidden text-ellipsis whitespace-nowrap"
       >
         {c.name}
       </Link>
       {guildName && (
         <Link
           to={`/guild/${encodeURIComponent(guildName)}`}
-          className="text-[0.7rem] text-text-muted no-underline border-b border-dotted border-transparent whitespace-nowrap"
-          onMouseEnter={e => (e.currentTarget.style.borderBottomColor = 'var(--text-muted)')}
-          onMouseLeave={e => (e.currentTarget.style.borderBottomColor = 'transparent')}
+          className="text-[0.7rem] text-text-muted no-underline hover:underline hover:decoration-dotted decoration-text-muted underline-offset-2 whitespace-nowrap"
         >
           ‹{guildName}›
         </Link>
