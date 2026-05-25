@@ -1,0 +1,35 @@
+{
+  "_doc": [
+    "Manual expansion overrides for zones the rule-based classifier in",
+    "clean_eq2_zones.py gets wrong (typically the name-keyword heuristic",
+    "blindly matching a substring that belongs to a later-revisit zone).",
+    "",
+    "Each key is the EXACT zone name as it appears in eq2_zones.json.",
+    "Each value is { \"expansion\": \"<short>\", \"reason\": \"<why>\" }.",
+    "",
+    "Valid expansion short codes:",
+    "  Vanilla, BC, SS, DoF, KoS, EoF, RoK, TSO, SF, DoV, AoD, CoE,",
+    "  ToV, AoM, ToT, KA, PoP, CD, BoL, RoS, VoV, RoR, BoZ, SoD, RoC.",
+    "",
+    "Keys starting with '_' (like this one) are ignored by the loader so",
+    "we can keep documentation in the same file."
+  ],
+
+  "The Fabled Temple of Cazic-Thule": {
+    "expansion": "AoM",
+    "reason": "Introduced via LU100 (July 2015), mid-AoM cycle. Fabled revamp of the vanilla Cazic-Thule zone."
+  },
+
+  "New Halas": {
+    "expansion": "SF",
+    "reason": "City zone released alongside Sentinel's Fate (Feb 2010); no instance-suffix category to trigger location prefix matching."
+  },
+  "New Halas: Citizenship": {
+    "expansion": "SF",
+    "reason": "Citizenship quest line for New Halas (SF era)."
+  },
+  "Plane of Sky": {
+    "expansion": "KoS",
+    "reason": "Original Kingdom of Sky (Feb 2006) signature zone."
+  }
+}

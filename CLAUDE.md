@@ -14,6 +14,7 @@ A Discord bot and web companion site (FastAPI + React/TypeScript) that queries t
 | `census/item_parser.py` | Item data parsing (parse_item, parse_stats, parse_effects, parse_flags, _armor_type, _slot_type, _fmt_duration, parse_set_bonuses) extracted from client.py |
 | `census/spells_db.py` | Local SQLite spell catalogue: strip_roman, unique_highest_entries, load_blocklist, find_by_ids, find_by_crc (@lru_cache maxsize=4096), spell_to_row, upsert_spells |
 | `census/recipes_db.py` | Local SQLite recipe catalogue (~70k rows): recipe_to_row, upsert_recipes, find_by_id, find_by_name, find_by_output_id. Secondary components stored as JSON array. Download with scripts/download_recipes.py |
+| `census/zones_db.py` | Local SQLite zone catalogue (~1124 rows). Three tables: `zones` (canonical record + expansion attribution + classification flags), `zone_types` (many-to-many type tokens — `solo`/`group`/`raid_x4`/etc.), `zone_aliases` (alias→canonical for ACT log fuzziness). Lookup helpers: `find_by_name` (canonical OR alias), `list_by_expansion(short, type_filter=None)`, `list_by_event`, `list_by_type`. Sourced from `scripts/dev/eq2_zones.cleaned.json`; rebuild via `scripts/build_zones_db.py`. |
 | `image/tooltip.py` | PIL renderer for item tooltips. Renders at 2× then downsamples (SCALE=2, ZOOM=1.3). Width is `round(368 * ZOOM)`. |
 | `image/aa_tree.py` | AA tree renderers and coordinate systems. See AA tree notes below. |
 | `bot/bot.py` | Registers all cogs, syncs slash commands to three specific guild IDs (648253204760625160, 955890381847928892, 1502314690041221260) for instant propagation plus a global sync. |
@@ -80,6 +81,7 @@ Tailwind v4 is the **single** styling system. There is no `tailwind.config.js` a
 | `ADMIN_DISCORD_IDS` | Comma-separated Discord IDs allowed to hit `/api/admin/*` and delete arbitrary parses |
 | `USERS_DB_PATH` | Override the default `data/users.db` location (set on Railway to the persistent-volume mount) |
 | `PARSES_DB_PATH` | Override the default `data/parses/parses.db` location (set on Railway to the persistent-volume mount) |
+| `ZONES_DB_PATH` | Override the default `data/zones/zones.db` location. Set on Railway to the persistent-volume mount (the `.db` itself is not committed — uploaded manually; see "Manual upload: zones.db" below). |
 | `R2_ENDPOINT` | Litestream backups → `https://<account>.r2.cloudflarestorage.com` |
 | `R2_BUCKET` | Litestream backups → bucket name (e.g. `eq2lexicon-backups`) |
 | `R2_ACCESS_KEY_ID` | Litestream backups → R2 API token Access Key ID |
@@ -190,6 +192,10 @@ python scripts/download_spell_icons.py --start N     # resume from icon N
 python scripts/download_recipes.py                   # download all ~70k recipes into data/recipes/recipes.db
 python scripts/download_recipes.py --limit 500       # test run (500 recipes)
 python scripts/download_recipes.py --restart         # ignore saved offset, re-download from scratch
+python scripts/dev/clean_eq2_zones.py                # re-clean scripts/dev/eq2_zones.json → eq2_zones.cleaned.json
+python scripts/build_zones_db.py                     # build data/zones/zones.db from the cleaned JSON
+python scripts/dev/_smoke_test_zones.py              # validate the cleaned JSON
+python scripts/dev/_smoke_test_zones_db.py           # validate the built SQLite DB
 ```
 
 ## Deployment
@@ -232,6 +238,27 @@ litestream restore -config /app/litestream.yml -timestamp 2026-05-24T18:00:00Z -
 ```
 
 **Skipping backup before R2 is set up:** if the R2 env vars aren't populated, the startCommand's `|| true` makes the restore step a no-op and litestream's replicate-exec falls through cleanly (it just logs a "no replicas configured" warning per DB). The app still runs; you just don't have backups until the env vars land.
+
+### Manual upload: zones.db
+
+`data/zones/zones.db` is **read-only reference data** built from the cleaned wiki dump that lives in the repo. It's `.gitignore`d (it's a binary; rebuilding it is cheap and deterministic) and lives on the Railway persistent volume so it survives container restarts. Refresh procedure:
+
+1. **Locally**, after any change to `scripts/dev/eq2_zones.json`, the overrides file, the aliases file, or the cleanup rules in `scripts/dev/clean_eq2_zones.py`:
+
+   ```powershell
+   python scripts/dev/clean_eq2_zones.py     # source → cleaned JSON
+   python scripts/build_zones_db.py          # cleaned JSON → SQLite
+   python scripts/dev/_smoke_test_zones.py
+   python scripts/dev/_smoke_test_zones_db.py
+   ```
+
+2. **Upload** the resulting `data/zones/zones.db` to the Railway volume (drag-and-drop in the volume browser, or via `railway run` with a copy command).
+
+3. **Set the env var** `ZONES_DB_PATH` to the absolute path on the volume, e.g. `/app/data/zones/zones.db`. (Defaults to that path already if you mount the volume at `/app/data` — env var only needed if your mount differs.)
+
+4. **Verify** post-deploy with any code path that hits `zones_db.find_by_name(...)` — or curl an endpoint that reads it once one exists.
+
+The DB has no migration story right now because everything is regenerated. If the schema in `census/zones_db.py` ever changes, just rebuild + re-upload — there's no user-data risk because zones.db carries no user-supplied rows.
 
 ## Frontend design principles
 

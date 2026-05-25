@@ -1,0 +1,21 @@
+{
+  "_doc": [
+    "Zone name aliases — merges near-duplicate wiki entries into one canonical record.",
+    "",
+    "Each key is the CANONICAL zone name as it should appear in the cleaned",
+    "output. Each value is an array of duplicate names that exist in the",
+    "source data and should be merged INTO the canonical (their records are",
+    "dropped, their names appended to the canonical's aliases list).",
+    "",
+    "When ACT logs an encounter with the alias name, the website can look it",
+    "up against the aliases list and resolve to the canonical zone record.",
+    "",
+    "Canonical-choice convention: prefer the form WITHOUT a leading 'The'.",
+    "Arbitrary but consistent.",
+    "",
+    "Keys starting with '_' (like this one) are ignored by the loader."
+  ],
+
+  "Fabled Deathtoll": ["The Fabled Deathtoll"],
+  "Plane of Innovation: Parts Not Included": ["Plane of Innovation: Parts not Included"]
+}

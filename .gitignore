@@ -235,6 +235,16 @@ data/recipes/recipes.db
 data/recipes/recipes.db-wal
 data/recipes/recipes.db-shm
 
+# Zones database (built locally via scripts/build_zones_db.py; uploaded
+# manually to the Railway volume — the source/cleaned/overrides/aliases
+# JSON files in scripts/dev/ ARE committed, the .db is not).
+data/zones/zones.db
+data/zones/zones.db-wal
+data/zones/zones.db-shm
+# Cleanup-script's human-readable report — regenerated every run, just
+# for spot-checking; keeping it out of git avoids noisy diffs.
+scripts/dev/eq2_zones.report.txt
+
 # Parses feature (v1, local-only) — ACT-written export and our normalized DB
 data/parses/act_export.db
 data/parses/act_export.db-wal
