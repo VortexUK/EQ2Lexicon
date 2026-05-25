@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import Breadcrumb from '../components/Breadcrumb'
 import { Card } from '../components/ui'
@@ -36,6 +36,7 @@ const CTRL = 'bg-surface border border-border rounded-md text-text px-2 py-1 tex
 export default function RankingsPage() {
   const [filters, setFilters] = useState<FiltersResponse>({ scopes: [] })
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
   const [board, setBoard] = useState<RankingsResponse | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -134,12 +135,16 @@ export default function RankingsPage() {
                 <tr
                   key={`${r.encounter_id}-${r.name ?? r.guild_name}`}
                   className="border-b border-border/40 hover:bg-surface/60 cursor-pointer"
-                  onClick={() => { window.location.href = `/parse/${r.encounter_id}` }}
+                  onClick={() => navigate(`/parse/${r.encounter_id}`)}
                 >
                   <td className="px-3 py-2">{i + 1}</td>
                   <td className="px-3 py-2 font-bold" style={{ color: percentileColor(r.percentile) }}>{r.percentile}</td>
                   <td className="px-3 py-2">
-                    {isSpeed ? r.guild_name : (
+                    {isSpeed ? (
+                      <Link to={`/parse/${r.encounter_id}`} className="text-text underline decoration-dotted underline-offset-2" onClick={e => e.stopPropagation()}>
+                        {r.guild_name}
+                      </Link>
+                    ) : (
                       <>
                         <Link to={`/parse/${r.encounter_id}`} className="text-text underline decoration-dotted underline-offset-2" onClick={e => e.stopPropagation()}>
                           {r.name}
