@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -348,3 +351,153 @@ async def test_bearer_token_unapproved_user_returns_403(app):
                 headers={"Authorization": "Bearer eq2c_pendingtoken"},
             )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# X-Lexicon-Signature (HMAC) — opportunistic validation
+# ---------------------------------------------------------------------------
+# Plugin v0.1.8+ ships X-Lexicon-Signature = HMAC-SHA256(body, api_token).
+# Server-side validation is currently OPPORTUNISTIC:
+#   * header absent  → accepted (v0.1.7 and earlier kept working)
+#   * header present → MUST verify; mismatch is 401
+# Tests pin both branches so a future flip to strict mode is a single
+# tweak in the route + matching test update, not a hunt across the suite.
+
+
+def _sign(body_bytes: bytes, token: str) -> str:
+    """Match what PayloadSigner.Sign does on the plugin side — lowercase
+    hex HMAC-SHA256, key = utf-8 bytes of the bearer token."""
+    return hmac.new(token.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_signature_accepted_when_correct(app):
+    """Happy path: plugin computes the signature, server validates, ingest
+    proceeds. Body is serialised the same way httpx will serialise it so
+    the bytes match what the server reads via request.body()."""
+    payload = _minimal_payload()
+    body_bytes = json.dumps(payload).encode("utf-8")
+    token = "eq2c_realtoken"
+    sig = _sign(body_bytes, token)
+
+    sync_result = ("inserted", 42, 2, 1, 2)
+    with (
+        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
+        patch("web.routes.parses._resolve_uploader_guild_async", new=AsyncMock(return_value=None)),
+        patch("web.routes.parses._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # Send raw content (not json=) so we control the exact bytes
+            # the server hashes. json= would let httpx serialise and
+            # potentially differ from our local bytes.
+            r = await client.post(
+                "/api/parses/ingest",
+                content=body_bytes,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "X-Lexicon-Signature": sig,
+                },
+            )
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_signature_rejected_when_body_tampered(app):
+    """Sign one body, ship a different one. This is the attack the HMAC
+    is designed to catch — must be a 401."""
+    original = _minimal_payload()
+    body_bytes = json.dumps(original).encode("utf-8")
+    token = "eq2c_realtoken"
+    sig = _sign(body_bytes, token)
+
+    # Tamper: change DPS to something inflated.
+    tampered = dict(original)
+    tampered["encounter"] = {**original["encounter"], "encdps": 99999999.0}
+    tampered_bytes = json.dumps(tampered).encode("utf-8")
+
+    with (
+        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
+        patch("web.routes.parses._resolve_uploader_guild_async", new=AsyncMock(return_value=None)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/parses/ingest",
+                content=tampered_bytes,  # different body
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "X-Lexicon-Signature": sig,  # signature for ORIGINAL body
+                },
+            )
+    assert r.status_code == 401
+    assert "signature" in r.text.lower() or "X-Lexicon-Signature" in r.text
+
+
+@pytest.mark.asyncio
+async def test_signature_rejected_when_wrong_key(app):
+    """Signature computed with a different token than the bearer. Catches
+    the case where someone steals the token but doesn't know they need to
+    sign with it too — or, more practically, an out-of-sync replay."""
+    body_bytes = json.dumps(_minimal_payload()).encode("utf-8")
+    sig_with_wrong_key = _sign(body_bytes, "wrong-token")
+
+    with (
+        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
+        patch("web.routes.parses._resolve_uploader_guild_async", new=AsyncMock(return_value=None)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/parses/ingest",
+                content=body_bytes,
+                headers={
+                    "Authorization": "Bearer eq2c_realtoken",
+                    "Content-Type": "application/json",
+                    "X-Lexicon-Signature": sig_with_wrong_key,
+                },
+            )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_signature_absent_is_accepted_in_opportunistic_mode(app):
+    """v0.1.7 and earlier don't send the header. They MUST keep working
+    during the rollout window. This test pins the opportunistic-mode
+    contract — flip this expectation when we move to strict mode."""
+    sync_result = ("inserted", 42, 2, 1, 2)
+    with (
+        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
+        patch("web.routes.parses._resolve_uploader_guild_async", new=AsyncMock(return_value=None)),
+        patch("web.routes.parses._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/parses/ingest",
+                json=_minimal_payload(),
+                headers={"Authorization": "Bearer eq2c_anything"},
+                # NB: no X-Lexicon-Signature header
+            )
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_signature_with_session_auth_is_rejected(app):
+    """A browser (session cookie auth) sending X-Lexicon-Signature would
+    be confused — the header has no key to validate against in that
+    auth path. Reject with 400 rather than silently accepting."""
+
+    async def _fake_session_user(request):
+        return {"id": "discord-123", "username": "alice", "auth_source": "session"}
+
+    body_bytes = json.dumps(_minimal_payload()).encode("utf-8")
+    with patch("web.routes.parses.require_user_session_or_token", _fake_session_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/parses/ingest",
+                content=body_bytes,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Lexicon-Signature": "0" * 64,  # shape-valid but unverifiable
+                },
+            )
+    assert r.status_code == 400

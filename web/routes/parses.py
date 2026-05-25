@@ -13,6 +13,8 @@ filtering is a Phase 3 concern (when uploads are added).
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
 import sqlite3
 import time
@@ -936,6 +938,73 @@ def _ingest_payload_sync(
         conn.close()
 
 
+# Header name shipped by the plugin (v0.1.8+). MUST match
+# PayloadSigner.SignatureHeaderName in the EQ2LexiconACTPlugin repo —
+# changing one side without the other silently breaks HMAC validation
+# (server falls back to opportunistic mode and accepts unsigned uploads,
+# the worst kind of regression).
+PLUGIN_SIGNATURE_HEADER = "X-Lexicon-Signature"
+
+
+async def _validate_payload_signature_opportunistic(
+    request: Request,
+    user: dict,
+) -> None:
+    """HMAC-SHA256 validation of the upload body, keyed by the bearer
+    token. Plugin v0.1.8+ ships this header on every upload.
+
+    Currently OPPORTUNISTIC: header absent → accepted (so existing
+    v0.1.7 installs keep uploading during the rollout window). Flip
+    to strict (raise 400 when header missing on token-auth requests)
+    once the User-Agent telemetry shows ≥98% of uploads from
+    EQ2LexiconACTPlugin/0.1.8+ .
+
+    Threat model: see PayloadSigner.cs in the plugin repo. Short version
+    — this stops payload tampering in flight; it does NOT prevent the
+    legitimate token holder from signing whatever JSON they want (they
+    have the key). Real integrity comes from server-side sanity checks
+    on top of this.
+    """
+    sig_header = request.headers.get(PLUGIN_SIGNATURE_HEADER)
+    if not sig_header:
+        return  # opportunistic mode — header absent is allowed
+
+    # Session-cookie auth doesn't have a token-style HMAC key. A browser
+    # sending this header would be confused — reject clearly rather than
+    # silently accept.
+    if user.get("auth_source") != "token":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{PLUGIN_SIGNATURE_HEADER} is only valid for token-authenticated requests.",
+        )
+
+    auth_header = request.headers.get("authorization") or ""
+    if not auth_header.lower().startswith("bearer "):
+        # Defensive — require_user_session_or_token already verified
+        # bearer presence on the token path. If we reach here without
+        # one, something has gone very wrong upstream.
+        raise HTTPException(
+            status_code=401,
+            detail="Missing bearer token for signature validation.",
+        )
+    raw_token = auth_header[len("Bearer ") :].strip()
+
+    # Request.body() is cached after FastAPI's body-injection consumes it
+    # to build `body: IngestRequest`, so re-reading here is free.
+    body_bytes = await request.body()
+    expected = hmac.new(
+        raw_token.encode("utf-8"),
+        body_bytes,
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, sig_header.strip().lower()):
+        raise HTTPException(
+            status_code=401,
+            detail=f"{PLUGIN_SIGNATURE_HEADER} does not match payload.",
+        )
+
+
 @router.post("/parses/ingest", response_model=IngestResponse, status_code=201)
 @limiter.limit("60/minute")
 async def ingest_parse(
@@ -943,6 +1012,7 @@ async def ingest_parse(
     body: IngestRequest,
 ) -> IngestResponse:
     user = await require_user_session_or_token(request)
+    await _validate_payload_signature_opportunistic(request, user)
 
     # Trust the plugin's logger_name (it reads ActGlobals.charName) and
     # use it as the uploader identifier on the encounter row. The session/
