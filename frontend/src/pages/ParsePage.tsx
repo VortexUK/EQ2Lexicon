@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 
 import Breadcrumb from '../components/Breadcrumb'
 import Caret from '../components/Caret'
-import { CLASS_COLOURS } from '../classConstants'
+import { useClasses } from '../useClasses'
 import { fmtDuration, fmtLocalDateTime, fmtNum } from '../formatters'
 import { Card } from '../components/ui'
 
@@ -125,14 +125,11 @@ function isLikelyPlayer(c: CombatantSummary): boolean {
   return c.ally && !c.name.includes(' ') && c.name !== 'Unknown' && c.name !== ''
 }
 
-// Subtle row tint derived from the archetype colour (alpha ~10%) — 8-digit
-// hex format. Returns null when the class is unknown (no cache hit, NPC, or
-// a class we don't recognise) so the row stays untinted.
-function rowTintFor(cls: string | null | undefined): string | null {
-  if (!cls) return null
-  const base = CLASS_COLOURS[cls]
-  if (!base) return null
-  return `${base}1A`  // 0x1A = ~10% alpha
+// Subtle row tint derived from the class colour (alpha ~10%) — 8-digit hex.
+// Takes the resolved hex colour (or null/undefined) and returns null when
+// there's no colour, so the row stays untinted.
+function rowTintFor(colour: string | null | undefined): string | null {
+  return colour ? `${colour}1A` : null  // 0x1A = ~10% alpha
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -325,9 +322,10 @@ function CombatantRow({
   // Prefer the parse-time snapshot stored on the row; fall back to the live
   // lookup for parses ingested before snapshots existed.
   const guildName = c.guild_name ?? lookupEntry?.guild_name ?? null
+  const { byName } = useClasses()
   const cls = c.cls ?? lookupEntry?.cls ?? null
   const level = c.level ?? lookupEntry?.level ?? null
-  const tint = rowTintFor(cls)
+  const tint = rowTintFor(cls ? byName.get(cls)?.colour : null)
 
   return (
     <>
@@ -368,6 +366,7 @@ function NameCell({
   guildName: string | null
   cls: string | null
 }) {
+  const { colourFor } = useClasses()
   const baseColor = c.ally ? 'var(--text)' : 'var(--text-muted)'
 
   if (!player) {
@@ -381,7 +380,7 @@ function NameCell({
     )
   }
 
-  const classColor = cls ? (CLASS_COLOURS[cls] ?? 'var(--text-muted)') : null
+  const classColor = cls ? colourFor(cls) : null
 
   return (
     <span

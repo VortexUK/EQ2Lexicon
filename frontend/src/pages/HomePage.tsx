@@ -7,7 +7,7 @@ import ServerLaunchTimer from '../components/ServerLaunchTimer'
 import { Card } from '../components/ui'
 // logo.png lives in frontend/public/ → served at site root by Vite
 const logo = '/logo.png'
-import { CLASS_COLOURS } from '../classConstants'
+import { useClasses } from '../useClasses'
 
 // ── Character detail (fetched from Census cache) ──────────────────────────────
 
@@ -25,7 +25,8 @@ function CharacterCard({ claim, detail, isPrimary }: {
   detail: CharDetail | null
   isPrimary: boolean
 }) {
-  const accentColour = detail?.cls ? (CLASS_COLOURS[detail.cls] ?? 'var(--gold)') : 'var(--gold)'
+  const { colourFor } = useClasses()
+  const accentColour = colourFor(detail?.cls, 'var(--gold)')
   const navigate = useNavigate()
 
   return (
@@ -98,7 +99,7 @@ function CharacterCard({ claim, detail, isPrimary }: {
               <span
                 className="text-[0.92rem] font-semibold"
                 style={{
-                  color: detail.cls ? (CLASS_COLOURS[detail.cls] ?? 'var(--text)') : 'var(--text-muted)',
+                  color: detail.cls ? colourFor(detail.cls, 'var(--text)') : 'var(--text-muted)',
                 }}
               >
                 {detail.cls ?? '—'}

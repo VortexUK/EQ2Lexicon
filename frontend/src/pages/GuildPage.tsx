@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import Breadcrumb from '../components/Breadcrumb'
 import { useClaim } from '../hooks/useClaim'
 import { useAuth, discordAvatarUrl } from '../hooks/useAuth'
-import { CLASS_COLOURS } from '../classConstants'
+import { useClasses } from '../useClasses'
 import { SPELL_TIER_COLOURS as TIER_COLOURS } from '../spellConstants'
 import { Button, Card } from '../components/ui'
 
@@ -197,6 +197,7 @@ function rosterSortValue(m: GuildMember, key: RosterSortKey): string | number {
 }
 
 function RosterTable({ members, filter, hiddenRanks, myChars }: { members: GuildMember[]; filter: string; hiddenRanks: Set<string>; myChars: Set<string> }) {
+  const { colourFor } = useClasses()
   const [sortKey, setSortKey] = useState<RosterSortKey>('rank')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -278,7 +279,7 @@ function RosterTable({ members, filter, hiddenRanks, myChars }: { members: Guild
                 )}
               </td>
               <td className={`${TD_CLS} text-text-muted text-[0.85rem]`}>{m.rank ?? '—'}</td>
-              <td className={TD_CLS} style={{ color: m.cls ? (CLASS_COLOURS[m.cls] ?? 'var(--text)') : 'var(--text-muted)' }}>{clsLabel}</td>
+              <td className={TD_CLS} style={{ color: m.cls ? colourFor(m.cls, 'var(--text)') : 'var(--text-muted)' }}>{clsLabel}</td>
               <td className={`${TD_CLS} text-right text-text-muted`}>{m.aa_level ?? '—'}</td>
               <td className={`${TD_CLS} text-text-muted`}>{tsLabel}</td>
               <td className={`${TD_CLS} text-text-muted text-[0.82rem]`}>{m.deity ?? '—'}</td>
