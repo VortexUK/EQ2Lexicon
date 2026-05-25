@@ -26,8 +26,14 @@ _TEST_DB_DIR.mkdir(parents=True)
 os.environ["USERS_DB_PATH"] = str(_TEST_DB_DIR / "users.db")
 os.environ["PARSES_DB_PATH"] = str(_TEST_DB_DIR / "parses.db")
 
+# web.app reads SESSION_SECRET at module-import time and raises if it's
+# unset or shorter than 32 chars. CI and fresh contributor checkouts have
+# no .env, so provide a throwaway value here (setdefault leaves a real
+# local SESSION_SECRET untouched). Must be >= 32 chars to pass the check.
+os.environ.setdefault("SESSION_SECRET", "pytest-session-secret-not-real-0123456789")
+
 # Imports below this line read the env vars above when they evaluate their
-# module-level DB_PATH constants.
+# module-level constants (DB_PATH, SESSION_SECRET, ...).
 
 from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 
