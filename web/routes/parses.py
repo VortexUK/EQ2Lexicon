@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from census.client import CensusClient
 from parses import db as parses_db
+from parses.boss import is_boss
 from parses.models import (
     AttackType,
     Combatant,
@@ -1261,14 +1262,14 @@ async def _can_delete_encounter(user: dict, enc: dict) -> bool:
 
 
 def _fetch_encounter_auth_rows(ids: list[int]) -> list[dict]:
-    """Fetch the (id, guild_name, source_dsn) rows needed to authorise a
-    delete. Runs in an executor."""
+    """Fetch the (id, guild_name, source_dsn, title, hidden_at) rows needed to
+    authorise a delete. Runs in an executor."""
     conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
         placeholders = ",".join("?" * len(ids))
         rows = conn.execute(
-            f"SELECT id, guild_name, source_dsn FROM encounters WHERE id IN ({placeholders})",
+            f"SELECT id, guild_name, source_dsn, title, hidden_at FROM encounters WHERE id IN ({placeholders})",
             ids,
         ).fetchall()
         return [dict(r) for r in rows]
@@ -1276,11 +1277,21 @@ def _fetch_encounter_auth_rows(ids: list[int]) -> list[dict]:
         conn.close()
 
 
+def _apply_delete(conn: sqlite3.Connection, enc: dict, *, purge: bool, hidden_at: int) -> bool:
+    """Hard-purge wins; otherwise boss kills are soft-deleted (preserve any
+    ranking) and trash is hard-deleted. Caller has already authorised + (for
+    purge) checked admin."""
+    if purge or not is_boss(enc.get("title")):
+        return parses_db.delete_encounter(conn, enc["id"])
+    return parses_db.soft_delete_encounter(conn, enc["id"], hidden_at)
+
+
 @router.delete("/parses/batch", response_model=DeleteParsesResponse)
 @limiter.limit("30/minute")
 async def delete_parses_batch(
     request: Request,
     ids: str,
+    purge: bool = False,
 ) -> DeleteParsesResponse:
     """Delete an explicit set of encounter ids — the uploads that make up one
     multi-uploader fight on /parses. `ids` is comma-separated.
@@ -1292,10 +1303,16 @@ async def delete_parses_batch(
     skipped rather than failing the whole request; a 403 is returned only when
     none are permitted.
 
+    `purge=true` (admin only) hard-deletes even boss-kill encounters, removing
+    them from leaderboards. Without purge, boss kills are soft-deleted
+    (hidden_at set) to preserve their ranking entry.
+
     Defined before /parses/{encounter_id} so the literal path wins the route
     match.
     """
     user = _require_user(request)
+    if purge and not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Only an admin may hard-purge parses")
 
     id_list: list[int] = []
     for tok in ids.split(","):
@@ -1315,19 +1332,16 @@ async def delete_parses_batch(
     if not rows:
         raise HTTPException(status_code=404, detail="No matching parses")
 
-    allowed = [enc["id"] for enc in rows if await _can_delete_encounter(user, enc)]
-    if not allowed:
+    allowed_rows = [enc for enc in rows if await _can_delete_encounter(user, enc)]
+    if not allowed_rows:
         raise HTTPException(status_code=403, detail="Not authorised to delete these parses")
+
+    now = int(time.time())
 
     def _delete_many() -> int:
         conn = parses_db.init_db()
         try:
-            n = 0
-            with conn:
-                for eid in allowed:
-                    if parses_db.delete_encounter(conn, eid):
-                        n += 1
-            return n
+            return sum(1 for enc in allowed_rows if _apply_delete(conn, enc, purge=purge, hidden_at=now))
         finally:
             conn.close()
 
@@ -1340,8 +1354,11 @@ async def delete_parses_batch(
 async def delete_parse(
     request: Request,
     encounter_id: int,
+    purge: bool = False,
 ) -> DeleteParsesResponse:
     user = _require_user(request)
+    if purge and not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Only an admin may hard-purge a parse")
 
     # Look up the row so we can authorise against its real guild_name and
     # source_dsn — never trust the caller for either.
@@ -1353,10 +1370,13 @@ async def delete_parse(
     if not await _can_delete_encounter(user, rows[0]):
         raise HTTPException(status_code=403, detail="Not authorised to delete this parse")
 
+    enc = rows[0]
+    now = int(time.time())
+
     def _delete_sync() -> bool:
         conn = parses_db.init_db()
         try:
-            return parses_db.delete_encounter(conn, encounter_id)
+            return _apply_delete(conn, enc, purge=purge, hidden_at=now)
         finally:
             conn.close()
 

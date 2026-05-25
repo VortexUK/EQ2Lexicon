@@ -610,7 +610,13 @@ async def test_delete_parse_404_when_missing(app):
 
 @pytest.mark.asyncio
 async def test_delete_parse_admin_can_delete(app):
-    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:99999"}
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:99999",
+        "title": "a krait patriarch",
+        "hidden_at": None,
+    }
     delete_mock = MagicMock(return_value=True)
     with (
         patch("web.routes.parses._require_user", _fake_user),
@@ -628,7 +634,13 @@ async def test_delete_parse_admin_can_delete(app):
 @pytest.mark.asyncio
 async def test_delete_parse_uploader_can_delete(app):
     # _fake_user returns id="123456789"; source_dsn matches → uploader-allowed
-    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:123456789"}
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:123456789",
+        "title": "a krait patriarch",
+        "hidden_at": None,
+    }
     delete_mock = MagicMock(return_value=True)
     with (
         patch("web.routes.parses._require_user", _fake_user),
@@ -644,7 +656,13 @@ async def test_delete_parse_uploader_can_delete(app):
 
 @pytest.mark.asyncio
 async def test_delete_parse_officer_can_delete(app):
-    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER_USER"}
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:OTHER_USER",
+        "title": "a krait patriarch",
+        "hidden_at": None,
+    }
     delete_mock = MagicMock(return_value=True)
 
     async def fake_officer_chars(discord_id, guild):
@@ -665,7 +683,13 @@ async def test_delete_parse_officer_can_delete(app):
 
 @pytest.mark.asyncio
 async def test_delete_parse_random_user_403(app):
-    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER_USER"}
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:OTHER_USER",
+        "title": "a krait patriarch",
+        "hidden_at": None,
+    }
 
     async def fake_officer_chars(discord_id, guild):
         return set()
@@ -698,8 +722,20 @@ async def test_delete_batch_officer_deletes_all_uploads(app):
     # Two uploads of one fight, both by *other* people; caller is an officer of
     # the guild → may delete the whole encounter.
     rows = [
-        {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER1"},
-        {"id": 2, "guild_name": "Exordium", "source_dsn": "plugin:OTHER2"},
+        {
+            "id": 1,
+            "guild_name": "Exordium",
+            "source_dsn": "plugin:OTHER1",
+            "title": "a krait patriarch",
+            "hidden_at": None,
+        },
+        {
+            "id": 2,
+            "guild_name": "Exordium",
+            "source_dsn": "plugin:OTHER2",
+            "title": "a krait patriarch",
+            "hidden_at": None,
+        },
     ]
     delete_mock = MagicMock(return_value=True)
 
@@ -723,8 +759,14 @@ async def test_delete_batch_officer_deletes_all_uploads(app):
 @pytest.mark.asyncio
 async def test_delete_batch_admin_deletes_all_uploads(app):
     rows = [
-        {"id": 5, "guild_name": None, "source_dsn": "plugin:OTHER1"},
-        {"id": 6, "guild_name": "Exordium", "source_dsn": "plugin:OTHER2"},
+        {"id": 5, "guild_name": None, "source_dsn": "plugin:OTHER1", "title": "a krait patriarch", "hidden_at": None},
+        {
+            "id": 6,
+            "guild_name": "Exordium",
+            "source_dsn": "plugin:OTHER2",
+            "title": "a krait patriarch",
+            "hidden_at": None,
+        },
     ]
     delete_mock = MagicMock(return_value=True)
     with (
@@ -744,8 +786,20 @@ async def test_delete_batch_skips_unauthorised_ids(app):
     # Caller (_fake_user id=123456789) uploaded id 1 only; not officer/admin.
     # The batch deletes the one they own and skips the other.
     rows = [
-        {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:123456789"},
-        {"id": 2, "guild_name": "Exordium", "source_dsn": "plugin:SOMEONE_ELSE"},
+        {
+            "id": 1,
+            "guild_name": "Exordium",
+            "source_dsn": "plugin:123456789",
+            "title": "a krait patriarch",
+            "hidden_at": None,
+        },
+        {
+            "id": 2,
+            "guild_name": "Exordium",
+            "source_dsn": "plugin:SOMEONE_ELSE",
+            "title": "a krait patriarch",
+            "hidden_at": None,
+        },
     ]
     delete_mock = MagicMock(return_value=True)
 
@@ -768,7 +822,15 @@ async def test_delete_batch_skips_unauthorised_ids(app):
 
 @pytest.mark.asyncio
 async def test_delete_batch_none_allowed_403(app):
-    rows = [{"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER"}]
+    rows = [
+        {
+            "id": 1,
+            "guild_name": "Exordium",
+            "source_dsn": "plugin:OTHER",
+            "title": "a krait patriarch",
+            "hidden_at": None,
+        }
+    ]
 
     async def fake_officer_chars(discord_id, guild):
         return set()
@@ -951,3 +1013,84 @@ async def test_detail_reports_hidden_flag(app):
             r = await client.get("/api/parses/1")
     assert r.status_code == 200
     assert r.json()["hidden"] is True
+
+
+# ---------------------------------------------------------------------------
+# Boss soft-delete vs trash hard-delete, admin purge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_boss_soft_deletes(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:123456789", "title": "Tarinax", "hidden_at": None}
+    soft = MagicMock(return_value=True)
+    hard = MagicMock(return_value=True)
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=True),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("web.routes.parses.parses_db.soft_delete_encounter", soft),
+        patch("web.routes.parses.parses_db.delete_encounter", hard),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200 and r.json() == {"deleted": 1}
+    soft.assert_called_once()
+    hard.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_trash_hard_deletes(app):
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:123456789",
+        "title": "a krait patriarch",
+        "hidden_at": None,
+    }
+    soft = MagicMock(return_value=True)
+    hard = MagicMock(return_value=True)
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=True),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("web.routes.parses.parses_db.soft_delete_encounter", soft),
+        patch("web.routes.parses.parses_db.delete_encounter", hard),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200
+    hard.assert_called_once()
+    soft.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_admin_purge_hard_deletes_boss(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER", "title": "Tarinax", "hidden_at": None}
+    soft = MagicMock(return_value=True)
+    hard = MagicMock(return_value=True)
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=True),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("web.routes.parses.parses_db.soft_delete_encounter", soft),
+        patch("web.routes.parses.parses_db.delete_encounter", hard),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1?purge=1")
+    assert r.status_code == 200
+    hard.assert_called_once()
+    soft.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_purge_forbidden_for_non_admin(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:123456789", "title": "Tarinax", "hidden_at": None}
+    with (
+        patch("web.routes.parses._require_user", _fake_user),
+        patch("web.routes.parses._is_admin", return_value=False),
+        patch("web.routes.parses.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1?purge=1")
+    assert r.status_code == 403
