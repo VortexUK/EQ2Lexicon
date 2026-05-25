@@ -285,3 +285,42 @@ def test_loader_keeps_only_winning_boss_kills(rankings_db):
     assert [k["title"] for k in kills] == ["Tarinax"]
     assert kills[0]["scope"] == "raid" and kills[0]["player_count"] == 8
     assert len(kills[0]["combatants"]) == 8
+
+
+from unittest.mock import patch
+
+from httpx import ASGITransport, AsyncClient
+
+
+def _fake_user(request=None) -> dict:
+    return {"id": "123", "username": "alice"}
+
+
+@pytest.mark.asyncio
+async def test_filters_endpoint(app, rankings_db):
+    with patch("web.routes.rankings._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/rankings/filters")
+    assert r.status_code == 200
+    scopes = {s["key"] for s in r.json()["scopes"]}
+    assert "raid" in scopes
+
+
+@pytest.mark.asyncio
+async def test_rankings_dps_board(app, rankings_db):
+    with patch("web.routes.rankings._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=dps")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 8 and body["rows"][0]["kind"] == "character"
+    assert body["rows"][0]["percentile"] == 100
+    assert body["classes"] == ["Wizard"]
+
+
+@pytest.mark.asyncio
+async def test_rankings_rejects_bad_metric(app, rankings_db):
+    with patch("web.routes.rankings._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=bogus")
+    assert r.status_code == 400

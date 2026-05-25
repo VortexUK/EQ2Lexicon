@@ -11,14 +11,18 @@ docs/superpowers/specs/2026-05-25-eq2logs-rankings-design.md.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from collections import defaultdict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from parses import db as parses_db
 from parses.boss import is_boss
+from web.auth_deps import require_user_session as _require_user
 from web.cache import TTLCache
+from web.limiter import limiter
 from web.routes.parses import _PLAYER_COUNT_SQL, _group_into_fights
 
 router = APIRouter(tags=["rankings"])
@@ -145,7 +149,8 @@ def _build_filters(kills: list[dict]) -> dict:
 def _load_primary_boss_kills() -> list[dict]:
     """Load winning boss-kill encounters, mirror-group them, and return one
     'primary' (longest) upload per fight with its combatants attached. Ignores
-    hidden_at so soft-deleted parses still rank. Runs in an executor."""
+    hidden_at so soft-deleted parses still rank. Called from an executor by the
+    async endpoints."""
     if not parses_db.DB_PATH.exists():
         return []
     conn = parses_db.init_db(parses_db.DB_PATH)
@@ -192,3 +197,68 @@ def _cached_kills() -> list[dict]:
     kills = _load_primary_boss_kills()
     rankings_cache.set(_KILLS_KEY, kills)
     return kills
+
+
+class RankingRow(BaseModel):
+    kind: str  # "character" | "guild"
+    encounter_id: int
+    percentile: int
+    size: int
+    started_at: int
+    # character rows
+    name: str | None = None
+    guild_name: str | None = None
+    level: int | None = None
+    cls: str | None = None
+    score: float | None = None
+    # guild rows (Speed)
+    duration_s: int | None = None
+
+
+class RankingsResponse(BaseModel):
+    rows: list[RankingRow]
+    classes: list[str]
+    total: int
+
+
+@router.get("/rankings/filters")
+@limiter.limit("60/minute")
+async def get_ranking_filters(request: Request) -> dict:
+    _require_user(request)
+    loop = asyncio.get_event_loop()
+    kills = await loop.run_in_executor(None, _cached_kills)
+    return _build_filters(kills)
+
+
+@router.get("/rankings", response_model=RankingsResponse)
+@limiter.limit("60/minute")
+async def get_rankings(
+    request: Request,
+    size: str,
+    zone: str,
+    boss: str,
+    metric: str,
+    class_name: str | None = Query(None, alias="class"),
+) -> RankingsResponse:
+    _require_user(request)
+    if size not in _SCOPES:
+        raise HTTPException(status_code=400, detail="size must be 'raid' or 'group'")
+    if metric not in ("dps", "hps", "speed"):
+        raise HTTPException(status_code=400, detail="metric must be 'dps', 'hps' or 'speed'")
+
+    loop = asyncio.get_event_loop()
+    kills = await loop.run_in_executor(None, _cached_kills)
+
+    if metric == "speed":
+        rows = _build_speed_board(kills, size=size, zone=zone, boss=boss)
+        classes: list[str] = []
+    else:
+        rows, classes = _build_character_board(kills, size=size, zone=zone, boss=boss, metric=metric)
+        if class_name:
+            rows = [r for r in rows if r["cls"] == class_name]
+
+    return RankingsResponse(
+        rows=[RankingRow(**r) for r in rows],
+        classes=classes,
+        total=len(rows),
+    )
