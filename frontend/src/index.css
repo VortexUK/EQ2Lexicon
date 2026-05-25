@@ -52,7 +52,7 @@
   --rarity-handcrafted:  #beff93;  /* Handcrafted / Uncommon / Journeyman */
   --rarity-treasured:    #93d9ff;  /* Treasured / Mastercrafted / Adept */
   --rarity-legendary:    #ffc993;  /* Legendary / Expert */
-  --rarity-fabled:       #ff99ff;  /* Fabled / Master */
+  --rarity-fabled:       #ff939d;  /* Fabled / Master (game-accurate reddish-pink) */
   --rarity-mythical:     #ffb6ff;  /* Mythical */
   --rarity-ethereal:     #e8bbff;  /* Ethereal */
   --rarity-celestial:    #ffe566;  /* Celestial / Grandmaster */
