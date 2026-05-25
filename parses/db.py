@@ -600,6 +600,18 @@ def delete_encounter(conn: sqlite3.Connection, encounter_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def soft_delete_encounter(conn: sqlite3.Connection, encounter_id: int, hidden_at: int) -> bool:
+    """Hide an encounter from the parses list without removing it, so any
+    leaderboard entry sourced from it survives and its link still opens.
+    Only acts on a currently-visible row; returns True if it flipped one."""
+    with conn:
+        cur = conn.execute(
+            "UPDATE encounters SET hidden_at = ? WHERE id = ? AND hidden_at IS NULL",
+            (hidden_at, encounter_id),
+        )
+    return cur.rowcount > 0
+
+
 def delete_encounters_by_filter(
     conn: sqlite3.Connection,
     *,

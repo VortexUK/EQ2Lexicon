@@ -268,6 +268,15 @@ class TestInsertHelpers:
         row = parses_db.get_combatants_for_encounter(parses_db_conn, eid)[0]
         assert row["level"] is None and row["cls"] is None
 
+    def test_soft_delete_sets_hidden_at(self, parses_db_conn):
+        enc = _sample_encounter()
+        eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
+        assert parses_db.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111) is True
+        row = parses_db.find_encounter_by_act_encid(parses_db_conn, enc.encid)
+        assert row["hidden_at"] == 1700001111
+        # Idempotent: re-soft-deleting an already-hidden row is a no-op (returns False).
+        assert parses_db.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700002222) is False
+
     def test_full_ingest_chain(self, parses_db_conn):
         enc = _sample_encounter()
         eid = parses_db.insert_encounter(
