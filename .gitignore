@@ -273,3 +273,6 @@ data/users.db-shm
 # Frontend build artefacts
 frontend/tsconfig.app.tsbuildinfo
 
+
+# Brainstorming visual companion artifacts
+.superpowers/
