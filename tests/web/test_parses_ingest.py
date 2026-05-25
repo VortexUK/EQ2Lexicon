@@ -223,6 +223,28 @@ async def test_ingest_inserts_encounter(app):
 
 
 @pytest.mark.asyncio
+async def test_ingest_does_not_block_on_census_and_schedules_background(app):
+    # Sync path uses cache-only snapshots (no Census); full resolution is
+    # scheduled as a background task that runs after the response.
+    sync_result = ("inserted", 42, 2, 1, 2)
+    resolve_mock = AsyncMock(return_value={})  # background resolver
+    cached_mock = MagicMock(return_value={})  # cache-only sync path
+    with (
+        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
+        patch("web.routes.parses._resolve_uploader_guild_async", new=AsyncMock(return_value="Exordium")),
+        patch("web.routes.parses._cached_snapshots", cached_mock),
+        patch("web.routes.parses._resolve_combatant_snapshots", resolve_mock),
+        patch("web.routes.parses._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
+        patch("web.routes.parses._update_snapshots_sync", new=MagicMock()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(_minimal_payload()))
+    assert r.status_code == 201
+    cached_mock.assert_called_once()  # sync path used cache-only resolver
+    resolve_mock.assert_awaited()  # background full resolution ran (after response)
+
+
+@pytest.mark.asyncio
 async def test_ingest_returns_skipped_on_duplicate(app):
     sync_result = ("skipped", 7, 0, 0, 0)
 

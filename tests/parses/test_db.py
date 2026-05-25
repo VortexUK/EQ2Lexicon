@@ -268,6 +268,19 @@ class TestInsertHelpers:
         row = parses_db.get_combatants_for_encounter(parses_db_conn, eid)[0]
         assert row["level"] is None and row["cls"] is None
 
+    def test_update_combatant_snapshots_fills_rows(self, parses_db_conn):
+        from parses.models import CombatantSnapshot
+
+        enc = _sample_encounter()
+        eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
+        parses_db.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)])
+        n = parses_db.update_combatant_snapshots(
+            parses_db_conn, eid, {"Menludiir": CombatantSnapshot(level=90, guild_name="Exordium", cls="Templar")}
+        )
+        assert n == 1
+        row = next(c for c in parses_db.get_combatants_for_encounter(parses_db_conn, eid) if c["name"] == "Menludiir")
+        assert (row["level"], row["guild_name"], row["cls"]) == (90, "Exordium", "Templar")
+
     def test_soft_delete_sets_hidden_at(self, parses_db_conn):
         enc = _sample_encounter()
         eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)

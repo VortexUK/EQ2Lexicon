@@ -21,7 +21,7 @@ import sqlite3
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from census.client import CensusClient
@@ -229,6 +229,47 @@ async def _resolve_combatant_snapshots(
         if client is not None:
             await client.close()
     return out
+
+
+def _cached_snapshots(names: list[str], world: str | None = None) -> dict[str, CombatantSnapshot]:
+    """Cache-only snapshot lookup for the ingest response path — NO Census
+    calls, so an upload can never block/time out on Census. Whatever is already
+    warm in character_cache is snapshotted now; the rest is filled in by the
+    background task."""
+    effective_world = _sanitize_world(world) or _WORLD
+    world_lower = effective_world.lower()
+    out: dict[str, CombatantSnapshot] = {}
+    for name in names:
+        cached, _ = character_cache.get_stale(f"{name.lower()}:{world_lower}")
+        if cached is not None:
+            out[name] = CombatantSnapshot(
+                level=getattr(cached, "level", None),
+                guild_name=getattr(cached, "guild_name", None),
+                cls=getattr(cached, "cls", None),
+            )
+    return out
+
+
+def _update_snapshots_sync(encounter_id: int, snapshots: dict[str, CombatantSnapshot]) -> None:
+    conn = parses_db.init_db(parses_db.DB_PATH)
+    try:
+        parses_db.update_combatant_snapshots(conn, encounter_id, snapshots)
+    finally:
+        conn.close()
+
+
+async def _resolve_and_update_snapshots(encounter_id: int, player_names: list[str], world: str | None) -> None:
+    """Background: do the full (Census-backed) snapshot resolution OFF the
+    response path, then write the results onto the combatant rows. Never
+    raises — best-effort enrichment."""
+    try:
+        snapshots = await _resolve_combatant_snapshots(player_names, world)
+        if not snapshots:
+            return
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _update_snapshots_sync, encounter_id, snapshots)
+    except Exception as exc:
+        _log.warning("Background snapshot resolution failed for encounter %s: %s", encounter_id, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -1161,6 +1202,7 @@ async def _validate_payload_signature(
 async def ingest_parse(
     request: Request,
     body: IngestRequest,
+    background: BackgroundTasks,
 ) -> IngestResponse:
     user = await require_user_session_or_token(request)
     await _validate_payload_signature(request, user)
@@ -1190,9 +1232,7 @@ async def ingest_parse(
     # Kaladim upload, for instance.
     guild_name = await _resolve_uploader_guild_async(uploader, body.logger_server)
 
-    # Freeze each player ally's level/guild/class at ingest. Same cache-first
-    # resolution as the uploader guild lookup; the first guildmate's roster
-    # fetch warms the cache for the rest of the raid. Restricted to
+    # Freeze each player ally's level/guild/class at ingest. Restricted to
     # player-like names (single-word ally, not the 'Unknown' rollup) so we
     # never burn Census calls on pets/NPCs that don't exist as characters.
     player_names = [
@@ -1203,7 +1243,12 @@ async def ingest_parse(
         and " " not in name
         and name != "Unknown"
     ]
-    snapshots = await _resolve_combatant_snapshots(player_names, body.logger_server)
+    # Cache-only on the response path — NEVER hit Census here, or a cold-cache
+    # raid upload (up to N serial 30 s Census calls) would time the plugin out.
+    # Whatever's already warm in character_cache is frozen now; the rest is
+    # resolved by a background task that updates the combatant rows after the
+    # response has already gone out.
+    snapshots = _cached_snapshots(player_names, body.logger_server)
 
     loop = asyncio.get_event_loop()
 
@@ -1216,6 +1261,12 @@ async def ingest_parse(
         f"plugin:{user['id']}",  # source_dsn marks the auth path
         snapshots,
     )
+
+    # Schedule the full (Census-backed) resolution off the response path. Only
+    # for freshly-inserted parses with player names to resolve — skipped rows
+    # already have their snapshots, and an empty name list has nothing to do.
+    if status == "inserted" and encounter_id is not None and player_names:
+        background.add_task(_resolve_and_update_snapshots, encounter_id, player_names, body.logger_server)
 
     return IngestResponse(
         status=status,

@@ -426,6 +426,27 @@ def insert_combatants_bulk(
     return name_to_id
 
 
+def update_combatant_snapshots(
+    conn: sqlite3.Connection,
+    encounter_id: int,
+    snapshots: dict[str, CombatantSnapshot],
+) -> int:
+    """Fill in level/guild/class on already-inserted combatant rows once the
+    (possibly slow) Census resolution finishes in the background. Matches by
+    combatant name within the encounter. Returns rows updated."""
+    if not snapshots:
+        return 0
+    n = 0
+    with conn:
+        for name, snap in snapshots.items():
+            cur = conn.execute(
+                "UPDATE combatants SET level = ?, guild_name = ?, cls = ? WHERE encounter_id = ? AND name = ?",
+                (snap.level, snap.guild_name, snap.cls, encounter_id, name),
+            )
+            n += cur.rowcount
+    return n
+
+
 def insert_damage_types_bulk(
     conn: sqlite3.Connection,
     combatant_name_to_id: dict[str, int],
