@@ -1,0 +1,70 @@
+name: Bug report
+description: Something on the website or Discord bot does the wrong thing.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. A complete report makes it much more likely to get fixed quickly.
+
+        **Security issue?** Don't file it here — use [GitHub Security Advisories](https://github.com/VortexUK/EQ2Lexicon/security/advisories/new) instead.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did it happen?
+      options:
+        - Website (eq2lexicon.up.railway.app)
+        - Discord bot (slash command)
+        - Parse upload / ingest
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Page or command
+      description: The URL path (e.g. /parses, /character/Sihtric) or the slash command (e.g. /spellcheck).
+      placeholder: "/character/Sihtric"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what you expected instead.
+      placeholder: |
+        1. Searched for character "Sihtric" on Varsoon
+        2. Expected the Spells tab to list scribed spells
+        3. Got an empty list / an error instead
+    validations:
+      required: true
+
+  - type: input
+    id: character-guild
+    attributes:
+      label: Character / guild / world (if relevant)
+      description: Helps reproduce data-specific bugs. Leave blank if not applicable.
+      placeholder: "Sihtric, <Exordium>, Varsoon"
+    validations:
+      required: false
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / device
+      description: For website bugs only.
+      placeholder: "Firefox 128 on Windows 11"
+    validations:
+      required: false
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors (if any)
+      description: For website bugs, open DevTools (F12) → Console and paste any red errors. Strip anything that looks like a session cookie or token.
+      render: text
+    validations:
+      required: false

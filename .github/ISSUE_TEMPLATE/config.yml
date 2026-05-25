@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/VortexUK/EQ2Lexicon/security/advisories/new
+    about: Report a security issue privately. Do not file a public issue.
+  - name: ACT plugin issue
+    url: https://github.com/VortexUK/EQ2LexiconACTPlugin/issues
+    about: Issues with uploading parses from ACT belong in the plugin repo.

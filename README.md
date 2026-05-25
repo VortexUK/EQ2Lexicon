@@ -1,5 +1,9 @@
 # EQ2 Lexicon
 
+[![CI](https://github.com/VortexUK/EQ2Lexicon/actions/workflows/ci.yml/badge.svg)](https://github.com/VortexUK/EQ2Lexicon/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/VortexUK/EQ2Lexicon/actions/workflows/codeql.yml/badge.svg)](https://github.com/VortexUK/EQ2Lexicon/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A Discord bot **and** web companion site for EverQuest 2 (TLE server). Queries the [Daybreak Census API](https://census.daybreakgames.com) to provide item tooltips, guild summaries, character sheets, parses ingested from the [ACT plugin](https://github.com/VortexUK/EQ2LexiconACTPlugin), and more.
 
 Live at <https://eq2lexicon.up.railway.app>.
@@ -257,3 +261,15 @@ To hide a spell from the character Spells tab and the `/spellcheck` Discord comm
 ```
 
 The file is re-read on every request — no restart required.
+
+---
+
+## Contributing & Security
+
+- Dev setup, the test gates, and the PR checklist live in [CONTRIBUTING.md](CONTRIBUTING.md).
+- Architecture, key files, and environment variables are documented in [CLAUDE.md](CLAUDE.md).
+- Found a security issue? See [SECURITY.md](SECURITY.md) — please report privately, not via public issues.
+
+## License
+
+[MIT](LICENSE).
