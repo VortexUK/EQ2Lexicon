@@ -61,15 +61,21 @@ const CRAFT_TIER_LABELS: Record<string, string> = {
   T13:'T13',         T14:'T14',
 }
 
-const BENCH_OPTIONS = [
-  { key: '',                  label: 'All Artisans' },
-  { key: 'work_bench',        label: 'Carpenter' },
-  { key: 'work_desk',         label: 'Sage' },
-  { key: 'chemistry_table',   label: 'Alchemist' },
-  { key: 'forge',             label: 'Armorer / Weaponsmith' },
-  { key: 'woodworking_table', label: 'Woodworker' },
-  { key: 'sewing_table',      label: 'Tailor' },
-  { key: 'stove and keg',     label: 'Provisioner' },
+// Tradeskill class filter — driven by the recipe_classes mapping (a recipe can
+// belong to more than one class). Values are the class display names stored in
+// recipe_classes. Replaces the old bench-based filter, which merged Armorer +
+// Weaponsmith (shared forge) and had no Jeweler.
+const CRAFT_CLASS_OPTIONS = [
+  { key: '',            label: 'All Artisans' },
+  { key: 'Alchemist',   label: 'Alchemist' },
+  { key: 'Armorer',     label: 'Armorer' },
+  { key: 'Carpenter',   label: 'Carpenter' },
+  { key: 'Jeweler',     label: 'Jeweler' },
+  { key: 'Provisioner', label: 'Provisioner' },
+  { key: 'Sage',        label: 'Sage' },
+  { key: 'Tailor',      label: 'Tailor' },
+  { key: 'Weaponsmith', label: 'Weaponsmith' },
+  { key: 'Woodworker',  label: 'Woodworker' },
 ]
 
 const CLASS_OPTIONS: { label: string; value: string }[] = [
@@ -237,7 +243,7 @@ export default function RecipesPage() {
   // ── Filter state (URL-synced) ────────────────────────────────────────────────
   const [q,         setQ]         = useState(searchParams.get('q')     ?? '')
   const [tier,      setTier]      = useState(searchParams.get('tier')   ?? '')
-  const [bench,     setBench]     = useState(searchParams.get('bench')  ?? '')
+  const [craftClass, setCraftClass] = useState(searchParams.get('craft_class') ?? '')
   const [className, setClassName] = useState(searchParams.get('cls')    ?? '')
 
   // ── Results state ────────────────────────────────────────────────────────────
@@ -264,12 +270,12 @@ export default function RecipesPage() {
   // ── URL sync ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     const p: Record<string, string> = {}
-    if (q)         p.q     = q
-    if (tier)      p.tier  = tier
-    if (bench)     p.bench = bench
-    if (className) p.cls   = className
+    if (q)          p.q           = q
+    if (tier)       p.tier        = tier
+    if (craftClass) p.craft_class = craftClass
+    if (className)  p.cls         = className
     setSearchParams(p, { replace: true })
-  }, [q, tier, bench, className, setSearchParams])
+  }, [q, tier, craftClass, className, setSearchParams])
 
   // ── Persist shopping list ─────────────────────────────────────────────────────
   useEffect(() => { saveList(list) }, [list])
@@ -281,13 +287,13 @@ export default function RecipesPage() {
   const didAutoSearch = useRef(false)
   useEffect(() => {
     if (didAutoSearch.current) return
-    if (searchParams.get('q') || searchParams.get('tier') || searchParams.get('bench') || searchParams.get('cls')) {
+    if (searchParams.get('q') || searchParams.get('tier') || searchParams.get('craft_class') || searchParams.get('cls')) {
       didAutoSearch.current = true
       doSearch(1, {
-        q:         searchParams.get('q')     ?? '',
-        tier:      searchParams.get('tier')   ?? '',
-        bench:     searchParams.get('bench')  ?? '',
-        className: searchParams.get('cls')    ?? '',
+        q:          searchParams.get('q')           ?? '',
+        tier:       searchParams.get('tier')        ?? '',
+        craftClass: searchParams.get('craft_class') ?? '',
+        className:  searchParams.get('cls')         ?? '',
       })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -296,21 +302,21 @@ export default function RecipesPage() {
   // ── Search function ───────────────────────────────────────────────────────────
   const doSearch = useCallback(async (
     p: number,
-    overrides?: { q?: string; tier?: string; bench?: string; className?: string }
+    overrides?: { q?: string; tier?: string; craftClass?: string; className?: string }
   ) => {
-    const fq    = overrides?.q         ?? q
-    const ftier = overrides?.tier      ?? tier
-    const fbench= overrides?.bench     ?? bench
-    const fcls  = overrides?.className ?? className
+    const fq     = overrides?.q          ?? q
+    const ftier  = overrides?.tier       ?? tier
+    const fcraft = overrides?.craftClass ?? craftClass
+    const fcls   = overrides?.className   ?? className
 
     const params = new URLSearchParams()
-    if (fq)    params.set('q',    fq)
-    if (ftier) params.set('tier', ftier)
-    if (fbench)params.set('bench',fbench)
-    if (fcls)  params.set('class_name', fcls)
+    if (fq)     params.set('q',    fq)
+    if (ftier)  params.set('tier', ftier)
+    if (fcraft) params.set('craft_class', fcraft)
+    if (fcls)   params.set('class_name', fcls)
     params.set('page', String(p))
 
-    if (!fq && !ftier && !fbench && !fcls) return
+    if (!fq && !ftier && !fcraft && !fcls) return
 
     setLoading(true)
     setError(null)
@@ -328,7 +334,7 @@ export default function RecipesPage() {
     } finally {
       setLoading(false)
     }
-  }, [q, tier, bench, className])
+  }, [q, tier, craftClass, className])
 
   const handleSearch = useCallback(() => { doSearch(1) }, [doSearch])
   const handlePage   = useCallback((p: number) => { doSearch(p) }, [doSearch])
@@ -430,14 +436,14 @@ export default function RecipesPage() {
               </select>
             </div>
 
-            {/* Bench */}
+            {/* Tradeskill class */}
             <div>
               <label className="text-xs text-text-muted block mb-[3px]">
                 Artisan class
               </label>
-              <select className={CTRL_CLS} value={bench} onChange={e => setBench(e.target.value)}>
-                {BENCH_OPTIONS.map(b => (
-                  <option key={b.key} value={b.key}>{b.label}</option>
+              <select className={CTRL_CLS} value={craftClass} onChange={e => setCraftClass(e.target.value)}>
+                {CRAFT_CLASS_OPTIONS.map(c => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
                 ))}
               </select>
             </div>

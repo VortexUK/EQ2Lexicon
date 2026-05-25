@@ -115,9 +115,25 @@ CREATE TABLE IF NOT EXISTS recipes (
 );
 """
 
+# Recipe → tradeskill-class mapping. The recipe JSON has no class (only a
+# shared crafting station), so the class is derived from recipe-book items
+# (typeinfo.classes + typeinfo.recipe_list) by scripts/build_recipe_classes.py.
+# Many-to-many: a recipe taught by both an Armorer and a Weaponsmith book gets
+# a row for each, so it shows under either class filter.
+_CREATE_RECIPE_CLASSES = """
+CREATE TABLE IF NOT EXISTS recipe_classes (
+    recipe_id  INTEGER NOT NULL,
+    class      TEXT    NOT NULL,   -- tradeskill class display name, e.g. "Armorer"
+    PRIMARY KEY (recipe_id, class)
+);
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_name_lower      ON recipes (name_lower);",
     "CREATE INDEX IF NOT EXISTS idx_bench           ON recipes (bench);",
+    # recipe_classes: filter by class, and join back to recipes by id
+    "CREATE INDEX IF NOT EXISTS idx_rc_class        ON recipe_classes (class);",
+    "CREATE INDEX IF NOT EXISTS idx_rc_recipe       ON recipe_classes (recipe_id);",
     "CREATE INDEX IF NOT EXISTS idx_crc             ON recipes (crc);",
     # Reverse-lookup: which recipe produces a given item?
     "CREATE INDEX IF NOT EXISTS idx_out_formed      ON recipes (out_formed_id);",
@@ -297,6 +313,7 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous  = NORMAL;")
     conn.execute(_CREATE_META)
     conn.execute(_CREATE_TABLE)
+    conn.execute(_CREATE_RECIPE_CLASSES)
     # Migrate existing DBs that predate the spell-tier columns
     for stmt in _MIGRATIONS:
         try:

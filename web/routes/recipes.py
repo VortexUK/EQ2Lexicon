@@ -271,6 +271,7 @@ async def search_recipes(
     tier: str | None = None,  # T1 … T14
     bench: str | None = None,
     class_name: str | None = None,
+    craft_class: str | None = None,  # tradeskill class, e.g. "Armorer" (via recipe_classes)
     page: int = 1,
 ) -> RecipeSearchResponse:
     per_page = 25
@@ -315,6 +316,12 @@ async def search_recipes(
     if bench_key:
         conditions.append("bench = ?")
         params.append(bench_key)
+
+    # Tradeskill-class filter via the recipe_classes mapping (same DB → subquery,
+    # no ATTACH). A recipe taught by multiple classes' books matches each of them.
+    if craft_class:
+        conditions.append("id IN (SELECT recipe_id FROM recipe_classes WHERE class = ?)")
+        params.append(craft_class)
 
     if class_item_ids is not None:
         # Use out_elaborate_id — that's the named-quality scroll output.
