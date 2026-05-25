@@ -26,6 +26,7 @@ interface RecipeResult {
   out_formed_id: number | null
   out_formed_count: number | null
   class_label: string | null
+  craft_classes: string[]        // tradeskill classes that can make it
 }
 
 interface RecipeSearchResponse {
@@ -690,9 +691,9 @@ function RecipeCard({
           </span>
         )}
         {recipe.crafted_tier && <TierBadge tier={recipe.crafted_tier} />}
-        {recipe.bench_label && (
+        {recipe.craft_classes.length > 0 && (
           <span className="text-[0.72rem] text-text-muted whitespace-nowrap">
-            {recipe.bench_label}
+            {recipe.craft_classes.length >= 9 ? 'All artisans' : recipe.craft_classes.join(' / ')}
           </span>
         )}
         {recipe.class_label && (

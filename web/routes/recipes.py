@@ -130,6 +130,7 @@ class RecipeResult(BaseModel):
     out_formed_id: int | None = None
     out_formed_count: int | None = None
     class_label: str | None = None
+    craft_classes: list[str] = []  # tradeskill classes that can make this recipe
 
 
 class RecipeSearchResponse(BaseModel):
@@ -171,7 +172,11 @@ def _resolve_bench_param(bench: str | None) -> str | None:
     return _LABEL_TO_BENCH.get(bench.lower(), bench)
 
 
-def _row_to_result(row: sqlite3.Row, class_label: str | None = None) -> RecipeResult:
+def _row_to_result(
+    row: sqlite3.Row,
+    class_label: str | None = None,
+    craft_classes: list[str] | None = None,
+) -> RecipeResult:
     try:
         sec = json.loads(row["secondary_comps"] or "[]")
     except Exception:
@@ -207,6 +212,7 @@ def _row_to_result(row: sqlite3.Row, class_label: str | None = None) -> RecipeRe
         out_formed_id=row["out_formed_id"],
         out_formed_count=row["out_formed_count"],
         class_label=cl,
+        craft_classes=craft_classes or [],
     )
 
 
@@ -366,6 +372,19 @@ async def search_recipes(
         async with db.execute(select_sql, params) as cur:
             rows = await cur.fetchall()
 
+        # Tradeskill class(es) for each result recipe — the accurate label
+        # (the `bench` column is shared across classes, so it can't be used).
+        class_by_recipe: dict[int, list[str]] = {}
+        row_ids = [r["id"] for r in rows]
+        if row_ids:
+            ph = ",".join("?" * len(row_ids))
+            async with db.execute(
+                f"SELECT recipe_id, class FROM recipe_classes WHERE recipe_id IN ({ph}) ORDER BY class",
+                row_ids,
+            ) as cur:
+                async for rid, cls in cur:
+                    class_by_recipe.setdefault(rid, []).append(cls)
+
     # ── Enrich with class_label from items DB (sync, off event loop) ──────────
     elaborate_ids = [r["out_elaborate_id"] for r in rows if r["out_elaborate_id"]]
     label_map: dict[int, str] = {}
@@ -373,7 +392,14 @@ async def search_recipes(
         loop = asyncio.get_event_loop()
         _, label_map = await loop.run_in_executor(None, _query_items_db, None, elaborate_ids)
 
-    results = [_row_to_result(r, class_label=label_map.get(r["out_elaborate_id"])) for r in rows]
+    results = [
+        _row_to_result(
+            r,
+            class_label=label_map.get(r["out_elaborate_id"]),
+            craft_classes=class_by_recipe.get(r["id"], []),
+        )
+        for r in rows
+    ]
 
     return RecipeSearchResponse(
         results=results,
