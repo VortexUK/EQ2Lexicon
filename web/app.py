@@ -43,6 +43,7 @@ from web.routes.character import prewarm_character_cache
 from web.routes.character import router as character_router
 from web.routes.characters import router as characters_router
 from web.routes.claim import router as claim_router
+from web.routes.classes import router as classes_router
 from web.routes.guild import router as guild_router
 from web.routes.guild_officer import router as guild_officer_router
 from web.routes.health import router as health_router
@@ -294,6 +295,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     app.include_router(recipes_router, prefix="/api")
     app.include_router(parses_router, prefix="/api")
     app.include_router(rankings_router, prefix="/api")
+    app.include_router(classes_router, prefix="/api")
 
     # ── /metrics — Prometheus text format ───────────────────────────────────
     # Runs synchronously (FastAPI auto-offloads sync def to a thread pool)
