@@ -53,3 +53,24 @@ class TestDbRoundTrip:
             assert [r["display_order"] for r in rows] == list(range(26))
         finally:
             conn.close()
+
+
+class TestConstantsDerivation:
+    def test_archetype_sets_match_legacy_literals(self):
+        from census import constants
+
+        assert constants.FIGHTERS == frozenset(["Guardian", "Berserker", "Monk", "Bruiser", "Shadowknight", "Paladin"])
+        assert constants.PRIESTS == frozenset(
+            ["Templar", "Inquisitor", "Fury", "Warden", "Mystic", "Defiler", "Channeler"]
+        )
+        assert constants.SCOUTS == frozenset(
+            ["Troubador", "Dirge", "Assassin", "Ranger", "Swashbuckler", "Brigand", "Beastlord"]
+        )
+        assert constants.MAGES == frozenset(["Coercer", "Illusionist", "Conjuror", "Necromancer", "Wizard", "Warlock"])
+
+    def test_archetype_sets_come_from_seed(self):
+        from census import constants
+        from census.classes_db import CLASS_SEED
+
+        union = constants.FIGHTERS | constants.PRIESTS | constants.SCOUTS | constants.MAGES
+        assert union == {c.name for c in CLASS_SEED}

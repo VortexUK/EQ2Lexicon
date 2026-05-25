@@ -1,5 +1,7 @@
 """Mappings for Census API field names → display names and groupings."""
 
+from census.classes_db import CLASS_SEED
+
 # Maps lowercase Census API stat type names to (display_name, group)
 # group is 'primary' (green) or 'secondary' (cyan)
 STAT_MAP: dict[str, tuple[str, str]] = {
@@ -70,11 +72,17 @@ STAT_MAP: dict[str, tuple[str, str]] = {
     "noxious": ("Resistances", "primary"),
 }
 
-# EQ2 class groups — used to collapse full class lists into group names
-FIGHTERS = frozenset(["Guardian", "Berserker", "Monk", "Bruiser", "Shadowknight", "Paladin"])
-PRIESTS = frozenset(["Templar", "Inquisitor", "Fury", "Warden", "Mystic", "Defiler", "Channeler"])
-SCOUTS = frozenset(["Troubador", "Dirge", "Assassin", "Ranger", "Swashbuckler", "Brigand", "Beastlord"])
-MAGES = frozenset(["Coercer", "Illusionist", "Conjuror", "Necromancer", "Wizard", "Warlock"])
+# EQ2 class groups — used to collapse full class lists into group names.
+# Derived from CLASS_SEED (the single source of class→archetype membership).
+_CLASSES_BY_ARCHETYPE: dict[str, frozenset[str]] = {
+    archetype: frozenset(c.name for c in CLASS_SEED if c.archetype == archetype)
+    for archetype in ("Fighter", "Priest", "Scout", "Mage")
+}
+
+FIGHTERS = _CLASSES_BY_ARCHETYPE["Fighter"]
+PRIESTS = _CLASSES_BY_ARCHETYPE["Priest"]
+SCOUTS = _CLASSES_BY_ARCHETYPE["Scout"]
+MAGES = _CLASSES_BY_ARCHETYPE["Mage"]
 ARTISANS = frozenset(
     ["Sage", "Armorer", "Weaponsmith", "Woodworker", "Jeweler", "Carpenter", "Tailor", "Alchemist", "Provisioner"]
 )
