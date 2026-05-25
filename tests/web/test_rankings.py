@@ -324,3 +324,41 @@ async def test_rankings_rejects_bad_metric(app, rankings_db):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=bogus")
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_rankings_speed_board(app, rankings_db):
+    with patch("web.routes.rankings._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=speed")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["classes"] == []
+    assert body["total"] == 1
+    row = body["rows"][0]
+    assert row["kind"] == "guild"
+    assert row["guild_name"] == "Exordium"
+    assert row["duration_s"] == 60
+    assert row["score"] is None  # guild rows carry duration, not score
+
+
+@pytest.mark.asyncio
+async def test_rankings_class_filter(app, rankings_db):
+    with patch("web.routes.rankings._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            wiz = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=dps&class=Wizard")
+            templar = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=dps&class=Templar")
+    assert wiz.status_code == 200
+    wiz_body = wiz.json()
+    assert wiz_body["total"] == 8
+    assert all(row["cls"] == "Wizard" for row in wiz_body["rows"])
+    # No Templar entries on this board → empty rows (classes still lists what exists).
+    assert templar.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rankings_rejects_bad_size(app, rankings_db):
+    with patch("web.routes.rankings._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/rankings?size=bogus&zone=Vetrovia&boss=Tarinax&metric=dps")
+    assert r.status_code == 400
