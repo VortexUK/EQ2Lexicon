@@ -622,7 +622,11 @@ def delete_encounters_by_filter(
 ) -> int:
     """Bulk delete encounters matching the filter. `guild_name` is mandatory
     so we can never accidentally delete across guilds. Returns the row count
-    removed. Cascades to children."""
+    removed. Cascades to children.
+
+    NOTE: no longer called by the bulk-delete route (which now uses
+    find_encounters_by_filter + _apply_delete for soft-vs-hard logic);
+    kept for direct/admin hard-delete use and covered by TestDeleteHelpers."""
     if not guild_name:
         raise ValueError("guild_name is required")
     clauses = ["guild_name = ?"]
