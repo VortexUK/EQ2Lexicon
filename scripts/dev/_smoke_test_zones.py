@@ -15,18 +15,58 @@ data = json.loads(CLEANED.read_text(encoding="utf-8"))
 zones = data["zones"]
 
 VALID_SHORTS = {
-    "Vanilla", "BC", "SS", "DoF", "FD", "KoS", "EoF", "RoK", "TSO", "SF",
-    "DoV", "AoD", "CoE", "ToV", "AoM", "ToT", "KA", "PoP", "CD", "BoL",
-    "RoS", "VoV", "RoR", "BoZ", "SoD", "RoC", "UNK",
+    "Vanilla",
+    "BC",
+    "SS",
+    "DoF",
+    "FD",
+    "KoS",
+    "EoF",
+    "RoK",
+    "TSO",
+    "SF",
+    "DoV",
+    "AoD",
+    "CoE",
+    "ToV",
+    "AoM",
+    "ToT",
+    "KA",
+    "PoP",
+    "CD",
+    "BoL",
+    "RoS",
+    "VoV",
+    "RoR",
+    "BoZ",
+    "SoD",
+    "RoC",
+    "UNK",
 }
 VALID_TYPES = {
-    "solo", "group", "heroic", "raid", "raid_x2", "raid_x3", "raid_x4",
-    "solo_or_group", "openworld_public", "contested_raid", "tradeskill",
-    "pvp", "city",
+    "solo",
+    "group",
+    "heroic",
+    "raid",
+    "raid_x2",
+    "raid_x3",
+    "raid_x4",
+    "solo_or_group",
+    "openworld_public",
+    "contested_raid",
+    "tradeskill",
+    "pvp",
+    "city",
 }
 VALID_CONFIDENCE = {
-    "category", "live_update", "live_event", "update_date", "location_prefix",
-    "manual_override", "name_keyword", "unknown",
+    "category",
+    "live_update",
+    "live_event",
+    "update_date",
+    "location_prefix",
+    "manual_override",
+    "name_keyword",
+    "unknown",
 }
 
 failed: list[str] = []
@@ -57,22 +97,14 @@ check(
     f"duplicates: {dupes}" if dupes else f"{len(names)} unique",
 )
 
-bad_short = [
-    z["name"]
-    for z in zones
-    if z["classification"]["expansion"]["short"] not in VALID_SHORTS
-]
+bad_short = [z["name"] for z in zones if z["classification"]["expansion"]["short"] not in VALID_SHORTS]
 check(
     "All expansion shorts are in the catalogue",
     len(bad_short) == 0,
     f"{len(bad_short)} offenders" if bad_short else f"{len(VALID_SHORTS) - 1} valid shorts",
 )
 
-bad_conf = [
-    z["name"]
-    for z in zones
-    if z["classification"]["expansion"]["confidence"] not in VALID_CONFIDENCE
-]
+bad_conf = [z["name"] for z in zones if z["classification"]["expansion"]["confidence"] not in VALID_CONFIDENCE]
 check(
     "All confidence values are recognised",
     len(bad_conf) == 0,
@@ -91,9 +123,7 @@ check(
 )
 
 no_event_name = [
-    z["name"]
-    for z in zones
-    if z["classification"]["is_live_event"] and not z["classification"].get("event_name")
+    z["name"] for z in zones if z["classification"]["is_live_event"] and not z["classification"].get("event_name")
 ]
 check(
     "is_live_event=true implies event_name populated",
@@ -102,9 +132,7 @@ check(
 )
 
 event_name_set: list[str] = [
-    z["name"]
-    for z in zones
-    if not z["classification"]["is_live_event"] and z["classification"].get("event_name")
+    z["name"] for z in zones if not z["classification"]["is_live_event"] and z["classification"].get("event_name")
 ]
 check(
     "is_live_event=false implies event_name empty",
@@ -124,11 +152,7 @@ check(
     "; ".join(alias_collisions[:3]),
 )
 
-unk = [
-    z["name"]
-    for z in zones
-    if z["classification"]["expansion"]["confidence"] == "unknown"
-]
+unk = [z["name"] for z in zones if z["classification"]["expansion"]["confidence"] == "unknown"]
 check(
     "No zones have unknown expansion confidence",
     len(unk) == 0,
@@ -137,9 +161,7 @@ check(
 
 # Zones with no types should ALL be cities (hub zones have no combat type)
 no_types = [z for z in zones if not z["classification"]["types"]]
-non_city_no_types = [
-    z["name"] for z in no_types if not z["classification"].get("is_city")
-]
+non_city_no_types = [z["name"] for z in no_types if not z["classification"].get("is_city")]
 check(
     "Every zone with no types is flagged is_city",
     len(non_city_no_types) == 0,
@@ -226,8 +248,7 @@ check(
 )
 
 for x in ["RoC", "SoD", "BoZ"]:
-    check(f"Modern expansion '{x}' has at least one zone", exp_counts.get(x, 0) > 0,
-          f"count={exp_counts.get(x, 0)}")
+    check(f"Modern expansion '{x}' has at least one zone", exp_counts.get(x, 0) > 0, f"count={exp_counts.get(x, 0)}")
 
 # Live events
 events = [z for z in zones if z["classification"]["is_live_event"]]
@@ -282,8 +303,7 @@ print("=" * 70)
 oo_mismatch = [
     z["name"]
     for z in zones
-    if ("openworld_public" in z["classification"]["types"])
-    != z["classification"]["is_openworld"]
+    if ("openworld_public" in z["classification"]["types"]) != z["classification"]["is_openworld"]
 ]
 check(
     "openworld_public type ↔ is_openworld flag agree",
@@ -294,8 +314,7 @@ check(
 ts_mismatch = [
     z["name"]
     for z in zones
-    if ("tradeskill" in z["classification"]["types"])
-    and not z["classification"]["is_tradeskill"]
+    if ("tradeskill" in z["classification"]["types"]) and not z["classification"]["is_tradeskill"]
 ]
 check(
     "tradeskill type implies is_tradeskill=true",
@@ -308,8 +327,7 @@ check(
 inst_and_public = [
     z["name"]
     for z in zones
-    if z["classification"]["is_instance"]
-    and "openworld_public" in z["classification"]["types"]
+    if z["classification"]["is_instance"] and "openworld_public" in z["classification"]["types"]
 ]
 print(f"  is_instance AND openworld_public (theoretically weird): {len(inst_and_public)}")
 if inst_and_public:
@@ -350,9 +368,7 @@ for z in zones:
     # and runs through Nov 2014; a Chronoportal zone launched Apr 2014
     # is correctly attributed to ToV even though intro year is 2014).
     if intro_year and actual_year and actual_year + 1 < intro_year:
-        bad_events.append(
-            f"{z['name']} ({ev}: zone year {actual_year} too early for event intro {intro_year})"
-        )
+        bad_events.append(f"{z['name']} ({ev}: zone year {actual_year} too early for event intro {intro_year})")
 check(
     "Every live-event zone's expansion year >= event's intro year - 1",
     len(bad_events) == 0,

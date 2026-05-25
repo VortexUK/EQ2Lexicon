@@ -23,11 +23,9 @@ aliases before falling back to a fuzzy LIKE on the canonical name.
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Config
@@ -109,6 +107,24 @@ CREATE TABLE IF NOT EXISTS zone_aliases (
 );
 """
 
+# Raid bosses (named encounters) per zone. Sourced from the EQ2 wiki via
+# scripts/dev/scrape_eq2i_raids.py — committed as data, rebuilt from
+# scripts/dev/eq2_raid_data.json (and an optional overrides file for
+# excluding false-positive scrape hits). Position preserves wiki order
+# where meaningful. Same name in two zones (e.g. a Fabled variant)
+# distinguishes by zone_id.
+_CREATE_ZONE_BOSSES = """
+CREATE TABLE IF NOT EXISTS zone_bosses (
+    id              INTEGER PRIMARY KEY,
+    zone_id         INTEGER NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+    mob_name        TEXT    NOT NULL,
+    mob_name_lower  TEXT    NOT NULL,
+    position        INTEGER NOT NULL DEFAULT 0,
+    wiki_url        TEXT,
+    UNIQUE (zone_id, mob_name_lower)
+);
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_zones_name_lower    ON zones (name_lower);",
     "CREATE INDEX IF NOT EXISTS idx_zones_expansion     ON zones (expansion_short);",
@@ -118,6 +134,8 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_zone_types_zone     ON zone_types (zone_id);",
     "CREATE INDEX IF NOT EXISTS idx_zone_aliases_lower  ON zone_aliases (alias_lower);",
     "CREATE INDEX IF NOT EXISTS idx_zone_aliases_zone   ON zone_aliases (zone_id);",
+    "CREATE INDEX IF NOT EXISTS idx_zone_bosses_zone    ON zone_bosses (zone_id, position);",
+    "CREATE INDEX IF NOT EXISTS idx_zone_bosses_lower   ON zone_bosses (mob_name_lower);",
 ]
 
 
@@ -227,6 +245,7 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn.execute(_CREATE_ZONES)
     conn.execute(_CREATE_ZONE_TYPES)
     conn.execute(_CREATE_ZONE_ALIASES)
+    conn.execute(_CREATE_ZONE_BOSSES)
     for idx in _CREATE_INDEXES:
         conn.execute(idx)
     conn.commit()
@@ -258,9 +277,7 @@ def upsert_zones(zones: list[dict], conn: sqlite3.Connection) -> int:
         for z in zones:
             row = zone_to_row(z)
             conn.execute(_UPSERT_ZONE_SQL, row)
-            zone_id = conn.execute(
-                "SELECT id FROM zones WHERE name = ?", (z["name"],)
-            ).fetchone()[0]
+            zone_id = conn.execute("SELECT id FROM zones WHERE name = ?", (z["name"],)).fetchone()[0]
 
             # Reset and repopulate types + aliases for this zone. Cheaper
             # than diffing on every rebuild.
@@ -276,8 +293,7 @@ def upsert_zones(zones: list[dict], conn: sqlite3.Connection) -> int:
             aliases = z.get("aliases") or []
             if aliases:
                 conn.executemany(
-                    "INSERT INTO zone_aliases (alias, alias_lower, zone_id) "
-                    "VALUES (?, ?, ?)",
+                    "INSERT INTO zone_aliases (alias, alias_lower, zone_id) VALUES (?, ?, ?)",
                     [(a, a.lower(), zone_id) for a in aliases],
                 )
             n += 1
@@ -294,23 +310,31 @@ def zone_count(conn: sqlite3.Connection) -> int:
 
 
 def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
-    """Convert a zones row + sub-queries for types/aliases into a dict."""
+    """Convert a zones row + sub-queries for types/aliases/bosses into a dict."""
     d = dict(row)
     # Booleans as Python bools for ergonomics
     for k in (
-        "is_persistent_instance", "is_endless_persistent",
-        "is_tradeskill", "is_pvp", "is_openworld", "is_instance",
-        "is_live_event", "is_city", "is_contested", "is_deprecated",
+        "is_persistent_instance",
+        "is_endless_persistent",
+        "is_tradeskill",
+        "is_pvp",
+        "is_openworld",
+        "is_instance",
+        "is_live_event",
+        "is_city",
+        "is_contested",
+        "is_deprecated",
     ):
         d[k] = bool(d.get(k))
-    d["types"] = [
-        r[0] for r in conn.execute(
-            "SELECT type FROM zone_types WHERE zone_id = ? ORDER BY type", (d["id"],)
-        )
-    ]
+    d["types"] = [r[0] for r in conn.execute("SELECT type FROM zone_types WHERE zone_id = ? ORDER BY type", (d["id"],))]
     d["aliases"] = [
-        r[0] for r in conn.execute(
-            "SELECT alias FROM zone_aliases WHERE zone_id = ? ORDER BY alias", (d["id"],)
+        r[0] for r in conn.execute("SELECT alias FROM zone_aliases WHERE zone_id = ? ORDER BY alias", (d["id"],))
+    ]
+    d["bosses"] = [
+        {"mob_name": r[0], "position": r[1], "wiki_url": r[2]}
+        for r in conn.execute(
+            "SELECT mob_name, position, wiki_url FROM zone_bosses WHERE zone_id = ? ORDER BY position, mob_name",
+            (d["id"],),
         )
     ]
     return d
@@ -373,8 +397,7 @@ def list_by_expansion(
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM zones "
-                f"WHERE expansion_short = ? ORDER BY name",
+                f"SELECT {_SELECT_COLS} FROM zones WHERE expansion_short = ? ORDER BY name",
                 (short,),
             ).fetchall()
         return [_hydrate_zone(conn, r) for r in rows]
@@ -387,8 +410,7 @@ def list_by_event(event_name: str, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM zones "
-            f"WHERE is_live_event = 1 AND event_name = ? ORDER BY name",
+            f"SELECT {_SELECT_COLS} FROM zones WHERE is_live_event = 1 AND event_name = ? ORDER BY name",
             (event_name,),
         ).fetchall()
         return [_hydrate_zone(conn, r) for r in rows]
@@ -411,14 +433,93 @@ def list_by_type(type_token: str, path: Path = DB_PATH) -> list[dict]:
         return [_hydrate_zone(conn, r) for r in rows]
 
 
+# ---------------------------------------------------------------------------
+# Raid-boss helpers
+# ---------------------------------------------------------------------------
+
+
+def replace_bosses_for_zone(
+    conn: sqlite3.Connection,
+    zone_id: int,
+    bosses: list[dict],
+) -> int:
+    """Replace the bosses list for a zone. Atomic per-zone.
+
+    Each input dict shape: ``{"mob_name": str, "position": int,
+    "wiki_url": str | None}``. Order in the list is preserved via the
+    ``position`` field. Returns the number of bosses written.
+
+    Re-runnable: a second call with the same zone wipes and rewrites
+    so removed bosses drop cleanly.
+    """
+    conn.execute("DELETE FROM zone_bosses WHERE zone_id = ?", (zone_id,))
+    if not bosses:
+        return 0
+    rows = [
+        (zone_id, b["mob_name"], b["mob_name"].lower(), int(b.get("position", 0)), b.get("wiki_url")) for b in bosses
+    ]
+    conn.executemany(
+        "INSERT INTO zone_bosses (zone_id, mob_name, mob_name_lower, position, wiki_url) VALUES (?, ?, ?, ?, ?)",
+        rows,
+    )
+    return len(rows)
+
+
+def list_bosses_for_zone(zone_name: str, path: Path = DB_PATH) -> list[dict]:
+    """All raid bosses in a zone (looked up by canonical name OR alias).
+
+    Returns ``[{"mob_name", "position", "wiki_url"}, ...]`` sorted by
+    position then name. Empty list if zone unknown or has no bosses.
+    """
+    if not path.exists() or not zone_name:
+        return []
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        # Resolve via canonical, fall back to alias
+        row = conn.execute("SELECT id FROM zones WHERE name_lower = ?", (zone_name.lower(),)).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT zone_id AS id FROM zone_aliases WHERE alias_lower = ?",
+                (zone_name.lower(),),
+            ).fetchone()
+        if row is None:
+            return []
+        bosses = conn.execute(
+            "SELECT mob_name, position, wiki_url FROM zone_bosses WHERE zone_id = ? ORDER BY position, mob_name",
+            (row["id"],),
+        ).fetchall()
+        return [{"mob_name": b["mob_name"], "position": b["position"], "wiki_url": b["wiki_url"]} for b in bosses]
+
+
+def find_zones_by_boss(mob_name: str, path: Path = DB_PATH) -> list[dict]:
+    """Reverse lookup: which zone(s) host a given raid boss?
+
+    Returns a list because the same mob name can appear in multiple
+    zones (e.g. Mayong Mistmoore exists in both the Castle Mistmoore
+    raid AND the Inner Sanctum raid; Fabled variants reuse names).
+    """
+    if not path.exists() or not mob_name:
+        return []
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT {_SELECT_COLS} FROM zones
+            WHERE id IN (
+                SELECT zone_id FROM zone_bosses WHERE mob_name_lower = ?
+            )
+            ORDER BY name
+            """,
+            (mob_name.lower(),),
+        ).fetchall()
+        return [_hydrate_zone(conn, r) for r in rows]
+
+
 def expansion_counts(path: Path = DB_PATH) -> dict[str, int]:
     """Diagnostic: zones per expansion short. Used by the build report."""
     if not path.exists():
         return {}
     with sqlite3.connect(path) as conn:
         return dict(
-            conn.execute(
-                "SELECT expansion_short, COUNT(*) FROM zones "
-                "GROUP BY expansion_short ORDER BY 2 DESC"
-            )
+            conn.execute("SELECT expansion_short, COUNT(*) FROM zones GROUP BY expansion_short ORDER BY 2 DESC")
         )

@@ -1,0 +1,31 @@
+{
+  "_doc": [
+    "Manual overrides for the scraped raid boss list. Applied by",
+    "scripts/build_zones_db.py during the zone_bosses load step.",
+    "",
+    "Each top-level key is the EXACT zone name as it appears in",
+    "eq2_zones.cleaned.json (and therefore in the zones table).",
+    "",
+    "Each value is { \"exclude\": [mob_name, ...] } to drop scraped",
+    "false-positives. Names are case-insensitive on match.",
+    "",
+    "Keys starting with '_' (like this one) are ignored by the loader",
+    "so we can keep documentation in the same file.",
+    "",
+    "Spot the false-positives by running scripts/dev/scrape_eq2i_raids.py",
+    "--all-raids and reading scripts/dev/eq2_raid_data.json. Anything",
+    "scraped as an encounter that isn't actually a raid boss (zones,",
+    "lore characters, NPCs that happen to be wikilinked from the zone",
+    "page) belongs here."
+  ],
+
+  "The Emerald Halls": {
+    "exclude": [
+      "Gods",
+      "Norrath",
+      "Persistent Instance",
+      "Plane of Growth",
+      "Tunare (Deity)"
+    ]
+  }
+}

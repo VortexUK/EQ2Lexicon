@@ -19,6 +19,10 @@ dependencies = [
     "slowapi>=0.1.9",
     # Observability
     "prometheus-client>=0.20.0",
+    # Reference-data pipeline: parse MediaWiki wikitext from EQ2i for the
+    # raid-strategies feature. Used by scripts/dev/scrape_eq2i_raids.py
+    # and census/wikitext_md.py (the wikitext→markdown converter).
+    "mwparserfromhell>=0.6.0",
 ]
 
 [dependency-groups]

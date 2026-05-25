@@ -1,0 +1,338 @@
+======================================================================
+EQ2 raid bosses per zone (Vanilla → RoK)
+======================================================================
+
+Source: scripts/dev/eq2_raid_data.json (scraped from EQ2i)
+Edit scripts/dev/eq2_raid_bosses.overrides.json to exclude false
+positives, then re-run scripts/build_zones_db.py.
+
+Legend:
+  [N]   number of bosses currently in the database
+  (!!!) zone is a raid type but has zero bosses — needs investigation
+
+======================================================================
+Shattered Lands (2004)  [Vanilla]
+======================================================================
+
+### A Meeting of the Minds  [6]  (raid_x3)
+    - Borxx
+    - Braxx
+    - Brixx
+    - Broxx
+    - Overlord Oxulius
+    - Pkzwk Tzkr
+    Notes: All part of the same encounter: Primary Combatant = Overlord Oxulius
+
+### Commune of K'Dal  [1]  (raid_x4)
+    - K'Dal the Deceiver
+    Note: 2 Deletions
+
+### The Isle of Refuge: Darathar's Flight  [1]  (raid_x4)
+    - Darathar
+    Note: Good to go
+
+### Drayek's Chamber  [3]  (raid_x4)
+    - King Drayek
+    Note: Good to go
+
+### Firemyst Gully: Shattered Stillness  [4]  (raid_x4)
+    - Arch Lich Udalan
+    Notes: Good to go
+
+### Spirits of the Lost  [13]  (raid_x4)
+    - Ukdan the Dark
+    - Swfzk the Mad
+    - Krakat the Cruel
+    - Enforcer Zifa
+    - Krakan the Wary
+    - Qzyk the Conqueror
+    - T`Lrzt the Tyrant
+    - The Achiole
+    - Hundar the Punisher
+    - High Priest Y`aka`Y
+    - Uthka the Vigilant
+    - Atrius the Watcher
+    - Venekor
+    # Good to Go
+
+### The Cove of Decay: Epic Angler  [1]  (raid_x4)
+    - Rognog
+
+### The Crypt of Vox  [4]  (raid_x4)
+    - Spirit of Vox
+
+### The Deserted Mine  [4]  (raid_x4)
+    - Greater Symbiant
+    - Symbiant Lord
+    - Symbiant Protector
+    - Tremblar the Behemoth
+    # Notes: Symbiants are a linked wave based encounter
+
+======================================================================
+Bloodline Chronicles (2005)  [BC]
+======================================================================
+
+### The Crypt of T'Haen: Vengeance  [1]  (raid_x4)
+    - T'Haen the Lost
+
+======================================================================
+Splitpaw Saga (2005)  [SS]
+======================================================================
+
+### Drowned Caverns: Brutal Acts of War  [0]  (raid_x4)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+### Sundered Splitpaw: Anvilpaw's Grotto  [0]  (raid_x2)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+### The Drowned Caverns: Acts of War  [0]  (raid_x4)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+======================================================================
+Desert of Flames (2005)  [DoF]
+======================================================================
+
+### Lockjaw's Lair  [1]  (raid_x4)
+    - Lockjaw the Ancient
+
+### The Court of Al'Afaz  [2]  (raid_x4)
+    - Brius Lakado
+    - Walheed Raffini
+
+### The Djinn Master's Prism  [5]  (raid_x4)
+    - Honorguard Maro Joavao
+    - Honorguard Taro Joavao
+    - Plane of Sky
+    - Servant of Sky
+    - Siyamak of the Night
+
+### The Fabled Djinn Master's Prism  [6]  (raid_x4)
+    - Barakah (NPC)
+    - Guardian Tyniss (Fabled)
+    - Honorguard Maro Joavao
+    - Honorguard Taro Joavao
+    - Superior Argent Blade of Speed
+    - Superior Djinn Bracelet of the Sky
+
+### The Fountain of Life  [8]  (raid_x4)
+    - Armor of Anuk
+    - Captain Graul Anashite
+    - Eshara
+    - Eshara the Risen
+    - Godking Anuk
+    - Lladan Promanari
+    - Lladan Promanari the Revived
+    - Power of Anuk
+
+### The Gates of Ahket Aken  [14]  (raid_x4)
+    - Ahk'Mun Rhoen
+    - Akh'Uzh Orus
+    - Amenophis Adofo
+    - Asaad Ahk Atum
+    - Dinree
+    - Dungeons in the Desert
+    - Foreman Ytalzak
+    - Googhan
+    - Loremaster Viswin
+    - Magrick the Destroyer
+    - Muleek Mahaja
+    - Ritual Mistress Cheroon
+    - Work Bench
+    - Xideus Yoatiak
+
+### The Pedestal of Sky  [2]  (raid_x4)
+    - Barakah of the Day
+    - Siyamak of the Night
+
+### The Poets Palace: Return  [0]  (raid_x4)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+======================================================================
+Fallen Dynasty (2006)  [FD]
+======================================================================
+
+### Antechamber of Fate  [0]  (raid_x4)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+### Cavern of the Crustaceans  [0]  (raid_x2)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+### Xux'laio's Roost  [0]  (raid_x2)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+======================================================================
+Kingdom of Sky (2006)  [KoS]
+======================================================================
+
+### Ascent of the Awakened  [4]  (raid_x2)
+    - Claymore Timeline
+    - Gorenaire
+    - Ritnoc Flyfeather
+    - Talendor
+
+### Ascent of the Awakened: Audience with the Guardian  [3]  (raid_x4)
+    - Gorenaire
+    - Lord Nagafen (The Arbiter's Master)
+    - Talendor
+
+### Deathtoll  [10]  (raid_x4)
+    - Carrion Briar
+    - Cruor Alluvium
+    - Fitzpitzle (Deathtoll)
+    - Harla Dar
+    - Ireth the Cold
+    - Lord Nagafen (The Arbiter's Master)
+    - Lord Vyemm
+    - Sharti of The Flame
+    - Tarinax the Destroyer
+    - Yitzik the Hurler
+
+### Halls of the Seeing  [4]  (raid_x4)
+    - Halls of the Seeing/Spoiler
+    - Pain
+    - Suffering
+    - Tolapmuj
+
+### The Laboratory of Lord Vyemm  [2]  (raid_x4)
+    - Lord Vyemm
+    - Norrath
+
+### The Lyceum of Abhorrence  [6]  (raid_x4)
+    - Essence of Fear
+    - Gnillaw the Demented
+    - Gnorbl the Playful
+    - Gnorbl's Chamber
+    - Harla Dar
+    - Vilucidae the Priest of Thule
+
+### The Temple of Scale  [0]  (contested_raid)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+### The Temple of Scale: Pedestal of the Priestess  [2]  (raid_x4)
+    - Harla Dar
+    - Ireatan the Scale Eye
+
+### Trials of the Awakened: Trial of Leadership  [0]  (raid_x4)  (!!!)
+    (no bosses scraped — wiki page may be a stub, or all candidates were filtered)
+
+======================================================================
+Echoes of Faydwer (2006)  [EoF]
+======================================================================
+
+### Freethinker Hideout  [4]  (raid_x4)
+    - Malkonis D'Morte (Freethinker Hideout)
+    - Othysis Muravian
+    - Treyloth D'Kulvith
+    - Zylphax the Shredder
+
+### Mistmoore's Inner Sanctum  [1]  (raid_x4)
+    - Mayong Mistmoore (Instanced)
+
+### The Clockwork Menace Factory  [2]  (raid_x4)
+    - Clockwork Menace
+    - Mad Tzikla
+
+### The Emerald Halls  [12]  (raid_x4)
+    - Askadian Adakus
+    - Dal
+    - Elaani the collector
+    - Galiel Spirithoof
+    - Gardener Thirgen
+    - Mistress of the Veil
+    - Prince Thirneg
+    - Sariah the Bloomseeker
+    - Sarik the Fang
+    - Tender of the Seedlings
+    - Treah Greenroot
+    - Wuoshi
+
+### Throne of New Tunaria  [1]  (raid_x4)
+    - Queen Lenya Thex (Named)
+
+======================================================================
+Rise of Kunark (2007)  [RoK]
+======================================================================
+
+### Shard of Hate  [3]  (raid_x4)
+    - Innoruuk
+    - Shard of Hate Timeline
+    - Spires of Innoruuk
+
+### The Chamber of Destiny  [6]  (raid_x4)
+    - Brigand
+    - Crusader
+    - Druid
+    - Imzok's Revenge
+    - Reflective Aura
+    - Volatile Fluid
+
+### The Execution Throne Room  [2]  (raid_x4)
+    - Kunark (Continent)
+    - Pawbuster
+
+### The Protector's Realm  [12]  (raid_x4)
+    - Adkar Vyx
+    - Blorgok the Brutal
+    - Colonel Leevan
+    - Doomcoil
+    - Imzok's Revenge
+    - Iztapa Vyx
+    - Jracol Binari
+    - Ludmila Kystov
+    - Meldrath Kloktik
+    - Venril Sathir
+    - Wymbulu Vyx
+    - Zykluk Vyx
+
+### The Temple of Kor-Sha  [8]  (raid_x4)
+    - Aktar the Dark
+    - Atrebe Sathir
+    - Atrebe's Statue
+    - Kunark
+    - Queen Velazul Dizok
+    - Selrach Di'Zok
+    - Uthtak the Cruel
+    - Warlord Gadar Gwalnax
+
+### The Tomb of Thuuga  [5]  (raid_x4)
+    - Fearless Morale
+    - Sanctuary
+    - Tairiza the Widow Mistress
+    - Thuuga the Serpent Lord
+    - Venril Sathir
+
+### Trakanon's Lair  [3]  (raid_x4)
+    - Jaled Dar (NPC)
+    - Snyr'dok
+    - Trakanon (Monster)
+
+### Veeshan's Peak  [19]  (raid_x4)
+    - Druushk
+    - Elder Ekron
+    - Hoshkar
+    - Jaled Dar's Shade
+    - Kluzen the Protector
+    - Kunark (Continent)
+    - Milyex Vioren
+    - Nexona
+    - Phara Dar
+    - Qunard Ashenclaw
+    - Shade of Khalan Dar
+    - Silverwing
+    - Skyfire Mountains
+    - Snyr'dok
+    - Sokokar
+    - Taskmaster Nichok
+    - Trakanon (Monster)
+    - Travenro the Skygazer
+    - Xygoz
+
+### Venril Sathir's Lair  [4]  (raid_x4)
+    - Norrath
+    - Tairiza the Widow Mistress
+    - Venril Sathir
+    - Venril Sathir's Hall
+
+======================================================================
+TOTALS: 67 raid zones, 229 bosses, 16 zones with no bosses
+======================================================================

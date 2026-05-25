@@ -118,27 +118,27 @@ EXPANSIONS = [
 # Ordered by LU range — first match wins.
 
 LU_TO_EXPANSION = [
-    (1, 12, "Vanilla"),   # Dec 2004 – Sep 2005
-    (13, 18, "DoF"),      # DoF launch (Sep 2005) through Feb 2006
-    (19, 26, "KoS"),      # KoS launch (Feb 2006) through Nov 2006
-    (27, 39, "EoF"),      # EoF launch (Nov 2006) through Nov 2007
-    (40, 49, "RoK"),      # RoK launch (Nov 2007) through Nov 2008
-    (50, 56, "TSO"),      # TSO launch (Nov 2008) through Feb 2010
-    (57, 59, "SF"),       # SF launch (Feb 2010) through Feb 2011
-    (60, 65, "DoV"),      # DoV launch (Feb 2011) through Nov 2012
-    (66, 68, "CoE"),      # CoE launch (Nov 2012) through Nov 2013
-    (69, 75, "ToV"),      # ToV launch (Nov 2013) through Nov 2014
-    (76, 82, "AoM"),      # AoM launch (Nov 2014) through Nov 2015
-    (83, 95, "ToT"),      # ToT launch (Nov 2015) through Nov 2016
-    (96, 100, "KA"),      # KA launch (Nov 2016) through Nov 2017
-    (101, 104, "PoP"),    # PoP launch (Nov 2017) through Nov 2018
-    (105, 108, "CD"),     # CD launch (Nov 2018) through Dec 2019
-    (109, 115, "BoL"),    # BoL launch (Dec 2019) through Dec 2020
-    (116, 122, "RoS"),    # RoS launch (Dec 2020) through Dec 2021
-    (123, 127, "VoV"),    # VoV launch (Dec 2021) through Dec 2022
-    (128, 130, "RoR"),    # RoR launch (Dec 2022) through Dec 2023
-    (131, 999, "BoZ"),    # BoZ launch (Dec 2023) onwards — open-ended; revise
-                          # when SoD / RoC / later LU ranges are confirmed
+    (1, 12, "Vanilla"),  # Dec 2004 – Sep 2005
+    (13, 18, "DoF"),  # DoF launch (Sep 2005) through Feb 2006
+    (19, 26, "KoS"),  # KoS launch (Feb 2006) through Nov 2006
+    (27, 39, "EoF"),  # EoF launch (Nov 2006) through Nov 2007
+    (40, 49, "RoK"),  # RoK launch (Nov 2007) through Nov 2008
+    (50, 56, "TSO"),  # TSO launch (Nov 2008) through Feb 2010
+    (57, 59, "SF"),  # SF launch (Feb 2010) through Feb 2011
+    (60, 65, "DoV"),  # DoV launch (Feb 2011) through Nov 2012
+    (66, 68, "CoE"),  # CoE launch (Nov 2012) through Nov 2013
+    (69, 75, "ToV"),  # ToV launch (Nov 2013) through Nov 2014
+    (76, 82, "AoM"),  # AoM launch (Nov 2014) through Nov 2015
+    (83, 95, "ToT"),  # ToT launch (Nov 2015) through Nov 2016
+    (96, 100, "KA"),  # KA launch (Nov 2016) through Nov 2017
+    (101, 104, "PoP"),  # PoP launch (Nov 2017) through Nov 2018
+    (105, 108, "CD"),  # CD launch (Nov 2018) through Dec 2019
+    (109, 115, "BoL"),  # BoL launch (Dec 2019) through Dec 2020
+    (116, 122, "RoS"),  # RoS launch (Dec 2020) through Dec 2021
+    (123, 127, "VoV"),  # VoV launch (Dec 2021) through Dec 2022
+    (128, 130, "RoR"),  # RoR launch (Dec 2022) through Dec 2023
+    (131, 999, "BoZ"),  # BoZ launch (Dec 2023) onwards — open-ended; revise
+    # when SoD / RoC / later LU ranges are confirmed
 ]
 
 
@@ -160,15 +160,15 @@ def _lu_to_expansion(lu: int) -> str | None:
 # can distinguish "expansion zone" from "event zone".
 
 EVENT_CATEGORY_EXPANSION = {
-    "Tinkerfest": "SF",                  # introduced Aug 2010
-    "Bristlebane Day": "DoV",            # introduced Apr 2011
-    "Brew Day": "ToV",                   # introduced Mar 2013
-    "Chronoportal Phenomenon": "ToV",    # introduced Apr 2014 (just before AoM)
-    "Darkpaw Rising": "BoZ",             # recent annual event (2023+)
-    "Frostfell": "Vanilla",              # Dec 2004 onwards
-    "Erollisi Day": "Vanilla",           # Feb 2005 onwards
-    "Heroes' Festival": "Vanilla",       # Nov 2005 onwards
-    "Nights of the Dead": "Vanilla",     # Oct 2005 onwards
+    "Tinkerfest": "SF",  # introduced Aug 2010
+    "Bristlebane Day": "DoV",  # introduced Apr 2011
+    "Brew Day": "ToV",  # introduced Mar 2013
+    "Chronoportal Phenomenon": "ToV",  # introduced Apr 2014 (just before AoM)
+    "Darkpaw Rising": "BoZ",  # recent annual event (2023+)
+    "Frostfell": "Vanilla",  # Dec 2004 onwards
+    "Erollisi Day": "Vanilla",  # Feb 2005 onwards
+    "Heroes' Festival": "Vanilla",  # Nov 2005 onwards
+    "Nights of the Dead": "Vanilla",  # Oct 2005 onwards
 }
 
 
@@ -185,13 +185,13 @@ EVENT_CATEGORY_EXPANSION = {
 # entry's bound) is ToV-era".
 
 UPDATE_DATE_EXPANSION = [
-    (2005,  9, "Vanilla"),
-    (2006,  2, "DoF"),
+    (2005, 9, "Vanilla"),
+    (2006, 2, "DoF"),
     (2006, 11, "KoS"),
     (2007, 11, "EoF"),
     (2008, 11, "RoK"),
-    (2010,  2, "TSO"),
-    (2011,  2, "SF"),
+    (2010, 2, "TSO"),
+    (2011, 2, "SF"),
     (2012, 11, "DoV"),
     (2013, 11, "CoE"),
     (2014, 11, "ToV"),
@@ -229,11 +229,11 @@ def _update_date_to_expansion(year: int, month: int) -> str | None:
 # garbage rows.
 
 PSEUDO_ZONE_NAMES = {
-    "Dungeon Finder",          # game UI element, removed from game
+    "Dungeon Finder",  # game UI element, removed from game
     "Fabled Dungeons and Raids",  # wiki category index page
-    "Zones By Level",          # wiki category index page
-    "Betrayal Timeline",       # quest line, not a zone
-    "Citizenship Timeline",    # quest line, not a zone
+    "Zones By Level",  # wiki category index page
+    "Betrayal Timeline",  # quest line, not a zone
+    "Citizenship Timeline",  # quest line, not a zone
 }
 
 # Reverse lookups, all keyed by lowercase full name for tolerant matching.
@@ -250,19 +250,19 @@ _EXP_BY_SHORT = {short.upper(): (short, full, year) for short, full, year in EXP
 
 TYPE_CATEGORY_MAP = {
     "Raid x4 Zones": "raid_x4",
-    "Raid x3 Zones": "raid_x3",       # 18-player format EQ2 had briefly
+    "Raid x3 Zones": "raid_x3",  # 18-player format EQ2 had briefly
     "Raid x2 Zones": "raid_x2",
-    "Raid Zones": "raid",             # generic
+    "Raid Zones": "raid",  # generic
     "Group Zones": "group",
-    "Heroic Zones": "heroic",         # synonymous with group in EQ2 terminology
+    "Heroic Zones": "heroic",  # synonymous with group in EQ2 terminology
     "Solo Zones": "solo",
     "Solo-Group Zones": "solo_or_group",
     "Tradeskill Zones": "tradeskill",
     "Public Zones": "openworld_public",
-    "Public Raid Zones": "contested_raid",       # open-world raid zone (Karnor/Sebilis style)
-    "Public Raid Instances": "raid_x4",          # per-raid x4 instance (modern persistent format)
+    "Public Raid Zones": "contested_raid",  # open-world raid zone (Karnor/Sebilis style)
+    "Public Raid Instances": "raid_x4",  # per-raid x4 instance (modern persistent format)
     "PvP Zones": "pvp",
-    "Cities": "city",                            # hub zones — no combat type expected
+    "Cities": "city",  # hub zones — no combat type expected
 }
 
 
@@ -351,8 +351,8 @@ LOCATION_PREFIX_EXPANSION = {
     "Plane of Innovation": "CD",
     "Plane of Disease": "CD",
     # Areas surfaced by the unknown-prefix scan
-    "Coliseum of Valor": "DoV",         # Skyshrine PvP arena
-    "The Fortress of Drunder": "DoV",   # Skyshrine-era
+    "Coliseum of Valor": "DoV",  # Skyshrine PvP arena
+    "The Fortress of Drunder": "DoV",  # Skyshrine-era
     "Cobalt Scar": "CoE",
     "Obol Plains": "CoE",
     "Withered Lands": "CoE",
@@ -368,9 +368,9 @@ LOCATION_PREFIX_EXPANSION = {
     "Obulus Frontier": "ToT",
     "Maldura": "ToT",
     "Mahngavi Wastes": "KA",
-    "Myrist, the Great Library": "CD",   # Chaos Descending plane gateway
+    "Myrist, the Great Library": "CD",  # Chaos Descending plane gateway
     "Zimara Breadth": "BoZ",
-    "Raj'Dur Plateaus": "ToV",           # Tears of Veeshan
+    "Raj'Dur Plateaus": "ToV",  # Tears of Veeshan
     # Vanilla locations that the wiki also uses with " Instances" suffix
     "The Commonlands": "Vanilla",
     "The Thundering Steppes": "Vanilla",
@@ -379,12 +379,12 @@ LOCATION_PREFIX_EXPANSION = {
     "The Sinking Sands": "DoF",
     "The Bonemire": "KoS",
     "Zek, the Orcish Wastes": "Vanilla",
-    "New Halas": "SF",                # released with SF (Feb 2010)
+    "New Halas": "SF",  # released with SF (Feb 2010)
     "The City of New Halas": "SF",
-    "Plane of Sky": "KoS",            # original KoS launch zone
-    "Svarni Expanse": "RoR",          # Renewal of Ro era
-    "Bar of Brell": "DoV",            # Brewday content was added in DoV era originally
-    "The Mystic Lake": "FD",          # Fallen Dynasty adventure pack
+    "Plane of Sky": "KoS",  # original KoS launch zone
+    "Svarni Expanse": "RoR",  # Renewal of Ro era
+    "Bar of Brell": "DoV",  # Brewday content was added in DoV era originally
+    "The Mystic Lake": "FD",  # Fallen Dynasty adventure pack
 }
 
 
@@ -459,10 +459,10 @@ class Classification:
     is_openworld: bool = False
     is_instance: bool = False
     is_live_event: bool = False  # recurring annual event content
-    event_name: str = ""          # e.g. "Tinkerfest" when is_live_event=true
-    is_city: bool = False         # hub zone (Qeynos / Freeport / Kelethin etc.)
-    is_contested: bool = False    # open-world raid (Karnor / Sebilis / Temple of Scale)
-    is_deprecated: bool = False   # "Removed from game" per wiki — kept for historical logs
+    event_name: str = ""  # e.g. "Tinkerfest" when is_live_event=true
+    is_city: bool = False  # hub zone (Qeynos / Freeport / Kelethin etc.)
+    is_contested: bool = False  # open-world raid (Karnor / Sebilis / Temple of Scale)
+    is_deprecated: bool = False  # "Removed from game" per wiki — kept for historical logs
 
 
 # ---------------------------------------------------------------------------
@@ -636,9 +636,7 @@ def _classify(zone: dict) -> Classification:
     c.is_tradeskill = "tradeskill" in c.types or "Tradeskill" in zone.get("tags", [])
     c.is_pvp = "pvp" in c.types or "Battleground/PvP" in zone.get("tags", [])
     c.is_openworld = "openworld_public" in c.types or "Openworld" in zone.get("tags", [])
-    c.is_instance = "Instances" in cats or any(
-        cat.endswith(" Instances") for cat in cats
-    )
+    c.is_instance = "Instances" in cats or any(cat.endswith(" Instances") for cat in cats)
     c.is_city = "city" in c.types or "Cities" in cats
     c.is_contested = "contested_raid" in c.types
     c.is_deprecated = "Removed from game" in cats
@@ -646,11 +644,7 @@ def _classify(zone: dict) -> Classification:
     # keys appears in the zone's categories. Remember the event name
     # so a future schema can group by event.
     for event_cat in EVENT_CATEGORY_EXPANSION:
-        if (
-            event_cat in cats
-            or f"{event_cat} Instances" in cats
-            or f"{event_cat} Zones" in cats
-        ):
+        if event_cat in cats or f"{event_cat} Instances" in cats or f"{event_cat} Zones" in cats:
             c.is_live_event = True
             c.event_name = event_cat
             break
@@ -673,9 +667,7 @@ def _classify(zone: dict) -> Classification:
             c.expansion_year = event_meta[2]
             prev_src = c.expansion_source
             c.expansion_confidence = "live_event"
-            c.expansion_source = (
-                f"event '{c.event_name}' floor (overrode earlier {prev_src})"
-            )
+            c.expansion_source = f"event '{c.event_name}' floor (overrode earlier {prev_src})"
     return c
 
 
@@ -771,10 +763,7 @@ def _load_aliases() -> dict[str, list[str]]:
             if canonical.startswith("_"):
                 continue  # documentation key
             if not isinstance(dupes, list) or not all(isinstance(d, str) for d in dupes):
-                print(
-                    f"WARN: alias entry for {canonical!r} is not a list of "
-                    f"strings; skipping."
-                )
+                print(f"WARN: alias entry for {canonical!r} is not a list of strings; skipping.")
                 continue
             result[canonical] = dupes
         return result
@@ -796,10 +785,7 @@ def main() -> None:
     aliases = _load_aliases()
     if aliases:
         total_dupes = sum(len(d) for d in aliases.values())
-        print(
-            f"Loaded {len(aliases)} canonical name(s) covering "
-            f"{total_dupes} alias(es) from {ALIASES_JSON.name}"
-        )
+        print(f"Loaded {len(aliases)} canonical name(s) covering {total_dupes} alias(es) from {ALIASES_JSON.name}")
 
     cleaned_zones: list[dict] = []
     type_counter: Counter[str] = Counter()
@@ -894,9 +880,7 @@ def main() -> None:
         expansion_counter[c.expansion_short] += 1
         confidence_counter[c.expansion_confidence] += 1
         if c.expansion_confidence == "unknown":
-            still_unknown.append(
-                {"name": z["name"], "categories": sorted(_zone_categories(z))}
-            )
+            still_unknown.append({"name": z["name"], "categories": sorted(_zone_categories(z))})
         elif c.expansion_confidence == "name_keyword":
             name_keyword_picks.append(
                 {
@@ -992,10 +976,7 @@ def main() -> None:
     lines.append("")
     lines.append(f"Total zones (after pseudo-filter + alias-merge): {len(cleaned_zones)}")
     if pseudo_filtered:
-        lines.append(
-            f"Pseudo-zones filtered out ({len(pseudo_filtered)}): "
-            + ", ".join(sorted(pseudo_filtered))
-        )
+        lines.append(f"Pseudo-zones filtered out ({len(pseudo_filtered)}): " + ", ".join(sorted(pseudo_filtered)))
     if alias_merges:
         lines.append(f"Alias merges applied ({len(alias_merges)}):")
         for m in alias_merges:
@@ -1022,9 +1003,7 @@ def main() -> None:
 
     if override_picks:
         lines.append("-" * 70)
-        lines.append(
-            f"MANUAL OVERRIDES applied ({len(override_picks)}) — from eq2_zones.overrides.json"
-        )
+        lines.append(f"MANUAL OVERRIDES applied ({len(override_picks)}) — from eq2_zones.overrides.json")
         lines.append("-" * 70)
         for p in override_picks:
             lines.append(f"  {p['name']:50s} → {p['expansion']}  ({p['source']})")
@@ -1032,9 +1011,7 @@ def main() -> None:
 
     if overrides_unmatched:
         lines.append("-" * 70)
-        lines.append(
-            f"UNMATCHED OVERRIDES ({len(overrides_unmatched)}) — name not in source data"
-        )
+        lines.append(f"UNMATCHED OVERRIDES ({len(overrides_unmatched)}) — name not in source data")
         lines.append("-" * 70)
         for name in sorted(overrides_unmatched):
             lines.append(f"  {name}")
@@ -1045,18 +1022,14 @@ def main() -> None:
             print(f"WARN: override for {name!r} did not match any zone in source data")
 
     lines.append("-" * 70)
-    lines.append(
-        f"NAME-KEYWORD heuristic picks ({len(name_keyword_picks)}) — spot-check these"
-    )
+    lines.append(f"NAME-KEYWORD heuristic picks ({len(name_keyword_picks)}) — spot-check these")
     lines.append("-" * 70)
     for p in name_keyword_picks:
         lines.append(f"  {p['name']:50s} → {p['expansion']}  ({p['source']})")
     lines.append("")
 
     lines.append("-" * 70)
-    lines.append(
-        f"LIVE-UPDATE picks ({len(live_update_picks)}) — LU → expansion-era lookup"
-    )
+    lines.append(f"LIVE-UPDATE picks ({len(live_update_picks)}) — LU → expansion-era lookup")
     lines.append("-" * 70)
     for p in live_update_picks[:60]:
         lines.append(f"  {p['name']:50s} → {p['expansion']}  ({p['source']})")
@@ -1065,9 +1038,7 @@ def main() -> None:
     lines.append("")
 
     lines.append("-" * 70)
-    lines.append(
-        f"LOCATION-PREFIX picks ({len(location_prefix_picks)}) — usually safe"
-    )
+    lines.append(f"LOCATION-PREFIX picks ({len(location_prefix_picks)}) — usually safe")
     lines.append("-" * 70)
     for p in location_prefix_picks[:50]:
         lines.append(f"  {p['name']:50s} → {p['expansion']}  ({p['source']})")
@@ -1076,9 +1047,7 @@ def main() -> None:
     lines.append("")
 
     lines.append("-" * 70)
-    lines.append(
-        f"STILL UNKNOWN expansion ({len(still_unknown)}) — manual overrides candidate"
-    )
+    lines.append(f"STILL UNKNOWN expansion ({len(still_unknown)}) — manual overrides candidate")
     lines.append("-" * 70)
     for u in still_unknown:
         lines.append(f"  {u['name']}")
