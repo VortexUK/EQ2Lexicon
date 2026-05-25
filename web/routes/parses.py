@@ -447,7 +447,8 @@ def _list_encounters_sync(
     if not parses_db.DB_PATH.exists():
         return []
 
-    where_clauses: list[str] = []
+    # Soft-deleted parses are hidden from the list (but still feed rankings).
+    where_clauses: list[str] = ["hidden_at IS NULL"]
     params: list = []
     if zone:
         where_clauses.append("e.zone = ?")
@@ -470,7 +471,7 @@ def _list_encounters_sync(
         LIMIT ?
     """
 
-    conn = parses_db.init_db()
+    conn = parses_db.init_db(parses_db.DB_PATH)
     try:
         conn.row_factory = sqlite3.Row
         return [dict(r) for r in conn.execute(list_sql, [*params, inner_cap]).fetchall()]

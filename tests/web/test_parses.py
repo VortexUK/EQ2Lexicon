@@ -880,3 +880,46 @@ async def test_delete_bulk_random_user_403(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.delete("/api/parses?guild=Exordium")
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete visibility
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_excludes_hidden_rows(app, tmp_path, monkeypatch):
+    # Real temp DB: one visible boss kill, one soft-deleted.
+    import time as _t
+
+    from parses import db as pdb
+    from parses.models import Encounter
+
+    db_file = tmp_path / "parses.db"
+    monkeypatch.setattr(pdb, "DB_PATH", db_file)
+    conn = pdb.init_db(db_file)
+    for encid, title in [("AAA", "Tarinax"), ("BBB", "Venekor")]:
+        enc = Encounter(
+            encid=encid,
+            title=title,
+            zone="Zone",
+            started_at=None,
+            ended_at=None,
+            duration_s=60,
+            total_damage=1,
+            encdps=1.0,
+            kills=1,
+            deaths=0,
+            success_level=1,
+        )
+        eid = pdb.insert_encounter(conn, enc, source_dsn="eq2act", ingested_at=int(_t.time()))
+        if encid == "BBB":
+            pdb.soft_delete_encounter(conn, eid, hidden_at=int(_t.time()))
+    conn.close()
+
+    with patch("web.routes.parses._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/parses")
+    titles = {f["title"] for f in r.json()["results"]}
+    assert "Tarinax" in titles
+    assert "Venekor" not in titles  # soft-deleted → hidden from list
