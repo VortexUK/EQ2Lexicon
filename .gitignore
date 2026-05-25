@@ -245,26 +245,6 @@ data/zones/zones.db-shm
 # for spot-checking; keeping it out of git avoids noisy diffs.
 scripts/dev/eq2_zones.report.txt
 
-# Raid-strategies pipeline (Vanilla through RoK, sourced from EQ2i):
-#   * `.eq2i_cache/` is the polite-API cache; re-fetchable, no need
-#     to track. Wipe and re-run scripts/dev/scrape_eq2i_raids.py to
-#     refresh from the wiki.
-#   * `eq2i_raids.sample.json` is the 3-zone PoC scraper output;
-#     regeneratable, not committed.
-#   The full-scrape product (`eq2_raid_data.json`) and the per-zone
-#   overrides (`eq2_raid_bosses.overrides.json`) ARE committed — they
-#   feed scripts/build_zones_db.py.
-scripts/dev/.eq2i_cache/
-scripts/dev/eq2i_raids.sample.json
-
-# Raid strategies database — built locally from eq2_raid_data.json,
-# uploaded manually to Railway. Strategies accumulate user edits +
-# revisions (unlike zones.db which is fully regenerable), so this
-# DB matters more.
-data/raids/raids.db
-data/raids/raids.db-wal
-data/raids/raids.db-shm
-
 # Parses feature (v1, local-only) — ACT-written export and our normalized DB
 data/parses/act_export.db
 data/parses/act_export.db-wal
