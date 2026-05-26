@@ -35,7 +35,7 @@ def backfill(db_path: Path) -> tuple[int, int]:
     placeholders = ",".join("?" for _ in GEAR_TYPES)
     rows = conn.execute(
         f"""
-        SELECT i.id, i.level_to_use, i.tier_display, i.type, COALESCE(s.value, 0.0)
+        SELECT i.id, i.level_to_use, i.tier_display, i.type, i.wield_style, COALESCE(s.value, 0.0)
         FROM items i
         LEFT JOIN item_stats s ON s.item_id = i.id AND s.stat = 'Potency'
         WHERE i.type IN ({placeholders})
@@ -45,8 +45,8 @@ def backfill(db_path: Path) -> tuple[int, int]:
 
     updates: list[tuple[float | None, int]] = []
     with_value = 0
-    for item_id, level_to_use, tier_display, item_type, potency in rows:
-        ilvl = compute_ilvl(level_to_use, tier_display, potency, item_type)
+    for item_id, level_to_use, tier_display, item_type, wield_style, potency in rows:
+        ilvl = compute_ilvl(level_to_use, tier_display, potency, item_type, two_handed=wield_style == "Two-Handed")
         if ilvl is not None:
             with_value += 1
         updates.append((ilvl, item_id))

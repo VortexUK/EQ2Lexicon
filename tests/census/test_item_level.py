@@ -91,6 +91,20 @@ def test_equal_potency_ratio_gives_equal_step():
     assert step(6.6) == pytest.approx(step(10000.0), abs=0.05)
 
 
+def test_two_handed_halves_potency():
+    # A 2H weapon's potency is halved: its ilvl equals a 1H with half the potency.
+    one_hand = compute_ilvl(100, "FABLED", 500.0, "Weapon")
+    two_hand = compute_ilvl(100, "FABLED", 1000.0, "Weapon", two_handed=True)
+    assert two_hand == pytest.approx(one_hand)
+
+
+def test_two_handed_subtracts_log_two():
+    # Halving potency under a log curve subtracts a constant POT_W * ln(2).
+    full = compute_ilvl(90, "FABLED", 4000.0, "Weapon")
+    halved = compute_ilvl(90, "FABLED", 4000.0, "Weapon", two_handed=True)
+    assert full - halved == pytest.approx(ILVL_POTENCY_WEIGHT * math.log(2), abs=0.15)
+
+
 @pytest.mark.parametrize(
     "level,tier,potency,expected",
     [

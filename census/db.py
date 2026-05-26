@@ -567,6 +567,7 @@ def item_to_row(item: dict) -> dict:
         tier_display=tier_display,
         potency=extract_item_stats(item).get("Potency", 0.0),
         item_type=_str_field(item, "type"),
+        two_handed=typeinfo.get("wieldstyle") == "Two-Handed",
     )
 
     return {

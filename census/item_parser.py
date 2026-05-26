@@ -114,6 +114,7 @@ def parse_item(item: dict) -> ItemData:
         tier_display=item.get("tier"),
         potency=potency,
         item_type=item.get("type"),
+        two_handed=typeinfo.get("wieldstyle") == "Two-Handed",
     )
 
     return ItemData(

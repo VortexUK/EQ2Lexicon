@@ -69,12 +69,18 @@ def compute_ilvl(
     tier_display: str | None,
     potency: float,
     item_type: str | None,
+    two_handed: bool = False,
 ) -> float | None:
     """Return the item level for a piece of wearable gear, or None if out of scope.
 
     None when the item is not gear (type not in GEAR_TYPES) or has no equip level
     (heritage/appearance pieces) — both render as "no ilvl" rather than a
     misleading 0.
+
+    ``two_handed`` halves the potency: a two-handed weapon occupies both weapon
+    slots and so carries ~2x a one-hander's budget. Halving normalises it to a
+    one-hand-equivalent ilvl, so a per-character average can simply count it as a
+    single slot (dropping the empty off-hand).
     """
     if item_type not in GEAR_TYPES:
         return None
@@ -83,6 +89,7 @@ def compute_ilvl(
     tier = tier_band(tier_display)
     level_factor = level_to_use**2 / ILVL_REF**2
     base = level_factor * (ILVL_LEVEL_WEIGHT + ILVL_TIER_WEIGHT * tier)
+    effective_potency = (potency or 0.0) / 2.0 if two_handed else (potency or 0.0)
     # Potency on a log curve; <=1 (incl. none) contributes nothing.
-    potency_bonus = ILVL_POTENCY_WEIGHT * math.log(potency) if (potency or 0.0) > 1 else 0.0
+    potency_bonus = ILVL_POTENCY_WEIGHT * math.log(effective_potency) if effective_potency > 1 else 0.0
     return round(base + potency_bonus, 1)
