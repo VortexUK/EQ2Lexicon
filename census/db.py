@@ -815,6 +815,21 @@ def item_count(conn: sqlite3.Connection) -> int:
     return conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
 
 
+def ilvls_for_ids(ids: list[int], db_path: Path = DB_PATH) -> dict[int, float | None]:
+    """Return {item_id: ilvl} for the given ids (read-only). Ids missing from the
+    DB are simply absent from the result; non-gear items map to None. Returns {}
+    if the DB doesn't exist yet (graceful when items.db hasn't been provisioned)."""
+    if not ids or not db_path.exists():
+        return {}
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        placeholders = ",".join("?" for _ in ids)
+        rows = conn.execute(f"SELECT id, ilvl FROM items WHERE id IN ({placeholders})", ids)
+        return {row[0]: row[1] for row in rows}
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Async helpers (used by bot)
 # ---------------------------------------------------------------------------

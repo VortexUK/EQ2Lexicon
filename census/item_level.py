@@ -18,10 +18,40 @@ See docs/superpowers/specs/2026-05-26-item-ilvl-design.md for the rationale.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 
 # Item types that count as "wearable gear". All three carry an equip slot;
 # adornments live under a different type, so this set excludes them for free.
 GEAR_TYPES = frozenset({"Armor", "Weapon", "Shield"})
+
+# Equipment slots that count toward a character's average ilvl. The standard
+# gear slots only — excludes ammo, food, drink, mount_adornment, mount_armor and
+# event_slot (which can hold an off-level token that would skew the average).
+CHARACTER_GEAR_SLOTS = frozenset(
+    {
+        "primary",
+        "secondary",
+        "head",
+        "chest",
+        "shoulders",
+        "forearms",
+        "hands",
+        "legs",
+        "feet",
+        "left_ring",
+        "right_ring",
+        "ears",
+        "ears2",
+        "neck",
+        "left_wrist",
+        "right_wrist",
+        "ranged",
+        "waist",
+        "cloak",
+        "activate1",
+        "activate2",
+    }
+)
 
 # Fixed reference level. Deliberately a constant (not the server max level) so an
 # item's ilvl never re-bases when the level cap rises.
@@ -93,3 +123,19 @@ def compute_ilvl(
     # Potency on a log curve; <=1 (incl. none) contributes nothing.
     potency_bonus = ILVL_POTENCY_WEIGHT * math.log(effective_potency) if effective_potency > 1 else 0.0
     return round(base + potency_bonus, 1)
+
+
+def character_ilvl(equipped: Iterable[tuple[str, float | None]]) -> float | None:
+    """Average ilvl of a character's equipped gear.
+
+    ``equipped`` is an iterable of ``(slot_name, item_ilvl)`` for each equipped
+    slot. Only the standard gear slots (CHARACTER_GEAR_SLOTS) that hold an
+    ilvl-bearing item are averaged — consumables, mounts, the event slot, and
+    appearance pieces (no ilvl) are ignored. A two-handed weapon contributes its
+    (already-halved) ilvl in ``primary`` while the empty ``secondary`` simply
+    isn't counted, so it's never penalised for the empty off-hand.
+
+    Returns None when no qualifying gear is equipped.
+    """
+    values = [ilvl for slot, ilvl in equipped if slot in CHARACTER_GEAR_SLOTS and ilvl is not None]
+    return round(sum(values) / len(values), 1) if values else None

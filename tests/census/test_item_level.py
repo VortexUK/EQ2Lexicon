@@ -9,6 +9,7 @@ import pytest
 from census.item_level import (
     GEAR_TYPES,
     ILVL_POTENCY_WEIGHT,
+    character_ilvl,
     compute_ilvl,
     tier_band,
 )
@@ -118,3 +119,29 @@ def test_two_handed_subtracts_log_two():
 )
 def test_worked_examples(level, tier, potency, expected):
     assert compute_ilvl(level, tier, potency, "Armor") == pytest.approx(expected, abs=0.1)
+
+
+class TestCharacterIlvl:
+    def test_averages_gear_slots(self):
+        equipped = [("head", 400.0), ("chest", 300.0), ("legs", 200.0)]
+        assert character_ilvl(equipped) == 300.0
+
+    def test_ignores_non_gear_slots(self):
+        # ammo/food/drink/event_slot are not in CHARACTER_GEAR_SLOTS.
+        equipped = [("chest", 400.0), ("food", 999.0), ("ammo", 999.0), ("event_slot", 0.0)]
+        assert character_ilvl(equipped) == 400.0
+
+    def test_ignores_slots_without_ilvl(self):
+        # An appearance cloak (no ilvl) doesn't drag the average.
+        equipped = [("chest", 400.0), ("cloak", None)]
+        assert character_ilvl(equipped) == 400.0
+
+    def test_two_handed_not_penalised_for_empty_offhand(self):
+        # 2H in primary (halved ilvl), secondary empty -> only primary counts.
+        one_hander = character_ilvl([("primary", 300.0), ("secondary", 300.0), ("chest", 300.0)])
+        two_hander = character_ilvl([("primary", 300.0), ("chest", 300.0)])
+        assert one_hander == two_hander == 300.0
+
+    def test_none_when_no_gear(self):
+        assert character_ilvl([]) is None
+        assert character_ilvl([("food", 500.0), ("cloak", None)]) is None

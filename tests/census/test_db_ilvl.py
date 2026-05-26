@@ -72,3 +72,31 @@ def test_init_db_adds_ilvl_column_to_legacy_db(tmp_path):
         assert "ilvl" in cols
     finally:
         conn.close()
+
+
+def test_ilvls_for_ids_round_trip(tmp_path):
+    from census.db import ilvls_for_ids
+
+    path = tmp_path / "items.db"
+    conn = init_db(path)
+    try:
+        upsert_items(
+            [
+                _raw_gear(item_id=10, potency=480.0),  # gear -> numeric ilvl
+                _raw_gear(item_id=20, item_type="Spell Scroll"),  # non-gear -> NULL
+            ],
+            conn,
+        )
+    finally:
+        conn.close()
+    result = ilvls_for_ids([10, 20, 999], path)  # 999 absent
+    assert result[10] == 575.5
+    assert result[20] is None
+    assert 999 not in result
+
+
+def test_ilvls_for_ids_missing_db_returns_empty(tmp_path):
+    from census.db import ilvls_for_ids
+
+    assert ilvls_for_ids([1, 2, 3], tmp_path / "nope.db") == {}
+    assert ilvls_for_ids([], tmp_path / "whatever.db") == {}
