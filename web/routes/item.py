@@ -177,6 +177,7 @@ class ItemResponse(BaseModel):
     mitigation: int | None = None
     item_level: int | None = None
     required_level: int | None = None
+    ilvl: float | None = None
     container_slots: int | None = None
     classes_label: str = ""
     stats: list[ItemStatResponse] = []
@@ -581,6 +582,7 @@ async def get_item(item_id: str) -> ItemResponse:
         mitigation=item.mitigation,
         item_level=item.item_level,
         required_level=item.required_level,
+        ilvl=item.ilvl,
         container_slots=item.container_slots,
         classes_label=_format_classes(item.classes),
         stats=[

@@ -47,6 +47,7 @@ export interface ItemDetail {
   mitigation: number | null
   item_level: number | null
   required_level: number | null
+  ilvl: number | null
   container_slots: number | null
   classes_label: string
   stats: ItemStat[]
@@ -217,6 +218,16 @@ export function TooltipContent({ item, qs }: { item: ItemDetail; qs: QualityStyl
           marginBottom: 6,
         }}>
           {item.quality.toUpperCase()}
+        </div>
+      )}
+
+      {/* Item level — a site annotation, not an in-game field. Subtle. */}
+      {item.ilvl != null && (
+        <div style={{
+          color: '#c49e2c', fontSize: '0.78rem', letterSpacing: '0.02em',
+          opacity: 0.85, marginTop: -2, marginBottom: 6,
+        }}>
+          Item Level {Math.round(item.ilvl).toLocaleString()}
         </div>
       )}
 
