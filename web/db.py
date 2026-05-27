@@ -172,6 +172,16 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_tokens_user ON api_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_tokens_hash ON api_tokens(token_hash);
+
+CREATE TABLE IF NOT EXISTS servers (
+    world          TEXT PRIMARY KEY,
+    subdomain      TEXT NOT NULL UNIQUE,
+    display_name   TEXT NOT NULL,
+    max_level      INTEGER NOT NULL,
+    current_xpac   TEXT,
+    launch_dt      TEXT,
+    updated_at     INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
 """
 
 # Claim statuses:
@@ -215,6 +225,28 @@ def init_db(path: Path = DB_PATH) -> None:
                 ("contributor", "edit_content"),
                 ("officer", "edit_content"),
             ],
+        )
+
+        # Seed the servers registry (idempotent). Varsoon takes the current env
+        # values; Wuoshi starts with defaults edited later in admin.
+        from census import config as _cfg
+
+        conn.execute(
+            "INSERT OR IGNORE INTO servers (world, subdomain, display_name, max_level, current_xpac, launch_dt) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "Varsoon",
+                "varsoon",
+                "Varsoon",
+                _cfg.SERVER_MAX_LEVEL,
+                os.getenv("SERVER_CURRENT_XPAC") or None,
+                _cfg.LAUNCH_DT_ISO or None,
+            ),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO servers (world, subdomain, display_name, max_level, current_xpac, launch_dt) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("Wuoshi", "wuoshi", "Wuoshi", _cfg.SERVER_MAX_LEVEL, os.getenv("SERVER_CURRENT_XPAC") or None, None),
         )
         conn.commit()
 
@@ -1055,6 +1087,59 @@ async def revoke_api_token(
         )
         await db.commit()
     return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Server registry helpers
+# ---------------------------------------------------------------------------
+
+
+def _server_row(row: sqlite3.Row) -> dict:
+    return {
+        "world": row["world"],
+        "subdomain": row["subdomain"],
+        "display_name": row["display_name"],
+        "max_level": row["max_level"],
+        "current_xpac": row["current_xpac"],
+        "launch_dt": row["launch_dt"],
+    }
+
+
+def list_servers_sync(path: Path = DB_PATH) -> list[dict]:
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        return [_server_row(r) for r in conn.execute("SELECT * FROM servers ORDER BY display_name")]
+
+
+def get_server_by_subdomain_sync(subdomain: str, path: Path = DB_PATH) -> dict | None:
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM servers WHERE subdomain = ?", (subdomain.lower(),)).fetchone()
+        return _server_row(row) if row else None
+
+
+def get_server_by_world_sync(world: str, path: Path = DB_PATH) -> dict | None:
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM servers WHERE world = ?", (world,)).fetchone()
+        return _server_row(row) if row else None
+
+
+def upsert_server_settings_sync(
+    world: str,
+    *,
+    max_level: int,
+    current_xpac: str | None,
+    launch_dt: str | None,
+    path: Path = DB_PATH,
+) -> None:
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE servers SET max_level = ?, current_xpac = ?, launch_dt = ?, "
+            "updated_at = strftime('%s','now') WHERE world = ?",
+            (max_level, current_xpac, launch_dt, world),
+        )
+        conn.commit()
 
 
 async def lookup_api_token(raw_token: str, path: Path = DB_PATH) -> dict | None:
