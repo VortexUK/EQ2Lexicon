@@ -16,11 +16,13 @@ from pydantic import BaseModel, Field
 
 from web import db as users_db
 from web.auth_deps import (
-    require_user_session as _require_user,
-)
-from web.auth_deps import (
+    is_admin,
     require_user_session_or_token,
 )
+from web.auth_deps import (
+    require_user_session as _require_user,
+)
+from web.config import ALLOWED_SERVERS
 from web.limiter import limiter
 
 router = APIRouter(tags=["auth"])
@@ -96,6 +98,18 @@ class WhoAmIResponse(BaseModel):
     discord_id: str
     discord_name: str
     auth_source: str  # 'token' for plugin calls; 'session' for browser calls
+    # Site-admin status — derived from the ADMIN_DISCORD_IDS env-var
+    # allowlist (env-only by design; never persisted in the DB). The
+    # ACT plugin (v0.1.14+) uses this to ungate the Server URL field
+    # in its settings UI for admins, so non-admin users never have to
+    # think about which endpoint they're pointing at.
+    is_admin: bool = False
+    # EQ2 servers this account is allowed to upload from. Mirrors the
+    # ALLOWED_SERVERS env var. The ACT plugin shows this list in a
+    # read-only card so users know up-front which characters' parses
+    # will reach the site; /api/parses/ingest enforces the same list
+    # server-side in strict mode.
+    allowed_servers: list[str] = []
 
 
 @router.get("/auth/whoami", response_model=WhoAmIResponse)
@@ -109,4 +123,9 @@ async def whoami(request: Request) -> WhoAmIResponse:
         discord_id=user["id"],
         discord_name=user.get("discord_name") or user.get("username") or user["id"],
         auth_source=user.get("auth_source", "unknown"),
+        is_admin=is_admin(user),
+        # Sorted for stable client-side display ordering — frozensets
+        # don't guarantee iteration order, so sort once here rather
+        # than asking every plugin install to sort it on receipt.
+        allowed_servers=sorted(ALLOWED_SERVERS),
     )

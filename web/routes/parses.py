@@ -50,9 +50,16 @@ from web.auth_deps import (
     require_user_session_or_token,
 )
 from web.cache import character_cache
+from web.config import ALLOWED_SERVERS as _ALLOWED_SERVERS
 from web.config import SERVICE_ID as _SERVICE_ID
 from web.config import WORLD as _WORLD
 from web.limiter import limiter
+
+# Pre-lowered comparison set so each ingest doesn't redo the work.
+# Computed at module import — env changes need a process restart, same
+# as ADMIN_DISCORD_IDS. ALLOWED_SERVERS itself stays in its original
+# casing for display in /auth/whoami responses.
+_ALLOWED_SERVERS_LOWER: frozenset[str] = frozenset(s.lower() for s in _ALLOWED_SERVERS)
 
 _log = logging.getLogger(__name__)
 
@@ -1285,12 +1292,53 @@ async def ingest_parse(
             detail="logger_name must be 1-15 letters (the EQ2 character-name shape).",
         )
 
+    # Server allowlist gate — strict mode.
+    #
+    # The plugin stamps logger_server from the active ACT log path
+    # (v0.1.10+). Pre-v0.1.10 builds didn't send the field at all and
+    # any plugin more than two minor versions behind the latest release
+    # has been blocked client-side by the version gate, plus rejected
+    # server-side by the X-Lexicon-Signature strict check since
+    # 2026-05-25. So any payload that lands here without logger_server
+    # is effectively a misconfigured client we want to surface, not a
+    # legitimate request to silently fall back to EQ2_WORLD.
+    #
+    # Three rejection cases, ordered from most-actionable-for-user to
+    # least:
+    #   1. logger_server missing/empty   → 400, "update your plugin"
+    #   2. logger_server malformed shape → 400, "logger_server is bad"
+    #   3. logger_server not in allow set → 403, with the allowed list
+    raw_server = (body.logger_server or "").strip()
+    if not raw_server:
+        raise HTTPException(
+            status_code=400,
+            detail="logger_server is required. Please update the EQ2 Lexicon ACT plugin to v0.1.14 or later.",
+        )
+    sanitized_server = _sanitize_world(raw_server)
+    if sanitized_server is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"logger_server '{raw_server}' is malformed.",
+        )
+    if sanitized_server.lower() not in _ALLOWED_SERVERS_LOWER:
+        # Sort the allowed list so the error message renders
+        # deterministically — same display order as /auth/whoami.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Server '{sanitized_server}' is not on the allowed list. "
+                f"Allowed: {', '.join(sorted(_ALLOWED_SERVERS))}."
+            ),
+        )
+
     # Cache-aware guild resolve: hits character_cache first; on miss does a
     # one-character Census call and pre-warms the full roster in the
     # background so the rest of the raid's uploads are zero-Census.
     # logger_server (plugin v0.1.10+) overrides EQ2_WORLD when present —
     # enables a Varsoon-configured deployment to correctly resolve a
-    # Kaladim upload, for instance.
+    # Kaladim upload, for instance. (After the strict gate above the
+    # value is guaranteed valid; the fallback inside _sanitize_world
+    # is now only exercised by the local-ingest pipeline.)
     guild_name = await _resolve_uploader_guild_async(uploader, body.logger_server)
 
     # Freeze each player ally's level/guild/class at ingest. Restricted to

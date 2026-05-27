@@ -16,9 +16,15 @@ from httpx import ASGITransport, AsyncClient
 # ---------------------------------------------------------------------------
 
 
-def _minimal_payload(encid: str = "ABCD1234") -> dict:
-    """Smallest payload that should pass validation + ingest."""
-    return {
+def _minimal_payload(encid: str = "ABCD1234", logger_server: str | None = "Varsoon") -> dict:
+    """Smallest payload that should pass validation + ingest.
+
+    Defaults logger_server to a value on the ALLOWED_SERVERS allowlist
+    so the strict server gate (active since the introduction of the
+    allowlist) doesn't trip on tests that don't care about the field.
+    Pass logger_server=None to build the pre-v0.1.10 shape for tests
+    that explicitly exercise the strict gate."""
+    payload = {
         "logger_name": "Menludiir",
         "encounter": {
             "encid": encid,
@@ -137,6 +143,12 @@ def _minimal_payload(encid: str = "ABCD1234") -> dict:
             },
         ],
     }
+    # Only stamp logger_server when the caller asked for one — passing
+    # None lets a test build the pre-v0.1.10 shape to drive the strict
+    # gate.
+    if logger_server is not None:
+        payload["logger_server"] = logger_server
+    return payload
 
 
 async def _fake_require_user(request):
@@ -676,15 +688,18 @@ def test_sanitize_world_predicate():
 async def test_logger_server_overrides_world_for_census(app):
     """When the plugin stamps logger_server, the Census call must use
     THAT world, not the EQ2_WORLD env-var default. Caught by inspecting
-    what _resolve_uploader_guild_async was called with."""
+    what _resolve_uploader_guild_async was called with. Uses Wuoshi
+    here — it's on the default ALLOWED_SERVERS allowlist and is a
+    different world from EQ2_WORLD's default (Varsoon), so this test
+    still proves that logger_server propagates rather than being
+    silently substituted."""
     captured_worlds: list[str | None] = []
 
     async def _spy(uploader, world=None):
         captured_worlds.append(world)
         return "Exordium"
 
-    payload = _minimal_payload()
-    payload["logger_server"] = "Kaladim"
+    payload = _minimal_payload(logger_server="Wuoshi")
 
     sync_result = ("inserted", 1, 1, 0, 0)
     with (
@@ -696,60 +711,14 @@ async def test_logger_server_overrides_world_for_census(app):
             r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
 
     assert r.status_code == 201
-    assert captured_worlds == ["Kaladim"]
+    assert captured_worlds == ["Wuoshi"]
 
 
-@pytest.mark.asyncio
-async def test_logger_server_absent_falls_back_to_world_env(app):
-    """Older plugins (v0.1.9 and earlier) don't send logger_server.
-    Server must fall back to its EQ2_WORLD configuration — passing None
-    or empty into the resolver, which then uses _WORLD internally."""
-    captured_worlds: list[str | None] = []
-
-    async def _spy(uploader, world=None):
-        captured_worlds.append(world)
-        return None
-
-    sync_result = ("inserted", 1, 1, 0, 0)
-    with (
-        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
-        patch("web.routes.parses._resolve_uploader_guild_async", new=_spy),
-        patch("web.routes.parses._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            # NB: no logger_server field — the v0.1.9 wire shape.
-            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(_minimal_payload()))
-
-    assert r.status_code == 201
-    # None or empty — either is acceptable here; the resolver knows how
-    # to map both onto the env-var fallback.
-    assert captured_worlds[0] in (None, "")
-
-
-@pytest.mark.asyncio
-async def test_logger_server_empty_string_falls_back_to_world_env(app):
-    """Plugin sends "" when log path is the legacy generic logs/eq2log.txt
-    (no server subdirectory). Treat the same as absent."""
-    captured_worlds: list[str | None] = []
-
-    async def _spy(uploader, world=None):
-        captured_worlds.append(world)
-        return None
-
-    payload = _minimal_payload()
-    payload["logger_server"] = ""  # explicit "unknown" from plugin
-
-    sync_result = ("inserted", 1, 1, 0, 0)
-    with (
-        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
-        patch("web.routes.parses._resolve_uploader_guild_async", new=_spy),
-        patch("web.routes.parses._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
-
-    assert r.status_code == 201
-    assert captured_worlds[0] in (None, "")
+# Historical "logger_server missing → fall back to EQ2_WORLD" tests
+# were removed when the ingest gate flipped to STRICT mode — pre-v0.1.10
+# plugin clients are now rejected outright with a 400. The replacement
+# rejection-path tests live in the "Strict server-allowlist gate"
+# section at the end of this file.
 
 
 @pytest.mark.asyncio
@@ -906,3 +875,102 @@ async def test_resolve_snapshots_unguilded_miss_is_absent():
         out = await parses_mod._resolve_combatant_snapshots(["Randompug"], "Varsoon")
 
     assert out == {}
+
+
+# ---------------------------------------------------------------------------
+# Strict server-allowlist gate
+#
+# The ingest endpoint refuses any upload whose logger_server is missing,
+# malformed, or not on the configured ALLOWED_SERVERS list. Pre-v0.1.10
+# plugins (no logger_server) and v0.1.14+ plugins targeting a server the
+# site doesn't accept both land here.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_missing_logger_server(app):
+    """Pre-v0.1.10 plugin shape (no logger_server) → 400 with an
+    upgrade prompt. The strict mode is intentional — older plugins
+    couldn't pass the X-Lexicon-Signature gate anyway, so this is
+    just adding a clearer error message."""
+    payload = _minimal_payload(logger_server=None)
+    with patch("web.routes.parses.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 400
+    assert "logger_server is required" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_empty_logger_server(app):
+    """Whitespace-only string → same outcome as null."""
+    payload = _minimal_payload(logger_server="   ")
+    with patch("web.routes.parses.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_malformed_logger_server(app):
+    """Bad shape (path traversal, control chars, etc.) → 400 malformed,
+    not the allowlist-rejection 403 — distinguishes 'your plugin sent
+    garbage' from 'your server isn't allowed'."""
+    payload = _minimal_payload(logger_server="../etc/passwd")
+    with patch("web.routes.parses.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 400
+    assert "malformed" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_disallowed_server(app):
+    """Well-formed but not on the allowlist → 403, error detail lists
+    the configured allowed set so the user knows what they CAN upload
+    from."""
+    # "Halls of Fate" passes _VALID_WORLD_RE (letters + space) but
+    # isn't in the default ALLOWED_SERVERS={Varsoon,Wuoshi}.
+    payload = _minimal_payload(logger_server="Halls of Fate")
+    with patch("web.routes.parses.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 403
+    detail = r.json()["detail"]
+    assert "Halls of Fate" in detail
+    assert "Allowed:" in detail
+
+
+@pytest.mark.asyncio
+async def test_ingest_accepts_allowed_server_case_insensitive(app):
+    """`varsoon` (lower-case) → accepted. Casing in the log path varies
+    by EQ2 install (the directory is sometimes capitalised, sometimes
+    not) and we don't want a cosmetic mismatch to reject real uploads."""
+    sync_result = ("inserted", 99, 2, 1, 2)
+    payload = _minimal_payload(logger_server="varsoon")  # lowercase
+    with (
+        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
+        patch("web.routes.parses._resolve_uploader_guild_async", new=AsyncMock(return_value="Exordium")),
+        patch("web.routes.parses._resolve_combatant_snapshots", new=AsyncMock(return_value={})),
+        patch("web.routes.parses._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_ingest_accepts_wuoshi(app):
+    """Second server in the default allowlist also works. Pin both so a
+    future refactor can't accidentally narrow the set to just Varsoon."""
+    sync_result = ("inserted", 100, 2, 1, 2)
+    payload = _minimal_payload(logger_server="Wuoshi")
+    with (
+        patch("web.routes.parses.require_user_session_or_token", _fake_require_user),
+        patch("web.routes.parses._resolve_uploader_guild_async", new=AsyncMock(return_value="Exordium")),
+        patch("web.routes.parses._resolve_combatant_snapshots", new=AsyncMock(return_value={})),
+        patch("web.routes.parses._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 201

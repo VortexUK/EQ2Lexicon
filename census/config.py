@@ -24,6 +24,19 @@ SERVICE_ID: str = os.getenv("CENSUS_SERVICE_ID", "example")
 WORLD: str = os.getenv("EQ2_WORLD", "Varsoon")
 SERVER_MAX_LEVEL: int = int(os.getenv("SERVER_MAX_LEVEL", "50"))
 
+# EQ2 servers the site accepts parse uploads from. The ACT plugin reads
+# this set from /api/auth/whoami and renders it in its settings UI; the
+# ingest endpoint enforces membership server-side (strict mode — uploads
+# from anywhere else are rejected, including the case where the plugin
+# omitted logger_server entirely, which historically fell back to WORLD).
+#
+# Comma-separated env var, case-insensitive matching at the comparison
+# site. Default is the two active English-language EQ2 TLE servers as of
+# 2026 so a fresh deploy works without manual config.
+ALLOWED_SERVERS: frozenset[str] = frozenset(
+    s.strip() for s in os.getenv("ALLOWED_SERVERS", "Varsoon,Wuoshi").split(",") if s.strip()
+)
+
 # ISO-8601 UTC datetime for the server launch countdown.
 # Set LAUNCH_DT env var to override (e.g. "2027-03-15T18:00:00Z").
 # Set to an empty string or a past date to suppress the countdown widget.

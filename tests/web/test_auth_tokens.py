@@ -224,3 +224,93 @@ async def test_db_revoke_scoped_to_user(tmp_users_db):
     assert ok is False
     # Token still works for Alice
     assert await users_db.lookup_api_token(raw_alice, path=tmp_users_db) is not None
+
+
+# ---------------------------------------------------------------------------
+# /auth/whoami — used by the ACT plugin's Test Connection button.
+# The plugin reads `is_admin` (drives the Server URL edit gate) and
+# `allowed_servers` (drives the ALLOWED SERVERS card + the blacklist
+# editor's server dropdown). Both must be present and stable.
+# ---------------------------------------------------------------------------
+
+
+async def _fake_token_user(request=None) -> dict:
+    return {
+        "id": "user-non-admin",
+        "username": "alice",
+        "discord_name": "alice",
+        "auth_source": "token",
+    }
+
+
+@pytest.mark.asyncio
+async def test_whoami_requires_auth(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/auth/whoami")
+    # No session cookie and no Bearer header → 401.
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_whoami_returns_is_admin_false_for_non_admin(app):
+    """Non-admin user: is_admin=False. Stable contract — the plugin's
+    Server URL field stays locked while this is False."""
+    with patch("web.routes.auth_tokens.require_user_session_or_token", _fake_token_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/auth/whoami")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["discord_id"] == "user-non-admin"
+    assert data["discord_name"] == "alice"
+    assert data["auth_source"] == "token"
+    assert data["is_admin"] is False
+
+
+@pytest.mark.asyncio
+async def test_whoami_returns_is_admin_true_for_admin(app):
+    """Admin user: is_admin=True. is_admin() is the module-imported
+    ADMIN_IDS frozenset check; we patch it to avoid depending on env
+    vars at test time."""
+    with (
+        patch("web.routes.auth_tokens.require_user_session_or_token", _fake_token_user),
+        patch("web.routes.auth_tokens.is_admin", return_value=True),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/auth/whoami")
+    assert r.status_code == 200
+    assert r.json()["is_admin"] is True
+
+
+@pytest.mark.asyncio
+async def test_whoami_returns_allowed_servers_sorted(app):
+    """allowed_servers must be a deterministic order (sorted). The
+    plugin renders the list verbatim and a server reshuffle on each
+    call would jitter the UI."""
+    with (
+        patch("web.routes.auth_tokens.require_user_session_or_token", _fake_token_user),
+        # Pin the ALLOWED_SERVERS constant the route reads so this test
+        # passes regardless of the test runner's env. frozenset doesn't
+        # guarantee iteration order, so the route is responsible for
+        # sorting on the way out.
+        patch("web.routes.auth_tokens.ALLOWED_SERVERS", frozenset({"Wuoshi", "Varsoon"})),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/auth/whoami")
+    assert r.status_code == 200
+    assert r.json()["allowed_servers"] == ["Varsoon", "Wuoshi"]
+
+
+@pytest.mark.asyncio
+async def test_whoami_returns_empty_allowed_servers_when_unset(app):
+    """ALLOWED_SERVERS=frozenset() → returns []. Edge case: a
+    deployment that explicitly disables uploads. The plugin shows the
+    empty list with its '(none — uploads disabled until the site
+    grants access)' placeholder."""
+    with (
+        patch("web.routes.auth_tokens.require_user_session_or_token", _fake_token_user),
+        patch("web.routes.auth_tokens.ALLOWED_SERVERS", frozenset()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/auth/whoami")
+    assert r.status_code == 200
+    assert r.json()["allowed_servers"] == []
