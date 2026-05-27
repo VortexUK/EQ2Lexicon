@@ -264,6 +264,84 @@ async def test_put_strategy_writes_and_returns_row(app):
     assert call_kwargs["expansion_short"] == "EoF"
 
 
+# ---------------------------------------------------------------------------
+# GET /api/zones/{zone}/encounters/{position}/strategy/revisions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_revisions_unknown_encounter_is_404(app):
+    with patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/encounters/999/strategy/revisions")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_revisions_returns_empty_when_no_strategy_yet(app):
+    """Encounter resolves but no strategy has been written yet → empty list,
+    not 404. Lets the disclosure show "no history" cleanly."""
+    with (
+        patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
+        patch("web.routes.raid_strategies._read_revisions_sync", return_value=[]),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/encounters/1/strategy/revisions")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["zone_name"] == "The Emerald Halls"
+    assert data["encounter_name"] == "Prince Thirneg"
+    assert data["revisions"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_revisions_returns_newest_first(app):
+    """Helper returns rows newest-first (per raids_db.encounter_revisions);
+    the route preserves that order and surfaces all six fields."""
+    fake_revisions = [
+        {
+            "id": 3,
+            "encounter_id": 1,
+            "edited_at": 1716200000,
+            "edited_by": "admin-1",
+            "before_md": "v2",
+            "after_md": "v3",
+            "edit_note": "tighten phase 2 wording",
+        },
+        {
+            "id": 2,
+            "encounter_id": 1,
+            "edited_at": 1716100000,
+            "edited_by": "admin-1",
+            "before_md": "v1",
+            "after_md": "v2",
+            "edit_note": None,
+        },
+        {
+            "id": 1,
+            "encounter_id": 1,
+            "edited_at": 1716000000,
+            "edited_by": "admin-1",
+            "before_md": None,
+            "after_md": "v1",
+            "edit_note": "initial",
+        },
+    ]
+    with (
+        patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
+        patch("web.routes.raid_strategies._read_revisions_sync", return_value=fake_revisions),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/encounters/1/strategy/revisions")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert [rev["id"] for rev in data["revisions"]] == [3, 2, 1]
+    assert data["revisions"][2]["before_md"] is None  # first revision
+    assert data["revisions"][0]["edit_note"] == "tighten phase 2 wording"
+    assert data["revisions"][1]["edit_note"] is None
+
+
 @pytest.mark.asyncio
 async def test_put_strategy_unknown_encounter_is_404(app):
     with (

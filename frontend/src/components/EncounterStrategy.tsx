@@ -18,6 +18,22 @@ interface StrategyResponse {
   source: string
 }
 
+interface RevisionEntry {
+  id: number
+  edited_at: number
+  edited_by: string
+  before_md: string | null
+  after_md: string
+  edit_note: string | null
+}
+
+interface RevisionListResponse {
+  zone_name: string
+  encounter_name: string
+  position: number
+  revisions: RevisionEntry[]
+}
+
 interface Props {
   zoneName: string
   position: number
@@ -90,8 +106,17 @@ export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // History disclosure state. Lazy-loaded — we don't fetch revisions until the
+  // user actually opens the disclosure, since most viewers never will.
+  const [revisions, setRevisions] = useState<RevisionEntry[] | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+
   // Fetch when (zone, position) changes. 404 is the expected "no strategy yet"
   // state and resets data to null — the empty-state UI renders from that.
+  // Also resets the history disclosure so a stale list doesn't leak across
+  // encounter switches.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -99,6 +124,9 @@ export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
     setData(null)
     setEditing(false)
     setDraft('')
+    setRevisions(null)
+    setHistoryOpen(false)
+    setHistoryError(null)
 
     fetch(`/api/zones/${encodeURIComponent(zoneName)}/encounters/${position}/strategy`, {
       credentials: 'include',
@@ -114,6 +142,33 @@ export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
 
     return () => { cancelled = true }
   }, [zoneName, position])
+
+  async function toggleHistory() {
+    // Close-on-second-click. Cached after first fetch unless invalidated (a
+    // successful save below clears `revisions` so the next open re-fetches).
+    if (historyOpen) {
+      setHistoryOpen(false)
+      return
+    }
+    setHistoryOpen(true)
+    if (revisions !== null) return  // already loaded
+
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const r = await fetch(
+        `/api/zones/${encodeURIComponent(zoneName)}/encounters/${position}/strategy/revisions`,
+        { credentials: 'include' }
+      )
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+      const j = (await r.json()) as RevisionListResponse
+      setRevisions(j.revisions)
+    } catch (err) {
+      setHistoryError(String((err as Error).message ?? err))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
 
   function startEdit() {
     setDraft(data?.markdown ?? '')
@@ -150,6 +205,9 @@ export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
       setData(fresh)
       setEditing(false)
       setDraft('')
+      // The save just appended a new revision row server-side; drop the cache
+      // so the next history-open fetches fresh.
+      setRevisions(null)
     } catch (err) {
       setError(String((err as Error).message ?? err))
     } finally {
@@ -177,11 +235,28 @@ export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
               {data.markdown}
             </ReactMarkdown>
           </div>
-          {data.last_edited_at && (
-            <p className="text-text-muted text-[0.72rem] mt-2">
-              Edited {fmtRelative(data.last_edited_at)}
-              {data.last_edited_by ? ` · ${data.last_edited_by}` : ''}
-            </p>
+          <div className="flex items-baseline justify-between flex-wrap gap-2 mt-2 text-[0.72rem]">
+            {data.last_edited_at ? (
+              <p className="text-text-muted">
+                Edited {fmtRelative(data.last_edited_at)}
+                {data.last_edited_by ? ` · ${data.last_edited_by}` : ''}
+              </p>
+            ) : <span />}
+            <button
+              type="button"
+              onClick={toggleHistory}
+              className="text-gold-dim hover:text-gold underline decoration-dotted underline-offset-2"
+              aria-expanded={historyOpen}
+            >
+              {historyOpen ? 'Hide history' : 'Show history'}
+            </button>
+          </div>
+          {historyOpen && (
+            <RevisionsPanel
+              revisions={revisions}
+              loading={historyLoading}
+              error={historyError}
+            />
           )}
         </>
       )}
@@ -300,5 +375,71 @@ function Editor({ draft, onDraft, preview, onPreview, saving, error, onSave, onC
         </Button>
       </div>
     </div>
+  )
+}
+
+// ── Revisions panel ───────────────────────────────────────────────────────────
+
+interface RevisionsPanelProps {
+  revisions: RevisionEntry[] | null
+  loading: boolean
+  error: string | null
+}
+
+function RevisionsPanel({ revisions, loading, error }: RevisionsPanelProps) {
+  if (loading) return <p className="text-text-muted text-sm mt-2">Loading history…</p>
+  if (error) return <p className="text-danger text-sm mt-2">Couldn't load history: {error}</p>
+  if (revisions === null) return null
+  if (revisions.length === 0) {
+    return <p className="text-text-muted text-sm mt-2">No history yet for this encounter.</p>
+  }
+  return (
+    <ol className="mt-3 border border-border rounded-md divide-y divide-border/60 overflow-hidden">
+      {revisions.map((rev, i) => (
+        <RevisionRow key={rev.id} revision={rev} isCurrent={i === 0} />
+      ))}
+    </ol>
+  )
+}
+
+interface RevisionRowProps {
+  revision: RevisionEntry
+  /** True for index 0 — newest revision == what's currently rendered above. */
+  isCurrent: boolean
+}
+
+function RevisionRow({ revision, isCurrent }: RevisionRowProps) {
+  // Per-row open state — multiple revisions can be expanded at once so a user
+  // can compare two manually without losing context.
+  const [open, setOpen] = useState(false)
+  const absoluteTime = new Date(revision.edited_at * 1000).toLocaleString()
+  return (
+    <li className="bg-surface-raised/30">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-baseline gap-3 px-3 py-2 text-left hover:bg-surface-raised/60"
+        aria-expanded={open}
+      >
+        <span className="text-[0.72rem] text-gold-dim w-4 shrink-0">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="flex-1 min-w-0 text-[0.85rem] text-text" title={absoluteTime}>
+          {fmtRelative(revision.edited_at)}
+          {isCurrent && <span className="ml-2 text-success text-[0.7rem] uppercase tracking-[0.08em]">current</span>}
+          {revision.edit_note && (
+            <span className="text-text-muted"> · {revision.edit_note}</span>
+          )}
+        </span>
+        <span className="text-text-muted text-[0.72rem] shrink-0">{revision.edited_by}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/60 bg-bg/40 text-text text-[0.92rem]">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+            {revision.after_md}
+          </ReactMarkdown>
+        </div>
+      )}
+    </li>
   )
 }

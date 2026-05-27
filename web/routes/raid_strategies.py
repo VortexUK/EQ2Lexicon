@@ -1,11 +1,13 @@
 """
 GET  /api/zones/{zone}/encounters/{position}/strategy
-PUT  /api/zones/{zone}/encounters/{position}/strategy   (admin-only)
+PUT  /api/zones/{zone}/encounters/{position}/strategy             (officer/admin)
+GET  /api/zones/{zone}/encounters/{position}/strategy/revisions   (history)
 
 Read-write surface for per-encounter raid strategy markdown. Strategy bodies
 live in ``census/raids_db.py`` (separate SQLite file from the zones DB); the
 revision history is recorded automatically by ``upsert_raid_encounter`` so this
-route doesn't have to think about it.
+route doesn't have to think about it on the write path — only surface it on
+the read path via the ``/revisions`` endpoint.
 
 Key translation: the URL identifies a curator encounter by ``(zone_name,
 position)`` (matches the sidebar URLs in the React app). We resolve those via
@@ -106,6 +108,28 @@ class StrategyUpdateRequest(BaseModel):
     edit_note: str | None = Field(None, description="Optional commit-style note attached to the revision.")
 
 
+class RevisionEntry(BaseModel):
+    """One row in the revision history.
+
+    ``before_md`` is NULL on the very first row (the seed insert). Subsequent
+    rows always have both before/after so the UI can compute a diff client-side
+    if it wants — for now the v1 UI just shows the after_md content."""
+
+    id: int
+    edited_at: int
+    edited_by: str
+    before_md: str | None
+    after_md: str
+    edit_note: str | None
+
+
+class RevisionListResponse(BaseModel):
+    zone_name: str
+    encounter_name: str
+    position: int
+    revisions: list[RevisionEntry]
+
+
 # ---------------------------------------------------------------------------
 # Sync helpers — run via run_in_executor
 # ---------------------------------------------------------------------------
@@ -127,6 +151,30 @@ def _resolve_curator_encounter(zone_name: str, position: int) -> tuple[str, str]
         if int(boss.get("position", -1)) == position:
             return canonical_zone, boss["encounter_name"]
     return None
+
+
+def _read_revisions_sync(zone_name: str, encounter_name: str) -> list[dict]:
+    """All revision rows for an encounter's strategy, newest first.
+
+    Returns ``[]`` if the encounter doesn't exist in raids_db yet (never had a
+    strategy written) — the route surfaces that as a 200 with an empty list,
+    matching the "show history" disclosure's no-op state."""
+    if not raids_db.DB_PATH.exists():
+        return []
+    with sqlite3.connect(raids_db.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        zrow = conn.execute("SELECT id FROM raid_zones WHERE zone_name_lower = ?", (zone_name.lower(),)).fetchone()
+        if zrow is None:
+            return []
+        erow = conn.execute(
+            "SELECT id FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+            (zrow["id"], encounter_name.lower()),
+        ).fetchone()
+        if erow is None:
+            return []
+    # encounter_revisions opens its own connection — fine, runs in the same
+    # executor thread as us.
+    return raids_db.encounter_revisions(erow["id"])
 
 
 def _read_strategy_sync(zone_name: str, encounter_name: str) -> dict | None:
@@ -290,4 +338,40 @@ async def put_strategy(
         last_edited_at=row.get("last_edited_at"),
         last_edited_by=row.get("last_edited_by"),
         source=row.get("source") or raids_db.SOURCE_MANUAL,
+    )
+
+
+@router.get(
+    "/zones/{zone_name}/encounters/{position}/strategy/revisions",
+    response_model=RevisionListResponse,
+)
+async def get_strategy_revisions(zone_name: str, position: int) -> RevisionListResponse:
+    """Return the full revision history for one encounter's strategy, newest
+    first. Public read (matches the strategy GET endpoint's visibility).
+
+    Empty list when no strategy has ever been written for this encounter —
+    the frontend disclosure just shows "no history yet" in that case rather
+    than 404-ing, which would be confusing on a valid encounter."""
+    loop = asyncio.get_event_loop()
+    resolved = await loop.run_in_executor(None, _resolve_curator_encounter, zone_name, position)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Encounter not found")
+    canonical_zone, encounter_name = resolved
+
+    rows = await loop.run_in_executor(None, _read_revisions_sync, canonical_zone, encounter_name)
+    return RevisionListResponse(
+        zone_name=canonical_zone,
+        encounter_name=encounter_name,
+        position=position,
+        revisions=[
+            RevisionEntry(
+                id=r["id"],
+                edited_at=r["edited_at"],
+                edited_by=r["edited_by"],
+                before_md=r["before_md"],
+                after_md=r["after_md"],
+                edit_note=r["edit_note"],
+            )
+            for r in rows
+        ],
     )
