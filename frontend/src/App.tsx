@@ -9,6 +9,8 @@ import ItemPage from './pages/ItemPage'
 import ItemSearchPage from './pages/ItemSearchPage'
 import ParsePage from './pages/ParsePage'
 import ParsesPage from './pages/ParsesPage'
+import RaidZonePage from './pages/RaidZonePage'
+import RaidZonesPage from './pages/RaidZonesPage'
 import RankingsPage from './pages/RankingsPage'
 import RecipesPage from './pages/RecipesPage'
 import TokensPage from './pages/TokensPage'
@@ -89,6 +91,7 @@ function NavLinks() {
       <NavItem to="/guilds"     label="Guilds"      also="/guild/" />
       <NavItem to="/items"      label="Items"       also="/item/" />
       <NavItem to="/recipes"    label="Recipes" />
+      <NavItem to="/raids"      label="Raids"       also="/raids/" />
       <NavItem to="/parses"     label="Parses"      also="/parse/" />
       <NavItem to="/rankings"   label="Rankings" />
     </nav>
@@ -201,6 +204,9 @@ function App() {
         <Route path="/claim" element={<ClaimPage />} />
         <Route path="/admin"   element={<AdminPage />} />
         <Route path="/recipes" element={<RecipesPage />} />
+        <Route path="/raids"                    element={<RaidZonesPage />} />
+        <Route path="/raids/:name"              element={<RaidZonePage />} />
+        <Route path="/raids/:name/:position"    element={<RaidZonePage />} />
         <Route path="/parses"      element={<ParsesPage />} />
         <Route path="/rankings"    element={<RankingsPage />} />
         <Route path="/parse/:id"   element={<ParsePage />} />

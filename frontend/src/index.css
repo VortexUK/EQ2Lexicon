@@ -133,7 +133,21 @@
   a { color: var(--accent); text-decoration: none; }
   a:hover { color: var(--accent-hover); }
 
-  button { cursor: pointer; font-family: inherit; font-size: inherit; }
+  /* Tailwind Preflight is intentionally not imported (see top of file), so
+     <button> would otherwise inherit the browser's native ButtonFace background,
+     beveled border, and centred-text styling — which clashes with utility
+     classes that only set hover/active colours. Reset those to neutral so any
+     <button> reads as a styled-by-utilities element by default. The .btn
+     primitive in @layer components sets its own background/border on top. */
+  button {
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    text-align: inherit;
+  }
 
   input {
     font-family: inherit;

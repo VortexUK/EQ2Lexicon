@@ -39,3 +39,18 @@ export function fmtLocalDateTime(unixSeconds: number): string {
   const d = new Date(unixSeconds * 1000)
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
+
+/**
+ * Relative time, terse — "just now" / "5m ago" / "2h ago" / "3d ago" / "2w ago".
+ * For anything older than ~8 weeks falls back to fmtLocalDate, so a very old
+ * kill reads as a date rather than a noisy "127w ago".
+ */
+export function fmtRelative(unixSeconds: number, now: number = Date.now() / 1000): string {
+  const diff = Math.max(0, now - unixSeconds)
+  if (diff < 60) return 'just now'
+  if (diff < 60 * 60) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 60 * 60 * 24) return `${Math.floor(diff / 3600)}h ago`
+  if (diff < 60 * 60 * 24 * 7) return `${Math.floor(diff / 86400)}d ago`
+  if (diff < 60 * 60 * 24 * 56) return `${Math.floor(diff / (86400 * 7))}w ago`
+  return fmtLocalDate(unixSeconds)
+}

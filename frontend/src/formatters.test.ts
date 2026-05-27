@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import {
-  fmtNum, fmtDuration, fmtLocalDate, fmtLocalTime, fmtLocalDateTime,
+  fmtNum, fmtDuration, fmtLocalDate, fmtLocalTime, fmtLocalDateTime, fmtRelative,
 } from './formatters'
 
 describe('fmtNum', () => {
@@ -98,5 +98,44 @@ describe('fmtLocalDate is in browser local time, not UTC', () => {
     const d = new Date(unix * 1000)
     const expectedDay = String(d.getDate()).padStart(2, '0')
     expect(fmtLocalDate(unix).endsWith(expectedDay)).toBe(true)
+  })
+})
+
+describe('fmtRelative', () => {
+  // `now` is injected so the test doesn't depend on wall-clock time.
+  const NOW = 1_750_000_000  // arbitrary fixed reference
+
+  it('returns "just now" for sub-minute deltas', () => {
+    expect(fmtRelative(NOW - 0, NOW)).toBe('just now')
+    expect(fmtRelative(NOW - 59, NOW)).toBe('just now')
+  })
+
+  it('uses minute granularity below an hour', () => {
+    expect(fmtRelative(NOW - 60, NOW)).toBe('1m ago')
+    expect(fmtRelative(NOW - 60 * 59, NOW)).toBe('59m ago')
+  })
+
+  it('uses hour granularity below a day', () => {
+    expect(fmtRelative(NOW - 60 * 60, NOW)).toBe('1h ago')
+    expect(fmtRelative(NOW - 60 * 60 * 23, NOW)).toBe('23h ago')
+  })
+
+  it('uses day granularity below a week', () => {
+    expect(fmtRelative(NOW - 86400, NOW)).toBe('1d ago')
+    expect(fmtRelative(NOW - 86400 * 6, NOW)).toBe('6d ago')
+  })
+
+  it('uses week granularity until ~8 weeks', () => {
+    expect(fmtRelative(NOW - 86400 * 7, NOW)).toBe('1w ago')
+    expect(fmtRelative(NOW - 86400 * 7 * 7, NOW)).toBe('7w ago')
+  })
+
+  it('falls back to a date string for very old timestamps', () => {
+    // > 8 weeks → date shape, not "Nw ago".
+    expect(fmtRelative(NOW - 86400 * 365, NOW)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('clamps negative deltas (future timestamps) to "just now"', () => {
+    expect(fmtRelative(NOW + 60, NOW)).toBe('just now')
   })
 })

@@ -272,6 +272,8 @@ data/parses/act_export.db-shm
 data/parses/parses.db
 data/parses/parses.db-wal
 data/parses/parses.db-shm
+# Local dev seed manifest written by scripts/dev/seed_raid_kills.py
+data/parses/.seed_raid_kills.json
 
 # Census API dump files (analysis artifacts)
 # Kept under tests/fixtures/ locally; not committed.

@@ -3,6 +3,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+// Backend proxy target — defaults to the standard local FastAPI port, but
+// can be overridden so a second git worktree can run its own backend on a
+// different port without colliding with the primary checkout's :8000.
+// Usage: `VITE_API_PROXY_TARGET=http://localhost:8001 npm run dev -- --port 5174`
+const PROXY_TARGET = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000'
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   test: {
@@ -15,7 +21,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: PROXY_TARGET,
         changeOrigin: true,
         configure: (proxy) => {
           // Prevent unhandled 'error' events from crashing the Vite process
@@ -30,21 +36,21 @@ export default defineConfig({
         },
       },
       '/icons': {
-        target: 'http://localhost:8000',
+        target: PROXY_TARGET,
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('error', (err) => { console.warn('[vite proxy] /icons error:', err.message) })
         },
       },
       '/aa-assets': {
-        target: 'http://localhost:8000',
+        target: PROXY_TARGET,
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('error', (err) => { console.warn('[vite proxy] /aa-assets error:', err.message) })
         },
       },
       '/spell-icons': {
-        target: 'http://localhost:8000',
+        target: PROXY_TARGET,
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('error', (err) => { console.warn('[vite proxy] /spell-icons error:', err.message) })
