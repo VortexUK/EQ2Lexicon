@@ -19,5 +19,11 @@ cmds = [
   "cd frontend && npm run build"
 ]
 
+# Nixpacks installs its own virtualenv at /opt/venv (and `uv sync` picks
+# that up via the inherited VIRTUAL_ENV env var, installing the project's
+# deps into it rather than creating a separate /app/.venv). The
+# build-phase finalisation appends /opt/venv/bin to PATH on /root/.profile
+# — but litestream's `-exec` in railway.toml's startCommand uses os.exec
+# directly (no shell, no .profile), so we point at the absolute binary.
 [start]
-cmd = "/app/.venv/bin/python main.py"
+cmd = "/opt/venv/bin/python main.py"
