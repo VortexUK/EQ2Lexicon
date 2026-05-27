@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import Breadcrumb from '../components/Breadcrumb'
 import { EncounterStrategy } from '../components/EncounterStrategy'
+import { ZoneOverview } from '../components/ZoneOverview'
 import { Card, SectionLabel } from '../components/ui'
 import { fmtRelative } from '../formatters'
 import { useRaidProgress, type KilledEncounter } from '../hooks/useRaidProgress'
@@ -132,6 +133,14 @@ export default function RaidZonePage() {
             hasGuild={!!progress.guild_name}
             guildName={progress.guild_name}
           />
+
+          {/* Zone-level overview lives between the header and the encounter
+              grid so it's read before drilling into a specific boss. Hidden
+              entirely when there's no content and the viewer can't create
+              any (component handles that internally). */}
+          <div className="mt-5">
+            <ZoneOverview zoneName={zone.name} />
+          </div>
 
           <div className="mt-5 grid gap-4 grid-cols-1 md:grid-cols-[16rem_1fr]">
             <aside className="min-w-0">

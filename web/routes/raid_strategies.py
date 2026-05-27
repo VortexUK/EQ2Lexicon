@@ -2,12 +2,21 @@
 GET  /api/zones/{zone}/encounters/{position}/strategy
 PUT  /api/zones/{zone}/encounters/{position}/strategy             (officer/admin)
 GET  /api/zones/{zone}/encounters/{position}/strategy/revisions   (history)
+GET  /api/zones/{zone}/overview                                   (zone-level)
+PUT  /api/zones/{zone}/overview                                   (officer/admin)
 
-Read-write surface for per-encounter raid strategy markdown. Strategy bodies
-live in ``census/raids_db.py`` (separate SQLite file from the zones DB); the
-revision history is recorded automatically by ``upsert_raid_encounter`` so this
-route doesn't have to think about it on the write path — only surface it on
-the read path via the ``/revisions`` endpoint.
+Read-write surface for raid strategy markdown — per-encounter strategies and
+zone-level overview. Bodies live in ``census/raids_db.py`` (separate SQLite
+file from the zones DB).
+
+For encounters, the revision history is recorded automatically by
+``upsert_raid_encounter`` so this route doesn't have to think about it on the
+write path — only surface it on the read path via the ``/revisions`` endpoint.
+
+Zone overviews share the officer/admin gate but don't (yet) carry a per-field
+revision history — only ``last_edited_at`` + ``last_edited_by`` are stamped on
+the zone row. A future raid_zone_revisions table can layer in without changing
+this route shape.
 
 Key translation: the URL identifies a curator encounter by ``(zone_name,
 position)`` (matches the sidebar URLs in the React app). We resolve those via
@@ -23,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -130,6 +140,24 @@ class RevisionListResponse(BaseModel):
     revisions: list[RevisionEntry]
 
 
+class ZoneOverviewResponse(BaseModel):
+    """Zone-level overview markdown (tactics that apply across encounters).
+
+    Only ``overview_md`` is exposed for now — the schema also has access_md
+    and background_md from the wiki scraper but those need their own UI
+    treatment to be useful. Surfaced as separate sections later."""
+
+    zone_name: str
+    markdown: str
+    last_edited_at: int | None = None
+    last_edited_by: str | None = None
+    source: str  # SOURCE_SCRAPE / SOURCE_MANUAL
+
+
+class ZoneOverviewUpdateRequest(BaseModel):
+    markdown: str = Field(..., description="Full overview markdown body (replaces the current value).")
+
+
 # ---------------------------------------------------------------------------
 # Sync helpers — run via run_in_executor
 # ---------------------------------------------------------------------------
@@ -175,6 +203,86 @@ def _read_revisions_sync(zone_name: str, encounter_name: str) -> list[dict]:
     # encounter_revisions opens its own connection — fine, runs in the same
     # executor thread as us.
     return raids_db.encounter_revisions(erow["id"])
+
+
+def _read_overview_sync(zone_name: str) -> dict | None:
+    """Return the raid_zones row for a zone (overview-relevant columns only).
+
+    None when no row exists yet OR when overview_md is empty — same semantics
+    as the encounter helpers, lets the route 404 cleanly and the UI fall back
+    to the empty state."""
+    if not raids_db.DB_PATH.exists():
+        return None
+    with sqlite3.connect(raids_db.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT zone_name, overview_md, source, last_edited_at, last_edited_by "
+            "FROM raid_zones WHERE zone_name_lower = ?",
+            (zone_name.lower(),),
+        ).fetchone()
+    if row is None or not row["overview_md"]:
+        return None
+    return dict(row)
+
+
+def _write_overview_sync(
+    *,
+    zone_name: str,
+    markdown: str,
+    editor_discord_id: str,
+    expansion_short: str,
+) -> dict:
+    """Targeted update of just ``overview_md`` on the raid_zones row.
+
+    Goes through ``upsert_raid_zone`` only when the row doesn't exist yet
+    (to lazy-create it with expansion_short). For an existing row we issue a
+    column-scoped UPDATE so access_md / background_md aren't clobbered — the
+    full-row upsert helper would null them out.
+
+    Returns the fresh row dict matching ``_read_overview_sync``."""
+    conn = raids_db.init_db()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM raid_zones WHERE zone_name_lower = ?",
+            (zone_name.lower(),),
+        ).fetchone()
+        if existing is None:
+            # Lazy-create — same as the encounter PUT path.
+            raids_db.upsert_raid_zone(
+                conn,
+                zone_name=zone_name,
+                expansion_short=expansion_short,
+                overview_md=markdown,
+                source=raids_db.SOURCE_MANUAL,
+            )
+            # upsert_raid_zone doesn't set last_edited_at — do it here so the
+            # initial write also stamps the audit fields.
+            now = int(time.time())
+            conn.execute(
+                "UPDATE raid_zones SET last_edited_at = ?, last_edited_by = ? WHERE zone_name_lower = ?",
+                (now, editor_discord_id, zone_name.lower()),
+            )
+        else:
+            now = int(time.time())
+            conn.execute(
+                "UPDATE raid_zones SET "
+                "  overview_md = ?, "
+                "  source = ?, "
+                "  last_edited_at = ?, "
+                "  last_edited_by = ? "
+                "WHERE id = ?",
+                (markdown, raids_db.SOURCE_MANUAL, now, editor_discord_id, existing[0]),
+            )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT zone_name, overview_md, source, last_edited_at, last_edited_by "
+            "FROM raid_zones WHERE zone_name_lower = ?",
+            (zone_name.lower(),),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else {}
 
 
 def _read_strategy_sync(zone_name: str, encounter_name: str) -> dict | None:
@@ -374,4 +482,76 @@ async def get_strategy_revisions(zone_name: str, position: int) -> RevisionListR
             )
             for r in rows
         ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Zone-level overview
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_canonical_zone_name(zone_name: str) -> str | None:
+    """Resolve an URL zone name (possibly an alias) to its canonical form via
+    zones.db. Returns None when the zone is unknown — caller 404s."""
+    z = await asyncio.get_event_loop().run_in_executor(None, zones_db.find_by_name, zone_name)
+    return z["name"] if z else None
+
+
+@router.get("/zones/{zone_name}/overview", response_model=ZoneOverviewResponse)
+async def get_zone_overview(zone_name: str) -> ZoneOverviewResponse:
+    """Fetch the zone's overview markdown. 404 when the zone is unknown OR no
+    overview is written yet — both states resolve to the same UI placeholder."""
+    canonical = await _resolve_canonical_zone_name(zone_name)
+    if canonical is None:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    row = await asyncio.get_event_loop().run_in_executor(None, _read_overview_sync, canonical)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No overview yet")
+
+    return ZoneOverviewResponse(
+        zone_name=canonical,
+        markdown=row["overview_md"] or "",
+        last_edited_at=row["last_edited_at"],
+        last_edited_by=row["last_edited_by"],
+        source=row["source"],
+    )
+
+
+@router.put("/zones/{zone_name}/overview", response_model=ZoneOverviewResponse)
+async def put_zone_overview(
+    zone_name: str,
+    body: ZoneOverviewUpdateRequest,
+    user: dict = Depends(require_officer_or_admin),
+) -> ZoneOverviewResponse:
+    """Replace the zone's overview markdown. Same officer/admin gate as the
+    encounter strategy editor. Does NOT touch access_md or background_md."""
+    if not body.markdown.strip():
+        raise HTTPException(status_code=400, detail="markdown body is empty")
+
+    loop = asyncio.get_event_loop()
+    canonical = await _resolve_canonical_zone_name(zone_name)
+    if canonical is None:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    # expansion_short needed for the lazy-create branch in the write helper.
+    z = await loop.run_in_executor(None, zones_db.find_by_name, canonical)
+    expansion_short = z["expansion_short"] if z else "Unknown"
+
+    row = await loop.run_in_executor(
+        None,
+        lambda: _write_overview_sync(
+            zone_name=canonical,
+            markdown=body.markdown,
+            editor_discord_id=user["id"],
+            expansion_short=expansion_short,
+        ),
+    )
+
+    return ZoneOverviewResponse(
+        zone_name=canonical,
+        markdown=row.get("overview_md") or body.markdown,
+        last_edited_at=row.get("last_edited_at"),
+        last_edited_by=row.get("last_edited_by"),
+        source=row.get("source") or raids_db.SOURCE_MANUAL,
     )

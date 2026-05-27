@@ -342,6 +342,122 @@ async def test_get_revisions_returns_newest_first(app):
     assert data["revisions"][1]["edit_note"] is None
 
 
+# ---------------------------------------------------------------------------
+# Zone-level overview — GET + PUT
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_overview_unknown_zone_is_404(app):
+    with patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=None):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/Nowhere/overview")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_overview_no_content_is_404(app):
+    """Zone exists but no overview written yet → 404 (cleanly mappable to the
+    empty state on the frontend, same shape as the strategy GET)."""
+    with (
+        patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
+        patch("web.routes.raid_strategies._read_overview_sync", return_value=None),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/overview")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_overview_returns_existing_content(app):
+    with (
+        patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
+        patch(
+            "web.routes.raid_strategies._read_overview_sync",
+            return_value={
+                "zone_name": "The Emerald Halls",
+                "overview_md": "## Strategy notes\n\nPull boss after adds.",
+                "source": "manual",
+                "last_edited_at": 1716000000,
+                "last_edited_by": "admin-1",
+            },
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/overview")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["zone_name"] == "The Emerald Halls"
+    assert "Pull boss after adds" in data["markdown"]
+    assert data["source"] == "manual"
+    assert data["last_edited_by"] == "admin-1"
+
+
+@pytest.mark.asyncio
+async def test_put_overview_unauthenticated_is_401(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.put(
+            "/api/zones/The Emerald Halls/overview",
+            json={"markdown": "hello"},
+        )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_put_overview_rejects_empty_body(app):
+    with patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()):
+        async with _writer_client(app) as client:
+            r = await client.put(
+                "/api/zones/The Emerald Halls/overview",
+                json={"markdown": "   "},
+            )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_put_overview_writes_and_returns_row(app):
+    """Writer auth passes → upsert helper called with the canonical zone +
+    expansion_short, fresh row returned with editor stamped."""
+    fresh_row = {
+        "zone_name": "The Emerald Halls",
+        "overview_md": "# new",
+        "source": "manual",
+        "last_edited_at": 1716200000,
+        "last_edited_by": "admin-1",
+    }
+    with (
+        patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
+        patch("web.routes.raid_strategies._write_overview_sync", return_value=fresh_row) as m_write,
+    ):
+        async with _writer_client(app) as client:
+            r = await client.put(
+                "/api/zones/The Emerald Halls/overview",
+                json={"markdown": "# new"},
+            )
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["markdown"] == "# new"
+    assert data["last_edited_by"] == "admin-1"
+
+    call_kwargs = m_write.call_args.kwargs
+    assert call_kwargs["zone_name"] == "The Emerald Halls"
+    assert call_kwargs["editor_discord_id"] == "admin-1"
+    assert call_kwargs["expansion_short"] == "EoF"
+
+
+@pytest.mark.asyncio
+async def test_put_overview_unknown_zone_is_404(app):
+    with patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=None):
+        async with _writer_client(app) as client:
+            r = await client.put(
+                "/api/zones/Nowhere/overview",
+                json={"markdown": "hello"},
+            )
+    assert r.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_put_strategy_unknown_encounter_is_404(app):
     with (
