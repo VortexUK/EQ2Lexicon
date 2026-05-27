@@ -13,7 +13,7 @@ from census.spells_db import find_by_crc
 from image.aa_tree import detect_tree_type
 from web.cache import aa_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.server_context import current_world
+from web.server_context import current_server, current_world
 
 _log = logging.getLogger(__name__)
 
@@ -121,9 +121,7 @@ class CharAAsResponse(BaseModel):
 @router.get("/aa/config", response_model=AAConfigResponse)
 async def get_aa_config() -> AAConfigResponse:
     """Return the current xpac's AA cap and which tree types are unlocked."""
-    import os
-
-    xpac = os.getenv("SERVER_CURRENT_XPAC", "")
+    xpac = current_server().current_xpac or ""
     if not _LIMITS.exists():
         return AAConfigResponse(xpac=xpac, aa_cap=0, unlocked_tree_types=[])
     limits = json.loads(_LIMITS.read_text(encoding="utf-8"))

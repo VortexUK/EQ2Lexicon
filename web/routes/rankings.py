@@ -12,7 +12,6 @@ docs/superpowers/specs/2026-05-25-eq2logs-rankings-design.md.
 from __future__ import annotations
 
 import asyncio
-import os
 import sqlite3
 from collections import defaultdict
 from functools import lru_cache
@@ -27,6 +26,7 @@ from web.auth_deps import require_user_session as _require_user
 from web.cache import TTLCache
 from web.limiter import limiter
 from web.routes.parses import _PLAYER_COUNT_SQL, _group_into_fights
+from web.server_context import current_server
 
 router = APIRouter(tags=["rankings"])
 
@@ -266,11 +266,12 @@ def _build_filters(kills: list[dict]) -> dict:
     if has_other_raid:
         raid_expansions.append({"short": "Other", "name": "Other"})
 
-    # SERVER_CURRENT_XPAC may be the short code ("EoF") or the full expansion
-    # name ("Echoes of Faydwer"), case-insensitive; unknown/unset → most recent.
-    env_xpac = (os.getenv("SERVER_CURRENT_XPAC") or "").strip().lower()
+    # current_server().current_xpac may be the short code ("EoF") or the full
+    # expansion name ("Echoes of Faydwer"), case-insensitive; unknown/unset →
+    # most recent.
+    srv_xpac = (current_server().current_xpac or "").strip().lower()
     default_expansion = next(
-        (e["short"] for e in raid_expansions if env_xpac in (e["short"].lower(), e["name"].lower())),
+        (e["short"] for e in raid_expansions if srv_xpac in (e["short"].lower(), e["name"].lower())),
         raid_expansions[0]["short"] if raid_expansions else None,
     )
 

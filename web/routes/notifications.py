@@ -20,9 +20,9 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from web.cache import character_cache
-from web.config import WORLD as _WORLD
 from web.db import get_active_claims, list_claims, list_pending_users
 from web.routes.guild import _OFFICER_RANKS, _roster_rank_map
+from web.server_context import current_world
 
 _ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
 
@@ -69,7 +69,7 @@ async def get_notifications(request: Request) -> NotificationsResponse:
         guilds_seen: set[str] = set()
         approved_lower = {c.lower() for c in approved_chars}
         for char_name in approved_chars:
-            cache_key = f"{char_name.lower()}:{_WORLD.lower()}"
+            cache_key = f"{char_name.lower()}:{current_world().lower()}"
             cached, _ = character_cache.get_stale(cache_key)
             if cached is not None and getattr(cached, "guild_name", None):
                 guilds_seen.add(cached.guild_name)

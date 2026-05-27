@@ -270,34 +270,42 @@ class TestFilters:
         other = next(z for z in raid["zones"] if z["zone"] == "Some Unpopulated Raid")
         assert other["expansion"] == "Other"
 
-    def test_expansion_list_and_default(self, monkeypatch):
+    def test_expansion_list_and_default(self):
         from unittest.mock import patch
+
+        from web import server_context
 
         raid_tree = [
             {"zone": "VP", "expansion": "RoK", "expansion_name": "Rise of Kunark", "bosses": ["Phara Dar"]},
             {"zone": "EH", "expansion": "EoF", "expansion_name": "Echoes of Faydwer", "bosses": ["Wuoshi"]},
         ]
+
+        def _srv(xpac):
+            from web.server_context import Server
+
+            return Server("Varsoon", "varsoon", "Varsoon", 50, xpac, None)
+
         with patch("web.routes.rankings._cached_zones_data", return_value=({}, raid_tree)):
-            monkeypatch.delenv("SERVER_CURRENT_XPAC", raising=False)
-            f = _build_filters([])
-            # newest expansion first; each raid zone tagged with its expansion.
-            assert [e["short"] for e in f["raid_expansions"]] == ["RoK", "EoF"]
-            assert f["raid_expansions"][0]["name"] == "Rise of Kunark"
-            assert f["default_expansion"] == "RoK"  # no env → most recent
-            raid = next(s for s in f["scopes"] if s["key"] == "raid")
-            assert {z["zone"]: z["expansion"] for z in raid["zones"]} == {"VP": "RoK", "EH": "EoF"}
+            with patch("web.routes.rankings.current_server", return_value=_srv(None)):
+                f = _build_filters([])
+                # newest expansion first; each raid zone tagged with its expansion.
+                assert [e["short"] for e in f["raid_expansions"]] == ["RoK", "EoF"]
+                assert f["raid_expansions"][0]["name"] == "Rise of Kunark"
+                assert f["default_expansion"] == "RoK"  # no xpac → most recent
+                raid = next(s for s in f["scopes"] if s["key"] == "raid")
+                assert {z["zone"]: z["expansion"] for z in raid["zones"]} == {"VP": "RoK", "EH": "EoF"}
 
-            monkeypatch.setenv("SERVER_CURRENT_XPAC", "EoF")
-            assert _build_filters([])["default_expansion"] == "EoF"  # short code
+            with patch("web.routes.rankings.current_server", return_value=_srv("EoF")):
+                assert _build_filters([])["default_expansion"] == "EoF"  # short code
 
-            monkeypatch.setenv("SERVER_CURRENT_XPAC", "Echoes of Faydwer")
-            assert _build_filters([])["default_expansion"] == "EoF"  # full name
+            with patch("web.routes.rankings.current_server", return_value=_srv("Echoes of Faydwer")):
+                assert _build_filters([])["default_expansion"] == "EoF"  # full name
 
-            monkeypatch.setenv("SERVER_CURRENT_XPAC", "echoes of faydwer")
-            assert _build_filters([])["default_expansion"] == "EoF"  # case-insensitive
+            with patch("web.routes.rankings.current_server", return_value=_srv("echoes of faydwer")):
+                assert _build_filters([])["default_expansion"] == "EoF"  # case-insensitive
 
-            monkeypatch.setenv("SERVER_CURRENT_XPAC", "ZZZ")
-            assert _build_filters([])["default_expansion"] == "RoK"  # invalid env → most recent
+            with patch("web.routes.rankings.current_server", return_value=_srv("ZZZ")):
+                assert _build_filters([])["default_expansion"] == "RoK"  # invalid → most recent
 
     def test_resolve_boss_uses_zones_db_for_raids(self):
         from unittest.mock import patch
@@ -483,3 +491,34 @@ async def test_rankings_rejects_bad_size(app, rankings_db):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/rankings?size=bogus&zone=Vetrovia&boss=Tarinax&metric=dps")
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_rankings_default_xpac_per_server(app, monkeypatch, tmp_path):
+    """The rankings /filters endpoint's default_expansion reflects the active
+    server's current_xpac, not a global env var."""
+    from web import db, server_context
+
+    # Point the DB at a temp file and seed a Wuoshi server row.
+    p = tmp_path / "users.db"
+    db.init_db(p)
+    monkeypatch.setattr(db, "DB_PATH", p)
+    db.upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac="Echoes of Faydwer", launch_dt=None, path=p)
+    server_context.load_registry()
+
+    raid_tree = [
+        {"zone": "VP", "expansion": "RoK", "expansion_name": "Rise of Kunark", "bosses": ["Phara Dar"]},
+        {"zone": "EH", "expansion": "EoF", "expansion_name": "Echoes of Faydwer", "bosses": ["Wuoshi"]},
+    ]
+    with (
+        patch("web.routes.rankings._require_user", _fake_user),
+        patch("web.routes.rankings._cached_zones_data", return_value=({}, raid_tree)),
+        patch("web.routes.rankings._cached_kills", return_value=[]),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/rankings/filters", headers={"x-server": "wuoshi"})
+
+    assert r.status_code == 200
+    body = r.json()
+    # Wuoshi's current_xpac is "Echoes of Faydwer" → matches EoF short code.
+    assert body["default_expansion"] == "EoF"

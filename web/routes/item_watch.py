@@ -8,7 +8,6 @@ from pydantic import BaseModel
 from census.client import CensusClient
 from web.cache import character_cache, guild_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.config import WORLD as _WORLD
 from web.db import (
     add_item_watch,
     get_active_claims,
@@ -17,6 +16,7 @@ from web.db import (
     update_item_watch_check,
 )
 from web.routes.guild import _officer_chars, _roster_rank_map, _validate_guild_name
+from web.server_context import current_world
 
 router = APIRouter(tags=["guild"])
 
@@ -53,7 +53,7 @@ async def _check_watch(watch: dict) -> None:
     Check whether the watched character currently has the item equipped,
     using the character_cache.  Updates the DB regardless of result.
     """
-    name_key = f"{watch['character_name'].lower()}:{_WORLD.lower()}"
+    name_key = f"{watch['character_name'].lower()}:{current_world().lower()}"
     cached, _ = character_cache.get_stale(name_key)
     if cached is None:
         return  # no data available yet — skip, will check later
@@ -156,7 +156,7 @@ async def add_item_watch_entry(
         body.character_name.strip(),
     )
     # Try to get properly capitalised name from the cached roster response
-    roster_cache_key = f"roster:{guild_name.lower()}:{_WORLD.lower()}"
+    roster_cache_key = f"roster:{guild_name.lower()}:{current_world().lower()}"
     roster, _ = guild_cache.get_stale(roster_cache_key)
     if roster:
         match = next((m.name for m in roster.members if m.name.lower() == char_key), None)
