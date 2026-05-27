@@ -59,7 +59,10 @@ CREATE TABLE IF NOT EXISTS character_claims (
 
 CREATE INDEX IF NOT EXISTS idx_claims_discord ON character_claims(discord_id);
 CREATE INDEX IF NOT EXISTS idx_claims_status  ON character_claims(status);
-CREATE INDEX IF NOT EXISTS idx_claims_world   ON character_claims(world);
+-- NOTE: the index on character_claims(world) is NOT created here. _SCHEMA runs
+-- via executescript BEFORE the ALTER that adds `world` to a pre-existing table,
+-- so creating it here would raise "no such column: world" on an existing DB.
+-- It is created in init_db() after the ADD COLUMN migration instead.
 
 CREATE TABLE IF NOT EXISTS item_watch (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,6 +222,10 @@ def init_db(path: Path = DB_PATH) -> None:
             conn.execute("ALTER TABLE character_claims ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0")
         if "world" not in claims_cols:
             conn.execute("ALTER TABLE character_claims ADD COLUMN world TEXT NOT NULL DEFAULT 'Varsoon'")
+        # Index on world is created here (not in _SCHEMA) so it runs AFTER the
+        # ADD COLUMN above — the column is now guaranteed to exist on both fresh
+        # and migrated DBs. IF NOT EXISTS makes it a no-op on subsequent boots.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_claims_world ON character_claims(world)")
 
         # Migrate item_watch: add world column + rebuild to change UNIQUE constraint.
         # SQLite cannot ALTER a table-level UNIQUE, so we do a table rename → create
