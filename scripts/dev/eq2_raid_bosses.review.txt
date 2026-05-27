@@ -55,10 +55,10 @@ Rise of Kunark (2007)  [RoK]
 ### Shard of Hate  [6]  (raid_x4)
     - Demetrius Crane
     - Dreadlord D'Somni
-    - Scorn, Malevolence
+    - Ire, Malevolence
+    - Master P'Tasa
     - Kpul D'Vngur
     - Byzola
-    - Master P'Tasa
 
 ### The Chamber of Destiny  [1]  (raid_x4)
     - The Leviathan
