@@ -147,6 +147,10 @@ export default function ParsePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lookup, setLookup] = useState<Record<string, BulkLookupEntry>>({})
+  // Canonical zone name from zones.db when the parse's `zone` field matches a
+  // curated raid zone (incl. via alias). Null when it doesn't — header then
+  // renders the zone text as plain (no cross-link).
+  const [raidZoneCanonical, setRaidZoneCanonical] = useState<string | null>(null)
 
   // Fetch parse detail
   useEffect(() => {
@@ -165,6 +169,24 @@ export default function ParsePage() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [id])
+
+  // Resolve the parse's zone against the curated raid roster. 200 + a `name`
+  // field means it's a known raid zone (find_by_name handles aliases too); the
+  // canonical name is what the /raids/:name route expects. Any non-200 just
+  // leaves the link off — graceful for non-raid parses (group, solo, weirdly
+  // named zones).
+  useEffect(() => {
+    setRaidZoneCanonical(null)
+    if (!data?.zone) return
+    let cancelled = false
+    fetch(`/api/zones/${encodeURIComponent(data.zone)}`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (!cancelled && j && typeof j.name === 'string') setRaidZoneCanonical(j.name)
+      })
+      .catch(() => { /* best-effort — silent on failure */ })
+    return () => { cancelled = true }
+  }, [data?.zone])
 
   // Once we have the parse, bulk-lookup likely-player names for guild info
   useEffect(() => {
@@ -225,7 +247,7 @@ export default function ParsePage() {
   return (
     <main className={PAGE_CLS}>
       <Breadcrumb items={[{ label: 'Parses', to: '/parses' }, { label: data.title }]} />
-      <Header data={data} />
+      <Header data={data} raidZoneCanonical={raidZoneCanonical} />
       {data.hidden && (
         <p className="text-text-muted text-[0.8rem] mb-3 border border-border rounded-md px-3 py-2">
           This parse has been removed from the parses list, but is preserved here because it holds a ranking.
@@ -246,7 +268,7 @@ export default function ParsePage() {
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-function Header({ data }: { data: ParseDetail }) {
+function Header({ data, raidZoneCanonical }: { data: ParseDetail; raidZoneCanonical: string | null }) {
   // Match the /parses list title-colour rule for visual consistency.
   // 1=win→green, 2=loss→red, 3=mixed→gold-warning, 0=unknown→default gold.
   const titleColor =
@@ -263,7 +285,22 @@ function Header({ data }: { data: ParseDetail }) {
         {data.title}
       </h1>
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-text-muted text-[0.85rem]">
-        {data.zone && <span><span className={HDR_KEY_CLS}>Zone:</span> {data.zone}</span>}
+        {data.zone && (
+          <span>
+            <span className={HDR_KEY_CLS}>Zone:</span>{' '}
+            {raidZoneCanonical ? (
+              <Link
+                to={`/raids/${encodeURIComponent(raidZoneCanonical)}`}
+                className="text-gold underline decoration-dotted underline-offset-2 hover:text-gold-bright"
+                title="View raid zone roster"
+              >
+                {data.zone}
+              </Link>
+            ) : (
+              data.zone
+            )}
+          </span>
+        )}
         <span><span className={HDR_KEY_CLS}>Started:</span> {fmtLocalDateTime(data.started_at)}</span>
         <span><span className={HDR_KEY_CLS}>Duration:</span> {fmtDuration(data.duration_s)}</span>
         <span><span className={HDR_KEY_CLS}>Damage:</span> {fmtNum(data.total_damage)}</span>
