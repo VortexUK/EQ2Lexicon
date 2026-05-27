@@ -8,15 +8,19 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from parses import db as parses_db
+from web.auth_deps import KNOWN_ROLES
 from web.auth_deps import require_admin as _require_admin
 from web.cache import claim_cache
 from web.db import (
     delete_claim,
     delete_claims_for_user,
     get_claim_by_id,
+    grant_role,
     list_all_users,
     list_claims,
+    list_role_assignments,
     review_claim,
+    revoke_role,
     set_user_access,
 )
 from web.routes.claim import _refresh_claim_cache
@@ -58,6 +62,10 @@ class UserItem(BaseModel):
     last_seen: int
     access_status: str
     claim_count: int = 0
+    # DB-granted roles (e.g. 'contributor'). Doesn't include 'admin' (env-
+    # driven) or 'officer' (dynamic). Joined in via list_role_assignments so
+    # this stays a single round-trip to /admin/users.
+    roles: list[str] = []
 
 
 class AdminParseItem(BaseModel):
@@ -145,10 +153,50 @@ async def remove_all_user_claims(discord_id: str, request: Request) -> dict:
 
 @router.get("/admin/users", response_model=list[UserItem])
 async def list_users(request: Request) -> list[UserItem]:
-    """List all users with access status and claim counts. Admin only."""
+    """List all users with access status, claim counts, and DB-granted roles.
+    Admin only."""
     _require_admin(request)
     rows = await list_all_users()
-    return [UserItem(**r) for r in rows]
+    role_map = await list_role_assignments()
+    return [UserItem(**r, roles=role_map.get(r["discord_id"], [])) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Role management
+# ---------------------------------------------------------------------------
+#
+# TODO(future): self-service role requests. Admin-initiated only for now —
+# see the matching TODO in web/db.py's user_roles schema for the proposed
+# shape (a role_requests queue table mirroring character_claims).
+
+
+@router.post("/admin/users/{discord_id}/roles/{role}", status_code=200)
+async def grant_user_role(discord_id: str, role: str, request: Request) -> dict:
+    """Grant a role to a user. Rejects unknown role names (typo guard).
+    Idempotent — re-granting an existing role returns ok=True, granted=False."""
+    admin = _require_admin(request)
+    if role not in KNOWN_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown role {role!r}. Known roles: {sorted(KNOWN_ROLES)}",
+        )
+    inserted = await grant_role(discord_id, role, admin["id"])
+    return {"ok": True, "granted": inserted}
+
+
+@router.delete("/admin/users/{discord_id}/roles/{role}", status_code=200)
+async def revoke_user_role(discord_id: str, role: str, request: Request) -> dict:
+    """Revoke a role from a user. 404 when the user didn't have the role."""
+    _require_admin(request)
+    if role not in KNOWN_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown role {role!r}. Known roles: {sorted(KNOWN_ROLES)}",
+        )
+    removed = await revoke_role(discord_id, role)
+    if not removed:
+        raise HTTPException(status_code=404, detail="User does not have this role")
+    return {"ok": True}
 
 
 @router.get("/admin/parses", response_model=list[AdminParseItem])

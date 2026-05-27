@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from web.db import get_user_access_status, upsert_user
+from web.db import get_user_access_status, list_roles_for_user, upsert_user
 
 _log = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -35,6 +35,12 @@ class UserResponse(BaseModel):
     avatar: str | None = None
     is_admin: bool = False
     access_status: str = "approved"
+    # DB-granted roles only (e.g. 'contributor'). Does NOT include 'admin'
+    # (that's exposed via is_admin) or 'officer' (dynamic — would require a
+    # Census round-trip on every /auth/me call; frontend treats Edit buttons
+    # as admin-or-contributor and accepts that non-admin officers won't see
+    # the button until they're also granted contributor).
+    static_roles: list[str] = []
 
 
 @router.get("/auth/login")
@@ -120,7 +126,13 @@ async def me(request: Request) -> UserResponse:
         access_status = "approved"
     else:
         access_status = await get_user_access_status(user["id"])
-    return UserResponse(**user, is_admin=user["id"] in _ADMIN_IDS, access_status=access_status)
+    static_roles = await list_roles_for_user(user["id"])
+    return UserResponse(
+        **user,
+        is_admin=user["id"] in _ADMIN_IDS,
+        access_status=access_status,
+        static_roles=static_roles,
+    )
 
 
 @router.post("/auth/logout")

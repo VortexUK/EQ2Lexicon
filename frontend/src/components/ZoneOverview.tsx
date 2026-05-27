@@ -70,11 +70,13 @@ const MARKDOWN_COMPONENTS: Components = {
 
 export function ZoneOverview({ zoneName }: Props) {
   const auth = useAuth()
-  const canEdit = auth.status === 'authenticated' && auth.user.is_admin
-  // NB: officer-rank users also pass the backend gate, but useAuth doesn't
-  // expose that to the client. So non-admin officers won't see the Edit
-  // button — they could PUT via curl, but the UI affordance is admin-only
-  // for now. A future "is_writer" boolean on the auth response cleans this up.
+  // Edit affordance is shown for admins AND DB-granted contributors. Officers
+  // also pass the backend gate but aren't surfaced here (dynamic check; would
+  // need a Census round-trip on every page load — see useAuth's static_roles
+  // doc-comment for the trade-off).
+  const canEdit =
+    auth.status === 'authenticated' &&
+    (auth.user.is_admin || auth.user.static_roles.includes('contributor'))
 
   const [data, setData] = useState<ZoneOverviewResponse | null>(null)
   const [loading, setLoading] = useState(true)

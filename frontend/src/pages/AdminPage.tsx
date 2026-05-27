@@ -15,6 +15,10 @@ interface UserItem {
   last_seen:        number
   access_status:    string
   claim_count:      number
+  /** DB-granted roles (e.g. 'contributor'). Doesn't include 'admin' or
+   * 'officer' — see UserResponse.static_roles in useAuth.ts for the
+   * trade-off. */
+  roles:            string[]
 }
 
 interface ClaimDetail {
@@ -127,6 +131,22 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
     }
   }
 
+  // Grant / revoke role helper. The backend rejects unknown role names so the
+  // UI just sends the literal — only 'contributor' wired today, but the shape
+  // (POST to grant, DELETE to revoke) extends to future roles unchanged.
+  async function toggleRole(role: string, grant: boolean) {
+    setBusy(true)
+    try {
+      await fetch(`/api/admin/users/${user.discord_id}/roles/${role}`, {
+        method: grant ? 'POST' : 'DELETE',
+        credentials: 'include',
+      })
+      onAction()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const displayName = user.discord_name ?? user.discord_username ?? 'Unknown'
   const badgeStyle  = ACCESS_BADGE[user.access_status] ?? ACCESS_BADGE.denied
 
@@ -167,6 +187,45 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
       {/* Claims */}
       <td className={`${TD_CLS} text-center ${user.claim_count ? 'text-text' : 'text-text-muted'}`}>
         {user.claim_count}
+      </td>
+
+      {/* Roles — chips + toggle. Contributor is the only DB-granted role
+          today; the layout already accommodates a multi-chip future shape. */}
+      <td className={TD_CLS}>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {user.roles.map(role => (
+            <span
+              key={role}
+              className="text-[0.7rem] text-gold-bright bg-gold/15 border border-gold/40 rounded-sm px-1.5 py-[1px] uppercase tracking-[0.04em]"
+            >
+              {role}
+            </span>
+          ))}
+          {user.roles.length === 0 && (
+            <span className="text-text-muted text-[0.72rem]">—</span>
+          )}
+          {user.roles.includes('contributor') ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => toggleRole('contributor', false)}
+              disabled={busy}
+              title="Revoke contributor role"
+            >
+              Revoke
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => toggleRole('contributor', true)}
+              disabled={busy}
+              title="Grant the contributor role (can edit raid strategies + overviews)"
+            >
+              Make contributor
+            </Button>
+          )}
+        </div>
       </td>
 
       {/* Actions */}
@@ -248,13 +307,14 @@ function UsersTable({ users, onAction }: { users: UserItem[]; onAction: () => vo
               <th className={TH_CLS}>Joined</th>
               <th className={TH_CLS}>Status</th>
               <th className={`${TH_CLS} text-center`}>Claims</th>
+              <th className={TH_CLS}>Roles</th>
               <th className={TH_CLS}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={5} className={`${TD_CLS} text-text-muted text-center p-6`}>
+                <td colSpan={6} className={`${TD_CLS} text-text-muted text-center p-6`}>
                   No users.
                 </td>
               </tr>

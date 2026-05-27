@@ -1,19 +1,21 @@
 """
 GET  /api/zones/{zone}/encounters/{position}/strategy
-PUT  /api/zones/{zone}/encounters/{position}/strategy             (officer/admin)
+PUT  /api/zones/{zone}/encounters/{position}/strategy             (editor-gated)
 GET  /api/zones/{zone}/encounters/{position}/strategy/revisions   (history)
 GET  /api/zones/{zone}/overview                                   (zone-level)
-PUT  /api/zones/{zone}/overview                                   (officer/admin)
+PUT  /api/zones/{zone}/overview                                   (editor-gated)
 
 Read-write surface for raid strategy markdown — per-encounter strategies and
 zone-level overview. Bodies live in ``census/raids_db.py`` (separate SQLite
-file from the zones DB).
+file from the zones DB). Write gate is ``require_editor`` from
+``web/auth_deps.py`` (admin / contributor / officer — see that module's
+docstring for the role model).
 
 For encounters, the revision history is recorded automatically by
 ``upsert_raid_encounter`` so this route doesn't have to think about it on the
 write path — only surface it on the read path via the ``/revisions`` endpoint.
 
-Zone overviews share the officer/admin gate but don't (yet) carry a per-field
+Zone overviews share the editor gate but don't (yet) carry a per-field
 revision history — only ``last_edited_at`` + ``last_edited_by`` are stamped on
 the zone row. A future raid_zone_revisions table can layer in without changing
 this route shape.
@@ -34,21 +36,20 @@ import asyncio
 import sqlite3
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from census import raids_db, zones_db
-from web.auth_deps import is_admin, require_user_session
+from web.auth_deps import require_editor
 from web.cache import character_cache
 from web.config import WORLD as _WORLD
 from web.db import get_active_claims
-from web.routes.guild import _officer_chars
 
 router = APIRouter(tags=["raid_strategies"])
 
 
 # ---------------------------------------------------------------------------
-# Auth — officer-or-admin
+# Primary-guild resolution (shared with web/auth_deps.require_editor)
 # ---------------------------------------------------------------------------
 
 
@@ -57,7 +58,11 @@ async def _resolve_primary_guild_cached(discord_id: str) -> str | None:
 
     Cache-only (no Census fallback) — kept hot so the auth check stays cheap.
     A cold cache returns None and the caller 403s; visiting the character
-    page once warms it. Mirrors the cheap branch of zones.py's resolver."""
+    page once warms it. Mirrors the cheap branch of zones.py's resolver.
+
+    Lives here rather than in web/auth_deps.py because raids_db isn't an auth
+    concept — auth_deps imports this lazily inside ``require_editor`` to skirt
+    the routes→auth circular dependency."""
     claims = await get_active_claims(discord_id)
     primary = next((c for c in claims["approved"] if c.get("is_primary")), None)
     if not primary:
@@ -67,35 +72,6 @@ async def _resolve_primary_guild_cached(discord_id: str) -> str | None:
     if cached is None:
         return None
     return getattr(cached, "guild_name", None) or (cached.get("guild_name") if isinstance(cached, dict) else None)
-
-
-async def require_officer_or_admin(request: Request) -> dict:
-    """Strategy-write gate.
-
-    Allows the request through if the session user is either:
-      * in ``ADMIN_DISCORD_IDS``, or
-      * a recognised officer (rank in ``_OFFICER_RANKS``) in their primary
-        character's guild.
-
-    Future extension point: a "contributor" tag stored on the user row (or a
-    third claim status) would slot in as a third allowed branch here without
-    touching the route itself.
-    """
-    user = require_user_session(request)
-    if is_admin(user):
-        return user
-
-    discord_id = user["id"]
-    guild_name = await _resolve_primary_guild_cached(discord_id)
-    if not guild_name:
-        # No primary character, or cache is cold — fail closed. Visiting
-        # /character/<name> once warms the cache for subsequent calls.
-        raise HTTPException(status_code=403, detail="Strategy editing requires officer rank or admin.")
-
-    officer_chars = await _officer_chars(discord_id, guild_name)
-    if not officer_chars:
-        raise HTTPException(status_code=403, detail="Strategy editing requires officer rank or admin.")
-    return user
 
 
 # ---------------------------------------------------------------------------
@@ -404,13 +380,13 @@ async def put_strategy(
     zone_name: str,
     position: int,
     body: StrategyUpdateRequest,
-    user: dict = Depends(require_officer_or_admin),
+    user: dict = Depends(require_editor),
 ) -> StrategyResponse:
     """Replace the encounter's strategy. Records a revision automatically.
 
-    Gated to admins and recognised officers (see ``require_officer_or_admin``).
-    A future per-zone authz rule can swap in here without touching the rest
-    of the route.
+    Gated by ``require_editor`` — admin, contributor, or officer. A future
+    per-zone authz rule can swap in here without touching the rest of the
+    route.
     """
     if not body.markdown.strip():
         raise HTTPException(status_code=400, detail="markdown body is empty")
@@ -522,9 +498,9 @@ async def get_zone_overview(zone_name: str) -> ZoneOverviewResponse:
 async def put_zone_overview(
     zone_name: str,
     body: ZoneOverviewUpdateRequest,
-    user: dict = Depends(require_officer_or_admin),
+    user: dict = Depends(require_editor),
 ) -> ZoneOverviewResponse:
-    """Replace the zone's overview markdown. Same officer/admin gate as the
+    """Replace the zone's overview markdown. Same editor gate as the
     encounter strategy editor. Does NOT touch access_md or background_md."""
     if not body.markdown.strip():
         raise HTTPException(status_code=400, detail="markdown body is empty")

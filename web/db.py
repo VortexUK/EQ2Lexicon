@@ -76,6 +76,40 @@ CREATE TABLE IF NOT EXISTS item_watch (
 
 CREATE INDEX IF NOT EXISTS idx_watch_guild ON item_watch(guild_name);
 
+-- Persistent, admin-grantable roles.
+--
+-- The role-source layering for content-edit gates is:
+--   admin       — env-driven (ADMIN_DISCORD_IDS). Stays out of this table so
+--                 a DB wipe can't lock admins out.
+--   contributor — DB-driven via this table (admin-grantable from the UI).
+--   officer     — dynamic, computed from Census guild rank at request time;
+--                 never persisted here.
+--
+-- One row per (user, role) pair. Adding a new role to the system is data, not
+-- schema — just start inserting rows under a new role name and gate it where
+-- appropriate.
+--
+-- TODO(future): per-role permission system. Today the role → capability
+-- mapping is hardcoded inside `require_editor` (and any future require_X).
+-- When the codebase grows >1 capability dimensions, layer a `role_permissions`
+-- table (role TEXT, capability TEXT) on top of this and have the deps consult
+-- it instead of hardcoded role names. Until then YAGNI.
+--
+-- TODO(future): self-service role requests. Users could submit a "I'd like
+-- the contributor role" request that lands in a queue for admin review
+-- (mirrors the character_claims pattern). A `role_requests` table with
+-- (discord_id, role, requested_at, status, reviewed_by, note) is the obvious
+-- shape. For now grants are admin-initiated only.
+CREATE TABLE IF NOT EXISTS user_roles (
+    discord_id  TEXT    NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
+    role        TEXT    NOT NULL,
+    granted_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    granted_by  TEXT    NOT NULL,           -- discord_id of the granting admin
+    PRIMARY KEY (discord_id, role)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role);
+
 CREATE TABLE IF NOT EXISTS api_tokens (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         TEXT    NOT NULL REFERENCES users(discord_id),
@@ -226,6 +260,80 @@ async def set_user_access(discord_id: str, status: str, path: Path = DB_PATH) ->
         )
         await db.commit()
     return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Role helpers
+# ---------------------------------------------------------------------------
+#
+# Role strings are validated at the route layer (against the KNOWN_ROLES set in
+# web/auth_deps.py) — these helpers accept any string so test fixtures and
+# future roles don't need a DB-layer code change.
+
+
+async def grant_role(
+    discord_id: str,
+    role: str,
+    granted_by: str,
+    path: Path = DB_PATH,
+) -> bool:
+    """Grant a role to a user. Idempotent — re-granting an existing (user,
+    role) pair is a no-op (returns False). Returns True when a new row was
+    actually inserted."""
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute(
+            "INSERT OR IGNORE INTO user_roles (discord_id, role, granted_by) VALUES (?, ?, ?)",
+            (discord_id, role, granted_by),
+        )
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def revoke_role(discord_id: str, role: str, path: Path = DB_PATH) -> bool:
+    """Revoke a role. Returns True if a row was deleted (i.e. the user had it)."""
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute(
+            "DELETE FROM user_roles WHERE discord_id = ? AND role = ?",
+            (discord_id, role),
+        )
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def list_roles_for_user(discord_id: str, path: Path = DB_PATH) -> list[str]:
+    """All roles assigned to a single user, sorted for stable display."""
+    async with aiosqlite.connect(path) as db:
+        async with db.execute(
+            "SELECT role FROM user_roles WHERE discord_id = ? ORDER BY role",
+            (discord_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [r[0] for r in rows]
+
+
+async def has_role(discord_id: str, role: str, path: Path = DB_PATH) -> bool:
+    """Cheap (indexed) existence check — used on the hot path of the editor
+    auth dep, so kept as a single-row SELECT rather than reusing list_roles."""
+    async with aiosqlite.connect(path) as db:
+        async with db.execute(
+            "SELECT 1 FROM user_roles WHERE discord_id = ? AND role = ? LIMIT 1",
+            (discord_id, role),
+        ) as cur:
+            return await cur.fetchone() is not None
+
+
+async def list_role_assignments(path: Path = DB_PATH) -> dict[str, list[str]]:
+    """Return ``{discord_id: [role, …]}`` for every user with at least one role.
+
+    Used by the admin user-list endpoint to join roles in without N+1 queries
+    against ``list_roles_for_user``."""
+    async with aiosqlite.connect(path) as db:
+        async with db.execute("SELECT discord_id, role FROM user_roles ORDER BY discord_id, role") as cur:
+            rows = await cur.fetchall()
+    out: dict[str, list[str]] = {}
+    for discord_id, role in rows:
+        out.setdefault(discord_id, []).append(role)
+    return out
 
 
 # ---------------------------------------------------------------------------
