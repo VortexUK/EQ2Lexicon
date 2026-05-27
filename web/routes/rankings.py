@@ -266,9 +266,13 @@ def _build_filters(kills: list[dict]) -> dict:
     if has_other_raid:
         raid_expansions.append({"short": "Other", "name": "Other"})
 
-    env_xpac = os.getenv("SERVER_CURRENT_XPAC")
-    valid = {e["short"] for e in raid_expansions}
-    default_expansion = env_xpac if env_xpac in valid else (raid_expansions[0]["short"] if raid_expansions else None)
+    # SERVER_CURRENT_XPAC may be the short code ("EoF") or the full expansion
+    # name ("Echoes of Faydwer"), case-insensitive; unknown/unset → most recent.
+    env_xpac = (os.getenv("SERVER_CURRENT_XPAC") or "").strip().lower()
+    default_expansion = next(
+        (e["short"] for e in raid_expansions if env_xpac in (e["short"].lower(), e["name"].lower())),
+        raid_expansions[0]["short"] if raid_expansions else None,
+    )
 
     scopes: list[dict] = []
     if raid_zones:

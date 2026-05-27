@@ -288,7 +288,13 @@ class TestFilters:
             assert {z["zone"]: z["expansion"] for z in raid["zones"]} == {"VP": "RoK", "EH": "EoF"}
 
             monkeypatch.setenv("SERVER_CURRENT_XPAC", "EoF")
-            assert _build_filters([])["default_expansion"] == "EoF"  # valid env wins
+            assert _build_filters([])["default_expansion"] == "EoF"  # short code
+
+            monkeypatch.setenv("SERVER_CURRENT_XPAC", "Echoes of Faydwer")
+            assert _build_filters([])["default_expansion"] == "EoF"  # full name
+
+            monkeypatch.setenv("SERVER_CURRENT_XPAC", "echoes of faydwer")
+            assert _build_filters([])["default_expansion"] == "EoF"  # case-insensitive
 
             monkeypatch.setenv("SERVER_CURRENT_XPAC", "ZZZ")
             assert _build_filters([])["default_expansion"] == "RoK"  # invalid env → most recent

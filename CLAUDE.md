@@ -80,7 +80,7 @@ Tailwind v4 is the **single** styling system. There is no `tailwind.config.js` a
 | `DISCORD_TOKEN` | Bot token from Discord developer portal |
 | `CENSUS_SERVICE_ID` | Census API service ID (default `example`, rate-limited) |
 | `EQ2_WORLD` | EQ2 server name used for guild/spellcheck/aacheck lookups (default `Varsoon`) |
-| `SERVER_CURRENT_XPAC` | Expansion short code (e.g. `EoF`, `RoK`) the rankings page defaults its Expansion selector to. Falls back to the most recent expansion that has raids in zones.db if unset or unknown. |
+| `SERVER_CURRENT_XPAC` | Expansion the rankings page defaults its Expansion selector to — accepts the short code (`EoF`) or the full name (`Echoes of Faydwer`), case-insensitive. Falls back to the most recent expansion that has raids in zones.db if unset or unknown. |
 | `ADMIN_DISCORD_IDS` | Comma-separated Discord IDs allowed to hit `/api/admin/*` and delete arbitrary parses |
 | `USERS_DB_PATH` | Override the default `data/users.db` location (set on Railway to the persistent-volume mount) |
 | `PARSES_DB_PATH` | Override the default `data/parses/parses.db` location (set on Railway to the persistent-volume mount) |
