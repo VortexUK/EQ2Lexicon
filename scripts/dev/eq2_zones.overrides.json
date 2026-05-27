@@ -31,5 +31,9 @@
   "Plane of Sky": {
     "expansion": "KoS",
     "reason": "Original Kingdom of Sky (Feb 2006) signature zone."
+  },
+  "Deathfist Citadel": {
+    "expansion": "Vanilla",
+    "reason": "Original Shattered Lands group zone in Zek (2004). The wiki tags this as 'introduced in LU33' which dates the LU33 *revamp* (Nov 2006, EoF era), not the zone's original introduction. The Assault and Onslaught sub-zones are already correctly attributed to Vanilla."
   }
 }

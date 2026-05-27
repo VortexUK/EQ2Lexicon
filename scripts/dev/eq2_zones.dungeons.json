@@ -1,0 +1,30 @@
+{
+  "_doc": [
+    "Max-level group instances per expansion — the 'endgame dungeons' tier of",
+    "heroic group content. Drives the Dungeons category on the rankings page.",
+    "",
+    "Each key is the EXACT canonical zone name as it appears in eq2_zones.json.",
+    "Each value is the list of zones that count as endgame dungeons for that",
+    "expansion. The builder (scripts/build_zones_db.py) inserts a 'dungeon' row",
+    "into zone_types for each named zone — so a zone gets BOTH the existing",
+    "'group' (and/or 'solo_or_group') type AND the new 'dungeon' overlay.",
+    "",
+    "Querying:",
+    "  zones_db.list_by_expansion('EoF', type_filter='dungeon')   # → these 5",
+    "",
+    "Curation rule of thumb: include zones that level-capped raid groups farmed",
+    "for top-tier heroic gear during that expansion's cycle. Quest-flagging",
+    "instances, levelling content, and contested-zone shards don't count.",
+    "",
+    "Keys starting with '_' (like this one) are ignored by the loader so we can",
+    "keep documentation in the same file."
+  ],
+
+  "EoF": [
+    "Crypt of Valdoon",
+    "The Acadechism",
+    "The Obelisk of Blight",
+    "The Estate of Unrest",
+    "Shard of Fear"
+  ]
+}

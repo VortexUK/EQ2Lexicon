@@ -15,12 +15,12 @@
       "contested_raid": 1
     },
     "expansion_counts": {
-      "Vanilla": 200,
+      "Vanilla": 201,
       "DoV": 84,
       "TSO": 74,
       "DoF": 65,
       "AoM": 53,
-      "EoF": 53,
+      "EoF": 52,
       "ToV": 48,
       "KA": 44,
       "SF": 40,
@@ -44,11 +44,11 @@
     },
     "expansion_confidence_counts": {
       "category": 867,
-      "live_update": 217,
+      "live_update": 216,
       "live_event": 23,
       "location_prefix": 6,
       "update_date": 6,
-      "manual_override": 4,
+      "manual_override": 5,
       "name_keyword": 3
     },
     "type_resolutions": {
@@ -13955,11 +13955,11 @@
           "group"
         ],
         "expansion": {
-          "short": "EoF",
-          "name": "Echoes of Faydwer",
-          "year": 2006,
-          "confidence": "live_update",
-          "source": "introduced in LU33"
+          "short": "Vanilla",
+          "name": "Shattered Lands",
+          "year": 2004,
+          "confidence": "manual_override",
+          "source": "Original Shattered Lands group zone in Zek (2004). The wiki tags this as 'introduced in LU33' which dates the LU33 *revamp* (Nov 2006, EoF era), not the zone's original introduction. The Assault and Onslaught sub-zones are already correctly attributed to Vanilla."
         },
         "is_persistent_instance": true,
         "is_endless_persistent": false,
@@ -48413,7 +48413,7 @@
           "name": "Splitpaw Saga",
           "year": 2005,
           "confidence": "category",
-          "source": "category 'Splitpaw Saga Zones'"
+          "source": "category 'Splitpaw Saga Instances'"
         },
         "is_persistent_instance": false,
         "is_endless_persistent": true,
@@ -57228,7 +57228,7 @@
           "name": "Visions of Vetrovia",
           "year": 2021,
           "confidence": "update_date",
-          "source": "wiki 'Update 2022.08.09'"
+          "source": "wiki 'Update 2022.08.09 Instances'"
         },
         "is_persistent_instance": true,
         "is_endless_persistent": false,
@@ -57293,7 +57293,7 @@
           "name": "Visions of Vetrovia",
           "year": 2021,
           "confidence": "update_date",
-          "source": "wiki 'Update 2022.08.09'"
+          "source": "wiki 'Update 2022.08.09 Instances'"
         },
         "is_persistent_instance": false,
         "is_endless_persistent": false,

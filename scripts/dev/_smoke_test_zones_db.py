@@ -123,7 +123,35 @@ rok_groups = zones_db.list_by_expansion("RoK", type_filter="group")
 check("RoK group returns 11 zones (matches JSON smoke test)", len(rok_groups) == 11, f"got {len(rok_groups)}")
 
 vanilla_all = zones_db.list_by_expansion("Vanilla")
-check("Vanilla (no filter) returns 200 zones", len(vanilla_all) == 200, f"got {len(vanilla_all)}")
+# Count bumps when overrides reattribute a non-Vanilla zone back to Vanilla
+# (e.g. Deathfist Citadel — the standalone entry the wiki marks "introduced
+# in LU33" was actually a Vanilla zone with a LU33 revamp). Tweak the
+# expected number as overrides land.
+check("Vanilla (no filter) returns 201 zones", len(vanilla_all) == 201, f"got {len(vanilla_all)}")
+
+# ── Dungeons overlay (max-level group instances per expansion) ────────
+print("\n--- 'dungeon' overlay ---")
+eof_dungeons = zones_db.list_by_expansion("EoF", type_filter="dungeon")
+eof_dungeon_names = sorted(z["name"] for z in eof_dungeons)
+expected_eof_dungeons = sorted(
+    [
+        "Crypt of Valdoon",
+        "Shard of Fear",
+        "The Acadechism",
+        "The Estate of Unrest",
+        "The Obelisk of Blight",
+    ]
+)
+check(
+    "EoF has 5 'dungeon'-tagged zones (max-level group instances)",
+    len(eof_dungeons) == 5,
+    f"got {len(eof_dungeons)}",
+)
+check(
+    "EoF dungeon names match the curated set",
+    eof_dungeon_names == expected_eof_dungeons,
+    f"got {eof_dungeon_names}",
+)
 
 # ── list_by_event ─────────────────────────────────────────────────────
 print("\n--- list_by_event ---")
