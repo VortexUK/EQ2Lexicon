@@ -102,16 +102,24 @@ const navLinkStyle = ({ isActive }: { isActive: boolean }): CSSProperties => ({
  * absolute URL pointing at {subdomain}.eq2lexicon.com so the link is still
  * useful even in dev.
  */
-function buildSwitchUrl(subdomain: string): string {
+function buildSwitchUrl(targetSubdomain: string, activeSubdomain: string | undefined): string {
   const { protocol, host, pathname, search, hash } = window.location
-  const dotIdx = host.indexOf('.')
-  if (dotIdx !== -1) {
-    // Replace the first label: "varsoon.eq2lexicon.com" → "wuoshi.eq2lexicon.com"
-    const rest = host.slice(dotIdx) // ".eq2lexicon.com"
-    return `${protocol}//${subdomain}${rest}${pathname}${search}${hash}`
+  // Derive the base domain by stripping the ACTIVE server's subdomain label if
+  // the current host carries it. On a subdomain host ("varsoon.eq2lexicon.com",
+  // active "varsoon") base = "eq2lexicon.com". On the apex ("eq2lexicon.com",
+  // which serves the default server) the host does NOT start with the active
+  // subdomain, so base = the host as-is — NOT a blind first-label strip (which
+  // turned "eq2lexicon.com" into ".com" → "wuoshi.com").
+  let base = host
+  if (activeSubdomain && host.toLowerCase().startsWith(`${activeSubdomain.toLowerCase()}.`)) {
+    base = host.slice(activeSubdomain.length + 1)
   }
-  // localhost or IP — link to the canonical subdomain on the live domain
-  return `${protocol}//${subdomain}.eq2lexicon.com${pathname}${search}${hash}`
+  // localhost / IP without a domain → fall back to the live domain so the link
+  // is still useful in dev.
+  if (!base.includes('.')) {
+    base = 'eq2lexicon.com'
+  }
+  return `${protocol}//${targetSubdomain}.${base}${pathname}${search}${hash}`
 }
 
 /**
@@ -123,6 +131,7 @@ function ServerBadge() {
   if (!server) return null
 
   const others = server.servers.filter(s => s.world !== server.world)
+  const activeSubdomain = server.servers.find(s => s.world === server.world)?.subdomain
 
   return (
     <div className="flex items-center gap-2 ml-2">
@@ -144,7 +153,7 @@ function ServerBadge() {
           {others.map(s => (
             <a
               key={s.world}
-              href={buildSwitchUrl(s.subdomain)}
+              href={buildSwitchUrl(s.subdomain, activeSubdomain)}
               className="font-heading text-[0.65rem] font-semibold tracking-[0.1em] uppercase px-[0.4rem] py-[0.18rem] rounded-sm no-underline transition-colors duration-150"
               style={{
                 color: 'var(--gold-dim)',
