@@ -54,6 +54,7 @@ from web.routes.parses import router as parses_router
 from web.routes.raid_strategies import router as raid_strategies_router
 from web.routes.rankings import router as rankings_router
 from web.routes.recipes import router as recipes_router
+from web.routes.role_requests import router as role_requests_router
 from web.routes.zones import router as zones_router
 
 _log = logging.getLogger(__name__)
@@ -300,6 +301,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     app.include_router(classes_router, prefix="/api")
     app.include_router(zones_router, prefix="/api")
     app.include_router(raid_strategies_router, prefix="/api")
+    app.include_router(role_requests_router, prefix="/api")
 
     # ── /metrics — Prometheus text format ───────────────────────────────────
     # Runs synchronously (FastAPI auto-offloads sync def to a thread pool)

@@ -13,6 +13,7 @@ import RaidZonePage from './pages/RaidZonePage'
 import RaidZonesPage from './pages/RaidZonesPage'
 import RankingsPage from './pages/RankingsPage'
 import RecipesPage from './pages/RecipesPage'
+import RolesSettingsPage from './pages/RolesSettingsPage'
 import TokensPage from './pages/TokensPage'
 import { CharacterSearchPage, GuildSearchPage } from './pages/SearchPage'
 import UserWidget from './components/UserWidget'
@@ -211,6 +212,7 @@ function App() {
         <Route path="/rankings"    element={<RankingsPage />} />
         <Route path="/parse/:id"   element={<ParsePage />} />
         <Route path="/settings/tokens" element={<TokensPage />} />
+        <Route path="/settings/roles" element={<RolesSettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

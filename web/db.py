@@ -95,11 +95,6 @@ CREATE INDEX IF NOT EXISTS idx_watch_guild ON item_watch(guild_name);
 -- table (role TEXT, capability TEXT) on top of this and have the deps consult
 -- it instead of hardcoded role names. Until then YAGNI.
 --
--- TODO(future): self-service role requests. Users could submit a "I'd like
--- the contributor role" request that lands in a queue for admin review
--- (mirrors the character_claims pattern). A `role_requests` table with
--- (discord_id, role, requested_at, status, reviewed_by, note) is the obvious
--- shape. For now grants are admin-initiated only.
 CREATE TABLE IF NOT EXISTS user_roles (
     discord_id  TEXT    NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
     role        TEXT    NOT NULL,
@@ -109,6 +104,38 @@ CREATE TABLE IF NOT EXISTS user_roles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role);
+
+-- Self-service role requests. Mirrors the character_claims queue pattern:
+-- users submit, admin reviews, request transitions through statuses. On
+-- approval the route also writes a row into user_roles so the request +
+-- the grant are decoupled (an approved request is immutable history; the
+-- grant can be independently revoked).
+--
+-- Status transitions:
+--   pending     — submitted by the user, awaiting admin review
+--   approved    — admin approved + user_roles row inserted
+--   rejected    — admin rejected (admin_note may carry the reason)
+--   withdrawn   — user cancelled their own pending request
+CREATE TABLE IF NOT EXISTS role_requests (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_id   TEXT    NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
+    role         TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'pending',
+    requested_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    reviewed_at  INTEGER,
+    reviewed_by  TEXT,                                 -- admin's discord_id
+    user_note    TEXT,                                 -- "why I want this" note
+    admin_note   TEXT                                  -- admin's response note
+);
+
+CREATE INDEX IF NOT EXISTS idx_role_requests_status  ON role_requests(status);
+CREATE INDEX IF NOT EXISTS idx_role_requests_discord ON role_requests(discord_id);
+
+-- Only one pending request per (user, role) — a second submit while one's
+-- in flight is rejected by the route. Resolved requests (approved/rejected/
+-- withdrawn) can coexist for the same (user, role) for the audit trail.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_role_requests_one_pending
+    ON role_requests(discord_id, role) WHERE status = 'pending';
 
 CREATE TABLE IF NOT EXISTS api_tokens (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -320,6 +347,140 @@ async def has_role(discord_id: str, role: str, path: Path = DB_PATH) -> bool:
             (discord_id, role),
         ) as cur:
             return await cur.fetchone() is not None
+
+
+async def create_role_request(
+    discord_id: str,
+    role: str,
+    user_note: str | None,
+    path: Path = DB_PATH,
+) -> int:
+    """Submit a pending role request. Raises ``sqlite3.IntegrityError`` if the
+    user already has a pending request for this role (the partial unique index
+    on (discord_id, role) WHERE status='pending' enforces it). Returns the new
+    request's id."""
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute(
+            "INSERT INTO role_requests (discord_id, role, user_note) VALUES (?, ?, ?)",
+            (discord_id, role, user_note),
+        )
+        await db.commit()
+    return int(cur.lastrowid or 0)
+
+
+async def list_role_requests(
+    *,
+    status: str | None = None,
+    discord_id: str | None = None,
+    path: Path = DB_PATH,
+) -> list[dict]:
+    """List role requests, optionally filtered. Pending sorted oldest-first
+    (queue order); everything else newest-first (audit-trail browsing).
+
+    Joins the user table so callers can render the requester without a
+    second lookup — admin queue needs the name; user-list of own history
+    technically doesn't but the cost is zero."""
+    where: list[str] = []
+    params: list = []
+    if status is not None:
+        where.append("rr.status = ?")
+        params.append(status)
+    if discord_id is not None:
+        where.append("rr.discord_id = ?")
+        params.append(discord_id)
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    # Pending: oldest first (FIFO queue). Anything resolved: newest first.
+    order_sql = (
+        "ORDER BY rr.requested_at ASC, rr.id ASC"
+        if status == "pending"
+        else "ORDER BY rr.requested_at DESC, rr.id DESC"
+    )
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"""
+            SELECT rr.id, rr.discord_id, rr.role, rr.status,
+                   rr.requested_at, rr.reviewed_at, rr.reviewed_by,
+                   rr.user_note, rr.admin_note,
+                   u.discord_name, u.discord_username, u.avatar
+            FROM role_requests rr
+            LEFT JOIN users u ON u.discord_id = rr.discord_id
+            {where_sql}
+            {order_sql}
+            """,
+            params,
+        ) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_role_request(request_id: int, path: Path = DB_PATH) -> dict | None:
+    """Single-row fetch, same shape as list_role_requests entries. Used by the
+    admin approve/reject endpoints for the 404 check + the role/discord_id
+    payload that the grant flow needs."""
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT rr.id, rr.discord_id, rr.role, rr.status,
+                   rr.requested_at, rr.reviewed_at, rr.reviewed_by,
+                   rr.user_note, rr.admin_note,
+                   u.discord_name, u.discord_username, u.avatar
+            FROM role_requests rr
+            LEFT JOIN users u ON u.discord_id = rr.discord_id
+            WHERE rr.id = ?
+            """,
+            (request_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def review_role_request(
+    request_id: int,
+    status: str,
+    reviewed_by: str,
+    admin_note: str | None = None,
+    path: Path = DB_PATH,
+) -> dict | None:
+    """Approve or reject a pending request. Returns the updated row, or None
+    if no pending request with that id exists (already resolved, or unknown)."""
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute(
+            """
+            UPDATE role_requests SET
+                status      = ?,
+                reviewed_at = strftime('%s','now'),
+                reviewed_by = ?,
+                admin_note  = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (status, reviewed_by, admin_note, request_id),
+        )
+        await db.commit()
+        if cur.rowcount == 0:
+            return None
+    return await get_role_request(request_id, path=path)
+
+
+async def withdraw_role_request(
+    request_id: int,
+    discord_id: str,
+    path: Path = DB_PATH,
+) -> bool:
+    """User-initiated cancellation. Scoped to the requester so one user can't
+    withdraw another's request. Only pending requests can be withdrawn —
+    historical rows stay immutable. Returns True if a row transitioned."""
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute(
+            """
+            UPDATE role_requests SET status = 'withdrawn'
+            WHERE id = ? AND discord_id = ? AND status = 'pending'
+            """,
+            (request_id, discord_id),
+        )
+        await db.commit()
+    return cur.rowcount > 0
 
 
 async def list_role_assignments(path: Path = DB_PATH) -> dict[str, list[str]]:

@@ -47,6 +47,21 @@ interface AdminParse {
   hidden:        boolean
 }
 
+interface RoleRequest {
+  id:               number
+  discord_id:       string
+  discord_name:     string | null
+  discord_username: string | null
+  avatar:           string | null
+  role:             string
+  status:           'pending' | 'approved' | 'rejected' | 'withdrawn'
+  requested_at:     number
+  reviewed_at:      number | null
+  reviewed_by:      string | null
+  user_note:        string | null
+  admin_note:       string | null
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const discordAvatar = discordAvatarUrl
@@ -533,6 +548,124 @@ function ClaimsTable({ claims, onAction }: { claims: ClaimDetail[]; onAction: ()
   )
 }
 
+
+// ── Role requests table ──────────────────────────────────────────────────────
+
+function RoleRequestRow({ request, onAction }: { request: RoleRequest; onAction: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [noteOpen, setNoteOpen] = useState<'approve' | 'reject' | null>(null)
+  const [adminNote, setAdminNote] = useState('')
+
+  async function decide(action: 'approve' | 'reject') {
+    setBusy(true)
+    try {
+      await fetch(`/api/admin/role-requests/${request.id}/${action}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: adminNote.trim() || null }),
+      })
+      onAction()
+    } finally {
+      setBusy(false)
+      setNoteOpen(null)
+      setAdminNote('')
+    }
+  }
+
+  const displayName = request.discord_name ?? request.discord_username ?? 'Unknown'
+
+  return (
+    <tr>
+      <td className={TD_CLS}>
+        <div className="flex items-center gap-2">
+          <img
+            src={discordAvatar(request.discord_id, request.avatar)}
+            alt=""
+            width={28} height={28}
+            className="rounded-full shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="font-semibold text-[0.88rem] leading-[1.2]">{displayName}</div>
+            {request.discord_username && request.discord_username !== request.discord_name && (
+              <div className="text-text-muted text-[0.72rem]">{request.discord_username}</div>
+            )}
+          </div>
+        </div>
+      </td>
+      <td className={`${TD_CLS} capitalize`}>{request.role}</td>
+      <td className={`${TD_CLS} text-text-muted whitespace-nowrap`}>
+        <span title={fmt(request.requested_at)}>{relativeTime(request.requested_at)}</span>
+      </td>
+      <td className={`${TD_CLS} text-text-muted text-[0.82rem] max-w-[28rem]`}>
+        {request.user_note ? <em>"{request.user_note}"</em> : '—'}
+      </td>
+      <td className={`${TD_CLS} whitespace-nowrap`}>
+        {noteOpen ? (
+          <div className="flex flex-col gap-1 min-w-[18rem]">
+            <textarea
+              value={adminNote}
+              onChange={e => setAdminNote(e.target.value)}
+              rows={2}
+              placeholder={noteOpen === 'approve' ? 'Optional note (e.g. welcome message)' : 'Optional reason (visible to the requester)'}
+              className="w-full bg-bg/60 border border-border rounded-md p-2 text-[0.82rem] text-text outline-none focus:border-gold/60 resize-y"
+            />
+            <div className="flex items-center gap-[0.35rem] justify-end">
+              <Button variant="ghost" size="sm" onClick={() => { setNoteOpen(null); setAdminNote('') }} disabled={busy}>Cancel</Button>
+              <Button
+                variant={noteOpen === 'approve' ? 'primary' : 'danger'}
+                size="sm"
+                onClick={() => decide(noteOpen)}
+                disabled={busy}
+              >
+                {busy ? '…' : noteOpen === 'approve' ? 'Confirm approve' : 'Confirm reject'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-[0.35rem] flex-wrap">
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => setNoteOpen('approve')}>
+              Approve
+            </Button>
+            <Button variant="danger" size="sm" disabled={busy} onClick={() => setNoteOpen('reject')}>
+              Reject
+            </Button>
+          </div>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+function RoleRequestsTable({ requests, onAction }: { requests: RoleRequest[]; onAction: () => void }) {
+  return (
+    <div className="bg-surface border border-border rounded-[10px] overflow-x-auto">
+      <table className={TABLE_CLS}>
+        <thead>
+          <tr>
+            <th className={TH_CLS}>Requester</th>
+            <th className={TH_CLS}>Role</th>
+            <th className={TH_CLS}>Submitted</th>
+            <th className={TH_CLS}>Note</th>
+            <th className={TH_CLS}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {requests.length === 0 ? (
+            <tr>
+              <td colSpan={5} className={`${TD_CLS} text-text-muted text-center p-6`}>
+                No pending role requests.
+              </td>
+            </tr>
+          ) : (
+            requests.map(r => <RoleRequestRow key={r.id} request={r} onAction={onAction} />)
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ── Parses sanitize table ──────────────────────────────────────────────────────
 
 function ParsesAdminTable() {
@@ -749,6 +882,7 @@ export default function AdminPage() {
   const auth = useAuth()
   const [users,  setUsers]  = useState<UserItem[]>([])
   const [claims, setClaims] = useState<ClaimDetail[]>([])
+  const [roleRequests, setRoleRequests] = useState<RoleRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
 
@@ -756,18 +890,21 @@ export default function AdminPage() {
     setLoading(true)
     setError(null)
     try {
-      const [uRes, cRes] = await Promise.all([
-        fetch('/api/admin/users',  { credentials: 'include' }),
-        fetch('/api/admin/claims', { credentials: 'include' }),
+      const [uRes, cRes, rrRes] = await Promise.all([
+        fetch('/api/admin/users',         { credentials: 'include' }),
+        fetch('/api/admin/claims',        { credentials: 'include' }),
+        fetch('/api/admin/role-requests', { credentials: 'include' }),
       ])
-      if (!uRes.ok || !cRes.ok) {
-        const body = await (uRes.ok ? cRes : uRes).json().catch(() => ({}))
+      if (!uRes.ok || !cRes.ok || !rrRes.ok) {
+        const firstFailed = !uRes.ok ? uRes : !cRes.ok ? cRes : rrRes
+        const body = await firstFailed.json().catch(() => ({}))
         setError(`Error: ${body.detail ?? 'Failed to load admin data'}`)
         return
       }
-      const [u, c] = await Promise.all([uRes.json(), cRes.json()])
+      const [u, c, rr] = await Promise.all([uRes.json(), cRes.json(), rrRes.json()])
       setUsers(u)
       setClaims(c)
+      setRoleRequests(rr)
     } catch {
       setError('Network error — could not load admin data.')
     } finally {
@@ -812,6 +949,17 @@ export default function AdminPage() {
 
       {!loading && !error && (
         <>
+          {/* Pending role requests — surfaced first since admin attention is
+              the bottleneck of the flow. Hidden entirely when empty. */}
+          {roleRequests.length > 0 && (
+            <div className={SECTION_CLS}>
+              <p className={SECTION_TITLE_CLS}>
+                Pending role requests ({roleRequests.length})
+              </p>
+              <RoleRequestsTable requests={roleRequests} onAction={fetchAll} />
+            </div>
+          )}
+
           {/* Users */}
           <div className={SECTION_CLS}>
             <p className={SECTION_TITLE_CLS}>

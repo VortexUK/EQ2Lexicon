@@ -84,6 +84,13 @@ export default function UserWidget() {
           >
             ⚿ API Tokens
           </Link>
+          <Link
+            to="/settings/roles"
+            onClick={() => setOpen(false)}
+            className="block py-[0.6rem] px-4 text-text-muted text-[0.88rem] no-underline border-b border-border"
+          >
+            ✦ Roles
+          </Link>
           {user.is_admin && (
             <Link
               to="/admin"

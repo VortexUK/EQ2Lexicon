@@ -15,11 +15,14 @@ from web.db import (
     delete_claim,
     delete_claims_for_user,
     get_claim_by_id,
+    get_role_request,
     grant_role,
     list_all_users,
     list_claims,
     list_role_assignments,
+    list_role_requests,
     review_claim,
+    review_role_request,
     revoke_role,
     set_user_access,
 )
@@ -197,6 +200,90 @@ async def revoke_user_role(discord_id: str, role: str, request: Request) -> dict
     if not removed:
         raise HTTPException(status_code=404, detail="User does not have this role")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Role-request review queue
+# ---------------------------------------------------------------------------
+#
+# The user-facing submit/withdraw endpoints live in web/routes/role_requests.py
+# — here we just add the admin queue + approve/reject actions.
+#
+# Imported here so admin.py owns the entire admin REST surface; the user-side
+# RoleRequestEntry shape happens to be identical so we reuse it rather than
+# duplicate.
+
+
+from web.routes.role_requests import RoleRequestEntry  # noqa: E402
+
+
+class ReviewRoleRequest(BaseModel):
+    """Body for reject (and optionally approve) — admin's response note."""
+
+    note: str | None = None
+
+
+@router.get("/admin/role-requests", response_model=list[RoleRequestEntry])
+async def list_pending_role_requests(
+    request: Request,
+    status: Literal["pending", "approved", "rejected", "withdrawn"] | None = "pending",
+) -> list[RoleRequestEntry]:
+    """List role requests, defaulting to the pending queue. Pending sorts
+    oldest-first (FIFO); resolved sort newest-first for audit browsing."""
+    _require_admin(request)
+    rows = await list_role_requests(status=status)
+    return [RoleRequestEntry(**r) for r in rows]
+
+
+@router.post("/admin/role-requests/{request_id}/approve", response_model=RoleRequestEntry)
+async def approve_role_request(
+    request_id: int,
+    body: ReviewRoleRequest,
+    request: Request,
+) -> RoleRequestEntry:
+    """Approve a pending request: marks it approved AND inserts the
+    corresponding user_roles row in one logical step.
+
+    Idempotency: if the user already happens to hold the role (e.g. admin
+    granted it directly between submit + approve), the request still flips
+    to approved — grant_role is INSERT OR IGNORE so the role row just stays
+    put."""
+    admin = _require_admin(request)
+    existing = await get_role_request(request_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if existing["status"] != "pending":
+        raise HTTPException(status_code=409, detail=f"Request already {existing['status']}")
+
+    # Mark approved first so a grant-side failure doesn't leave the queue with
+    # a phantom-approved row; if grant_role raises, the request stays pending
+    # for retry. (Single SQLite file — atomicity across two helpers is
+    # best-effort, but ordering matters for the failure mode.)
+    reviewed = await review_role_request(request_id, "approved", admin["id"], body.note)
+    if reviewed is None:
+        # Lost to a concurrent admin (race). Surface as 409 rather than 200.
+        raise HTTPException(status_code=409, detail="Request was reviewed by someone else")
+    await grant_role(existing["discord_id"], existing["role"], admin["id"])
+    return RoleRequestEntry(**reviewed)
+
+
+@router.post("/admin/role-requests/{request_id}/reject", response_model=RoleRequestEntry)
+async def reject_role_request(
+    request_id: int,
+    body: ReviewRoleRequest,
+    request: Request,
+) -> RoleRequestEntry:
+    """Reject a pending request with an optional explanation note."""
+    admin = _require_admin(request)
+    existing = await get_role_request(request_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if existing["status"] != "pending":
+        raise HTTPException(status_code=409, detail=f"Request already {existing['status']}")
+    reviewed = await review_role_request(request_id, "rejected", admin["id"], body.note)
+    if reviewed is None:
+        raise HTTPException(status_code=409, detail="Request was reviewed by someone else")
+    return RoleRequestEntry(**reviewed)
 
 
 @router.get("/admin/parses", response_model=list[AdminParseItem])
