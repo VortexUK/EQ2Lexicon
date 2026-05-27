@@ -26,6 +26,7 @@ class Server:
     max_level: int
     current_xpac: str | None
     launch_dt: str | None
+    is_default: bool = False
 
 
 _by_subdomain: dict[str, Server] = {}
@@ -44,6 +45,7 @@ def _to_server(row: dict) -> Server:
         max_level=row["max_level"],
         current_xpac=row["current_xpac"],
         launch_dt=row["launch_dt"],
+        is_default=bool(row.get("is_default", False)),
     )
 
 
@@ -59,11 +61,18 @@ def load_registry() -> None:
 
 
 def default_server() -> Server:
+    # 1. Prefer the admin-chosen default (is_default=True in the registry).
+    for srv in _by_world.values():
+        if srv.is_default:
+            return srv
+    # 2. Fall back to the EQ2_WORLD-matching server.
     srv = _by_world.get(_DEFAULT_WORLD)
     if srv is not None:
         return srv
+    # 3. First server in the registry (alphabetical by insertion order).
     if _by_world:
         return next(iter(_by_world.values()))
+    # 4. Synthesised fallback when the registry is completely empty.
     return Server(_DEFAULT_WORLD, _DEFAULT_WORLD.lower(), _DEFAULT_WORLD, 50, None, None)
 
 

@@ -239,6 +239,199 @@ async def test_admin_claims_scoped_to_current_world(app):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# PUT /api/admin/servers/{world} — is_default behaviour
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_put_servers_with_is_default_true_sets_default(app):
+    """PUT with is_default=true should call set_default_server_sync and clear others."""
+    servers = [
+        {
+            "world": "Varsoon",
+            "subdomain": "varsoon",
+            "display_name": "Varsoon",
+            "max_level": 60,
+            "current_xpac": None,
+            "launch_dt": None,
+            "is_default": True,
+        },
+        {
+            "world": "Wuoshi",
+            "subdomain": "wuoshi",
+            "display_name": "Wuoshi",
+            "max_level": 50,
+            "current_xpac": None,
+            "launch_dt": None,
+            "is_default": False,
+        },
+    ]
+    # The GET after the PUT returns Wuoshi with is_default=True.
+    updated_wuoshi = {
+        "world": "Wuoshi",
+        "subdomain": "wuoshi",
+        "display_name": "Wuoshi",
+        "max_level": 50,
+        "current_xpac": None,
+        "launch_dt": None,
+        "is_default": True,
+    }
+    mock_upsert = MagicMock()
+    mock_reload = MagicMock()
+    mock_set_default = MagicMock(return_value=True)
+
+    with (
+        patch("web.routes.admin._require_admin", _fake_admin),
+        patch("web.routes.admin.list_servers_sync", return_value=servers),
+        patch("web.routes.admin.upsert_server_settings_sync", mock_upsert),
+        patch("web.routes.admin.set_default_server_sync", mock_set_default),
+        patch("web.routes.admin.server_context.load_registry", mock_reload),
+        patch("web.routes.admin.get_server_by_world_sync", return_value=updated_wuoshi),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.put(
+                "/api/admin/servers/Wuoshi",
+                json={"max_level": 50, "is_default": True},
+            )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["is_default"] is True
+    mock_set_default.assert_called_once_with("Wuoshi")
+    mock_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_put_servers_is_default_false_does_not_call_set_default(app):
+    """PUT with is_default=false (or omitted) must NOT call set_default_server_sync."""
+    servers = [
+        {
+            "world": "Wuoshi",
+            "subdomain": "wuoshi",
+            "display_name": "Wuoshi",
+            "max_level": 50,
+            "current_xpac": None,
+            "launch_dt": None,
+            "is_default": False,
+        }
+    ]
+    updated = {**servers[0], "max_level": 70}
+    mock_set_default = MagicMock()
+
+    with (
+        patch("web.routes.admin._require_admin", _fake_admin),
+        patch("web.routes.admin.list_servers_sync", return_value=servers),
+        patch("web.routes.admin.upsert_server_settings_sync", MagicMock()),
+        patch("web.routes.admin.set_default_server_sync", mock_set_default),
+        patch("web.routes.admin.server_context.load_registry", MagicMock()),
+        patch("web.routes.admin.get_server_by_world_sync", return_value=updated),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.put("/api/admin/servers/Wuoshi", json={"max_level": 70, "is_default": False})
+
+    assert r.status_code == 200
+    mock_set_default.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/servers — is_default field in response
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_servers_returns_is_default_field(app):
+    """GET /api/admin/servers must include is_default in each server object."""
+    servers = [
+        {
+            "world": "Varsoon",
+            "subdomain": "varsoon",
+            "display_name": "Varsoon",
+            "max_level": 60,
+            "current_xpac": None,
+            "launch_dt": None,
+            "is_default": True,
+        },
+        {
+            "world": "Wuoshi",
+            "subdomain": "wuoshi",
+            "display_name": "Wuoshi",
+            "max_level": 50,
+            "current_xpac": None,
+            "launch_dt": None,
+            "is_default": False,
+        },
+    ]
+    with (
+        patch("web.routes.admin._require_admin", _fake_admin),
+        patch("web.routes.admin.list_servers_sync", return_value=servers),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/admin/servers")
+
+    assert r.status_code == 200
+    data = r.json()
+    varsoon = next(s for s in data if s["world"] == "Varsoon")
+    wuoshi = next(s for s in data if s["world"] == "Wuoshi")
+    assert varsoon["is_default"] is True
+    assert wuoshi["is_default"] is False
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/expansions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_expansions_is_admin_gated(app):
+    """GET /api/admin/expansions must require admin auth."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/admin/expansions")
+    assert r.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_get_expansions_returns_list(app):
+    """GET /api/admin/expansions returns a list (may be empty when zones.db absent)."""
+    mock_list = MagicMock(return_value=[])
+    with (
+        patch("web.routes.admin._require_admin", _fake_admin),
+        patch("census.zones_db.list_expansions", mock_list),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/admin/expansions")
+
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+@pytest.mark.asyncio
+async def test_get_expansions_returns_expansion_data_when_zones_db_available(app):
+    """When zones.db is available, the endpoint returns expansion dicts."""
+    expansions = [
+        {"short": "AoD", "name": "Age of Discovery"},
+        {"short": "DoV", "name": "Destiny of Velious"},
+    ]
+    mock_list = MagicMock(return_value=expansions)
+    with (
+        patch("web.routes.admin._require_admin", _fake_admin),
+        patch("census.zones_db.list_expansions", mock_list),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/admin/expansions")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+    assert data[0]["short"] == "AoD"
+    assert data[1]["name"] == "Destiny of Velious"
+
+
+# ---------------------------------------------------------------------------
+# Admin parses list — scoped to current_world()
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_admin_parses_scoped_to_current_world(app):
     """Admin parses view should only show encounters for the active server."""

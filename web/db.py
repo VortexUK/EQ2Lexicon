@@ -59,7 +59,10 @@ CREATE TABLE IF NOT EXISTS character_claims (
 
 CREATE INDEX IF NOT EXISTS idx_claims_discord ON character_claims(discord_id);
 CREATE INDEX IF NOT EXISTS idx_claims_status  ON character_claims(status);
-CREATE INDEX IF NOT EXISTS idx_claims_world   ON character_claims(world);
+-- NOTE: the index on character_claims(world) is NOT created here. _SCHEMA runs
+-- via executescript BEFORE the ALTER that adds `world` to a pre-existing table,
+-- so creating it here would raise "no such column: world" on an existing DB.
+-- It is created in init_db() after the ADD COLUMN migration instead.
 
 CREATE TABLE IF NOT EXISTS item_watch (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,8 +186,12 @@ CREATE TABLE IF NOT EXISTS servers (
     max_level      INTEGER NOT NULL,
     current_xpac   TEXT,
     launch_dt      TEXT,
-    updated_at     INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    updated_at     INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    is_default     INTEGER NOT NULL DEFAULT 0
 );
+-- NOTE: no index or statement referencing `is_default` here. _SCHEMA runs via
+-- executescript BEFORE the ADD COLUMN migration on a pre-existing DB, so any
+-- column-dependent DDL/DML must live in init_db() after the ALTER, never here.
 """
 
 # Claim statuses:
@@ -219,6 +226,10 @@ def init_db(path: Path = DB_PATH) -> None:
             conn.execute("ALTER TABLE character_claims ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0")
         if "world" not in claims_cols:
             conn.execute("ALTER TABLE character_claims ADD COLUMN world TEXT NOT NULL DEFAULT 'Varsoon'")
+        # Index on world is created here (not in _SCHEMA) so it runs AFTER the
+        # ADD COLUMN above — the column is now guaranteed to exist on both fresh
+        # and migrated DBs. IF NOT EXISTS makes it a no-op on subsequent boots.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_claims_world ON character_claims(world)")
 
         # Migrate item_watch: add world column + rebuild to change UNIQUE constraint.
         # SQLite cannot ALTER a table-level UNIQUE, so we do a table rename → create
@@ -287,6 +298,24 @@ def init_db(path: Path = DB_PATH) -> None:
             "VALUES (?, ?, ?, ?, ?, ?)",
             ("Wuoshi", "wuoshi", "Wuoshi", _cfg.SERVER_MAX_LEVEL, os.getenv("SERVER_CURRENT_XPAC") or None, None),
         )
+
+        # Migrate: add is_default column (absent from the pre-existing prod servers table).
+        # MUST run after the seed INSERTs above so it is safe to UPDATE on first boot.
+        # Nothing is_default-dependent may live in _SCHEMA — see note above.
+        servers_cols = {row[1] for row in conn.execute("PRAGMA table_info(servers)")}
+        if "is_default" not in servers_cols:
+            conn.execute("ALTER TABLE servers ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0")
+        # Ensure exactly one default exists. On a fresh DB or after ADD COLUMN every row
+        # has is_default=0 until we set one. Default to the EQ2_WORLD server.
+        if conn.execute("SELECT COUNT(*) FROM servers WHERE is_default = 1").fetchone()[0] == 0:
+            conn.execute("UPDATE servers SET is_default = 1 WHERE world = ?", (_cfg.WORLD,))
+            # If EQ2_WORLD isn't a known server, fall back to the first row alphabetically.
+            if conn.execute("SELECT COUNT(*) FROM servers WHERE is_default = 1").fetchone()[0] == 0:
+                conn.execute(
+                    "UPDATE servers SET is_default = 1 WHERE world = "
+                    "(SELECT world FROM servers ORDER BY display_name LIMIT 1)"
+                )
+
         conn.commit()
 
 
@@ -1157,6 +1186,7 @@ def _server_row(row: sqlite3.Row) -> dict:
         "max_level": row["max_level"],
         "current_xpac": row["current_xpac"],
         "launch_dt": row["launch_dt"],
+        "is_default": bool(row["is_default"]),
     }
 
 
@@ -1195,6 +1225,31 @@ def upsert_server_settings_sync(
             (max_level, current_xpac, launch_dt, world),
         )
         conn.commit()
+
+
+def set_default_server_sync(world: str, path: Path = DB_PATH) -> bool:
+    """Atomically set one server as the default (is_default=1) and clear all others.
+
+    Returns True when the world was found and updated, False when ``world`` is
+    unknown (i.e. no row matched the second UPDATE — there are never 0 defaults
+    after this call succeeds).
+    """
+    with sqlite3.connect(path) as conn:
+        # First clear all, then set the target. Single transaction → never 0 or 2 defaults.
+        conn.execute("UPDATE servers SET is_default = 0")
+        cur = conn.execute("UPDATE servers SET is_default = 1 WHERE world = ?", (world,))
+        if cur.rowcount == 0:
+            # Unknown world: roll back by re-establishing any previous default.
+            # Re-query to pick the alphabetically first row as a safe fallback so
+            # we never leave all rows at is_default=0.
+            conn.execute(
+                "UPDATE servers SET is_default = 1 WHERE world = "
+                "(SELECT world FROM servers ORDER BY display_name LIMIT 1)"
+            )
+            conn.commit()
+            return False
+        conn.commit()
+    return True
 
 
 async def lookup_api_token(raw_token: str, path: Path = DB_PATH) -> dict | None:

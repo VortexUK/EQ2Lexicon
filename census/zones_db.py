@@ -629,6 +629,36 @@ def find_zones_by_boss(mob_name: str, path: Path = DB_PATH) -> list[dict]:
         return [_hydrate_zone(conn, r) for r in rows]
 
 
+def list_expansions(path: Path = DB_PATH) -> list[dict]:
+    """Return distinct expansions ordered newest first (by expansion_year DESC).
+
+    Each entry is ``{"short": expansion_short, "name": expansion_name}``.
+    Returns [] when zones.db is missing or the zones table does not yet exist
+    (graceful degradation — the admin endpoint must never 500 on a missing DB).
+    """
+    if not path.exists():
+        return []
+    try:
+        with sqlite3.connect(path) as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT expansion_short, expansion_name, expansion_year "
+                "FROM zones "
+                "WHERE expansion_short IS NOT NULL "
+                "ORDER BY expansion_year DESC"
+            ).fetchall()
+        # De-duplicate by short (same short can have multiple rows with the same year).
+        seen: set[str] = set()
+        result: list[dict] = []
+        for short, name, _year in rows:
+            if short not in seen:
+                seen.add(short)
+                result.append({"short": short, "name": name})
+        return result
+    except sqlite3.OperationalError:
+        # zones table may not exist yet (e.g. pre-seeded zones.db stub).
+        return []
+
+
 def expansion_counts(path: Path = DB_PATH) -> dict[str, int]:
     """Diagnostic: zones per expansion short. Used by the build report."""
     if not path.exists():

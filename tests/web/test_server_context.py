@@ -53,6 +53,22 @@ def test_override_ignored_when_disabled(monkeypatch, tmp_path):
     assert sc.resolve_host("varsoon.eq2lexicon.com", override="wuoshi").world == "Wuoshi"
 
 
+def test_default_server_returns_is_default_server(monkeypatch, tmp_path):
+    """default_server() should return whichever server has is_default=True, even if
+    it doesn't match EQ2_WORLD."""
+    from web import db
+
+    p = tmp_path / "users.db"
+    db.init_db(p)
+    # Set Wuoshi as the default in the DB.
+    db.set_default_server_sync("Wuoshi", path=p)
+
+    monkeypatch.setattr(db, "DB_PATH", p)
+    sc.load_registry()
+
+    assert sc.default_server().world == "Wuoshi"
+
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 

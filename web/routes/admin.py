@@ -28,6 +28,7 @@ from web.db import (
     review_claim,
     review_role_request,
     revoke_role,
+    set_default_server_sync,
     set_user_access,
     upsert_server_settings_sync,
 )
@@ -97,12 +98,14 @@ class ServerItem(BaseModel):
     max_level: int
     current_xpac: str | None = None
     launch_dt: str | None = None
+    is_default: bool = False
 
 
 class ServerSettingsUpdate(BaseModel):
     max_level: Annotated[int, Field(gt=0)]
     current_xpac: str | None = None
     launch_dt: str | None = None
+    is_default: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +403,10 @@ async def update_server_settings(
         current_xpac=body.current_xpac,
         launch_dt=body.launch_dt,
     )
+    # If the caller is explicitly setting this server as the default, flip it.
+    # We never unset a default via is_default=False/None — you can only SET one.
+    if body.is_default is True:
+        set_default_server_sync(world)
     # Refresh the in-memory registry immediately so new requests see the change.
     server_context.load_registry()
 
@@ -407,6 +414,18 @@ async def update_server_settings(
     if updated is None:
         raise HTTPException(status_code=500, detail="Server row disappeared after upsert")
     return ServerItem(**updated)
+
+
+@router.get("/admin/expansions")
+async def list_expansions_admin(request: Request) -> list[dict]:
+    """Return distinct expansions (newest first) for populating the admin xpac dropdown.
+
+    Sourced from zones.db.  Returns [] (200) when zones.db is unavailable — never 500.
+    """
+    _require_admin(request)
+    from census import zones_db
+
+    return zones_db.list_expansions()
 
 
 @router.post("/admin/users/{discord_id}/kick", status_code=200)
