@@ -1,15 +1,29 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface DropdownOption {
   value: string
   label: string
-  group?: string  // optional: rows sharing a group get a right-aligned group caption
+  group?: string // rows sharing a group get a right-aligned group caption
 }
 
 /**
- * Warcraft-Logs-style filter control: a flat "value ▾" button that opens a
- * themed popover of hover-highlighted rows (optionally grouped). Replaces the
- * boxy native <select> on the rankings filter bar. Themed in EQ2 gold/stone.
+ * Seamless Warcraft-Logs-style filter strip: one continuous gilded bar that
+ * holds FilterDropdown segments flush together, divided only by hairlines.
+ * `overflow-hidden` clips the segment hovers to the rounded ends — safe because
+ * each dropdown's popover is portaled to <body>, not clipped by the bar.
+ */
+export function FilterBar({ children }: { children: React.ReactNode }) {
+  // No pill — a full-width strip framed by a gold rule above and below, with the
+  // segments left-aligned and the rules extending across the page.
+  return <div className="flex w-full border-y border-gold/70">{children}</div>
+}
+
+/**
+ * One segment of the FilterBar: a flat "value ▾" trigger (no pill/border of its
+ * own) plus a themed popover of hover-highlighted rows, optionally grouped.
+ * NOTE: this project omits Tailwind Preflight, so every <button> is explicitly
+ * reset (appearance-none, border-0, explicit bg) or it renders as a white block.
  */
 export function FilterDropdown({
   value,
@@ -17,84 +31,123 @@ export function FilterDropdown({
   onChange,
   placeholder = 'Select…',
   disabled = false,
+  label,
+  active = false,
 }: {
   value: string
   options: DropdownOption[]
   onChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
+  /** Fixed trigger text (e.g. a category name "Raids") shown instead of the selected value. */
+  label?: string
+  /** Highlight as the currently-active tab even when closed. */
+  active?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number } | null>(null)
+
+  useLayoutEffect(() => {
+    if (open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect()
+      setPos({ left: r.left, top: r.bottom + 5, minWidth: r.width })
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
     function onDoc(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
     }
+    function onScroll(e: Event) {
+      // Close on PAGE scroll (the fixed-position panel would otherwise detach),
+      // but ignore scrolling within the panel's own list.
+      if (panelRef.current && e.target instanceof Node && panelRef.current.contains(e.target)) return
+      setOpen(false)
+    }
+    function onResize() {
+      setOpen(false)
+    }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
     return () => {
       document.removeEventListener('mousedown', onDoc)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
     }
   }, [open])
 
   const selected = options.find(o => o.value === value)
+  const displayText = label ?? (selected ? selected.label : placeholder)
+  const dim = !label && !selected // dim only a true placeholder, never a fixed category label
 
-  const btnClass = disabled
-    ? 'border-border bg-surface text-text-muted opacity-50 cursor-not-allowed'
-    : open
-      ? 'border-gold bg-surface-raised text-gold-bright'
-      : 'border-border bg-surface text-text hover:border-gold/60 cursor-pointer'
+  const triggerState = disabled
+    ? 'cursor-not-allowed text-gold/30'
+    : open || active
+      ? 'cursor-pointer bg-gold/10 text-gold-bright'
+      : 'cursor-pointer text-gold hover:bg-gold/10 hover:text-gold-bright'
 
   return (
-    <div ref={ref} className="relative inline-block">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen(o => !o)}
-        className={`flex appearance-none items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${btnClass}`}
+        className={`flex appearance-none items-center gap-2 border-0 bg-transparent px-4 py-2 font-heading text-sm tracking-wide transition-colors ${triggerState}`}
       >
-        <span className={selected ? '' : 'text-text-muted'}>{selected ? selected.label : placeholder}</span>
-        <span className={`text-[0.7em] leading-none ${disabled ? 'text-text-muted' : 'text-gold'}`}>▾</span>
+        <span className={`max-w-[14rem] truncate ${dim ? 'opacity-55' : ''}`}>{displayText}</span>
+        <span className={`text-[0.6rem] leading-none transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
-      {open && !disabled && (
-        <div className="absolute left-0 top-full z-50 mt-1 max-h-72 min-w-full overflow-auto rounded-md border border-gold/40 bg-surface-raised py-1 shadow-[0_10px_30px_rgba(0,0,0,0.65)]">
-          {options.length === 0 && <div className="px-3 py-1.5 text-sm italic text-text-muted">No options</div>}
-          {options.map((opt, i) => {
-            const newGroup = opt.group && opt.group !== options[i - 1]?.group
-            const isSel = opt.value === value
-            return (
-              <div key={opt.value || `__${i}`}>
-                {newGroup && (
-                  <div className="px-3 pb-0.5 pt-1.5 text-right text-[0.62rem] uppercase tracking-wider text-text-muted">
-                    {opt.group}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(opt.value)
-                    setOpen(false)
-                  }}
-                  className={`block w-full cursor-pointer appearance-none border-0 whitespace-nowrap px-3 py-1.5 text-left text-sm transition-colors ${
-                    isSel
-                      ? 'bg-gold/10 text-gold-bright'
-                      : 'bg-transparent text-text hover:bg-gold/10 hover:text-gold-bright'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
+      {open &&
+        !disabled &&
+        pos &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{ position: 'fixed', left: pos.left, top: pos.top, minWidth: pos.minWidth }}
+            className="z-[9999] max-h-80 overflow-auto rounded-md border border-gold/40 bg-surface-raised py-1 shadow-[0_14px_36px_rgba(0,0,0,0.7)]"
+          >
+            {options.length === 0 && <div className="px-4 py-1.5 text-sm italic text-text-muted">No options</div>}
+            {options.map((opt, i) => {
+              const newGroup = opt.group && opt.group !== options[i - 1]?.group
+              const isSel = opt.value === value
+              return (
+                <div key={opt.value || `__${i}`}>
+                  {newGroup && (
+                    <div className="px-4 pb-0.5 pt-2 text-right text-[0.6rem] uppercase tracking-[0.15em] text-text-muted">
+                      {opt.group}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value)
+                      setOpen(false)
+                    }}
+                    className={`block w-full cursor-pointer appearance-none whitespace-nowrap border-0 px-4 py-1.5 text-left text-sm transition-colors ${
+                      isSel ? 'bg-gold/15 text-gold-bright' : 'bg-transparent text-text hover:bg-gold/10 hover:text-gold-bright'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                </div>
+              )
+            })}
+          </div>,
+          document.body,
+        )}
+    </>
   )
 }
