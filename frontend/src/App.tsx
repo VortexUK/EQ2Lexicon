@@ -24,6 +24,7 @@ import { CensusStreamProvider } from './hooks/useCensusStream'
 import { Link } from 'react-router-dom'
 import logo from './assets/EQ2L.png'
 import ServerLaunchTimer from './components/ServerLaunchTimer'
+import CensusStatus from './components/CensusStatus'
 
 function LoginGate() {
   return (
@@ -186,6 +187,7 @@ function Layout() {
               Daybreak Games Census API
             </a>
           </span>
+          <CensusStatus />
         </footer>
       </div>
     </>
