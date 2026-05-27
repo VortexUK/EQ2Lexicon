@@ -260,6 +260,15 @@ function Layout() {
         </div>
         <NavLinks />
         <div className="flex items-center gap-[0.6rem]">
+          <a
+            href="https://github.com/VortexUK/EQ2LexiconACTPlugin/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Download the EQ2 Lexicon ACT plugin"
+            className="block shrink-0 transition-[transform,filter] duration-150 hover:brightness-110 hover:scale-[1.03]"
+          >
+            <img src="/download_plugin.png" alt="Download ACT Plugin" className="h-10 w-auto" />
+          </a>
           <NotificationBell />
           <UserWidget />
         </div>
