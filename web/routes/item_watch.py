@@ -52,8 +52,13 @@ async def _check_watch(watch: dict) -> None:
     """
     Check whether the watched character currently has the item equipped,
     using the character_cache.  Updates the DB regardless of result.
+
+    Uses the watch row's own ``world`` field (not ``current_world()``) so that
+    the background sweep — which iterates watches from a single world — still
+    resolves the correct cache key even if called outside a request context.
     """
-    name_key = f"{watch['character_name'].lower()}:{current_world().lower()}"
+    row_world = watch.get("world", current_world())
+    name_key = f"{watch['character_name'].lower()}:{row_world.lower()}"
     cached, _ = character_cache.get_stale(name_key)
     if cached is None:
         return  # no data available yet — skip, will check later
@@ -62,9 +67,9 @@ async def _check_watch(watch: dict) -> None:
     await update_item_watch_check(watch["id"], seen)
 
 
-async def _check_all_watches(guild_name: str) -> None:
-    """Background task: check every watch entry for a guild against the cache."""
-    watches = await list_item_watches(guild_name)
+async def _check_all_watches(guild_name: str, world: str) -> None:
+    """Background task: check every watch entry for a guild/server against the cache."""
+    watches = await list_item_watches(guild_name, world=world)
     for w in watches:
         try:
             await _check_watch(w)
@@ -92,9 +97,10 @@ async def get_item_watches(guild_name: str, request: Request) -> list[ItemWatchE
     if not await _officer_chars(user["id"], guild_name):
         raise HTTPException(status_code=403, detail="Officer access required")
 
-    watches = await list_item_watches(guild_name)
+    world = current_world()
+    watches = await list_item_watches(guild_name, world=world)
     # Fire background check to freshen statuses; return current DB state immediately
-    asyncio.create_task(_check_all_watches(guild_name))
+    asyncio.create_task(_check_all_watches(guild_name, world=world))
     return [ItemWatchEntry(**w) for w in watches]
 
 
@@ -181,6 +187,7 @@ async def add_item_watch_entry(
             item_name=item_name,
             added_by=user["id"],
             added_by_name=added_by_name,
+            world=current_world(),
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -200,6 +207,6 @@ async def delete_item_watch(guild_name: str, watch_id: int, request: Request) ->
         raise HTTPException(status_code=401, detail="Not authenticated")
     if not await _officer_chars(user["id"], guild_name):
         raise HTTPException(status_code=403, detail="Officer access required")
-    if not await remove_item_watch(watch_id, guild_name):
+    if not await remove_item_watch(watch_id, guild_name, world=current_world()):
         raise HTTPException(status_code=404, detail="Watch entry not found")
     return {"ok": True}

@@ -63,6 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_claims_world   ON character_claims(world);
 
 CREATE TABLE IF NOT EXISTS item_watch (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    world           TEXT    NOT NULL DEFAULT 'Varsoon',
     guild_name      TEXT    NOT NULL,
     character_name  TEXT    NOT NULL,
     item_id         INTEGER NOT NULL,
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS item_watch (
     first_seen_at   INTEGER,        -- first time we saw them wearing it (NULL = never)
     last_seen_at    INTEGER,        -- most recent check where they had it equipped
     last_checked_at INTEGER,        -- most recent check (any result)
-    UNIQUE(guild_name, character_name, item_id)
+    UNIQUE(world, guild_name, character_name, item_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_watch_guild ON item_watch(guild_name);
@@ -218,6 +219,40 @@ def init_db(path: Path = DB_PATH) -> None:
             conn.execute("ALTER TABLE character_claims ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0")
         if "world" not in claims_cols:
             conn.execute("ALTER TABLE character_claims ADD COLUMN world TEXT NOT NULL DEFAULT 'Varsoon'")
+
+        # Migrate item_watch: add world column + rebuild to change UNIQUE constraint.
+        # SQLite cannot ALTER a table-level UNIQUE, so we do a table rename → create
+        # new → INSERT … SELECT → drop old.  Guarded on the column so it runs exactly
+        # once and is a no-op on fresh DBs (which get the new schema directly).
+        watch_cols = {row[1] for row in conn.execute("PRAGMA table_info(item_watch)")}
+        if "world" not in watch_cols:
+            conn.executescript(
+                """
+                ALTER TABLE item_watch RENAME TO item_watch_old;
+                CREATE TABLE item_watch (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    world           TEXT    NOT NULL DEFAULT 'Varsoon',
+                    guild_name      TEXT    NOT NULL,
+                    character_name  TEXT    NOT NULL,
+                    item_id         INTEGER NOT NULL,
+                    item_name       TEXT    NOT NULL,
+                    added_by        TEXT    NOT NULL REFERENCES users(discord_id),
+                    added_by_name   TEXT    NOT NULL,
+                    added_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                    first_seen_at   INTEGER,
+                    last_seen_at    INTEGER,
+                    last_checked_at INTEGER,
+                    UNIQUE(world, guild_name, character_name, item_id)
+                );
+                INSERT INTO item_watch (id, world, guild_name, character_name, item_id, item_name,
+                                        added_by, added_by_name, added_at, first_seen_at, last_seen_at, last_checked_at)
+                    SELECT id, 'Varsoon', guild_name, character_name, item_id, item_name,
+                           added_by, added_by_name, added_at, first_seen_at, last_seen_at, last_checked_at
+                    FROM item_watch_old;
+                DROP TABLE item_watch_old;
+                CREATE INDEX IF NOT EXISTS idx_watch_guild ON item_watch(guild_name);
+                """
+            )
 
         # Seed role_permissions. INSERT OR IGNORE keeps it idempotent and
         # leaves any admin-edited rows alone if/when a future UI exposes the
@@ -915,11 +950,12 @@ async def add_item_watch(
     item_name: str,
     added_by: str,
     added_by_name: str,
+    world: str = "Varsoon",
     path: Path = DB_PATH,
 ) -> dict:
     """
     Add a new item watch entry.
-    Raises ValueError on duplicate (same guild + character + item_id).
+    Raises ValueError on duplicate (same world + guild + character + item_id).
     Returns the new row dict.
     """
     async with aiosqlite.connect(path) as db:
@@ -928,10 +964,10 @@ async def add_item_watch(
             cur = await db.execute(
                 """
                 INSERT INTO item_watch
-                    (guild_name, character_name, item_id, item_name, added_by, added_by_name)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (world, guild_name, character_name, item_id, item_name, added_by, added_by_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (guild_name, character_name, item_id, item_name, added_by, added_by_name),
+                (world, guild_name, character_name, item_id, item_name, added_by, added_by_name),
             )
         except Exception as exc:
             if "UNIQUE" in str(exc):
@@ -947,14 +983,15 @@ async def add_item_watch(
 
 async def list_item_watches(
     guild_name: str,
+    world: str = "Varsoon",
     path: Path = DB_PATH,
 ) -> list[dict]:
-    """Return all item watch entries for a guild, ordered by added_at descending."""
+    """Return all item watch entries for a guild on a given server, ordered by added_at descending."""
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM item_watch WHERE guild_name = ? ORDER BY added_at DESC",
-            (guild_name,),
+            "SELECT * FROM item_watch WHERE guild_name = ? AND world = ? ORDER BY added_at DESC",
+            (guild_name, world),
         ) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
@@ -963,13 +1000,14 @@ async def list_item_watches(
 async def remove_item_watch(
     watch_id: int,
     guild_name: str,
+    world: str = "Varsoon",
     path: Path = DB_PATH,
 ) -> bool:
-    """Delete an item watch entry. Scoped to guild_name for safety. Returns True if deleted."""
+    """Delete an item watch entry. Scoped to guild_name and world for safety. Returns True if deleted."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            "DELETE FROM item_watch WHERE id = ? AND guild_name = ?",
-            (watch_id, guild_name),
+            "DELETE FROM item_watch WHERE id = ? AND guild_name = ? AND world = ?",
+            (watch_id, guild_name, world),
         )
         deleted = cur.rowcount > 0
         await db.commit()
