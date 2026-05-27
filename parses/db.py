@@ -8,7 +8,7 @@ Mirrors the layout pattern of `census/recipes_db.py`:
   * thin sync helpers for insert / lookup
 
 Lives at `data/parses/parses.db` by default. Override with the
-`PARSES_DB_PATH` env var.
+`DB_PARSES_PATH` env var.
 
 Schema reflects the real columns ACT exports at AttackType depth — see
 parses/act_reader.py for the source-side column-name mapping.
@@ -32,7 +32,7 @@ _EMPTY_SNAPSHOT = CombatantSnapshot()
 
 
 def _db_path() -> Path:
-    env = os.getenv("PARSES_DB_PATH")
+    env = os.getenv("DB_PARSES_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "parses" / "parses.db"

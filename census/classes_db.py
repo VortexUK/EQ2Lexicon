@@ -62,7 +62,7 @@ CLASS_SEED: tuple[ClassInfo, ...] = (
 
 
 def _db_path() -> Path:
-    env = os.getenv("CLASSES_DB_PATH")
+    env = os.getenv("DB_CLASSES_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "classes" / "classes.db"

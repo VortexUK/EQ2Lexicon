@@ -3,7 +3,7 @@ lookups. The web request path serves from here (via the in-memory cache) and
 never blocks on Census; background refreshes merge in fresh data "keep best
 known" — a sparse Census response never nulls out good data.
 
-Mirrors parses/db.py: CENSUS_DB_PATH env override, WAL, idempotent _MIGRATIONS.
+Mirrors parses/db.py: DB_CENSUS_PATH env override, WAL, idempotent _MIGRATIONS.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 def _db_path() -> Path:
-    env = os.getenv("CENSUS_DB_PATH")
+    env = os.getenv("DB_CENSUS_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "census" / "census.db"

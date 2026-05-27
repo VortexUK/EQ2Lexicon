@@ -16,8 +16,8 @@ A Discord bot and web companion site (FastAPI + React/TypeScript) that queries t
 | `census/recipes_db.py` | Local SQLite recipe catalogue (~70k rows): recipe_to_row, upsert_recipes, find_by_id, find_by_name, find_by_output_id. Secondary components stored as JSON array. Download with scripts/download_recipes.py |
 | `census/zones_db.py` | Local SQLite zone catalogue (~1124 rows). Four tables: `zones` (canonical record + expansion attribution + classification flags), `zone_types` (many-to-many type tokens — `solo`/`group`/`raid_x4`/etc.), `zone_aliases` (alias→canonical for ACT log fuzziness), `zone_bosses` (raid boss list per zone, sourced from EQ2i scrape). Lookup helpers: `find_by_name` (canonical OR alias, includes bosses array), `list_by_expansion(short, type_filter=None)`, `list_by_event`, `list_by_type`, `list_bosses_for_zone`, `find_zones_by_boss`. Sourced from `scripts/dev/eq2_zones.cleaned.json` + `scripts/dev/eq2_raid_data.json`; rebuild via `scripts/build_zones_db.py`. |
 | `census/wikitext_md.py` | MediaWiki wikitext → markdown converter using `mwparserfromhell`. Handles EQ2i-specific templates (`{{Monster}}`, `{{loc}}`, `{{IZoneInformation}}`), wikilinks → markdown links with EQ2i base URL, nested lists, headings, bold/italic. Used by the raid scraper and (future) the strategy editor preview. |
-| `census/raids_db.py` | Local SQLite raid-strategy catalogue. Schema: `raid_zones` + `raid_encounters` (one markdown blob per encounter for PoC) + `raid_encounter_revisions` (version history). Companion to `zones_db.py` — strategies are human-edited and revision-tracked, while the boss LIST lives in `zones_db.zone_bosses`. RAIDS_DB_PATH env var. |
-| `census/census_store.py` | Persistent SQLite store (characters + guilds tables keyed (name_lower, world), data_json + last_resolved_at). Keep-best-known merge: a sparse Census refresh never nulls good data. CENSUS_DB_PATH env, mirrors parses/db.py. |
+| `census/raids_db.py` | Local SQLite raid-strategy catalogue. Schema: `raid_zones` + `raid_encounters` (one markdown blob per encounter for PoC) + `raid_encounter_revisions` (version history). Companion to `zones_db.py` — strategies are human-edited and revision-tracked, while the boss LIST lives in `zones_db.zone_bosses`. `DB_RAIDS_PATH` env var. |
+| `census/census_store.py` | Persistent SQLite store (characters + guilds tables keyed (name_lower, world), data_json + last_resolved_at). Keep-best-known merge: a sparse Census refresh never nulls good data. `DB_CENSUS_PATH` env, mirrors parses/db.py. |
 | `image/tooltip.py` | PIL renderer for item tooltips. Renders at 2× then downsamples (SCALE=2, ZOOM=1.3). Width is `round(368 * ZOOM)`. |
 | `image/aa_tree.py` | AA tree renderers and coordinate systems. See AA tree notes below. |
 | `bot/bot.py` | Registers all cogs, syncs slash commands to three specific guild IDs (648253204760625160, 955890381847928892, 1502314690041221260) for instant propagation plus a global sync. |
@@ -87,10 +87,11 @@ Tailwind v4 is the **single** styling system. There is no `tailwind.config.js` a
 | `EQ2_WORLD` | EQ2 server name used for guild/spellcheck/aacheck lookups (default `Varsoon`) |
 | `SERVER_CURRENT_XPAC` | Current expansion (full name, e.g. `Echoes of Faydwer`). Shown on the AA config endpoint, and the default Expansion on the rankings page (matched against zones.db expansion names — also accepts the short code; falls back to the most recent expansion with raids if unset/unknown). |
 | `ADMIN_DISCORD_IDS` | Comma-separated Discord IDs allowed to hit `/api/admin/*` and delete arbitrary parses |
-| `USERS_DB_PATH` | Override the default `data/users.db` location (set on Railway to the persistent-volume mount) |
-| `PARSES_DB_PATH` | Override the default `data/parses/parses.db` location (set on Railway to the persistent-volume mount) |
-| `ZONES_DB_PATH` | Override the default `data/zones/zones.db` location. Set on Railway to the persistent-volume mount (the `.db` itself is not committed — uploaded manually; see "Manual upload: zones.db" below). |
-| `CENSUS_DB_PATH` | Override the default `data/census/census.db` location (persistent last-known character/guild lookups for resilient caching). Set on Railway to the persistent-volume mount; the `.db` is gitignored + generated at runtime. |
+| `DB_USERS_PATH` | Override the default `data/users.db` location (set on Railway to the persistent-volume mount) |
+| `DB_PARSES_PATH` | Override the default `data/parses/parses.db` location (set on Railway to the persistent-volume mount) |
+| `DB_CENSUS_PATH` | Override the default `data/census/census.db` location (persistent last-known character/guild lookups for resilient caching). Set on Railway to the persistent-volume mount; the `.db` is gitignored + generated at runtime. |
+| `DB_ZONES_PATH` | Override the default `data/zones/zones.db` location. Set on Railway to the persistent-volume mount (the `.db` itself is not committed — uploaded manually; see "Manual upload: zones.db" below). |
+| `DB_RAIDS_PATH` / `DB_ITEMS_PATH` / `DB_SPELLS_PATH` / `DB_RECIPES_PATH` / `DB_CLASSES_PATH` | Same pattern: env-var override of the default `data/<name>/<name>.db` location. See `.env.example` for the grouped block. |
 | `R2_ENDPOINT` | Litestream backups → `https://<account>.r2.cloudflarestorage.com` |
 | `R2_BUCKET` | Litestream backups → bucket name (e.g. `eq2lexicon-backups`) |
 | `R2_ACCESS_KEY_ID` | Litestream backups → R2 API token Access Key ID |
@@ -246,21 +247,23 @@ HTTP cache and the 3-zone sample JSON are gitignored — both rebuildable.
 
 **One-time R2 setup:**
 
-1. Sign in at https://dash.cloudflare.com → **R2**.
+1. Sign in at https://dash.cloudflare.com → **R2** (left sidebar).
 2. **Create bucket** — e.g. `eq2lexicon-backups`. Default region (auto-managed) is fine.
 3. Note the **Account ID** from the R2 dashboard URL (or the bucket details page). The S3 endpoint is `https://<account_id>.r2.cloudflarestorage.com`.
-4. **Manage R2 API Tokens → Create API Token**:
+4. **R2 → API tab (or "Manage R2 API Tokens" button on the R2 overview) → Create API Token**.
+   > ⚠ **Critical**: this is **not** the same as the "Account API tokens" page under "Manage account". That one creates **Cloudflare REST API bearer tokens**, which look identical at a glance but cannot authenticate against R2's S3-compatible API. Litestream uses S3, so it needs the R2-specific Access Key + Secret pair — only the R2 API token flow generates those.
    - Name: `eq2lexicon-litestream`
    - Permissions: **Object Read & Write**
    - Specify bucket: the one you created
    - TTL: forever (or rotate quarterly)
-5. Copy the **Access Key ID** and **Secret Access Key** (shown once).
+5. The success screen shows three values — copy the **Access Key ID** and **Secret Access Key** (the bearer "Token" value is unused; that's only needed if you ever called R2's REST API directly).
 6. In **Railway → Variables**, add:
    - `R2_ENDPOINT` = `https://<account_id>.r2.cloudflarestorage.com`
    - `R2_BUCKET` = `eq2lexicon-backups`
    - `R2_ACCESS_KEY_ID` = *(from step 5)*
    - `R2_SECRET_ACCESS_KEY` = *(from step 5)*
 7. Next deploy starts streaming. Verify in R2 console — you should see `parses/` and `users/` prefixes appear within a minute.
+8. **If the runtime logs show `cannot fetch generations: Unauthorized` 401s repeatedly** — that's litestream getting rejected by R2. Either the wrong token type was minted (see the warning in step 4) or the credentials have rotated. Re-mint via the R2 API tab specifically.
 
 **Manual restore** (e.g. testing recovery, or restoring a specific point-in-time):
 
@@ -289,7 +292,7 @@ litestream restore -config /app/litestream.yml -timestamp 2026-05-24T18:00:00Z -
 
 2. **Upload** the resulting `data/zones/zones.db` to the Railway volume (drag-and-drop in the volume browser, or via `railway run` with a copy command).
 
-3. **Set the env var** `ZONES_DB_PATH` to the absolute path on the volume, e.g. `/app/data/zones/zones.db`. (Defaults to that path already if you mount the volume at `/app/data` — env var only needed if your mount differs.)
+3. **Set the env var** `DB_ZONES_PATH` to the absolute path on the volume, e.g. `/app/data/zones/zones.db`. (Defaults to that path already if you mount the volume at `/app/data` — env var only needed if your mount differs.)
 
 4. **Verify** post-deploy with any code path that hits `zones_db.find_by_name(...)` — or curl an endpoint that reads it once one exists.
 
@@ -307,7 +310,7 @@ on every deploy. Two-phase deploy story:
    python scripts/dev/ingest_raids_json.py --in scripts/dev/eq2_raid_data.json
    ```
    Then upload `data/raids/raids.db` to the Railway volume the same way
-   you'd upload zones.db. Set `RAIDS_DB_PATH` if your volume mount differs
+   you'd upload zones.db. Set `DB_RAIDS_PATH` if your volume mount differs
    from the default `/app/data/raids/raids.db`.
 
 2. **Refreshing scraped content** (future ingest after a wiki update):

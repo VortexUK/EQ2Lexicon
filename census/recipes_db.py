@@ -50,7 +50,7 @@ _TIER_RE = re.compile(r"^(.+?)\s*\(([^)]+)\)\s*$")
 
 
 def _db_path() -> Path:
-    env = os.getenv("RECIPES_DB_PATH")
+    env = os.getenv("DB_RECIPES_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "recipes" / "recipes.db"

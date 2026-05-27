@@ -44,7 +44,7 @@ from parses.models import (
 
 
 def _default_act_db_path() -> Path:
-    env = os.getenv("ACT_EXPORT_DB_PATH")
+    env = os.getenv("DB_ACT_EXPORT_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "parses" / "act_export.db"

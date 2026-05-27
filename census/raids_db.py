@@ -52,7 +52,7 @@ from pathlib import Path
 
 
 def _db_path() -> Path:
-    env = os.getenv("RAIDS_DB_PATH")
+    env = os.getenv("DB_RAIDS_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "raids" / "raids.db"

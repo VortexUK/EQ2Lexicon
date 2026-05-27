@@ -19,7 +19,7 @@ import aiosqlite
 
 
 def _db_path() -> Path:
-    env = os.getenv("USERS_DB_PATH")
+    env = os.getenv("DB_USERS_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "users.db"

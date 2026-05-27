@@ -12,12 +12,12 @@ from census.item_level import compute_ilvl
 def _resolve_db_path() -> Path:
     """
     DB path, in priority order:
-    1. ITEMS_DB_PATH env var  (set this on Railway to point at the volume)
+    1. DB_ITEMS_PATH env var  (set this on Railway to point at the volume)
     2. Default: <repo_root>/data/items/items.db
     """
     import os
 
-    env = os.getenv("ITEMS_DB_PATH")
+    env = os.getenv("DB_ITEMS_PATH")
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data" / "items" / "items.db"
