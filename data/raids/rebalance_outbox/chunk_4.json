@@ -1,0 +1,215 @@
+{
+  "zones": [
+    {
+      "zone_name": "Ar'ticae's Lair",
+      "updated_overview_md": "This instance uses the same map as the menagerie.\n\n## Trash & Layout\n\n1. **Main Gallery**\n   - There is a wandering mob of a Skeletal Patrol Leader and 4 Skeletal Warrior (lvl 50^^^ epic(x2)). The pathing will take this mob up to each doorway. They are on a repop timer of about 8 min.\n   - The doors to the two side chambers and center chamber are guarded by 2 Fettered Guardian and 2 enslaved Thrall (lvl 48^^^ epic(x2)). These guards are also on a repop timer of about 10 min. Be careful with AOE close to the side chamber doors because you can pull another set of guards from inside the side chambers.\n2. **Right hand chamber**\n   - Just inside the doorway is guarded by 2 Fettered Guardian and 2 enslaved Thrall (lvl 48^^^ epic(x2)). On the bed is a Ar'ticae Cultist guarded by 2 Fettered Guardian and 2 enslaved Thrall (lvl 48^^^ epic(x2)). Clear this mob to open the other chamber door.\n3. **Left hand chamber**\n   - Just inside the doorway is guarded by 2 Fettered Guardian and 2 enslaved Thrall (lvl 50^^^ epic(x2)). Behind the crystal is a Ar'ticae Scryer guarded by 2 Fettered Guardian and 2 enslaved Thrall (lvl 50^^^ epic(x2)). Clear this mob to open the center vault chamber door.\n4. **Center Vault**\n   - The door to the Vault is guarded by Raegh the Protector (lvl 52^^^ epic(x4)).\n   - Inside the vault the walls are flanked by 6 Ice Protector (lvl 51 ^^^).\n   - Behind Ar'ticae (who is non-aggro) are an Ar'ticae Summoner and 2 Fettered Guardian and 2 enslaved Thrall (lvl 51^^^ epic(x2)). There is also a lamina Vaner (lvl 51). Once you clear this mob, Ar'ticae will immediately become aggro.",
+      "encounters": []
+    },
+    {
+      "zone_name": "Deathtoll",
+      "updated_overview_md": "## Access\n\n- On normal servers, there is no longer an access quest. However, on TLE servers, at least one member of the raid must have completed the access questline.\n- The flame barrier has been removed from Deathtoll. However, each member of the raid will need to complete [A Mark of Awakening](https://eq2.fandom.com/wiki/A_Mark_of_Awakening) and equip the reward to pass through the location where the flame barrier was (where the basilisk is standing). After you've crossed that point, you can replace it with your regular necklace. You do not need the Mark of Awakening equipped for boss fights, it only needs to be in your character's inventory.\n\n## Trash\n\nWhen you first zone in, there are droags immediately below the ledge you're standing on, as well as two gazers and a flying serpent which move around the area. The gazers can be lethal if they are not pulled separately and turned away from the raid as quickly as possible. Be careful when range-pulling them, they are social.\n\nThere are traps throughout the zone which spawn [carrion worms](https://eq2.fandom.com/wiki/A_carrion_worm). It is recommended the raid avoid central areas on the ground and stay as close to the walls as possible. Everyone should follow the same path through the zone and should not move ahead of the tanks. Although Deathtoll is a persistent raid zone, if you leave and return later, the carrion worm traps will reset and can be triggered again.\n\nThere are invisible gazers in the area near Fitzpitzle and the hallways leading to the Amorphous Drake. The gazers frequently cast high-damage AoE DoTs (Eye of Fire or Eye of Frost) which must be cured immediately.\n\n### Harla Dar's platform\n\nClear all drakes on the lower platform in a (clockwise or counterclockwise) direction, leaving the droags for a second clearing, as these have a shorter respawn time. **KILL FAST**, aiming for clearing in **10-15 minutes**!\n\n> If you're not averaging **13k DPS** or better don't bother do this.\n\nMove the raid to the top of the stairs and body pull the drakes, again in a clockwise or counterclockwise manner. All can be pulled without aggro'ing Harla Dar.\n\n## Progression\n\nBefore you engage [Tarinax the Destroyer](https://eq2.fandom.com/wiki/Tarinax_the_Destroyer), you must first defeat [Yitzik the Hurler](https://eq2.fandom.com/wiki/Yitzik_the_Hurler), [Fitzpitzle](https://eq2.fandom.com/wiki/Fitzpitzle_(Deathtoll)) and [Cruor Alluvium](https://eq2.fandom.com/wiki/Cruor_Alluvium).\n\n> If any of these bosses are still alive when you engage Tarinax, he will immediately kill everyone in the raid.\n\nYou are not required to kill the Amorphous Drake.",
+      "encounters": [
+        {
+          "mob_name": "Cruor Alluvium",
+          "updated_strategy_md": "- Will teleport plater underwater. Without a way to breathe underwater the player will drown.\n- Joust his stifle effect or cure"
+        },
+        {
+          "mob_name": "Fitzpitzle",
+          "updated_strategy_md": "## Mechanics\n\n- When HP hits **((55/60))%**, raid is stunned and he moves to other side\n- Short-range large **power drain** with crushing damage\n- Several [book minions](https://eq2.fandom.com/wiki/a_book_minion) (**70^^^**) adds spawn during fight\n- He will damage/break an **equipment item** of his target"
+        },
+        {
+          "mob_name": "Harla Dar",
+          "updated_strategy_md": "## Pull\n\nOnce all drakes and droags on her platform are clear (see the zone overview for the clearing pattern), pull Harla Dar to the blocked wall behind the area where she stands (the zone out) and be careful of **knockback**."
+        },
+        {
+          "mob_name": "Lord Vyemm",
+          "updated_strategy_md": "## Strategy 1 — Pet Pull\n\n### Pull\n\n- **Pet pull** Vyemm to the hallway all the way back at the bottom of the stairs (a rather long pull).\n- The raid group should wait behind the door at the top of the stairs to avoid the **frontal AOE** on pull.\n- **Healers** should wait at the bottom of the stairs.\n- The **MT** waits in the area at the bottom of the stairs to taunt Vyemm while **Alzid** is distracted. (The goal is to get Alzid to reset after the summoner has run up the stairs, but keep Vyemm with you.)\n\n### Positioning\n\n- Turn Vyemm to be **perpendicular** to the hallway.\n- Once properly turned, send in the forces to rush his side.\n- Everyone needs to fight from his **belly**. He will move you around during the fight, so stay with him and don't get in front or behind him.\n\n## Strategy 2 — Monk FD Reset\n\n### Pull\n\n- Have the raid sit at the top of the side stairs going to the upper level.\n- Have a **monk** disband and **FD pull** him to the encounter room. When he resets he will be **single pullable**. This eliminates the heals from the Dracon.\n- Have everyone move down into the room and stand on one side of the entrance against the wall leading into the arena.\n\n### Positioning\n\n- **Tank** will pull him down the stairs and turn him until his head is facing towards the arena and his back legs and tail are in the room.\n- Everyone will attack him from the **sides**.\n- **Tank healers** will need to fight him under his belly with dirges, and backup healers can joust or rotate in on the tank if they are hit with AOE."
+        },
+        {
+          "mob_name": "Tarinax the Destroyer",
+          "updated_strategy_md": "## Pull\n\nHave a **Defiler** pull with pet to either the pool to front left or front right of him when Tarinax passes raid (who is floating in water in one big clump). Have **Monk** rescue saving the Defiler who is ultra self-warded. Have the Monk position him in water so he doesn't frontal cone the raid, then FD — **Guardian** takes over, then raid moves in and gets under him.\n\n## Tanking & Cures\n\n- **Group cure poison** in every group\n- Have **2 Guardians** rotate Reinforcement/reinforcement/rescue/rescue/reinforcement/reinforcement\n- **Heal through Tarinax** because he will be switching targets a lot\n\n## Adds\n\nHave **Enchanters** under water mezzing adds every **45 seconds**.\n\n> If anyone dies, more adds spawn — so either raid doesn't die or you get a ton of adds. **Rez people quickly** or you will wipe."
+        },
+        {
+          "mob_name": "Yitzik the Hurler",
+          "updated_strategy_md": "- Knockback\n- Low dps\n- Spawns Bone Devil (70^^^) at **10% HP**"
+        }
+      ]
+    },
+    {
+      "zone_name": "Echoes of Time: Epic",
+      "updated_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "King Zalak the Ancient",
+          "updated_strategy_md": "## Mechanics\n\n- Has **four adds** to start\n- He will periodically call in **2–3 54^^^ adds**, after which he will drop a **~2000hp AoE**\n- If the adds reach the named, they will **explode for ~3k Focus damage per add**"
+        }
+      ]
+    },
+    {
+      "zone_name": "Lockjaw's Lair",
+      "updated_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Lockjaw the Ancient",
+          "updated_strategy_md": "**Memwipes** once at about **50% health**. Has a dragon-style **tail lash** if you stand behind him, so don't do that."
+        }
+      ]
+    },
+    {
+      "zone_name": "Spirits of the Lost",
+      "updated_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Hundar the Punisher",
+          "updated_strategy_md": "- Hundar and his adds are a different encounter from the group of amygdalans; however, he will immediately engage anyone who is on the ritual master's threat list."
+        },
+        {
+          "mob_name": "Qzyk the Conqueror",
+          "updated_strategy_md": "- Accompanied by **two lizardman chanters** and **four lizardman sentries**."
+        },
+        {
+          "mob_name": "T`Lrzt the Tyrant",
+          "updated_strategy_md": "- Although this mob is also a [ghost](https://eq2.fandom.com/wiki/category:Ghost), it drops [lizardman](https://eq2.fandom.com/wiki/Category:Lizardman) specific items.\n- Linked with:\n  - [defiling spirit](https://eq2.fandom.com/wiki/defiling_spirit) x3\n  - [malevolent spirit](https://eq2.fandom.com/wiki/malevolent_spirit) x3\n  - [warrior spirit](https://eq2.fandom.com/wiki/warrior_spirit) x3"
+        },
+        {
+          "mob_name": "Ukdan the Dark",
+          "updated_strategy_md": "## Encounter\n\nGrouped with:\n\n- [a lizardman chanter](https://eq2.fandom.com/wiki/a_lizardman_chanter) x2\n- [a lizardman eliminator](https://eq2.fandom.com/wiki/a_lizardman_eliminator) x1\n- [a lizardman sentry](https://eq2.fandom.com/wiki/a_lizardman_sentry) x1"
+        }
+      ]
+    },
+    {
+      "zone_name": "The Chamber of Destiny",
+      "updated_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Imzok's Revenge",
+          "updated_strategy_md": "## Access\n\nTo get to him, use the [Sebilisian Staff of Sounding](https://eq2.fandom.com/wiki/Sebilisian_Staff_of_Sounding) that is dropped by the previous encounter to break the barrier at entrance to the room.\n\n## Pull\n\n> **Pet pull does not work** because the mob cannot be attacked until someone enters room (he will auto-aggro as soon as you enter).\n\n- Use a dedicated puller to pull him out of room to the tank spot (many raids use the corner where you probably killed the group before).\n- Try to keep as many people outside the AOE range on pull as possible and debuff him fast.\n- Be sure to use all debuffs that debuff the **melee damage** of him; he can hit really hard and **nearly all damage is melee**.\n\n## Mechanics\n\n### AOE / Jousting\n\nThe first AOE is a beast, that has to be **jousted**. Timing it is a bit hard because varies slightly.\n\n> Bring a lot of **trauma cure potions** because the healers won't have time to cure trauma from everyone that gets hit (and with people jousting, they might be out of range too).\n\n### 35% Pillar Phase\n\nWhen he gets to **35%**, some **pillars** will pop in the room where his original position was. You will get zone-wide messages for that.\n\n> While these are up he will **reflect all damage**, so just debuff and heal at that time.\n\n- The player(s) that have the [Sebilisian Staff of Sounding](https://eq2.fandom.com/wiki/Sebilisian_Staff_of_Sounding) (should be some **DPS classes**, no healer or other class that is needed to keep tank up during that time) should move into the room.\n- It helps to have **multiples** of these staffs (they are not no-zone) because it increases your chances of destroying the pillar fast.\n- Keep collecting them for your next tries if you cannot kill him first time.\n- Start using the staffs on the pillars until the pillars are destroyed, which can take some time. You will get a zone-wide message for that again.\n- When the pillars are destroyed, finish off named and you are done with the zone."
+        },
+        {
+          "mob_name": "Reflective Aura",
+          "updated_strategy_md": "## Overview\n\nThe mob will most likely require more than one visit to conquer. The initial visits will be used for farming. Should you fail at killing the mob you will have to farm once again.\n\n## Required Tasks\n\n1. **Prevent AoEs**\n2. **CURE poison** (Dedicated Noxious Remedy or better) — everyone should bring a lot (**100 per**) or stay home.\n3. Complete your objective in **15 minutes** or die from AoE.\n4. If attempting kill, then **no deaths!!**\n\n## Trash Mobs\n\nThe trash mobs drop **Fishman Skin** (fishman suit). They should be given to the parties that can do HUGE spike AoE damage for farming runs. The key here is **repetitive spike damage**. The suits are used to farm and later kill Leviathan.\n\n> Make sure to kill the **last trash mob by the entrance** or feel the wrath of the tentacles.\n\nTrash mobs repop every **2 days**, therefore you can return to continue your adventure.\n\n## Farming\n\nWhen setting up to farm, your main objective is to acquire as many **Volatile fluids** as possible.\n\n> There are two different fluids — those from Halls of Fate **DO NOT WORK** here.\n\nTo acquire fluids, members must be \"eaten\" by Leviathan. The **Fishman Skin** off of the trash must be worn by a party member to enter and kill mobs within his belly. The fluids are looted from the mobs. It is recommended the bare bones minimum fluid count to attempt a kill is **50**.\n\nOnce you have been in the encounter for **15 minutes** OR once your suits are gone, you die from AoE.\n\n## Preventing AoEs\n\nIf you do not continue to suit and send people into the stomach, the mob will begin to AoE and you will wipe. Therefore you must **keep someone \"suited up\" in the water waiting to be eaten at all times**. Once the suits are gone, take the wipe and come back to fight another day.\n\n> **NOTE!!** AoEs are extra bad because an AoE can ruin armor at a rate of **10–20% per AoE**.\n\n## Killing the Leviathan\n\n**Fishman Skin** suits and fluids are required. Suits for this attempt are given to anyone that has huge spell crit as this boosts the damage done to the mob. Also give suits to **2 high melee dps**. Kill the trash and gather the suits; once again last trash should be killed by the entrance or the rear corridor to prevent tentacle damage. You can get to the rear by staying out of the water and running around the right hand side. Note the **globe North of the mob**.\n\nSuit your team up and send them in like before but alternate melee dps with mages ready to fire off fluid vials as quickly as possible. Suited melees keep the center area clear; **mages/SK's burn fluids** as quickly as possible.\n\n### Maximizing Fluid Damage\n\nTo maximize damage inflicted by fluids, make sure **single target mitigation debuffs** are kept up on Leviathan continually.\n\n- Undebuffed fluids will do as little as **150k crit damage**\n- A fully debuffed dispatched Levi will take **340–520k from fluids**\n\n> Levi does **not** reflect combat arts — only spells — which includes snares and taunts.\n\n- **Single target debuffs** (Murderous Rake, Dispatch, Obliterated Psyche, Condemn, etc) should be kept up continuously for this purpose\n- **Avoid \"green\" encounter debuffs** (Claras Cacophany, Zander's Choral Rebuff, Despoiling Mist) as these reflect back on whole group, not just caster\n- If raid is all on same side, **Brigand** can swim through Levi center to get behind for rear debuffs, then swim back to raid without taking much water damage\n\n### Dispelling Reflective Aura\n\n- **Druids** should be casting [Serene Symbol](https://eq2.fandom.com/wiki/Serene_Symbol)\n- **Brigands** should be using [Cuss](https://eq2.fandom.com/wiki/Cuss) as frequently as possible\n\n### The Orb at 20%\n\nApply **\"The Greenmist Orb\"** to the globe at **20%**. The orb will disappear from inventory once used.\n\nContinue with suits and fluids until mob is dead.\n\n## Additional info on \"The Greenmist Orb\"\n\n> This zone requires **\"The Greenmist Orb\"** (the **purple** one) — not to be confused with the **\"Green Mist Orb\"** (the **green** one) for the epic weapon update.\n\nThe person with the orb must be at the globe located on the North side **BEFORE the mob hits 20%**. The globe will become activated and is clickable at the same time as the green message appears on the screen. **Click and activate the globe quickly** or the opportunity is lost.\n\nIf you clicked on it successfully you will get another green message at a later time indicating that the orb has been absorbed. If you failed, the raid party will quickly know because the mob will AoE at **1%** and kill all.\n\n> The orb does **not** need to be \"dropped\" into the globe, nor does the item get clicked within the inventory or on the hotbar."
+        }
+      ]
+    },
+    {
+      "zone_name": "The Emerald Halls",
+      "updated_overview_md": "## Pre-clears\n\nSeveral encounters in this zone require clearing surrounding mobs before engaging, or other named will assist:\n\n- **Tender of the Seedlings** — kill all the other mobs on the first floor before pulling. If any mobs are still alive (including nameds), they will run in to assist.\n- **Wuoshi** — clear the entire third level before engaging, otherwise all mobs on the level will aggro.\n- **Sariah the Bloomseeker** — clear the centaurs around her or they will come help her.\n- **Treah Greenroot** — let Wuoshi pass by during the fight so she doesn't aggro your raid if Treah takes too long to burn down.",
+      "encounters": [
+        {
+          "mob_name": "Elaani the collector",
+          "updated_strategy_md": "## Activating the Encounter\n\nTo make this mob active, you must kill the three named bixies, [Trixie](https://eq2.fandom.com/wiki/Trixie), [Mixie](https://eq2.fandom.com/wiki/Mixie), and [Dixie](https://eq2.fandom.com/wiki/Dixie) at the same time. If you do not kill them within **10 seconds** of each other, they will respawn.\n\n## Strategy\n\n- Pull all three at once, bring each down to **10%** and then AoE.\n- As soon as they die, the collector goes active and immediately aggoes with a few adds.\n- She has a fairly large kickback so fight with your back to the walls.\n\n### Alternate Approach\n\nPull them from left to right one by one; when you burn one down enough, grab the next one. This helps if you're low on heals."
+        },
+        {
+          "mob_name": "Galiel Spirithoof",
+          "updated_strategy_md": "## Positioning\n\nShe has a kickback so plant against the wall. The **mushroom in the center of the room** works best since it helps avoid Wuoshi.\n\n## Mechanics\n\n- Every **10% HP** she will pop an **x2 add** — it's best to burn it down and then continue on the mob so that you don't become overrun by adds.\n- Galiel has **mana drain** and will occasionally drain mana, so having some mana regen may be necessary.\n- Adds have a total of **2,500,000 HP**."
+        },
+        {
+          "mob_name": "Gardener Thirgen",
+          "updated_strategy_md": "- Will summon every brownie trickster and prankster in the zone. Kill them first, then he's just a tank and spank.\n- Be sure to also kill the Bixies and the Far Strider Unicorn if it's up — they will all assist him in the battle if not killed first."
+        },
+        {
+          "mob_name": "Prince Thirneg",
+          "updated_strategy_md": "Spawns with **2 adds**, a **martial advisor** and a **magical advisor**."
+        },
+        {
+          "mob_name": "Sariah the Bloomseeker",
+          "updated_strategy_md": "## Adds\n\nComes with three [a Hedon bloomseeker](https://eq2.fandom.com/wiki/a_Hedon_bloomseeker) which have a total of **2,100,000 HP**.\n\n## Mechanics\n\n- She has a very mean **focus spell** that does a lot of damage\n- She has **AOE** and **short stifles** as well\n\n## Strategy\n\nBuff up and put some wards, **burn down her adds**, and then just ward/heal and **burn Sariah down**."
+        },
+        {
+          "mob_name": "Sarik the Fang",
+          "updated_strategy_md": "## Overview\n\nSarik is an **endurance fight**. The idea of the fight is to outlast the waves of **level 74 ^^^** [fang pack members](https://eq2.fandom.com/wiki/a_fang_pack_member) that Sarik will spawn periodically.\n\n## Strategy\n\n- Use your **AOE DPS** to take out the wolves while the **main tank** fights Sarik in a save position.\n- When the raid DPS kills the adds they should focus back on Sarik.\n\nRepeat this process until the boss is defeated."
+        },
+        {
+          "mob_name": "Tender of the Seedlings",
+          "updated_strategy_md": "## Mechanics\n\n- Along with **Chilling Mist**, this named casts a **noxious-based AoE stifle every 45 seconds**\n- It has a **30 meter range** and is **curable**\n- Also **memblurs every 25–35 seconds**\n\n## Positioning\n\nPlace the **Main Tank** at the big rock and place all the **DPS** near mushroom. Put the **offtank** between the two, on the side nearest to the named, and **healers** on the other side. Should look something like this:\n\n```\n --------R(MT)--------------------\n ---------------------------------\n (H)--------------(OT)-----------T\n ---------------------------------\n -----------(DPS)-----------------\n```\n\n- **R** = Rock\n- **MT** = Main Tank\n- **H** = Healers\n- **DPS** = DPS\n- **OT** = Offtank\n- **T** = Tender's spawn point\n\n## Execution\n\nThe **MT** pulls the named, everyone casts **AOEs** to kill the adds in the encounter. Try to have **1 debuffer** ([Brigand](https://eq2.fandom.com/wiki/Brigand) preferable) on the Tender all the time. One **DPS** ([Assassin](https://eq2.fandom.com/wiki/Assassin) or such) could also stay.\n\n### Storytellers\n\nEvery **45–60 seconds**, 'a seedling storyteller' will pop. They are **epic x2**. The **offtank must grab the storytellers** as soon as they pop, and the raid should kill them. Once they are dead, kill the Tender.\n\n## Kill Priority\n\n1. Encounter adds\n1. Storytellers (a Seedling Storyteller)\n1. Tender"
+        },
+        {
+          "mob_name": "Treah Greenroot",
+          "updated_strategy_md": "Comes with a bunch of [a knotted guardian](https://eq2.fandom.com/wiki/a_knotted_guardian) adds. The adds are easy to kill and don't do much dps. If you have a lot of **AoE**, just focus on the named. Adds had a total of **790,000 HP**."
+        },
+        {
+          "mob_name": "Tunare",
+          "updated_strategy_md": "- Tunare is the deity of most [Fae](https://eq2.fandom.com/wiki/Category:Fae).\n- Tunare appears in-game as an older humanoid female wearing flowing robes and a crown of vines and leaves."
+        },
+        {
+          "mob_name": "Wuoshi",
+          "updated_strategy_md": "## Mechanics\n\n- All of Wuoshi's special attacks **drain power** (AE).\n- Wuoshi spawns a **Bloodbeast** at **75%** and **25%** health during the fight. *(Almost the same as An Ancient Bloodbeast from Halls of the Seeing.)*"
+        }
+      ]
+    },
+    {
+      "zone_name": "The Execution Throne Room",
+      "updated_overview_md": "## Trash\n\nCarefully pull the first two guards into the stairway zone in, they're very social and can add two more guards easily; all four can be killed at the same time with a mid 80's and above raid.\n\nOnce inside clear the trash mobs around the room by pulling them one at a time up to the raid near the entry killing the champion last down on the main floor. (Which actually leaves Pawbuster for last.)",
+      "encounters": []
+    },
+    {
+      "zone_name": "The Firemyst Gully: A Gallant Confrontation",
+      "updated_overview_md": "## Zone Gimmick\n\nZone will split an x2 raid into two separate, parallel zones. Balance your groups before you go in, and be prepared to 1-group the zone.",
+      "encounters": []
+    },
+    {
+      "zone_name": "The Fountain of Life",
+      "updated_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Captain Graul Anashite",
+          "updated_strategy_md": "Spawns adds throughout the fight."
+        },
+        {
+          "mob_name": "Godking Anuk",
+          "updated_strategy_md": "## Overview\n\nTo defeat the Godking you must also defeat the two mobs that are linked to assist him, [Power of Anuk](https://eq2.fandom.com/wiki/Power_of_Anuk) and [Armor of Anuk](https://eq2.fandom.com/wiki/Armor_of_Anuk).\n\nThree tanks are optimum for this fight, but it can be accomplished with **two tanks**: one high-aggro fighter such as a [Berserker](https://eq2.fandom.com/wiki/Category:Berserker) focusing on the [Power of Anuk](https://eq2.fandom.com/wiki/Power_of_Anuk) and [Armor of Anuk](https://eq2.fandom.com/wiki/Armor_of_Anuk), and a main tank focusing on the Godking.\n\n## Pull & Kill Order\n\nPull the [Power of Anuk](https://eq2.fandom.com/wiki/Power_of_Anuk) via a **ranged weapon first**, which will bring the Godking and [Armor of Anuk](https://eq2.fandom.com/wiki/Armor_of_Anuk).\n\n> Be sure the tank fighting the Godking **moves him to a corner of the room** away from the other fight.\n\n1. Kill **[Power of Anuk](https://eq2.fandom.com/wiki/Power_of_Anuk)** first — this will remove the ability of the Godking to cast **[Flame Nova](https://eq2.fandom.com/wiki/Flame_Nova)**\n2. Kill **[Armor of Anuk](https://eq2.fandom.com/wiki/Armor_of_Anuk)** second — this will drastically reduce the Godking's defense\n3. Finish off the **Godking** third"
+        }
+      ]
+    },
+    {
+      "zone_name": "The Gates of Ahket Aken",
+      "updated_overview_md": "## Access\n\nSpeak to [Muleek Mahaja](https://eq2.fandom.com/wiki/Muleek_Mahaja) to gain the option to enter [The Gates of Ahket Aken](https://eq2.fandom.com/wiki/The_Gates_of_Ahket_Aken) when attempting to enter [The Living Tombs](https://eq2.fandom.com/wiki/The_Living_Tombs).",
+      "encounters": [
+        {
+          "mob_name": "Ahk'Mun Rhoen",
+          "updated_strategy_md": "## Mechanics\n\nAhk'Mun Rhoen possesses a strong **knockback** effect and a **long duration stun**.\n\n## Pull & Positioning\n\n- Do **not fight him on the tower** where he spawns.\n- Choose one person to climb the tower and aggro Ahk'Mun Rhoen.\n- Pull him down and have your **tank put their back against something** to keep Ahk'Mun Rhoen from wandering around while you fight.\n\n> It is entirely possible to **wipe** due to the long duration stun if the knockback is not controlled.\n\n## Notes\n\n- Keep **healers** unstunned.\n- Keep **slow** on the epic monster.\n- Keep **tanks** back to the wall."
+        },
+        {
+          "mob_name": "Muleek Mahaja",
+          "updated_strategy_md": ""
+        }
+      ]
+    },
+    {
+      "zone_name": "The Lyceum of Abhorrence",
+      "updated_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Essence of Fear",
+          "updated_strategy_md": "- The Essence of Fear will AE fear every 20 seconds. (Or more depending on [Fear's Grasp](https://eq2.fandom.com/wiki/Fear's_Grasp))"
+        },
+        {
+          "mob_name": "Gnillaw the Demented",
+          "updated_strategy_md": "- Heals from 1% to 25%\n- Adds can be mesmerized\n- Nukes hard on 2%"
+        },
+        {
+          "mob_name": "Gnorbl the Playful",
+          "updated_strategy_md": "## Adds\n\nHe comes with two large groups of adds, which will taunt and therefore cause members of the raid to target them (instead of the **MT** or **MA**).\n\n### First Group\n\nThe first set of adds can be killed fairly quickly with **AE**, so if you get taunted, this is not too much of a problem.\n\n### Second Group\n\n> **Do not kill** any of the second group of adds — if you kill one of them, Gnorbl receives a **powerful heal**.\n\nThis means that **nobody** in the raid should AoE, use AoE pets, or dumbfire pets; the adds will taunt your pets.\n\n## Staying on the Named\n\nKeep clicking the named to retarget, or stop attacking when the adds spawn (they despawn after 10–20 seconds). The adds spawn every **30 seconds**.\n\n## Notes\n\nAs long as you don't kill any of the second group of adds, he goes down quickly."
+        },
+        {
+          "mob_name": "Harla Dar",
+          "updated_strategy_md": "## Clearing\n\nClear all drakes on the lower platform in a (clockwise or counterclockwise) direction, leaving the **droags** for a second clearing, as these have a shorter respawn time.\n\nMove raid to top of stairs and **body pull** the drakes, again in a clockwise or counterclockwise manner. All can be pulled without aggro'ing Harla Dar.\n\n## Pull\n\nOnce all drakes and droags are clear, pull **Harla Dar** to the blocked wall behind the area where she stands (the zone out) and be careful of **knockback**."
+        },
+        {
+          "mob_name": "Vilucidae the Priest of Thule",
+          "updated_strategy_md": "## Pull\n\nHere's the easiest way to kill Vilucidae: **Pet pull** Vilucidae out of his room to a side room.\n\n## Execution\n\n- There is **no AOE** from Vilucidae so everyone can stand **BEHIND** the mob and melee.\n- This helps with dps and with aggro, as he will not be pulled out of taunt range.\n- He hits hard in the **first and final stances**, so communicating when you need extra heals will really help.\n- **Chain healing** in the final stage is recommended.\n\n## Why Pull Him Out\n\n> The reason for this strategy is because **in the pit**, he spawns these **flowers** that will cast **REALLY long fears** on you. You are also unable to leave/enter the pit once the fight begins because a **barrier** is placed."
+        }
+      ]
+    },
+    {
+      "zone_name": "Throne of New Tunaria",
+      "updated_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Queen Lenya Thex",
+          "updated_strategy_md": "- To disable her charm ability, destroy the two statues in [The Garden of Purity](https://eq2.fandom.com/wiki/The_Garden_of_Purity) and [The Garden of Clarity](https://eq2.fandom.com/wiki/The_Garden_of_Clarity)."
+        }
+      ]
+    }
+  ]
+}

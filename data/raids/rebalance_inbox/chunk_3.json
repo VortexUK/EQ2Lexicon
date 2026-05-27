@@ -1,0 +1,222 @@
+{
+  "chunk_id": 3,
+  "total_chars": 24984,
+  "zones": [
+    {
+      "zone_name": "Commune of K'Dal",
+      "expansion_short": "Vanilla",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Gustad Aleslammer",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "- Speak with this NPC to spawn [K'Dal the Deceiver](https://eq2.fandom.com/wiki/K'Dal_the_Deceiver)."
+        },
+        {
+          "mob_name": "Klogg Bindgear III",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "- Talk to him to gain entrance to [Maiden's Gulch](https://eq2.fandom.com/wiki/Maiden's_Gulch)"
+        }
+      ]
+    },
+    {
+      "zone_name": "Darathar's Flight",
+      "expansion_short": "Vanilla",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Darathar",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Pull\n\nIt is recommended that you pull Darathar into the water, and have **casters** positioned at maximum range to avoid incurable trauma damage.\n\n## Mechanics\n\n### Self-Heal Thresholds\n\nHe will cast a raid-wide stun and heals for **25% of his maximum health** three times during the fight, at **75%**, **50%** and **25%** health:\n\n- At **75%** health, he will heal to full health.\n- At **50%** he heals to **75%** health.\n- At **25%** he heals back to **50%** health.\n\nAfter that point, he will no longer heal himself.\n\n### Flame of Ages\n\nHis special attack, [Flame of Ages](https://eq2.fandom.com/wiki/Flame_of_Ages), is an **elemental area-of-effect** spell which does a high amount of direct damage and has a damage-over-time component. He casts this approximately every **50 seconds**.\n\n> Each member should have **elemental cure potions** to ensure they can cure themselves in case a healer is unable to cure them immediately.\n\n## Notes\n\nThe self-heals only occur **once per instance** at each health threshold, **not per encounter**. For example, if you get Darathar below 50% and then the raid wipes, Darathar will only heal once during subsequent fights. If the raid wipes after taking Darathar to 25% health, he will not heal and stun again in that instance."
+        }
+      ]
+    },
+    {
+      "zone_name": "Drayek's Chamber",
+      "expansion_short": "Vanilla",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "King Drayek",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "- This is a **ring event**. After each wave is cleared, just wait and eventually the next wave spawns.\n- When King Drayek reaches **80% health**, 2x lvl52^^^ and 2x lvl52 ^^ **Kromise Royal Guard** come to his aid."
+        }
+      ]
+    },
+    {
+      "zone_name": "Freethinker Hideout",
+      "expansion_short": "EoF",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Othysis Muravian",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Mechanics\n\n- Auto attack does **crushing** and **disease** damage.\n- Every **34 seconds** she emotes, *\"Through the portal now\"*, and summons a [D'Morte preserver](https://eq2.fandom.com/wiki/a_D'Morte_preserver) (heroic).\n  - The preserver will heal Othysis Muravian with **Gift of Rejuvenation** and **Superior Gift of Rejuvenation** for **12.3 million HP** if it gets close enough.\n- Every **30 seconds** she emotes, *\"Time for some soul searching\"*, and casts a Disease DD (**Prone to Corruption**) on a random raid member.\n\n> If the target of **Prone to Corruption** does **NOT** die to it, it spawns an add (Epic x2)."
+        },
+        {
+          "mob_name": "Treyloth D'Kulvith",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Mechanics\n\n- **Treyloth D'Kulvith** will mem wipe at **75%**, **50%**, and **25%** health.\n- You need to fight between **10m and 5m** of him to avoid both of his AoEs.\n- He also places an **arcane detrimental** on the raid which causes your spells to reflect."
+        }
+      ]
+    },
+    {
+      "zone_name": "Halls of the Seeing",
+      "expansion_short": "KoS",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Pain",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "- Scrutinizing a random weapons rack will deliver [Tolapmuj](https://eq2.fandom.com/wiki/Tolapmuj), who you must speak with to attack Pain and [Suffering](https://eq2.fandom.com/wiki/Suffering).\n- **Frontal AE** with 100% power drain and mental damage."
+        },
+        {
+          "mob_name": "Suffering",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Mechanics\n\n- Fears\n- Heat based power-drain on target\n- Frontal AE **100% power-drain** and Mental damage"
+        },
+        {
+          "mob_name": "Tolapmuj",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "- To spawn Tolapmuj, as well as [Pain](https://eq2.fandom.com/wiki/Pain) and [Suffering](https://eq2.fandom.com/wiki/Suffering), you must find and scrutinize (inspect) a random weapon rack (**'Weapons of the Fall'**) throughout the zone."
+        }
+      ]
+    },
+    {
+      "zone_name": "Shard of Hate",
+      "expansion_short": "RoK",
+      "current_overview_md": "## Progression\n\nThere is no hard and fast rule for this zone, giving the raid a bit of choice in kill order.  The first two named mobs (Demetrius Crane and Dreadlord D'Somni) are considered to be comparatively straightforward kills and therefore good practice for guilds beginning to raid.  However, the difficulty level rises sharply after that point.\n\nDifferent raids have their own preference on which one of these two named mobs to kill first.  However, the stategy for each involves clearing the trash mobs near the zone in and all trash leading up to and surrounding them.\n\n## Trash\n\nThis stage is fairly straightforward as long as you remain aware of three things:\n\n- The trash mobs wander a fairly wide area so it is important to choose a fighting position where the raid can avoid adds; the [spite golems](https://eq2.fandom.com/wiki/a_spite_golem) move quite quickly, so be aware of their wandering radius.\n- In some areas, there are pairs of [animus haunted chests](https://eq2.fandom.com/wiki/an_animus_haunted_chest) very close to each other, making a potentially tricky pull.  Do not precast anything (heals, reactives etc) before the tank pulls or you will get both chests heading straight towards the culprit!\n- Look above to make sure the flying mobs ([scorn fiends](https://eq2.fandom.com/wiki/a_scorn_fiend)) do not add.",
+      "encounters": [
+        {
+          "mob_name": "Spires of Innoruuk",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "- The 'Disciples of Innoruuk' function as the priest guild on Neriak."
+        }
+      ]
+    },
+    {
+      "zone_name": "The Cove of Decay: Epic Angler",
+      "expansion_short": "Vanilla",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Googegguta",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "Speak with him to obtain access to the raid zone [The Cove of Decay: Epic Angler](https://eq2.fandom.com/wiki/The_Cove_of_Decay:_Epic_Angler)."
+        }
+      ]
+    },
+    {
+      "zone_name": "The Deserted Mine",
+      "expansion_short": "Vanilla",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Gragak Stinkyfeet",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "Speak to Gragak to gain entrance to [The Deserted Mine](https://eq2.fandom.com/wiki/The_Deserted_Mine)."
+        }
+      ]
+    },
+    {
+      "zone_name": "The Temple of Kor-Sha",
+      "expansion_short": "RoK",
+      "current_overview_md": "This is a tier 2 Kunark raiding zone.\n\n## Trash\n\nOnce inside the Temple you will need to watch out for wandering 83x4 mobs. There are 5 or 6 of these wandering mobs which come in pairs roaming throughout the zone, and they roam a LONG way. One pair of these mobs will come almost all the way to the zone in point. They come in pairs (a Charnak soldier and a Chokidai tracker) but may be far apart -- have the **MT** taunt the soldier and the **OT** taunt the tracker.\n\n## Progression\n\nFrom the zone in point your raid force will need to head either left or right up the stairs. No wandering mobs up there, just make sure your raid force avoids pulling the first wandering mob as you proceed up the stairs. Kill the 83x4 a runic guardian (non-aggro simple tank and spank) in both the room to the right and the room to the left. Go back to the entrance and proceed to kill the first wandering pair then proceed into the first lower room to kill another Runic Guardian.\n\nProceed into the next hallway, continuing to keep an eye out for wandering pairs. The next room is a non-attackable Atrebe. Kill off a couple of the other wandering pairs of Soldier/dog combos. Enter into the next hallway making your first available left down yet another hallway. Follow this hallway around to a circular room and kill the Runic Guardian that stands there. Proceed down the stairs all the way and kill more Runic Guardians in the room to the left and right.\n\n## Spawning Atrebe\n\nAfter the fight in the room with the excavationers, Uthtak the Cruel, and Aktar the Dark, in the room they were standing is a small box that your **Monk**, **Bruiser** or **SK** should collect for the next fight.\n\nEveryone now moves back to the unattackable Atrebe's room. The person who collected the box can spawn Atrebe.\n\n## Atrium & Twins\n\nContinue the way you were going until you reach the atrium -- it will have 4 waterfalls in the corners. Have the raid stay in the hallway while the **MT** pulls the roamer back to the raid for an easy kill. There are two assassins hidden in the waterfalls. Have the MT step into the water to spawn them and pull them back to the raid for some more easy kills.\n\nThere are two smaller hallways to the north and east. Each end in a room that contains a named, Zarda and Kodux. Pull the extra mob in each room and kill them in the hallway before beginning the next fight.\n\n## Final Approach\n\nHead down the west hallway, killing another set of roamers and two more Runic Guardians.",
+      "encounters": [
+        {
+          "mob_name": "Aktar the Dark",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Overview\n\nThis mob is a **non-loot mob**. The only thing you get from this fight is the device to activate Atrebe. It is best to **duel tank** this mob due to a noxious stun that is also a nasty uncurable dot.\n\n- **Noxious Mist**: a stun and uncurable DoT with a seemingly **50 sec.** recast. Joust this AoE to avoid it.\n\n## Strategy\n\n### Off-tank\n\n- The **offtank** needs to stick **Uthtak the Cruel** with an arrow and pull him and the adds to the corner opposite where the raid force is.\n- The adds will taunt the offtank and force him to stay on that target — best to stay on that target and burn it.\n\n### Main tank\n\n- The **MT** needs to taunt **Aktar the Dark** away from the raid force to avoid the AoE and tank him about where he stands.\n\n> Again, the AoE is nasty and uncurable as well as stuns.\n\n### Uthtak's reflect\n\n> **Uthtak** has a reflect shield on him — be careful with your big nukes and big debuffs, they can be reflected back to you and your group.\n\n### Burn phase\n\n- Once Uthtak is down, have the raid force joust Aktar's AoE and burn him.\n\n## Notes\n\n- Don't be alarmed when a box does not hit the ground after the encounter is over."
+        },
+        {
+          "mob_name": "Atrebe's Statue",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Pull\n\n- One person needs to loot and equip [a cryptic device](https://eq2.fandom.com/wiki/a_cryptic_device) dropped from the Uthtak/Aktar fight.\n- They can then right-click on Atrebe's Statue and select **\"Press Glowing Gem on the Cryptic Device\"** to make Atrebe's Statue attackable.\n\n## Preparation\n\n- Maximize **Poison & Magic resists**.\n\n## Mechanics\n\nJoust the two AoEs, which increase in damage the closer you are to the mob. **Cure immediately** with healers or potions when hit with either one.\n\n### Sebilisian Sporecloud\n\n- At **0 to 10 meters**: 12338-24492 poison damage plus 2903-5763 poison damage every 5 seconds\n- At **10 to 15 meters**: 7583-11374 poison damage plus 2166-3250 poison damage every 5 seconds\n- At **15 to 75 meters**: 4875-5958 poison damage plus 1462-1787 poison damage every 5 seconds\n- For ACT the spell needs to read **\"Statue's Sebilisian Sporecloud\"** and goes off at about the **45 sec.** mark\n\n### Force of Atrebe\n\n- You will be **launched into the air** and hurled toward Atrebe's Statue\n- At **0 to 10 meters**: 7936-23808 magic damage plus 3174-9523 magic damage every 9 seconds\n- At **10 to 15 meters**: 5079-11851 magic damage plus 1905-4444 magic damage every 9 seconds\n- At **15 to 100 meters**: 3809-5714 magic damage plus 1693-2540 magic damage every 9 seconds\n- For ACT the spell needs to read **\"Statue's Force of Atrebe\"** and goes off at about the **40 sec.** mark\n\n> **Force of Atrebe** actually kicks you in the direction you are facing — if you face the mob it will pull you to him; if you face away you will get a standard knockback.\n\n## Notes\n\n- Resists, fast cures for the dots, jousting, and a bit of luck (if both AoEs go off at the same time or very close, it is very likely that it kills MT) are the keys to this fight.\n- If healers cannot cure fast enough then bring potions."
+        },
+        {
+          "mob_name": "Queen Velazul Dizok",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "- Control-immune.\n- Has a knockback — good spot to fight her is behind her throne, right at the wall.\n- Has a charm."
+        },
+        {
+          "mob_name": "Selrach Di'Zok",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Overview\n\nThe Overking is the final mob in the Temple of Kor-Sha.\n\n- Make sure the **assassins** are cleared out of the pools before engaging him, or they will join the fight.\n- Use **elemental resist** gear if you are low, and have the **Troubador** run **Elemental Chorus**.\n\n## Group Setup\n\n### Off-tank group\n\n- Should be a good **AoE setup**. For example a **Paladin** with **amends** on a **Warlock**, a **Shadowknight** or **Berserker**.\n\n### Main tank group\n\n- Can use a **third healer** to deal with the incredible amount of curing required.\n- Ideal setup for your first time: **Guardian, Templar, Defiler, Warden, Coercer, Dirge**.\n- Keeping this group cured is important due to the large amount of stun/stifles caused by the **Mentalist** adds.\n- Have your healers set up `/tell` macros to assigned casters to cure them.\n\n### Tank target macro\n\nThe main tank will be frequently taunted off the Overking, so make a target macro to keep clicking and get your target back:\n\n- `/target Selrach`\n\n## Pull & Positioning\n\n- Everyone should set up just before the two pillars.\n- The fight will start with the tank running to the throne and holding the Overking there.\n- The rest of the raid goes into a tight group **directly in the middle of the two pillars** and starts casting AoEs.\n- The off-tank should pull the adds to the raid and hold them there so AoEs have maximum effect, keeping them away from the main tank.\n\n## Adds Phase\n\n- Once the first set of adds are dead you will get a continuous spawn of weaker adds with stunning casters called **Mentalists**.\n- When these waves spawn, **kill the Mentalists first**.\n- Once you have the waves under control, you can assign more single-target damage to attack the Overking with the main tank. Figuring out just the right number of people you can take off the adds and put on the Overking will speed this fight up.\n\n## AoEs\n\nDuring the fight two AoEs will go off:\n\n- **Concussive Blast**: magic based, hits every **52 seconds**, and is fairly weak.\n- **Heat AoE** (the one of concern): hits every **30 seconds**.\n  - This is the reason the Overking must be kept away from the raid; using a tank with good heat resists like a **Guardian** helps on the healing.\n\n## Mid-fight Repositioning (~80%)\n\n- Once things are under control and the Overking is at about **80%** health, the tank should move the Overking from the throne past the pillars.\n- Wait for the Mentalists to be dead from the current set of adds, and for the **heat AoE** to have gone off.\n- Once the heat DoT has been cured and there are only a couple of adds up, pull the Overking through the raid force and onto the other side. **Thought snap** is useful here.\n- The tank should be far enough from the raid that the heat AoE doesn't do much damage to them.\n\n> **Don't** pull against the wall — you need to be in the center of the left area so when the flame adds come they don't all come around the side.\n\n## Wand Phase (~58%)\n\n- Once you get him to **58%** he is going to start speaking.\n- At this point make sure the person who has the [Wand of Intervention](https://eq2.fandom.com/wiki/Isydryl's_Wand_of_Intervention) from [Pawbuster](https://eq2.fandom.com/wiki/Pawbuster) is cured of all effects so they can use the wand on the Overking. This will disable his brutal AoE.\n- The tank should use any damage prevention (such as **Tower of Stone**) at this point, because the Overking will cast an additional AoE.\n\n## Flame Phase\n\nThe Overking is now upset and will begin calling in the flames from the fire pots around his throne to come help him.\n\n> If the flames reach the Overking he gets to do his AoE again, which will likely kill everyone.\n\n> **Don't** target the flames directly without them getting far enough away from the throne area — they will port you to the Overking and he will kill you.\n\n- The trick is to let them funnel past the pillars to the raid force and use **blue AoEs** to destroy the flames without directly targeting them.\n- There will be a couple of flames that sneak around the pillars on the outer sides. **Call these** and have a **brig** or some other class assigned to go and kill them.\n- Have a few AoE classes continue to kill the flames, and the rest of the raid can focus DPS on the Overking."
+        },
+        {
+          "mob_name": "Uthtak the Cruel",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "See [Aktar the Dark](https://eq2.fandom.com/wiki/Aktar_the_Dark) for more information."
+        }
+      ]
+    },
+    {
+      "zone_name": "The Temple of Scale: Pedestal of the Priestess",
+      "expansion_short": "KoS",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Harla Dar",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Clearing\n\n- Clear all **drakes** on the lower platform in a clockwise or counterclockwise order, leaving the **droags** for a second clearing, as these have a shorter respawn time.\n- **KILL FAST**, aiming for clearing in **10-15 minutes**!\n\n> This is a DPS check — raid average should be **13k DPS** or better.\n\n- Move raid to top of stairs and body pull the drakes, again in a clockwise or counterclockwise manner. All can be pulled without aggro'ing Harla Dar.\n\n## Pull\n\nOnce all drakes and droags are clear, pull **Harla Dar** to the blocked wall behind the area where she stands (the zone out) and be careful of **knockback**."
+        }
+      ]
+    },
+    {
+      "zone_name": "The Tomb of Thuuga",
+      "expansion_short": "RoK",
+      "current_overview_md": "## Composition\n\nIt might be smart to have two solid tanks for this raid. It's advisable that you have a **Crusader** with the [Fearless Morale](https://eq2.fandom.com/wiki/Fearless_Morale) AA ability. Success in this zone depends greatly on the raid's ability to withstand three things: **fear**, **stun**, and the **cocoons (crushing)**.\n\n## Trash\n\nClearing the entire zone of trash mobs (drachnids and skeletons) is the first goal. All skeletons will fear, so crouching and walking while fighting the skeletons will minimize the impact of this when it happens. Try to make these every 2nd pull, so the MT templar can have [Sanctuary](https://eq2.fandom.com/wiki/Sanctuary) up.",
+      "encounters": [
+        {
+          "mob_name": "Tairiza the Widow Mistress",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Overview\n\nThis is a **burn fight**.\n\n## Mechanics\n\n### Sacs\n\nTairiza spawns **\"sacs\"** approximately every **30 seconds**. A sac will land on a random person in the raid, **incapacitating** them and **killing them over time**.\n\n### 40% Spider Adds\n\nAt approximately **40%** she spawns a group of spiders.\n\n> **NOTE**: The spider adds are **immune to all taunts**.\n\n## Positioning\n\n- Have **ranged DPS** and **healers** to the left or right of the door with a **Ranged DPS main assist** calling the sacs and making the ranged dps cycle between killing the sacs then immediately back on the named.\n- **Melee DPS** stands directly under the Widow Mistress, targets the mob, and burns it down.\n- If a sac spawns on melee DPS or the **Main Tank**, melee DPS can **TAB**, burn the sac down, then resume on the named.\n\n## Add Phase\n\n- Once the spiders pop, ignore the sacs and focus the burn on the mob.\n- A **zerker** or strong **AE'ing offtank** should pick up as many spiders as possible.\n- Alternatively, multiple **Enchanters** can **mezz** them.\n- Either way, **burn Tairiza as fast as possible** once the adds start.\n- Save big spells/CAs with long recast timers for that final push.\n\n## Finish\n\nOnce the spiders pop, everyone targets the named directly and burns. **AoEs** will clear a lot of the spiders; finish off any remaining after the named dies and loot the metal chest."
+        },
+        {
+          "mob_name": "Venril Sathir",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Setup\n\n- **Healers** only heal and cure and don't do damage of any kind.\n- **1–2 people** devoted to clicking the statues in his room. Statues must be clicked **constantly** during the fight to prevent the two larger statues in the hallway leading up to his room from spawning.\n\n## Mechanics\n\n### Toxic Infusion (throughout)\n\n- Venril will cast **Toxic Infusion**, an AOE on a **38s timer**.\n- You have **6 seconds** to cure this **Noxious** effect from your raid.\n- Cure it or die from a follow-up spell called **Fatalisis**.\n- Bring potions in case you don't have group noxious cures in every group.\n\n### 65% — Soulcube\n\nAt **65%** Venril will emote how he will finish the fight. Use the [Mistmyrian Soulcube](https://eq2.fandom.com/wiki/Mistmyrian_Soulcube) from [Tairiza the Widow Mistress](https://eq2.fandom.com/wiki/Tairiza_the_Widow_Mistress) within **5 seconds** or die.\n\nIf Sathir is killed without the Soulcube, the entire group/raid will be hit for 100,000+ focus damage and Sathir will reset rather than dying.\n\n### 60% — Power Management\n\nAt **60%**, with Venril's main ability disabled, he will begin to watch your power consumption.\n\n- Your raid force must keep their power around **30% or higher** to be safe.\n- A raid member who gets under 30% for too long will spawn adds that will most likely wipe the raid.\n\n### Power Effects (every 45s on 2 random members)\n\nThese effects last for about **10–12 seconds** and make it more challenging to keep your power in the target zone.\n\n**Mana Sacrifice**\n\n- Causes you to consume **200% more power** than usual.\n- Do not use any abilities that use power while this effect is on you.\n- If you can, turn up your particle effects because you will glow **'BLUE'** when Mana Sacrifice is on you.\n- If you are in the middle of casting anything and the effect lands on you, cancel it immediately.\n\n**Enhanced Power Regen**\n\n- The opposite effect — a feed of about **1% power every 2 seconds** for 10–12 seconds."
+        }
+      ]
+    },
+    {
+      "zone_name": "Trakanon's Lair",
+      "expansion_short": "RoK",
+      "current_overview_md": "",
+      "encounters": [
+        {
+          "mob_name": "Snyr'dok",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "If you have finished the quest, [Taking on Trakanon](https://eq2.fandom.com/wiki/Taking_on_Trakanon), he will offer to teleport you to the entrance of [Trakanon's Lair](https://eq2.fandom.com/wiki/Trakanon's_Lair)."
+        },
+        {
+          "mob_name": "Trakanon",
+          "position": 0,
+          "wiki_url": null,
+          "current_strategy_md": "## Zone Layout\n\n- When you enter, you are in a zone in/zone out room which leads to gigantic stairs. You must use the side area of the stairs to walk up into the main lair.\n- When you first enter the zone, Trakanon will greet you from far above the platform, then fly down. At this point you can engage Trakanon.\n\n## Chelsith Stone & The Orb\n\n- You must have a **chelsith stone** with you to have any chance to succeed. It drops in the leviathan encounter in-game.\n- Once the fight begins, the holder of a chelsith stone can touch the **orb altar** on the far side of the platform to energize it. Once energized, if you stay within **14m** of the energized orb structure, you are protected from many of Trakanon's more powerful abilities.\n- The key to winning this encounter is to fight within **14m** of the activated orb on the far side of the platform. Trakanon's **arcane maelstrom** breath weapon is far too lethal outside this protective area. In addition, Trakanon's knockback abilities are negated (all but one) when you are close to this orb object if it is energized.\n\n## Mechanics\n\n### Wing Buffet & Tail Swipe\n\nTrakanon is a **level 87 warlock**. He will periodically cast **Wing Buffet** and **Tail Swipe**.\n\n- **Wing Buffet** will **STUN** everyone in front of him for **2.5 seconds**. It will also **KNOCK** everyone back UNLESS they are within **14m** of the energized orb.\n- **Tail Swipe** does some damage, and stuns players for about **3 seconds**. It will also **KNOCK BACK** any players that are NOT within **14m** of the energized orb.\n\n### Immunities & Attack Profile\n\nTrakanon is immune to all control spells, and will double attack on melee **10%** more than normal.\n\n### Arcane Aura of the Wyrmlord / Pestilential Pause\n\nTrakanon has **Arcane Aura of the Wyrmlord** on him. On take damage **10%** of the time, players will be hit with **Pestilential Pause**. This does a slight amount of damage and for the next **10 seconds**, all the player's spells take much longer to cast and are basically at half effectiveness (heals and damage are half as effective as normal). Attack speed is reduced considerably during this time. This effect is **not dispellable**. Also, **2%** of the time Trakanon is hit with a hostile spell, he will heal himself for **2%**.\n\n### Prophetic Scrutiny\n\nTrakanon will keep **PROPHETIC SCRUTINY** on one player at all times. With this effect on you, any spells you cast are interrupted, if the spell is interruptable. Every time you start to cast a spell you will be hit with **PROPHETIC BOLT**, which deals a small amount of damage and interrupts the spell. This should be active on one player in the raid at all times.\n\n### Prescient Gaze\n\nTrakanon will keep **Prescient Gaze** on all players at all times. It should never be off you for more than a few seconds even if you die and are rezzed back in. It causes all players to mana burn, using health whenever they use mana. It also causes players to have **prescient intervention** cast on them **8%** of the time they try to cast a beneficial spell. Prescient intervention interrupts the spell, stifles the player for **2 seconds**, and does a small amount of damage to the player's mana pool.\n\n### Mark of Repulsion / Static Repulsion\n\nOne player will generally have **MARK OF REPULSION** on them. This spell will go off at some random time, never less than **30 secs** after it was placed on you. It has an hourglass icon.\n\n> When it goes off, that player will be hit with **static repulsion**, a targeted AoE that WILL knock back all players within **22m** of the person who had Mark of Repulsion on them. You are **NEVER** protected from this knockback, even if near the orb. You must move away from your raid party so as not to endanger them with your Mark of Repulsion/Static Repulsion combo.\n\n### Arcane Maelstrom\n\n**3.5 seconds AFTER** static repulsion goes off, Trakanon will cast **Arcane Maelstrom**. A powerful AoE that does heat damage, damages a random item in everyone's inventory, and does massive **MAGIC BASED** health and mana damage UNLESS you are close to the energized orb. You avoid MAGIC BASED MANA AND HEALTH DAMAGE only if you are near the energized orb.\n\n### Fetid Cloud & Toxic Tempest\n\nTrakanon will periodically cast **Fetid Cloud** and **Toxic Tempest** as well.\n\n- **Fetid Cloud** does disease based health damage — the closer you are to Trak, the more disease damage you take — and slows your attack speed. If you have **Toxic Tempest** still on you when Fetid Cloud hits you, you will take **ADDITIONAL MASSIVE poison based health damage**.\n- **Toxic Tempest** works similarly to Fetid Cloud — range-relative, poison based health damage to all players. If you have **Fetid Cloud** on you when Toxic Tempest hits you, you will take additional **MASSIVE disease damage** as well. Toxic Tempest also slows your movement rate.\n\n## Enrage / Soft Timer\n\n**800 seconds** after the raid fight begins, the platform you fight on begins to lower into the lava. This takes about **20-30 secs**, after which you will be forced to fight Trakanon in the lava.\n\n- If you hop away from the platform, you won't be protected by the orb.\n- If you stay near the orb, you will be covered in lava.\n\nYou have only about **820 secs** to win this fight.\n\nIf Trakanon dies, the platform will rise. If Trakanon resets, the platform will rise."
+        }
+      ]
+    }
+  ]
+}
