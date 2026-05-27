@@ -25,6 +25,7 @@ if _TEST_DB_DIR.exists():
 _TEST_DB_DIR.mkdir(parents=True)
 os.environ["USERS_DB_PATH"] = str(_TEST_DB_DIR / "users.db")
 os.environ["PARSES_DB_PATH"] = str(_TEST_DB_DIR / "parses.db")
+os.environ["CENSUS_DB_PATH"] = str(_TEST_DB_DIR / "census.db")
 
 # web.app reads SESSION_SECRET at module-import time and raises if it's
 # unset or shorter than 32 chars. CI and fresh contributor checkouts have

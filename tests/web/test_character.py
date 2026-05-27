@@ -11,6 +11,29 @@ def app():
     return create_app()
 
 
+# ---------------------------------------------------------------------------
+# Helper: minimal stored CharacterResponse dict (all required fields present)
+# ---------------------------------------------------------------------------
+_STORED_CHAR_DATA = {
+    "id": "1",
+    "name": "Stored",
+    "level": 90,
+    "cls": "Templar",
+    "race": "High Elf",
+    "gender": "Female",
+    "deity": None,
+    "aa_count": 320,
+    "world": "Varsoon",
+    "ts_class": None,
+    "ts_level": None,
+    "guild_name": "Exordium",
+    "ilvl": None,
+    "stats": {},
+    "equipment": [],
+    "spell_ids": [],
+}
+
+
 @pytest.mark.asyncio
 async def test_character_not_found(app):
     """Census returns nothing → 404."""
@@ -97,3 +120,48 @@ def test_ilvl_from_gear_folds_adorn_into_host_item():
     # (host 400 + adorn bonus) averaged over the fixed 21-slot denominator.
     expected = round((400.0 + adorn_bonus(90, "FABLED")) / 21, 1)
     assert _ilvl_from_gear(equip, gear) == expected
+
+
+@pytest.mark.asyncio
+async def test_stored_data_served_without_census(app, tmp_path, monkeypatch):
+    """census_store hit + Census unreachable → 200 with stale=True, CensusClient never called."""
+    import web.routes.character as charmodule
+    from census import census_store
+    from web.cache import character_cache
+    from web.config import WORLD as _WORLD
+
+    # Seed the census_store at an isolated tmp DB.
+    db_path = tmp_path / "census.db"
+    conn = census_store.init_db(db_path)
+    try:
+        census_store.upsert_character(
+            conn,
+            "Stored",
+            _WORLD,
+            _STORED_CHAR_DATA,
+            resolved=True,
+            now=1000,  # ancient timestamp → stale
+        )
+    finally:
+        conn.close()
+
+    # Point the module at the tmp DB so the endpoint reads from it.
+    monkeypatch.setattr(census_store, "DB_PATH", db_path)
+
+    # Ensure the in-memory cache is cold for this key.
+    cache_key = f"stored:{_WORLD.lower()}"
+    character_cache.delete(cache_key)
+
+    # Guard: if the code regresses and instantiates CensusClient, the test fails.
+    def _no_census(*args, **kwargs):
+        pytest.fail("CensusClient must NOT be called when stored data is available")
+
+    monkeypatch.setattr(charmodule, "CensusClient", _no_census)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/character/Stored")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == 90
+    assert body["stale"] is True

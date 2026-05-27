@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+import time
 from collections import Counter, defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -232,6 +233,8 @@ class CharacterResponse(BaseModel):
     stats: CharacterStats = CharacterStats()
     equipment: list[EquipmentSlotResponse] = []
     spell_ids: list[int] = []
+    fetched_at: int | None = None  # unix s of last resolved data (freshness)
+    stale: bool = False  # served from store older than the staleness window
 
 
 def _ilvl_from_gear(equipment, gear: dict[int, GearRow]) -> float | None:
@@ -371,49 +374,71 @@ async def prewarm_character_cache() -> None:
         _log.error("[startup] Character cache pre-warm error: %s", exc)
 
 
-async def _bg_refresh_character(name: str, cache_key: str) -> None:
-    """Background task: silently re-fetch a character and update the cache."""
-    try:
-        client = CensusClient(service_id=_SERVICE_ID)
-        try:
-            char = await client.get_character(name, _WORLD)
-        finally:
-            await client.close()
-        if char is not None:
-            character_cache.set(cache_key, _build_char_response(char))
-    except Exception as exc:
-        _log.error("[Cache] Background character refresh failed for %s: %s", name, exc)
-
-
 @router.get("/character/{name}", response_model=CharacterResponse)
 @limiter.limit("30/minute")
 async def get_character(request: Request, name: str) -> CharacterResponse:
-    """
-    Fetch a character's overview from the EQ2 Census API.
-    Always responds instantly from cache; fires a background refresh when stale.
-    """
+    """Serve last-known data instantly; refresh from Census only in the
+    background. Never blocks on / fails because of Census."""
     if len(name) > 64:
         raise HTTPException(status_code=400, detail="Character name is too long")
     cache_key = f"{name.lower()}:{_WORLD.lower()}"
+    now = int(time.time())
+    STALE_S = 900  # 15 min
+
+    # 1) Hot in-memory copy.
     cached, is_stale = character_cache.get_stale(cache_key)
-    if cached is not None:
-        if is_stale:
-            asyncio.create_task(_bg_refresh_character(name, cache_key))
+    if cached is not None and not is_stale:
         return cached
 
-    # Cache miss — fetch synchronously
+    # 2) Durable store.
+    from census import census_store
+
+    conn = census_store.init_db(census_store.DB_PATH)
+    try:
+        rec = census_store.get_character(conn, name, _WORLD)
+    finally:
+        conn.close()
+    if rec is not None:
+        from web.census_refresh import request_character_refresh
+
+        stale = (now - rec["last_resolved_at"]) > STALE_S
+        if stale:
+            request_character_refresh(name)  # throttled/health-gated background refresh
+        resp = CharacterResponse(**{**rec["data"], "fetched_at": rec["last_resolved_at"], "stale": stale})
+        character_cache.set(cache_key, resp)
+        return resp
+
+    # 3) Never seen. Try one live fetch; if Census is down, return a clean
+    #    503 (frontend renders the "not cached yet" message) rather than a 500.
+    from web import census_health
+
+    if census_health.is_down():
+        raise HTTPException(
+            status_code=503,
+            detail=f"'{name}' not cached yet and Census is unavailable. Try again shortly.",
+        )
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         char = await client.get_character(name, _WORLD)
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail=f"'{name}' not cached yet and Census is unavailable. Try again shortly.",
+        )
     finally:
         await client.close()
-
     if char is None:
         raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {_WORLD}")
-
-    result = _build_char_response(char)
-    character_cache.set(cache_key, result)
-    return result
+    resp = _build_char_response(char)
+    data = resp.model_dump()
+    conn = census_store.init_db(census_store.DB_PATH)
+    try:
+        census_store.upsert_character(conn, name, _WORLD, data, resolved=True, now=now)
+    finally:
+        conn.close()
+    resp.fetched_at = now
+    character_cache.set(cache_key, resp)
+    return resp
 
 
 # ---------------------------------------------------------------------------
