@@ -12,7 +12,6 @@ docs/superpowers/specs/2026-05-25-eq2logs-rankings-design.md.
 from __future__ import annotations
 
 import asyncio
-import os
 import sqlite3
 from collections import defaultdict
 from functools import lru_cache
@@ -27,6 +26,7 @@ from web.auth_deps import require_user_session as _require_user
 from web.cache import TTLCache
 from web.limiter import limiter
 from web.routes.parses import _PLAYER_COUNT_SQL, _group_into_fights
+from web.server_context import current_server, current_world
 
 router = APIRouter(tags=["rankings"])
 
@@ -266,11 +266,12 @@ def _build_filters(kills: list[dict]) -> dict:
     if has_other_raid:
         raid_expansions.append({"short": "Other", "name": "Other"})
 
-    # SERVER_CURRENT_XPAC may be the short code ("EoF") or the full expansion
-    # name ("Echoes of Faydwer"), case-insensitive; unknown/unset → most recent.
-    env_xpac = (os.getenv("SERVER_CURRENT_XPAC") or "").strip().lower()
+    # current_server().current_xpac may be the short code ("EoF") or the full
+    # expansion name ("Echoes of Faydwer"), case-insensitive; unknown/unset →
+    # most recent.
+    srv_xpac = (current_server().current_xpac or "").strip().lower()
     default_expansion = next(
-        (e["short"] for e in raid_expansions if env_xpac in (e["short"].lower(), e["name"].lower())),
+        (e["short"] for e in raid_expansions if srv_xpac in (e["short"].lower(), e["name"].lower())),
         raid_expansions[0]["short"] if raid_expansions else None,
     )
 
@@ -296,11 +297,14 @@ def _build_filters(kills: list[dict]) -> dict:
     return {"scopes": scopes, "raid_expansions": raid_expansions, "default_expansion": default_expansion}
 
 
-def _load_primary_boss_kills() -> list[dict]:
+def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
     """Load winning boss-kill encounters, mirror-group them, and return one
     'primary' (longest) upload per fight with its combatants attached. Ignores
     hidden_at so soft-deleted parses still rank. Called from an executor by the
-    async endpoints."""
+    async endpoints.
+
+    ``world`` scopes to the active server so each server sees only its own
+    leaderboard data."""
     if not parses_db.DB_PATH.exists():
         return []
     conn = parses_db.init_db(parses_db.DB_PATH)
@@ -312,9 +316,10 @@ def _load_primary_boss_kills() -> list[dict]:
                    e.started_at, e.duration_s, e.success_level,
                    ({_PLAYER_COUNT_SQL}) AS player_count
             FROM encounters e
-            WHERE e.success_level = 1
+            WHERE e.success_level = 1 AND e.world = ?
             ORDER BY e.started_at DESC
-            """
+            """,
+            (world,),
         ).fetchall()
         # Gate + canonicalise per row (scope is known from player_count): raid
         # bosses resolve against zones.db, everything else via the heuristic.
@@ -353,26 +358,34 @@ def _load_primary_boss_kills() -> list[dict]:
         conn.close()
 
 
-def _cached_kills() -> list[dict]:
-    cached = rankings_cache.get(_KILLS_KEY)
+def _cached_kills(world: str | None = None) -> list[dict]:
+    """Return the cached boss-kill list for ``world`` (defaults to
+    current_world() when called inside a request context).  The cache key
+    is per-world so each server's leaderboard is independently cached."""
+    effective_world = world or current_server().world
+    cache_key = f"{_KILLS_KEY}:{effective_world}"
+    cached = rankings_cache.get(cache_key)
     if cached is not None:
         return cached
-    kills = _load_primary_boss_kills()
-    rankings_cache.set(_KILLS_KEY, kills)
+    kills = _load_primary_boss_kills(effective_world)
+    rankings_cache.set(cache_key, kills)
     return kills
 
 
-def benchmarks_for_boss(boss_title: str) -> dict[str, tuple[dict[str, float], float]]:
+def benchmarks_for_boss(boss_title: str, world: str | None = None) -> dict[str, tuple[dict[str, float], float]]:
     """Best encDPS and encHPS achieved per class, and overall, for a boss across
     all primary winning kills (the rankings dataset). Lets the parse page colour
     each combatant's encDPS/encHPS by where it sits among their class for that
     boss (class leader = 100%), and flag the all-class best. Returns
-    {"dps": ({class: best}, overall), "hps": ({class: best}, overall)}."""
+    {"dps": ({class: best}, overall), "hps": ({class: best}, overall)}.
+
+    ``world`` defaults to current_world() — pass explicitly when calling from
+    a thread where the contextvar may not be propagated."""
     dps_by_class: dict[str, float] = {}
     hps_by_class: dict[str, float] = {}
     dps_overall = 0.0
     hps_overall = 0.0
-    for k in _cached_kills():
+    for k in _cached_kills(world):
         if k["title"] != boss_title:
             continue
         for c in k["combatants"]:
@@ -418,8 +431,11 @@ class RankingsResponse(BaseModel):
 @limiter.limit("60/minute")
 async def get_ranking_filters(request: Request) -> dict:
     _require_user(request)
+    # Resolve world in the async handler (contextvar is set here); do NOT read
+    # current_world() inside the executor thread — contextvars don't cross threads.
+    world = current_world()
     loop = asyncio.get_event_loop()
-    kills = await loop.run_in_executor(None, _cached_kills)
+    kills = await loop.run_in_executor(None, _cached_kills, world)
     return _build_filters(kills)
 
 
@@ -439,8 +455,11 @@ async def get_rankings(
     if metric not in ("dps", "hps", "speed"):
         raise HTTPException(status_code=400, detail="metric must be 'dps', 'hps' or 'speed'")
 
+    # Resolve world in the async handler (contextvar is set here); do NOT read
+    # current_world() inside the executor thread — contextvars don't cross threads.
+    world = current_world()
     loop = asyncio.get_event_loop()
-    kills = await loop.run_in_executor(None, _cached_kills)
+    kills = await loop.run_in_executor(None, _cached_kills, world)
 
     if metric == "speed":
         rows = _build_speed_board(kills, size=size, zone=zone, boss=boss)

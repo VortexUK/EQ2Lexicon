@@ -37,7 +37,6 @@ from census.spells_db import (
 )
 from web.cache import character_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.config import WORLD as _WORLD
 from web.limiter import limiter
 from web.routes.recipes import (
     IngredientResponse as _RecipeIngredientResponse,
@@ -51,6 +50,7 @@ from web.routes.recipes import (
 from web.routes.recipes import (
     _fuel_to_craft_tier as _recipe_fuel_to_craft_tier,
 )
+from web.server_context import current_world
 
 _log = logging.getLogger(__name__)
 
@@ -333,6 +333,9 @@ async def prewarm_character_cache() -> None:
     Runs as a background task so it never blocks the server coming up.
     Uses a semaphore to avoid hammering Census with too many parallel requests.
     """
+    # NOTE: pre-warm runs at startup OUTSIDE any request, so current_world() here
+    # resolves to the default server only. Non-default servers warm on first
+    # request rather than at boot. (Per-server pre-warm would iterate the registry.)
     import aiosqlite
 
     from web.db import DB_PATH
@@ -353,13 +356,13 @@ async def prewarm_character_cache() -> None:
         sem = asyncio.Semaphore(3)  # max 3 concurrent Census fetches
 
         async def _fetch_one(name: str) -> None:
-            cache_key = f"{name.lower()}:{_WORLD.lower()}"
+            cache_key = f"{name.lower()}:{current_world().lower()}"
             if character_cache.get_stale(cache_key)[0] is not None:
                 return  # already warm
             async with sem:
                 client = CensusClient(service_id=_SERVICE_ID)
                 try:
-                    char = await client.get_character(name, _WORLD)
+                    char = await client.get_character(name, current_world())
                     if char is not None:
                         character_cache.set(cache_key, _build_char_response(char))
                 except Exception as exc:
@@ -381,7 +384,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
     background. Never blocks on / fails because of Census."""
     if len(name) > 64:
         raise HTTPException(status_code=400, detail="Character name is too long")
-    cache_key = f"{name.lower()}:{_WORLD.lower()}"
+    cache_key = f"{name.lower()}:{current_world().lower()}"
     now = int(time.time())
     STALE_S = 900  # 15 min
 
@@ -395,7 +398,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
 
     conn = census_store.init_db(census_store.DB_PATH)
     try:
-        rec = census_store.get_character(conn, name, _WORLD)
+        rec = census_store.get_character(conn, name, current_world())
     finally:
         conn.close()
     if rec is not None:
@@ -419,7 +422,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
         )
     client = CensusClient(service_id=_SERVICE_ID)
     try:
-        char = await client.get_character(name, _WORLD)
+        char = await client.get_character(name, current_world())
     except Exception:
         raise HTTPException(
             status_code=503,
@@ -428,12 +431,12 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
     finally:
         await client.close()
     if char is None:
-        raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {_WORLD}")
+        raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {current_world()}")
     resp = _build_char_response(char)
     data = resp.model_dump()
     conn = census_store.init_db(census_store.DB_PATH)
     try:
-        census_store.upsert_character(conn, name, _WORLD, data, resolved=True, now=now)
+        census_store.upsert_character(conn, name, current_world(), data, resolved=True, now=now)
     finally:
         conn.close()
     resp.fetched_at = now
@@ -475,7 +478,7 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
 
     # Use the cached character record (populated on first character page load).
     # Fall back to fetching if somehow the cache was cold.
-    cache_key = f"{name.lower()}:{_WORLD.lower()}"
+    cache_key = f"{name.lower()}:{current_world().lower()}"
     cached, _ = character_cache.get_stale(cache_key)
 
     if cached is not None:
@@ -484,11 +487,11 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
     else:
         client = CensusClient(service_id=_SERVICE_ID)
         try:
-            char = await client.get_character(name, _WORLD)
+            char = await client.get_character(name, current_world())
         finally:
             await client.close()
         if char is None:
-            raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {_WORLD}")
+            raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {current_world()}")
         result = _build_char_response(char)
         character_cache.set(cache_key, result)
         char_name = result.name
@@ -657,18 +660,18 @@ async def get_upgrade_materials(request: Request, name: str) -> UpgradeMaterials
         raise HTTPException(status_code=503, detail="Recipes database not available")
 
     # Reuse cached character record
-    cache_key = f"{name.lower()}:{_WORLD.lower()}"
+    cache_key = f"{name.lower()}:{current_world().lower()}"
     cached, _ = character_cache.get_stale(cache_key)
     if cached is not None:
         spell_ids = cached.spell_ids
     else:
         client = CensusClient(service_id=_SERVICE_ID)
         try:
-            char = await client.get_character(name, _WORLD)
+            char = await client.get_character(name, current_world())
         finally:
             await client.close()
         if char is None:
-            raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {_WORLD}")
+            raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {current_world()}")
         result = _build_char_response(char)
         character_cache.set(cache_key, result)
         spell_ids = result.spell_ids
@@ -768,18 +771,18 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
         raise HTTPException(status_code=503, detail="Recipes database not available")
 
     # Reuse cached character record (same pattern as get_upgrade_materials)
-    cache_key = f"{name.lower()}:{_WORLD.lower()}"
+    cache_key = f"{name.lower()}:{current_world().lower()}"
     cached, _ = character_cache.get_stale(cache_key)
     if cached is not None:
         spell_ids = cached.spell_ids
     else:
         client = CensusClient(service_id=_SERVICE_ID)
         try:
-            char = await client.get_character(name, _WORLD)
+            char = await client.get_character(name, current_world())
         finally:
             await client.close()
         if char is None:
-            raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {_WORLD}")
+            raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {current_world()}")
         result = _build_char_response(char)
         character_cache.set(cache_key, result)
         spell_ids = result.spell_ids

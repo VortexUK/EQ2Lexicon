@@ -7,6 +7,7 @@ import { FreshnessBadge } from '../components/FreshnessBadge'
 import { AAsTab } from './CharacterAAsTab'
 import { SpellsTab } from './CharacterSpellsTab'
 import { useCensusStream } from '../hooks/useCensusStream'
+import { useServer } from '../hooks/useServer'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -470,21 +471,26 @@ type State =
   | { status: 'census_unavailable'; name: string }
 
 // Module-level config cache — fetched once, shared across navigations.
-let _serverMaxLevel   = 50
-let _ratingConfig     = DEFAULT_RATING_CONFIG
-let _configFetched    = false
+// max_level is now sourced from useServer(); only gear_rating comes from /api/config.
+let _ratingConfig  = DEFAULT_RATING_CONFIG
+let _configFetched = false
 
 export default function CharacterPage() {
   const { name } = useParams<{ name: string }>()
+  const server = useServer()
   const [state, setState] = useState<State>(() => {
     const cached = name ? _charCache.get(name.toLowerCase()) : undefined
     return cached ? { status: 'ok', char: cached } : { status: 'loading' }
   })
-  const [maxLevel,     setMaxLevel]     = useState(_serverMaxLevel)
   const [ratingConfig, setRatingConfig] = useState<RatingConfig>(_ratingConfig)
   const { subscribe } = useCensusStream()
 
-  // Fetch public server config once (cached in module scope after first load).
+  // max_level is served by useServer() (from /api/server).
+  // Fall back to 50 while the context is still loading.
+  const maxLevel = server?.maxLevel ?? 50
+
+  // Fetch gear_rating from /api/config once (cached in module scope after first load).
+  // max_level is no longer read from here — it comes from useServer() above.
   useEffect(() => {
     if (_configFetched) return
     _configFetched = true
@@ -492,8 +498,7 @@ export default function CharacterPage() {
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (!d) return
-        if (d.server_max_level) { _serverMaxLevel = d.server_max_level; setMaxLevel(d.server_max_level) }
-        if (d.gear_rating)      { _ratingConfig   = d.gear_rating;      setRatingConfig(d.gear_rating) }
+        if (d.gear_rating) { _ratingConfig = d.gear_rating; setRatingConfig(d.gear_rating) }
       })
       .catch(() => {})
   }, [])

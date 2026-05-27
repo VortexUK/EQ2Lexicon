@@ -357,7 +357,7 @@ async def test_list_parses_clamps_fight_limit(app):
     The inner SQL cap is generous (limit*30) so grouping has headroom."""
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon"):
         captured["inner_cap"] = inner_cap
         captured["zone"] = zone
         captured["size"] = size
@@ -380,7 +380,7 @@ async def test_list_parses_clamps_fight_limit(app):
 async def test_list_parses_passes_zone_filter(app):
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon"):
         captured["zone"] = zone
         return []
 
@@ -397,7 +397,7 @@ async def test_list_parses_passes_zone_filter(app):
 async def test_list_parses_passes_size_filter(app):
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon"):
         captured["size"] = size
         return []
 
@@ -519,7 +519,7 @@ async def test_get_parse_missing_returns_404(app):
 async def test_get_parse_clamps_top_attacks(app):
     captured = {}
 
-    def fake_detail_sync(encounter_id, top_attacks_per_combatant):
+    def fake_detail_sync(encounter_id, top_attacks_per_combatant, world="Varsoon"):
         captured["top"] = top_attacks_per_combatant
         return None  # 404 — we just want to inspect the captured arg
 
@@ -891,8 +891,8 @@ async def test_delete_bulk_requires_guild(app):
 async def test_delete_bulk_admin_passes_filters(app):
     captured = {}
 
-    def fake_find(conn, *, guild_name, zone=None, date=None, uploaded_by=None):
-        captured.update(guild_name=guild_name, zone=zone, date=date, uploaded_by=uploaded_by)
+    def fake_find(conn, *, guild_name, zone=None, date=None, uploaded_by=None, world=None):
+        captured.update(guild_name=guild_name, zone=zone, date=date, uploaded_by=uploaded_by, world=world)
         return [
             {"id": 1, "title": "a krait patriarch", "guild_name": guild_name, "source_dsn": "plugin:X"},
             {"id": 2, "title": "a krait patriarch", "guild_name": guild_name, "source_dsn": "plugin:Y"},
@@ -909,12 +909,12 @@ async def test_delete_bulk_admin_passes_filters(app):
             r = await client.delete("/api/parses?guild=Exordium&zone=Great+Divide&date=2026-05-24&uploader=Menludiir")
     assert r.status_code == 200
     assert r.json() == {"deleted": 2}
-    assert captured == {
-        "guild_name": "Exordium",
-        "zone": "Great Divide",
-        "date": "2026-05-24",
-        "uploaded_by": "Menludiir",
-    }
+    assert captured["guild_name"] == "Exordium"
+    assert captured["zone"] == "Great Divide"
+    assert captured["date"] == "2026-05-24"
+    assert captured["uploaded_by"] == "Menludiir"
+    # world must always be passed (per-server isolation)
+    assert captured["world"] is not None
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import NotificationBell from './components/NotificationBell'
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
+import { ServerProvider, useServer } from './hooks/useServer'
 import { Link } from 'react-router-dom'
 import logo from './assets/EQ2L.png'
 import ServerLaunchTimer from './components/ServerLaunchTimer'
@@ -93,6 +94,81 @@ const navLinkStyle = ({ isActive }: { isActive: boolean }): CSSProperties => ({
   transition: 'color 0.15s, border-color 0.15s',
   whiteSpace: 'nowrap',
 })
+
+/**
+ * Builds a target URL for switching to another server subdomain.
+ * On production (e.g. varsoon.eq2lexicon.com) it swaps the leading subdomain
+ * label.  On localhost / any host with no dot it falls back to a plain
+ * absolute URL pointing at {subdomain}.eq2lexicon.com so the link is still
+ * useful even in dev.
+ */
+function buildSwitchUrl(subdomain: string): string {
+  const { protocol, host, pathname, search, hash } = window.location
+  const dotIdx = host.indexOf('.')
+  if (dotIdx !== -1) {
+    // Replace the first label: "varsoon.eq2lexicon.com" → "wuoshi.eq2lexicon.com"
+    const rest = host.slice(dotIdx) // ".eq2lexicon.com"
+    return `${protocol}//${subdomain}${rest}${pathname}${search}${hash}`
+  }
+  // localhost or IP — link to the canonical subdomain on the live domain
+  return `${protocol}//${subdomain}.eq2lexicon.com${pathname}${search}${hash}`
+}
+
+/**
+ * Server name badge + optional switcher links for other servers.
+ * Rendered inside the header next to the logo.
+ */
+function ServerBadge() {
+  const server = useServer()
+  if (!server) return null
+
+  const others = server.servers.filter(s => s.world !== server.world)
+
+  return (
+    <div className="flex items-center gap-2 ml-2">
+      {/* Active server name */}
+      <span
+        className="font-heading text-[0.7rem] font-semibold tracking-[0.12em] uppercase px-[0.45rem] py-[0.2rem] rounded-sm"
+        style={{
+          color: 'var(--gold)',
+          background: 'rgba(var(--gold-rgb), 0.1)',
+          border: '1px solid rgba(var(--gold-rgb), 0.22)',
+        }}
+      >
+        {server.displayName}
+      </span>
+
+      {/* Switch links — only shown when there are other servers */}
+      {others.length > 0 && (
+        <div className="flex items-center gap-1">
+          {others.map(s => (
+            <a
+              key={s.world}
+              href={buildSwitchUrl(s.subdomain)}
+              className="font-heading text-[0.65rem] font-semibold tracking-[0.1em] uppercase px-[0.4rem] py-[0.18rem] rounded-sm no-underline transition-colors duration-150"
+              style={{
+                color: 'var(--gold-dim)',
+                background: 'transparent',
+                border: '1px solid rgba(var(--gold-rgb), 0.15)',
+              }}
+              onMouseEnter={e => {
+                ;(e.currentTarget as HTMLAnchorElement).style.color = 'var(--gold)'
+                ;(e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(var(--gold-rgb), 0.35)'
+              }}
+              onMouseLeave={e => {
+                ;(e.currentTarget as HTMLAnchorElement).style.color = 'var(--gold-dim)'
+                ;(e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(var(--gold-rgb), 0.15)'
+              }}
+              title={`Switch to ${s.displayName}`}
+            >
+              {s.displayName}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function NavItem({ to, label, also }: { to: string; label: string; also?: string }) {
   const { pathname } = useLocation()
@@ -167,9 +243,12 @@ function Layout() {
   return (
     <>
       <div className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between py-[0.4rem] px-5 bg-bg/75 backdrop-blur-md border-b border-border">
-        <Link to="/" className="flex items-center leading-none">
-          <img src={logo} alt="EQ2 Lexicon" className="h-10 w-auto" />
-        </Link>
+        <div className="flex items-center">
+          <Link to="/" className="flex items-center leading-none">
+            <img src={logo} alt="EQ2 Lexicon" className="h-10 w-auto" />
+          </Link>
+          <ServerBadge />
+        </div>
         <NavLinks />
         <div className="flex items-center gap-[0.6rem]">
           <NotificationBell />
@@ -217,6 +296,7 @@ function Layout() {
 
 function App() {
   return (
+    <ServerProvider>
     <CensusStreamProvider>
     <Routes>
       <Route element={<Layout />}>
@@ -242,6 +322,7 @@ function App() {
       </Route>
     </Routes>
     </CensusStreamProvider>
+    </ServerProvider>
   )
 }
 

@@ -16,6 +16,7 @@ from web.db import (
 )
 from web.routes.claim import _refresh_claim_cache
 from web.routes.guild import _officer_chars, _roster_rank_map, _validate_guild_name
+from web.server_context import current_world
 
 _ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
 
@@ -73,7 +74,7 @@ async def get_guild_claims(guild_name: str, request: Request) -> list[GuildClaim
         raise HTTPException(status_code=403, detail="Officer access required")
 
     rank_map = await _roster_rank_map(guild_name)
-    pending = await list_claims(status="pending")
+    pending = await list_claims(status="pending", world=current_world())
 
     return [
         GuildClaimItem(

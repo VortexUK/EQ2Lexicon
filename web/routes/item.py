@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import aiosqlite
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -12,6 +10,7 @@ from census.db import DB_PATH
 from census.recipes_db import DB_PATH as RECIPES_DB_PATH
 from census.recipes_db import find_by_spell
 from web.config import SERVICE_ID as _SERVICE_ID
+from web.server_context import current_server
 
 router = APIRouter(tags=["item"])
 
@@ -231,24 +230,22 @@ class ItemFilterOptions(BaseModel):
     server_max_level: int | None = None
 
 
-def _get_server_max_level() -> int | None:
-    """Read SERVER_MAX_LEVEL at request time so dotenv is always loaded first."""
-    raw = os.getenv("SERVER_MAX_LEVEL", "").strip()
-    return int(raw) if raw.isdigit() else None
-
-
 @router.get("/items/filters", response_model=ItemFilterOptions)
 async def get_item_filters() -> ItemFilterOptions:
     """Return server_max_level for the level-range defaults.
 
     Tiers, slots, and item types are static and defined in the frontend;
     no DB scan needed here.
+
+    Reads current_server().max_level directly in the async handler so the
+    contextvar (set by ServerContextMiddleware) is visible — never delegate
+    this to an executor thread where the contextvar is unset.
     """
     return ItemFilterOptions(
         tiers=[],
         slots=[],
         item_types=[],
-        server_max_level=_get_server_max_level(),
+        server_max_level=current_server().max_level,
     )
 
 

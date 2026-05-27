@@ -15,7 +15,7 @@ from census.client import CensusClient
 from web import census_events, census_health
 from web.cache import character_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.config import WORLD as _WORLD
+from web.server_context import current_world
 
 _log = logging.getLogger(__name__)
 
@@ -51,21 +51,22 @@ def _mark_attempt(key: str) -> None:
 
 def request_character_refresh(name: str) -> None:
     """Fire-and-forget a throttled background character refresh."""
-    key = f"{name.lower()}:{_WORLD.lower()}"
+    world = current_world()
+    key = f"{name.lower()}:{world.lower()}"
     if not _should_refresh(key):
         return
     _mark_attempt(key)
     _in_flight.add(key)
-    asyncio.create_task(_run_character_refresh(name, key))
+    asyncio.create_task(_run_character_refresh(name, key, world))
 
 
-async def _run_character_refresh(name: str, key: str) -> None:
+async def _run_character_refresh(name: str, key: str, world: str) -> None:
     from web.routes.character import _build_char_response  # local: avoid import cycle
 
     try:
         client = CensusClient(service_id=_SERVICE_ID)
         try:
-            char = await client.get_character(name, _WORLD)
+            char = await client.get_character(name, world)
         finally:
             await client.close()
         if char is None:
@@ -75,7 +76,7 @@ async def _run_character_refresh(name: str, key: str) -> None:
         resolved = bool(data.get("cls") or data.get("level"))
         conn = census_store.init_db(census_store.DB_PATH)
         try:
-            census_store.upsert_character(conn, name, _WORLD, data, resolved=resolved)
+            census_store.upsert_character(conn, name, world, data, resolved=resolved)
         finally:
             conn.close()
         if resolved:
@@ -104,19 +105,20 @@ def _merge_roster(roster: list[dict], fresh: dict[str, dict], stored: dict[str, 
 
 
 def request_guild_refresh(name: str) -> None:
-    key = f"guild:{name.lower()}:{_WORLD.lower()}"
+    world = current_world()
+    key = f"guild:{name.lower()}:{world.lower()}"
     if not _should_refresh(key):
         return
     _mark_attempt(key)
     _in_flight.add(key)
-    asyncio.create_task(_run_guild_refresh(name, key))
+    asyncio.create_task(_run_guild_refresh(name, key, world))
 
 
-async def _run_guild_refresh(name: str, key: str) -> None:
+async def _run_guild_refresh(name: str, key: str, world: str) -> None:
     from web.routes.guild import _persist_and_publish_guild
 
     try:
-        await _persist_and_publish_guild(name)
+        await _persist_and_publish_guild(name, world)
     except Exception as exc:
         _log.warning("[census-refresh] guild %s failed: %s", _scrub(name), exc)
     finally:

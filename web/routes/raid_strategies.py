@@ -42,8 +42,8 @@ from pydantic import BaseModel, Field
 from census import raids_db, zones_db
 from web.auth_deps import require_editor
 from web.cache import character_cache
-from web.config import WORLD as _WORLD
 from web.db import get_active_claims
+from web.server_context import current_world as _current_world
 
 router = APIRouter(tags=["raid_strategies"])
 
@@ -63,12 +63,13 @@ async def _resolve_primary_guild_cached(discord_id: str) -> str | None:
     Lives here rather than in web/auth_deps.py because raids_db isn't an auth
     concept — auth_deps imports this lazily inside ``require_editor`` to skirt
     the routes→auth circular dependency."""
-    claims = await get_active_claims(discord_id)
+    world = _current_world()
+    claims = await get_active_claims(discord_id, world=world)
     primary = next((c for c in claims["approved"] if c.get("is_primary")), None)
     if not primary:
         return None
     char_name = primary["character_name"]
-    cached, _ = character_cache.get_stale(f"{char_name.lower()}:{_WORLD.lower()}")
+    cached, _ = character_cache.get_stale(f"{char_name.lower()}:{world.lower()}")
     if cached is None:
         return None
     return getattr(cached, "guild_name", None) or (cached.get("guild_name") if isinstance(cached, dict) else None)

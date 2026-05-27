@@ -48,6 +48,10 @@ CORS_ORIGINS: list[str] = [
     o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()
 ]
 
+# Parent domain for the session cookie so one login spans both subdomains
+# (e.g. ".eq2lexicon.com" in prod). Leave unset in dev (host-only cookie).
+SESSION_COOKIE_DOMAIN: str | None = os.getenv("SESSION_COOKIE_DOMAIN") or None
+
 # Comma-separated Discord guild IDs that receive instant slash-command syncs.
 # The bot also does a global sync, but guild syncs propagate immediately.
 # Set DISCORD_SYNC_GUILD_IDS in your .env or Railway env vars.

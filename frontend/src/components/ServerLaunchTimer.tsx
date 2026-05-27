@@ -1,33 +1,30 @@
 /**
  * Countdown timer to the EQ2 server launch.
- * Reads the launch date from /api/config so it can be updated via the
- * LAUNCH_DT env var without a frontend rebuild.
+ * Sources the launch date from useServer() — populated by /api/server.
  * Hides automatically once the launch time has passed or if no date is set.
  */
 import { Fragment, useEffect, useState } from 'react'
+import { useServer } from '../hooks/useServer'
 
 function pad(n: number) {
   return String(n).padStart(2, '0')
 }
 
 export default function ServerLaunchTimer() {
+  const server = useServer()
   const [launchMs, setLaunchMs] = useState<number | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
 
-  // Fetch the launch date from server config once on mount
+  // Derive launchMs from the server context whenever it loads or changes
   useEffect(() => {
-    fetch('/api/config', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { launch_dt?: string | null } | null) => {
-        if (!data?.launch_dt) return
-        const ms = new Date(data.launch_dt).getTime()
-        if (!isNaN(ms) && ms > Date.now()) {
-          setLaunchMs(ms)
-          setTimeLeft(ms - Date.now())
-        }
-      })
-      .catch(() => { /* silently suppress — timer simply won't show */ })
-  }, [])
+    const dt = server?.launchDt ?? null
+    if (!dt) return
+    const ms = new Date(dt).getTime()
+    if (!isNaN(ms) && ms > Date.now()) {
+      setLaunchMs(ms)
+      setTimeLeft(ms - Date.now())
+    }
+  }, [server?.launchDt])
 
   // Tick every second once we have a launch time
   useEffect(() => {

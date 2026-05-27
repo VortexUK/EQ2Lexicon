@@ -26,8 +26,8 @@ from census import zones_db
 from parses.db import DB_PATH as PARSES_DB_PATH
 from web.auth_deps import require_user_session
 from web.cache import character_cache
-from web.config import WORLD as _WORLD
 from web.db import get_active_claims
+from web.server_context import current_world as _current_world
 
 router = APIRouter(tags=["zones"])
 
@@ -225,14 +225,15 @@ async def _resolve_primary_guild(discord_id: str) -> tuple[str | None, str | Non
     or no recent parses all return ``(name_or_None, None)`` and the caller
     renders the "no progress data" state.
     """
-    data = await get_active_claims(discord_id)
+    world = _current_world()
+    data = await get_active_claims(discord_id, world=world)
     primary = next((c for c in data["approved"] if c.get("is_primary")), None)
     character_name = primary["character_name"] if primary else None
 
     # Cheap path: character_cache holds the resolved guild already if any page
     # has loaded the character recently (incl. the guild roster prewarm).
     if character_name:
-        cached, _ = character_cache.get_stale(f"{character_name.lower()}:{_WORLD.lower()}")
+        cached, _ = character_cache.get_stale(f"{character_name.lower()}:{world.lower()}")
         if cached is not None:
             guild = getattr(cached, "guild_name", None) or (
                 cached.get("guild_name") if isinstance(cached, dict) else None

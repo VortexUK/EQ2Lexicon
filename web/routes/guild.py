@@ -31,10 +31,10 @@ from census.spells_db import (
 )
 from web.cache import character_cache, guild_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.config import WORLD as _WORLD
 from web.db import DB_PATH as _USERS_DB_PATH
 from web.db import get_active_claims
 from web.limiter import limiter
+from web.server_context import current_world
 
 _log = logging.getLogger(__name__)
 
@@ -202,22 +202,23 @@ async def _fetch_and_cache_guild(
     Returns (GuildData, overviews, guild_info_dict) on success, None on
     network failure or guild-not-found.
     """
-    task_key = f"{guild_name.lower()}:{_WORLD.lower()}"
+    task_key = f"{guild_name.lower()}:{current_world().lower()}"
     existing = _guild_fetch_tasks.get(task_key)
     if existing is not None and not existing.done():
         return await existing
 
     async def _do_fetch():
+        world = current_world()
         client = CensusClient(service_id=_SERVICE_ID)
         try:
-            full = await client.get_guild_full(guild_name, _WORLD)
+            full = await client.get_guild_full(guild_name, world)
         finally:
             await client.close()
         if not full or not full[0].members:
             return None
 
         guild_data, overviews, guild_info, roster_stubs = full
-        world_lower = _WORLD.lower()
+        world_lower = world.lower()
         guild_lower = guild_name.lower()
         member_rank: dict[str, tuple] = {m.name: (m.rank, m.rank_id) for m in guild_data.members}
 
@@ -323,7 +324,7 @@ async def _roster_rank_map(guild_name: str) -> dict[str, int | None]:
     guild fetch via _fetch_and_cache_guild (which also pre-warms every other
     cache key so the roster endpoint and character pages are all warm too).
     """
-    roster, _ = guild_cache.get_stale(f"roster:{guild_name.lower()}:{_WORLD.lower()}")
+    roster, _ = guild_cache.get_stale(f"roster:{guild_name.lower()}:{current_world().lower()}")
     if roster is not None:
         return {m.name.lower(): m.rank_id for m in roster.members}
     full = await _fetch_and_cache_guild(guild_name)
@@ -339,7 +340,7 @@ async def _officer_chars(discord_id: str, guild_name: str) -> set[str]:
     hold an officer rank (rank_id in _OFFICER_RANKS) in the named guild.
     Empty set means the user is not an officer of this guild.
     """
-    claims_data = await get_active_claims(discord_id)
+    claims_data = await get_active_claims(discord_id, world=current_world())
     approved = {c["character_name"].lower() for c in claims_data["approved"]}
     if not approved:
         return set()
@@ -409,7 +410,7 @@ def _prewarm_adorn_cache(
         cache_key,
         GuildAdornCheckResponse(
             guild_name=guild_name,
-            world=_WORLD,
+            world=current_world(),
             colors=ordered_colours,
             members=out_members,
         ),
@@ -519,7 +520,7 @@ def _prewarm_spell_cache(
     Build and store GuildSpellCheckResponse from CharacterOverview.spell_ids
     using the local spells DB.  No-op if DB is unavailable or IDs are empty.
     """
-    result = _build_spell_check_from_overviews(guild_name, _WORLD, overviews, member_rank)
+    result = _build_spell_check_from_overviews(guild_name, current_world(), overviews, member_rank)
     if result is not None:
         guild_cache.set(cache_key, result)
 
@@ -536,7 +537,7 @@ async def _bg_refresh_guild(guild_name: str) -> None:
         _guild_refresh_in_flight.discard(key)
 
 
-async def _persist_and_publish_guild(guild_name: str) -> None:
+async def _persist_and_publish_guild(guild_name: str, world: str | None = None) -> None:
     """Full guild refresh: fetch + warm the in-memory caches (existing behaviour),
     then build the BEST-KNOWN merged roster (resolved members this fetch + offline
     members carried forward with last-good data from the character store), persist
@@ -545,9 +546,10 @@ async def _persist_and_publish_guild(guild_name: str) -> None:
     from web import census_events
     from web.census_refresh import _merge_roster  # local import — cycle avoidance
 
+    world = world or current_world()
     await _fetch_and_cache_guild(guild_name)  # existing: warms roster/info/spells/adorns + char cache
     now = int(time.time())
-    glower, wlower = guild_name.lower(), _WORLD.lower()
+    glower, wlower = guild_name.lower(), world.lower()
     roster, _ = guild_cache.get_stale(f"roster:{glower}:{wlower}")
     if roster is None:
         return
@@ -570,7 +572,7 @@ async def _persist_and_publish_guild(guild_name: str) -> None:
             sname = stub.get("name")
             if not sname or sname in fresh_by_name:
                 continue
-            rec = census_store.get_character(conn, sname, _WORLD)
+            rec = census_store.get_character(conn, sname, world)
             if rec is not None:
                 stored_by_lower[sname.lower()] = rec["data"]
 
@@ -589,14 +591,14 @@ async def _persist_and_publish_guild(guild_name: str) -> None:
         merged_data = merged_response.model_dump()
 
         blob = {"roster": merged_data, "info": info.model_dump() if info is not None else None}
-        census_store.upsert_guild(conn, guild_name, _WORLD, blob, now=now)
+        census_store.upsert_guild(conn, guild_name, world, blob, now=now)
 
         # Upsert ONLY the freshly-resolved members — carrying-forward a stored-only
         # member must NOT bump its last_resolved_at (that would mark stale data fresh).
         for m in fresh_by_name.values():
             if not m.get("name"):
                 continue
-            census_store.upsert_character(conn, m["name"], _WORLD, m, resolved=True, now=now)
+            census_store.upsert_character(conn, m["name"], world, m, resolved=True, now=now)
     finally:
         conn.close()
     # SSE event carries the MERGED roster (that's what the guild page live-swaps):
@@ -635,7 +637,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
     from web.census_refresh import request_guild_refresh
 
     _validate_guild_name(guild_name)
-    info_key = f"info:{guild_name.lower()}:{_WORLD.lower()}"
+    info_key = f"info:{guild_name.lower()}:{current_world().lower()}"
     cached, is_stale = guild_cache.get_stale(info_key)
     if cached is not None and not is_stale:
         return cached
@@ -643,7 +645,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
     # derive a minimal GuildInfoResponse from it — name/world + member count).
     conn = census_store.init_db(census_store.DB_PATH)
     try:
-        rec = census_store.get_guild(conn, guild_name, _WORLD)
+        rec = census_store.get_guild(conn, guild_name, current_world())
     finally:
         conn.close()
     if rec is not None:
@@ -659,7 +661,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
             roster_data = rec["data"]["roster"]
             info_resp = GuildInfoResponse(
                 name=roster_data.get("name", guild_name),
-                world=roster_data.get("world", _WORLD),
+                world=roster_data.get("world", current_world()),
                 members=len(roster_data.get("members", [])),
                 fetched_at=rec["last_resolved_at"],
                 stale=stale,
@@ -682,7 +684,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
         ) from exc
     result, _ = guild_cache.get_stale(info_key)
     if result is None:
-        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {_WORLD}.")
+        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {current_world()}.")
     return result
 
 
@@ -699,13 +701,13 @@ async def get_guild(request: Request, guild_name: str) -> GuildResponse:
     from web.census_refresh import request_guild_refresh
 
     _validate_guild_name(guild_name)
-    cache_key = f"roster:{guild_name.lower()}:{_WORLD.lower()}"
+    cache_key = f"roster:{guild_name.lower()}:{current_world().lower()}"
     cached, is_stale = guild_cache.get_stale(cache_key)
     if cached is not None and not is_stale:
         return cached
     conn = census_store.init_db(census_store.DB_PATH)
     try:
-        rec = census_store.get_guild(conn, guild_name, _WORLD)
+        rec = census_store.get_guild(conn, guild_name, current_world())
     finally:
         conn.close()
     if rec is not None:
@@ -734,7 +736,7 @@ async def get_guild(request: Request, guild_name: str) -> GuildResponse:
         ) from exc
     final_cached, _ = guild_cache.get_stale(cache_key)
     if final_cached is None:
-        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {_WORLD}.")
+        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {current_world()}.")
     return final_cached
 
 
@@ -748,15 +750,18 @@ async def guild_spell_check(request: Request, guild_name: str) -> GuildSpellChec
     Spell IDs are resolved locally — no per-character Census calls needed.
     """
     _validate_guild_name(guild_name)
-    cache_key = f"spells:{guild_name.lower()}:{_WORLD.lower()}"
+    cache_key = f"spells:{guild_name.lower()}:{current_world().lower()}"
     cached, is_stale = guild_cache.get_stale(cache_key)
     if cached is not None:
         if is_stale:
+            # Spawned within the request context: asyncio.create_task copies the
+            # contextvar, so current_world() inside the task resolves to THIS
+            # request's server even after the middleware resets it post-response.
             asyncio.create_task(_bg_refresh_guild(guild_name))
         return cached
     full = await _fetch_and_cache_guild(guild_name)
     if full is None:
-        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {_WORLD}.")
+        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {current_world()}.")
     result, _ = guild_cache.get_stale(cache_key)
     if result is None:
         raise HTTPException(
@@ -775,15 +780,18 @@ async def guild_adorn_check(request: Request, guild_name: str) -> GuildAdornChec
     (one Census call) that also warms roster/chars/spells.
     """
     _validate_guild_name(guild_name)
-    cache_key = f"adorns:{guild_name.lower()}:{_WORLD.lower()}"
+    cache_key = f"adorns:{guild_name.lower()}:{current_world().lower()}"
     cached, is_stale = guild_cache.get_stale(cache_key)
     if cached is not None:
         if is_stale:
+            # Spawned within the request context: asyncio.create_task copies the
+            # contextvar, so current_world() inside the task resolves to THIS
+            # request's server even after the middleware resets it post-response.
             asyncio.create_task(_bg_refresh_guild(guild_name))
         return cached
     full = await _fetch_and_cache_guild(guild_name)
     if full is None:
-        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {_WORLD}.")
+        raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {current_world()}.")
     result, _ = guild_cache.get_stale(cache_key)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No adorn data found for '{guild_name}'.")
@@ -820,7 +828,7 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
 
     client = CensusClient(service_id=_SERVICE_ID)
     try:
-        raw = await client.search_guilds_by_name(q, _WORLD)
+        raw = await client.search_guilds_by_name(q, current_world())
     except Exception:
         raw = []
     finally:

@@ -21,8 +21,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from web import db as users_db
+from web import server_context
 from web.cache import aa_cache, character_cache, claim_cache, guild_cache
 from web.config import CORS_ORIGINS as _CORS_ORIGINS
+from web.config import SESSION_COOKIE_DOMAIN as _SESSION_COOKIE_DOMAIN
 from web.config import WORLD as _WORLD
 from web.limiter import limiter
 from web.metrics import (
@@ -57,7 +59,9 @@ from web.routes.raid_strategies import router as raid_strategies_router
 from web.routes.rankings import router as rankings_router
 from web.routes.recipes import router as recipes_router
 from web.routes.role_requests import router as role_requests_router
+from web.routes.server import router as server_router
 from web.routes.zones import router as zones_router
+from web.server_context import ServerContextMiddleware
 
 _log = logging.getLogger(__name__)
 
@@ -208,6 +212,7 @@ _SHOW_DOCS = os.getenv("SHOW_API_DOCS", "false").lower() in ("1", "true", "yes")
 def create_app(session_secret: str | None = None) -> FastAPI:
     def _startup() -> None:
         users_db.init_db()
+        server_context.load_registry()
         # Initialise the parses DB too so the schema + migrations are in place
         # before the first /api/parses/ingest hits — otherwise the first
         # upload's request pays that cost on the request thread.
@@ -276,6 +281,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         secret_key=session_secret or _SESSION_SECRET,
         https_only=_HTTPS_ONLY,
         same_site="lax",
+        domain=_SESSION_COOKIE_DOMAIN,
     )
 
     app.add_middleware(
@@ -285,6 +291,8 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.add_middleware(ServerContextMiddleware)
 
     # API routers
     app.include_router(health_router, prefix="/api")
@@ -309,6 +317,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     app.include_router(act_triggers_router, prefix="/api")
     app.include_router(role_requests_router, prefix="/api")
     app.include_router(census_router, prefix="/api")
+    app.include_router(server_router, prefix="/api")
 
     # ── /metrics — Prometheus text format ───────────────────────────────────
     # Runs synchronously (FastAPI auto-offloads sync def to a thread pool)

@@ -54,6 +54,7 @@ from web.config import ALLOWED_SERVERS as _ALLOWED_SERVERS
 from web.config import SERVICE_ID as _SERVICE_ID
 from web.config import WORLD as _WORLD
 from web.limiter import limiter
+from web.server_context import current_world
 
 # Pre-lowered comparison set so each ingest doesn't redo the work.
 # Computed at module import — env changes need a process restart, same
@@ -519,19 +520,24 @@ def _list_encounters_sync(
     inner_cap: int,
     zone: str | None,
     size: str | None,
+    world: str = "Varsoon",
 ) -> list[dict]:
     """Return matching encounter rows most-recent-first, capped at
     ``inner_cap`` raw uploads (not fights). Mirror grouping happens after
     this call — inner_cap must be generous enough to cover the requested
-    fight limit × the worst-case mirror count per fight."""
+    fight limit × the worst-case mirror count per fight.
+
+    ``world`` scopes results to the active server so a Varsoon viewer only
+    sees Varsoon parses."""
     if not parses_db.DB_PATH.exists():
         return []
 
     # Soft-deleted parses are hidden from the list (but still feed rankings).
-    where_clauses: list[str] = ["hidden_at IS NULL"]
-    params: list = []
+    # Note: the WHERE clause operates on the outer query's columns (no alias).
+    where_clauses: list[str] = ["hidden_at IS NULL", "world = ?"]
+    params: list = [world]
     if zone:
-        where_clauses.append("e.zone = ?")
+        where_clauses.append("zone = ?")
         params.append(zone)
     if size and size in SIZE_BUCKETS:
         lo, hi = SIZE_BUCKETS[size]
@@ -621,14 +627,17 @@ def _group_into_fights(encounters: list[dict]) -> list[dict]:
     return groups
 
 
-def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int) -> dict | None:
-    """Return the encounter + its combatants + top attacks per combatant."""
+def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, world: str = "Varsoon") -> dict | None:
+    """Return the encounter + its combatants + top attacks per combatant.
+
+    ``world`` is used to scope the lookup so a viewer on one server can't
+    read another server's encounter by guessing its integer id."""
     if not parses_db.DB_PATH.exists():
         return None
     conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
-        enc_row = conn.execute("SELECT * FROM encounters WHERE id = ?", (encounter_id,)).fetchone()
+        enc_row = conn.execute("SELECT * FROM encounters WHERE id = ? AND world = ?", (encounter_id, world)).fetchone()
         if enc_row is None:
             return None
         enc = dict(enc_row)
@@ -714,7 +723,7 @@ async def list_parses(
     inner_cap = max(limit * 30, 2000)
 
     loop = asyncio.get_event_loop()
-    encounters = await loop.run_in_executor(None, _list_encounters_sync, inner_cap, zone, size)
+    encounters = await loop.run_in_executor(None, _list_encounters_sync, inner_cap, zone, size, current_world())
 
     # Group uploads into fights, then apply the user-facing limit to the
     # FIGHT list. `total` reports total fights (pre-limit) so the UI can
@@ -779,7 +788,7 @@ async def get_parse(
     top_attacks = max(1, min(top_attacks, 50))
 
     loop = asyncio.get_event_loop()
-    enc = await loop.run_in_executor(None, _encounter_detail_sync, encounter_id, top_attacks)
+    enc = await loop.run_in_executor(None, _encounter_detail_sync, encounter_id, top_attacks, current_world())
     if enc is None:
         raise HTTPException(status_code=404, detail="Parse not found")
 
@@ -788,7 +797,10 @@ async def get_parse(
     # best with a star. Empty for non-boss encounters (no matching kills).
     from web.routes.rankings import benchmarks_for_boss  # noqa: PLC0415 — local, avoid import cycle
 
-    bench = await loop.run_in_executor(None, benchmarks_for_boss, enc["title"])
+    # Pass the encounter's own world so benchmarks use the same server's
+    # leaderboard data, regardless of the active request context.
+    enc_world = enc.get("world") or current_world()
+    bench = await loop.run_in_executor(None, benchmarks_for_boss, enc["title"], enc_world)
 
     def _pct(c: dict, metric: str, value_key: str) -> int | None:
         cls = c.get("cls")
@@ -1127,6 +1139,7 @@ def _ingest_payload_sync(
     guild_name: str | None,
     source_dsn: str,
     snapshots: dict[str, CombatantSnapshot] | None = None,
+    world: str = "Varsoon",
 ) -> tuple[str, int | None, int, int, int]:
     """Write the payload into parses.db. Returns (status, encounter_id,
     n_combatants, n_damage_types, n_attack_types).
@@ -1134,7 +1147,12 @@ def _ingest_payload_sync(
     status: 'inserted' on success, 'revived' if the encid was already
     ingested but soft-deleted (re-upload un-hides it), 'skipped' if the
     encid was already ingested and still visible — the upload is
-    idempotent on retries."""
+    idempotent on retries.
+
+    ``world`` is the authoritative server name (on the HTTP path this is the
+    allowlist-gated ``sanitized_server`` derived from logger_server) and is
+    stored on the encounter row and in ingest_log so the same act_encid from
+    two different servers are distinct."""
     enc = _encounter_from_payload(payload.encounter)
     if enc is None:
         raise HTTPException(status_code=400, detail="Encounter starttime/endtime unparseable")
@@ -1146,12 +1164,9 @@ def _ingest_payload_sync(
 
     conn = parses_db.init_db(parses_db.DB_PATH)
     try:
-        # Idempotency: skip if this uploader has already ingested this encid.
-        # NOTE: the current UNIQUE constraint is on act_encid alone, so a
-        # different uploader's payload with the same encid will collide at
-        # insert time. Phase 3+ will switch to UNIQUE(act_encid, uploaded_by).
-        if parses_db.is_ingested(conn, enc.encid):
-            existing = parses_db.find_encounter_by_act_encid(conn, enc.encid)
+        # Idempotency: skip if this world+encid pair was already ingested.
+        if parses_db.is_ingested(conn, enc.encid, world):
+            existing = parses_db.find_encounter_by_act_encid(conn, enc.encid, world)
             # A re-upload of a soft-deleted (hidden) parse should bring it back,
             # not silently skip — un-hide it so it returns to the list.
             if existing and existing.get("hidden_at") is not None:
@@ -1168,6 +1183,7 @@ def _ingest_payload_sync(
                 ingested_at=ingested_at,
                 uploaded_by=uploaded_by,
                 guild_name=guild_name,
+                world=world,
             )
             name_to_id = parses_db.insert_combatants_bulk(conn, encounter_id, combatants, snapshots)
             n_dt = parses_db.insert_damage_types_bulk(conn, name_to_id, damage_types)
@@ -1178,6 +1194,7 @@ def _ingest_payload_sync(
                 encounter_id,
                 source_dsn=source_dsn,
                 ingested_at=ingested_at,
+                world=world,
             )
         return ("inserted", encounter_id, len(combatants), n_dt, n_at)
     finally:
@@ -1331,14 +1348,22 @@ async def ingest_parse(
             ),
         )
 
+    # After the strict gate, sanitized_server is a guaranteed-valid,
+    # allowlisted server name (Varsoon/Wuoshi) — and those ARE registry
+    # worlds — so it is the authoritative `world` we persist this parse
+    # under. The gate has already established a concrete world, so there is
+    # no current_world() fallback to fall through to on this HTTP path.
+    parse_world = sanitized_server
+
     # Cache-aware guild resolve: hits character_cache first; on miss does a
     # one-character Census call and pre-warms the full roster in the
     # background so the rest of the raid's uploads are zero-Census.
     # logger_server (plugin v0.1.10+) overrides EQ2_WORLD when present —
     # enables a Varsoon-configured deployment to correctly resolve a
-    # Kaladim upload, for instance. (After the strict gate above the
-    # value is guaranteed valid; the fallback inside _sanitize_world
-    # is now only exercised by the local-ingest pipeline.)
+    # Wuoshi upload, for instance. After the strict gate above the value is
+    # guaranteed valid; _resolve_uploader_guild_async re-sanitises it
+    # defensively and that fallback is now only reachable from the
+    # local-ingest pipeline.
     guild_name = await _resolve_uploader_guild_async(uploader, body.logger_server)
 
     # Freeze each player ally's level/guild/class at ingest. Restricted to
@@ -1369,6 +1394,7 @@ async def ingest_parse(
         guild_name,
         f"plugin:{user['id']}",  # source_dsn marks the auth path
         snapshots,
+        parse_world,
     )
 
     # Schedule the full (Census-backed) resolution off the response path. For
@@ -1422,16 +1448,17 @@ async def _can_delete_encounter(user: dict, enc: dict) -> bool:
     return False
 
 
-def _fetch_encounter_auth_rows(ids: list[int]) -> list[dict]:
+def _fetch_encounter_auth_rows(ids: list[int], world: str) -> list[dict]:
     """Fetch the (id, guild_name, source_dsn, title, hidden_at) rows needed to
-    authorise a delete. Runs in an executor."""
-    conn = parses_db.init_db()
+    authorise a delete, scoped to *world* so a cross-server id returns nothing.
+    Runs in an executor."""
+    conn = parses_db.init_db(parses_db.DB_PATH)
     try:
         conn.row_factory = sqlite3.Row
         placeholders = ",".join("?" * len(ids))
         rows = conn.execute(
-            f"SELECT id, guild_name, source_dsn, title, hidden_at FROM encounters WHERE id IN ({placeholders})",
-            ids,
+            f"SELECT id, guild_name, source_dsn, title, hidden_at FROM encounters WHERE id IN ({placeholders}) AND world = ?",
+            [*ids, world],
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -1489,7 +1516,7 @@ async def delete_parses_batch(
         raise HTTPException(status_code=400, detail="ids must not be empty")
 
     loop = asyncio.get_event_loop()
-    rows = await loop.run_in_executor(None, _fetch_encounter_auth_rows, id_list)
+    rows = await loop.run_in_executor(None, _fetch_encounter_auth_rows, id_list, current_world())
     if not rows:
         raise HTTPException(status_code=404, detail="No matching parses")
 
@@ -1500,7 +1527,7 @@ async def delete_parses_batch(
     now = int(time.time())
 
     def _delete_many() -> int:
-        conn = parses_db.init_db()
+        conn = parses_db.init_db(parses_db.DB_PATH)
         try:
             return sum(1 for enc in allowed_rows if _apply_delete(conn, enc, purge=purge, hidden_at=now))
         finally:
@@ -1522,9 +1549,10 @@ async def delete_parse(
         raise HTTPException(status_code=403, detail="Only an admin may hard-purge a parse")
 
     # Look up the row so we can authorise against its real guild_name and
-    # source_dsn — never trust the caller for either.
+    # source_dsn — never trust the caller for either.  Also enforces
+    # per-server isolation: an id from another world returns no rows → 404.
     loop = asyncio.get_event_loop()
-    rows = await loop.run_in_executor(None, _fetch_encounter_auth_rows, [encounter_id])
+    rows = await loop.run_in_executor(None, _fetch_encounter_auth_rows, [encounter_id], current_world())
     if not rows:
         raise HTTPException(status_code=404, detail="Parse not found")
 
@@ -1535,7 +1563,7 @@ async def delete_parse(
     now = int(time.time())
 
     def _delete_sync() -> bool:
-        conn = parses_db.init_db()
+        conn = parses_db.init_db(parses_db.DB_PATH)
         try:
             return _apply_delete(conn, enc, purge=purge, hidden_at=now)
         finally:
@@ -1583,8 +1611,10 @@ async def delete_parses_bulk(
 
     now = int(time.time())
 
+    _world = current_world()
+
     def _delete_sync() -> int:
-        conn = parses_db.init_db()
+        conn = parses_db.init_db(parses_db.DB_PATH)
         try:
             matches = parses_db.find_encounters_by_filter(
                 conn,
@@ -1592,6 +1622,7 @@ async def delete_parses_bulk(
                 zone=zone,
                 date=date,
                 uploaded_by=uploader,
+                world=_world,
             )
             return sum(1 for enc in matches if _apply_delete(conn, enc, purge=purge, hidden_at=now))
         finally:

@@ -363,9 +363,10 @@ async def test_persist_merges_offline_member_from_store(app, tmp_path, monkeypat
     """_persist_and_publish_guild merges fresh-resolved members with last-good
     data for offline members (carried from the store), omits never-seen members,
     and does NOT bump the carried-forward member's last_resolved_at."""
+    from census.config import WORLD as _WORLD
     from census.models import CharacterOverview, GuildData, GuildMember
     from web.cache import guild_cache
-    from web.routes.guild import _WORLD, _persist_and_publish_guild
+    from web.routes.guild import _persist_and_publish_guild
 
     db_path = tmp_path / "census.db"
     monkeypatch.setattr(census_store, "DB_PATH", db_path)

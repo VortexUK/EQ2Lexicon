@@ -10,9 +10,9 @@ from census.client import CensusClient
 from web.auth_deps import require_user_session as _require_user
 from web.cache import character_cache, claim_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.config import WORLD as _WORLD
 from web.db import get_active_claims, set_primary, submit_claim, upsert_user, withdraw_claim
 from web.limiter import limiter
+from web.server_context import current_world
 
 _log = logging.getLogger(__name__)
 
@@ -61,10 +61,10 @@ async def _build_claims_response(discord_id: str) -> tuple[ClaimsResponse, bool]
     Guild names are sourced from character_cache when available (no Census call
     needed).  Census is only called for characters not already in cache.
     """
-    data = await get_active_claims(discord_id)
+    data = await get_active_claims(discord_id, world=current_world())
     approved_raw = data["approved"]
 
-    world_lower = _WORLD.lower()
+    world_lower = current_world().lower()
 
     # Check character_cache first — guild members loaded via the guild page
     # will already have their guild_name populated there.
@@ -87,7 +87,7 @@ async def _build_claims_response(discord_id: str) -> tuple[ClaimsResponse, bool]
             # return_exceptions=True so a Census timeout/error comes back as an
             # Exception instance rather than propagating and losing all results
             results = await asyncio.gather(
-                *[client.get_character_guild_name(n, _WORLD) for n in need_census],
+                *[client.get_character_guild_name(n, current_world()) for n in need_census],
                 return_exceptions=True,
             )
         finally:
@@ -179,18 +179,18 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
 
     client = CensusClient(service_id=_SERVICE_ID)
     try:
-        char = await client.get_character(name, _WORLD)
+        char = await client.get_character(name, current_world())
     finally:
         await client.close()
 
     if char is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Character '{name}' not found on {_WORLD}. Check the spelling — names are case-sensitive.",
+            detail=f"Character '{name}' not found on {current_world()}. Check the spelling — names are case-sensitive.",
         )
 
     try:
-        claim = await submit_claim(user["id"], char.name)
+        claim = await submit_claim(user["id"], char.name, world=current_world())
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
@@ -202,7 +202,7 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
 async def remove_claim(claim_id: int, request: Request) -> dict:
     """Remove a specific approved character or cancel a specific pending claim."""
     user = _require_user(request)
-    if not await withdraw_claim(claim_id, user["id"]):
+    if not await withdraw_claim(claim_id, user["id"], world=current_world()):
         raise HTTPException(status_code=404, detail="Claim not found or already inactive")
     asyncio.create_task(_refresh_claim_cache(user["id"]))
     return {"ok": True}
@@ -212,7 +212,7 @@ async def remove_claim(claim_id: int, request: Request) -> dict:
 async def set_primary_claim(claim_id: int, request: Request) -> dict:
     """Set the specified approved character as the user's primary. No admin approval needed."""
     user = _require_user(request)
-    if not await set_primary(user["id"], claim_id):
+    if not await set_primary(user["id"], claim_id, world=current_world()):
         raise HTTPException(status_code=404, detail="Claim not found, not approved, or not yours")
     asyncio.create_task(_refresh_claim_cache(user["id"]))
     return {"ok": True}

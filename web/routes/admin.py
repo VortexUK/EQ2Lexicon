@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Literal
+from datetime import datetime
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from parses import db as parses_db
+from web import server_context
 from web.auth_deps import KNOWN_ROLES
 from web.auth_deps import require_admin as _require_admin
 from web.cache import claim_cache
@@ -16,17 +18,21 @@ from web.db import (
     delete_claims_for_user,
     get_claim_by_id,
     get_role_request,
+    get_server_by_world_sync,
     grant_role,
     list_all_users,
     list_claims,
     list_role_assignments,
     list_role_requests,
+    list_servers_sync,
     review_claim,
     review_role_request,
     revoke_role,
     set_user_access,
+    upsert_server_settings_sync,
 )
 from web.routes.claim import _refresh_claim_cache
+from web.server_context import current_world
 
 _log = logging.getLogger(__name__)
 
@@ -84,6 +90,21 @@ class AdminParseItem(BaseModel):
     hidden: bool
 
 
+class ServerItem(BaseModel):
+    world: str
+    subdomain: str
+    display_name: str
+    max_level: int
+    current_xpac: str | None = None
+    launch_dt: str | None = None
+
+
+class ServerSettingsUpdate(BaseModel):
+    max_level: Annotated[int, Field(gt=0)]
+    current_xpac: str | None = None
+    launch_dt: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -95,11 +116,12 @@ async def list_all_claims(
     status: Literal["pending", "approved", "rejected"] | None = None,
 ) -> list[ClaimDetail]:
     """
-    List character claims, optionally filtered by status.
+    List character claims for the active server, optionally filtered by status.
+    Scoped to current_world() so an admin on varsoon.* sees only Varsoon claims.
     Pending claims are sorted oldest-first (queue order).
     """
     _require_admin(request)
-    claims = await list_claims(status=status)
+    claims = await list_claims(status=status, world=current_world())
     return [ClaimDetail(**c) for c in claims]
 
 
@@ -293,17 +315,19 @@ async def list_parses_admin(
     limit: int = 200,
 ) -> list[AdminParseItem]:
     """All parse encounters (including hidden/soft-deleted) for the sanitize
-    view. Admin only. Hard-purge uses the existing
-    DELETE /api/parses/{id}?purge=1 and /api/parses/batch?ids=...&purge=1."""
+    view, scoped to the active server. Admin only.
+    Hard-purge uses the existing DELETE /api/parses/{id}?purge=1 and
+    /api/parses/batch?ids=...&purge=1."""
     _require_admin(request)
     limit = max(1, min(limit, 1000))
+    world = current_world()
 
     def _query() -> list[dict]:
         if not parses_db.DB_PATH.exists():
             return []
         conn = parses_db.init_db(parses_db.DB_PATH)
         try:
-            return parses_db.list_encounters_for_admin(conn, search=search, limit=limit)
+            return parses_db.list_encounters_for_admin(conn, search=search, limit=limit, world=world)
         finally:
             conn.close()
 
@@ -323,6 +347,66 @@ async def list_parses_admin(
         )
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Server settings editor
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/servers", response_model=list[ServerItem])
+async def list_servers_admin(request: Request) -> list[ServerItem]:
+    """List all registered servers with their current settings. Admin only."""
+    _require_admin(request)
+    rows = list_servers_sync()
+    return [ServerItem(**r) for r in rows]
+
+
+@router.put("/admin/servers/{world}", response_model=ServerItem)
+async def update_server_settings(
+    world: str,
+    body: ServerSettingsUpdate,
+    request: Request,
+) -> ServerItem:
+    """Update per-server settings (max_level, current_xpac, launch_dt).
+
+    Returns 404 when ``world`` is not in the registry.
+    Validates that ``max_level`` is a positive integer (handled by Pydantic).
+    If ``launch_dt`` is provided, it is accepted as-is (ISO-8601 string);
+    pass ``null`` to clear it.
+
+    After writing, reloads the in-memory server registry so the change takes
+    effect immediately without a restart."""
+    _require_admin(request)
+
+    # 404 when the world is not known
+    known_worlds = {r["world"] for r in list_servers_sync()}
+    if world not in known_worlds:
+        raise HTTPException(status_code=404, detail=f"Server {world!r} not found")
+
+    # Validate launch_dt if provided
+    if body.launch_dt is not None:
+        try:
+            datetime.fromisoformat(body.launch_dt.rstrip("Z"))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"launch_dt is not a valid ISO-8601 date/datetime: {body.launch_dt!r}",
+            ) from exc
+
+    upsert_server_settings_sync(
+        world,
+        max_level=body.max_level,
+        current_xpac=body.current_xpac,
+        launch_dt=body.launch_dt,
+    )
+    # Refresh the in-memory registry immediately so new requests see the change.
+    server_context.load_registry()
+
+    updated = get_server_by_world_sync(world)
+    if updated is None:
+        raise HTTPException(status_code=500, detail="Server row disappeared after upsert")
+    return ServerItem(**updated)
 
 
 @router.post("/admin/users/{discord_id}/kick", status_code=200)

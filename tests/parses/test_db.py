@@ -758,3 +758,304 @@ class TestFindByFilter:
         rows = parses_db.find_encounters_by_filter(parses_db_conn, guild_name="Exordium")
         assert {"id", "title"} <= set(rows[0].keys())
         assert rows[0]["id"] == eid
+
+
+# ---------------------------------------------------------------------------
+# Per-server world scoping — Task 8: (world, act_encid) uniqueness
+# ---------------------------------------------------------------------------
+
+
+class TestWorldScoping:
+    """Verify that world is stored, uniqueness is per (world, act_encid),
+    and all lookup helpers honour the world filter."""
+
+    def test_encounters_has_world_column(self, parses_db_conn):
+        cols = [r[1] for r in parses_db_conn.execute("PRAGMA table_info(encounters)").fetchall()]
+        assert "world" in cols
+
+    def test_ingest_log_has_world_column(self, parses_db_conn):
+        cols = [r[1] for r in parses_db_conn.execute("PRAGMA table_info(ingest_log)").fetchall()]
+        assert "world" in cols
+
+    def test_world_stored_on_encounter(self, parses_db_conn):
+        parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            world="Wuoshi",
+        )
+        row = parses_db_conn.execute("SELECT world FROM encounters WHERE act_encid = ?", ("18cf3eb9",)).fetchone()
+        assert row[0] == "Wuoshi"
+
+    def test_same_act_encid_different_world_both_insert(self, parses_db_conn):
+        """The UNIQUE constraint is (world, act_encid), so the same encid
+        from two different servers must coexist without a collision."""
+        eid_v = parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            world="Varsoon",
+        )
+        eid_w = parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000001,
+            world="Wuoshi",
+        )
+        assert eid_v != eid_w
+        count = parses_db_conn.execute("SELECT COUNT(*) FROM encounters WHERE act_encid = ?", ("18cf3eb9",)).fetchone()[
+            0
+        ]
+        assert count == 2
+
+    def test_same_world_same_encid_still_collides(self, parses_db_conn):
+        """Duplicate (world, act_encid) within the same server must still
+        raise an IntegrityError."""
+        parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            world="Varsoon",
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            parses_db.insert_encounter(
+                parses_db_conn,
+                _sample_encounter(),
+                source_dsn="eq2act",
+                ingested_at=1700000001,
+                world="Varsoon",
+            )
+
+    def test_is_ingested_world_scoped(self, parses_db_conn):
+        """is_ingested(world='Varsoon') must NOT report True just because
+        the same encid is ingested under 'Wuoshi'."""
+        enc = _sample_encounter()
+        eid = parses_db.insert_encounter(
+            parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000, world="Wuoshi"
+        )
+        parses_db.mark_ingested(
+            parses_db_conn,
+            enc.encid,
+            eid,
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            world="Wuoshi",
+        )
+        # On the ingest world → True.
+        assert parses_db.is_ingested(parses_db_conn, enc.encid, "Wuoshi") is True
+        # On a different world → False.
+        assert parses_db.is_ingested(parses_db_conn, enc.encid, "Varsoon") is False
+
+    def test_ingest_log_world_stored(self, parses_db_conn):
+        """mark_ingested must write the world column into ingest_log."""
+        enc = _sample_encounter()
+        eid = parses_db.insert_encounter(
+            parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000, world="Kaladim"
+        )
+        parses_db.mark_ingested(
+            parses_db_conn,
+            enc.encid,
+            eid,
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            world="Kaladim",
+        )
+        row = parses_db_conn.execute("SELECT world FROM ingest_log WHERE act_encid = ?", (enc.encid,)).fetchone()
+        assert row[0] == "Kaladim"
+
+    def test_find_encounter_by_act_encid_world_scoped(self, parses_db_conn):
+        """find_encounter_by_act_encid must only return the row for the
+        requested world."""
+        parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            world="Varsoon",
+        )
+        parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000001,
+            world="Wuoshi",
+        )
+        v_row = parses_db.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9", "Varsoon")
+        w_row = parses_db.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9", "Wuoshi")
+        assert v_row is not None and v_row["world"] == "Varsoon"
+        assert w_row is not None and w_row["world"] == "Wuoshi"
+        assert v_row["id"] != w_row["id"]
+
+    def test_recent_encounters_world_filter(self, parses_db_conn):
+        """recent_encounters(world='Varsoon') must exclude Wuoshi rows."""
+        parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+            world="Varsoon",
+        )
+        from dataclasses import replace
+
+        enc2 = replace(_sample_encounter(), encid="WUOSHI01")
+        parses_db.insert_encounter(
+            parses_db_conn,
+            enc2,
+            source_dsn="eq2act",
+            ingested_at=1700000001,
+            world="Wuoshi",
+        )
+        v_rows = parses_db.recent_encounters(parses_db_conn, world="Varsoon")
+        assert [r["act_encid"] for r in v_rows] == ["18cf3eb9"]
+        w_rows = parses_db.recent_encounters(parses_db_conn, world="Wuoshi")
+        assert [r["act_encid"] for r in w_rows] == ["WUOSHI01"]
+
+    def test_encounters_default_world_is_varsoon(self, parses_db_conn):
+        """insert_encounter with no explicit world stores 'Varsoon'."""
+        parses_db.insert_encounter(
+            parses_db_conn,
+            _sample_encounter(),
+            source_dsn="eq2act",
+            ingested_at=1700000000,
+        )
+        row = parses_db_conn.execute("SELECT world FROM encounters WHERE act_encid = ?", ("18cf3eb9",)).fetchone()
+        assert row[0] == "Varsoon"
+
+    def test_legacy_db_rebuild_preserves_rows(self):
+        """Simulate an existing DB without a world column: after init_db,
+        existing encounters must be migrated with world='Varsoon', all ids
+        preserved, and combatant FK rows intact."""
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute("PRAGMA foreign_keys = ON;")
+            # Build the OLD schema (act_encid UNIQUE, no world column).
+            conn.execute("""
+                CREATE TABLE encounters (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    act_encid TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    zone TEXT,
+                    started_at INTEGER NOT NULL,
+                    ended_at INTEGER NOT NULL,
+                    duration_s INTEGER NOT NULL,
+                    total_damage INTEGER NOT NULL DEFAULT 0,
+                    encdps REAL NOT NULL DEFAULT 0,
+                    kills INTEGER NOT NULL DEFAULT 0,
+                    deaths INTEGER NOT NULL DEFAULT 0,
+                    success_level INTEGER NOT NULL DEFAULT 0,
+                    source_dsn TEXT NOT NULL,
+                    uploaded_by TEXT NOT NULL DEFAULT 'local',
+                    guild_name TEXT,
+                    ingested_at INTEGER NOT NULL,
+                    hidden_at INTEGER
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE combatants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    encounter_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    ally INTEGER NOT NULL DEFAULT 0,
+                    started_at INTEGER NOT NULL DEFAULT 0,
+                    ended_at INTEGER NOT NULL DEFAULT 0,
+                    duration_s INTEGER NOT NULL DEFAULT 0,
+                    damage INTEGER NOT NULL DEFAULT 0,
+                    damage_perc REAL NOT NULL DEFAULT 0,
+                    kills INTEGER NOT NULL DEFAULT 0,
+                    healed INTEGER NOT NULL DEFAULT 0,
+                    healed_perc REAL NOT NULL DEFAULT 0,
+                    crit_heals INTEGER NOT NULL DEFAULT 0,
+                    heals INTEGER NOT NULL DEFAULT 0,
+                    cure_dispels INTEGER NOT NULL DEFAULT 0,
+                    power_drain INTEGER NOT NULL DEFAULT 0,
+                    power_replenish INTEGER NOT NULL DEFAULT 0,
+                    dps REAL NOT NULL DEFAULT 0,
+                    encdps REAL NOT NULL DEFAULT 0,
+                    enchps REAL NOT NULL DEFAULT 0,
+                    hits INTEGER NOT NULL DEFAULT 0,
+                    crit_hits INTEGER NOT NULL DEFAULT 0,
+                    blocked INTEGER NOT NULL DEFAULT 0,
+                    misses INTEGER NOT NULL DEFAULT 0,
+                    swings INTEGER NOT NULL DEFAULT 0,
+                    heals_taken INTEGER NOT NULL DEFAULT 0,
+                    damage_taken INTEGER NOT NULL DEFAULT 0,
+                    deaths INTEGER NOT NULL DEFAULT 0,
+                    to_hit REAL NOT NULL DEFAULT 0,
+                    crit_dam_perc REAL NOT NULL DEFAULT 0,
+                    crit_heal_perc REAL NOT NULL DEFAULT 0,
+                    crit_types TEXT,
+                    threat_str TEXT,
+                    threat_delta INTEGER NOT NULL DEFAULT 0,
+                    level INTEGER,
+                    guild_name TEXT,
+                    cls TEXT,
+                    ilvl REAL,
+                    FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE,
+                    UNIQUE (encounter_id, name)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE ingest_log (
+                    act_encid TEXT PRIMARY KEY,
+                    encounter_id INTEGER NOT NULL,
+                    ingested_at INTEGER NOT NULL,
+                    source_dsn TEXT NOT NULL,
+                    FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE
+                )
+            """)
+            # Seed old-schema rows.
+            conn.execute(
+                "INSERT INTO encounters (id, act_encid, title, zone, started_at, ended_at, "
+                "duration_s, total_damage, encdps, kills, deaths, source_dsn, ingested_at) "
+                "VALUES (42, 'legacy01', 'OldBoss', 'OldZone', 0, 0, 30, 1000, 33.3, 1, 0, 'eq2act', 0)"
+            )
+            conn.execute(
+                "INSERT INTO combatants (encounter_id, name, ally, started_at, ended_at, "
+                "duration_s, damage, damage_perc, kills, healed, healed_perc, crit_heals, "
+                "heals, cure_dispels, power_drain, power_replenish, dps, encdps, enchps, "
+                "hits, crit_hits, blocked, misses, swings, heals_taken, damage_taken, "
+                "deaths, to_hit, crit_dam_perc, crit_heal_perc) VALUES "
+                "(42, 'OldPlayer', 1, 0, 0, 30, 1000, 100.0, 1, 0, 0.0, 0, 0, 0, 0, 0, "
+                "33.3, 33.3, 0.0, 10, 5, 0, 0, 10, 0, 100, 0, 100.0, 50.0, 0.0)"
+            )
+            conn.execute(
+                "INSERT INTO ingest_log (act_encid, encounter_id, ingested_at, source_dsn) "
+                "VALUES ('legacy01', 42, 0, 'eq2act')"
+            )
+            conn.commit()
+            # Run the migration (same logic init_db calls).
+            parses_db._migrate_encounters_add_world(conn)
+            parses_db._migrate_ingest_log_add_world(conn)
+            conn.commit()
+            # Encounter id preserved, world backfilled.
+            row = conn.execute("SELECT id, world FROM encounters WHERE act_encid = 'legacy01'").fetchone()
+            assert row[0] == 42, "id must be preserved after rebuild"
+            assert row[1] == "Varsoon", "world must be backfilled to Varsoon"
+            # Combatant FK still resolves.
+            comb_enc_id = conn.execute("SELECT encounter_id FROM combatants WHERE name = 'OldPlayer'").fetchone()[0]
+            assert comb_enc_id == 42, "combatant FK must still point at id=42"
+            # ingest_log world backfilled.
+            log_world = conn.execute("SELECT world FROM ingest_log WHERE act_encid = 'legacy01'").fetchone()[0]
+            assert log_world == "Varsoon"
+            # No dangling FK references — the rename must NOT have rewritten
+            # combatants' FK clause to point at encounters_old (which no longer
+            # exists). PRAGMA foreign_key_check returns a row for every violation;
+            # an empty result means the schema is clean.
+            fk_violations = list(conn.execute("PRAGMA foreign_key_check"))
+            assert fk_violations == [], f"dangling FK references after migration: {fk_violations}"
+            # ON DELETE CASCADE must still fire: deleting the encounter must
+            # remove its child combatant row.
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute("DELETE FROM encounters WHERE id = 42")
+            conn.commit()
+            child_count = conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = 42").fetchone()[0]
+            assert child_count == 0, "cascade delete must remove child combatants"
+            # Migrations are idempotent (re-running is a no-op).
+            parses_db._migrate_encounters_add_world(conn)
+            parses_db._migrate_ingest_log_add_world(conn)
+        finally:
+            conn.close()

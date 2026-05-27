@@ -48,7 +48,8 @@ DB_PATH: Path = _db_path()
 _CREATE_ENCOUNTERS = """
 CREATE TABLE IF NOT EXISTS encounters (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    act_encid       TEXT    NOT NULL UNIQUE,
+    world           TEXT    NOT NULL DEFAULT 'Varsoon',
+    act_encid       TEXT    NOT NULL,
     title           TEXT    NOT NULL,
     zone            TEXT,
     started_at      INTEGER NOT NULL,        -- unix seconds, UTC
@@ -68,7 +69,8 @@ CREATE TABLE IF NOT EXISTS encounters (
     -- Soft-delete marker (unix seconds). NULL = visible. Set when a boss-kill
     -- parse is "deleted" so the leaderboard entry + its link survive while the
     -- row is hidden from the /parses list. Hard purge removes the row entirely.
-    hidden_at       INTEGER
+    hidden_at       INTEGER,
+    UNIQUE (world, act_encid)
 );
 """
 
@@ -185,10 +187,12 @@ CREATE TABLE IF NOT EXISTS attack_types (
 
 _CREATE_INGEST_LOG = """
 CREATE TABLE IF NOT EXISTS ingest_log (
-    act_encid       TEXT    PRIMARY KEY,
+    world           TEXT    NOT NULL DEFAULT 'Varsoon',
+    act_encid       TEXT    NOT NULL,
     encounter_id    INTEGER NOT NULL,
     ingested_at     INTEGER NOT NULL,
     source_dsn      TEXT    NOT NULL,
+    PRIMARY KEY (world, act_encid),
     FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE
 );
 """
@@ -196,6 +200,7 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_encounters_started_desc  ON encounters (started_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_encounters_zone          ON encounters (zone);",
+    "CREATE INDEX IF NOT EXISTS idx_encounters_world         ON encounters (world, started_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_encounters_uploaded_by   ON encounters (uploaded_by, started_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_combatants_encounter     ON combatants (encounter_id);",
     "CREATE INDEX IF NOT EXISTS idx_combatants_name          ON combatants (name);",
@@ -258,6 +263,8 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
         except sqlite3.OperationalError:
             pass
     _migrate_attack_types_unique(conn)
+    _migrate_encounters_add_world(conn)
+    _migrate_ingest_log_add_world(conn)
     for idx in _CREATE_INDEXES:
         conn.execute(idx)
     conn.commit()
@@ -293,6 +300,82 @@ def _migrate_attack_types_unique(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE attack_types_new RENAME TO attack_types")
 
 
+def _migrate_encounters_add_world(conn: sqlite3.Connection) -> None:
+    """Add the `world` column to encounters and change the uniqueness key from
+    the single-column UNIQUE on act_encid to UNIQUE(world, act_encid).
+
+    SQLite can't ALTER a uniqueness constraint in place, so we use the standard
+    table-rebuild pattern:  rename old → create new → INSERT … SELECT → drop old.
+
+    Guard: skip if the `world` column already exists (idempotent).
+    FK safety: combatants.encounter_id references encounters(id). The rebuild
+    preserves all `id` values via an explicit column list (including the
+    original INTEGER PRIMARY KEY AUTOINCREMENT sequence), so child rows remain
+    valid after the swap. PRAGMA foreign_keys is turned OFF for the duration of
+    the rebuild so SQLite does not object while encounters_old is the target;
+    it is re-enabled immediately after."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(encounters)").fetchall()]
+    if "world" in cols:
+        return  # already migrated
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF;")
+    conn.execute("PRAGMA legacy_alter_table = ON;")
+    try:
+        with conn:
+            conn.execute("ALTER TABLE encounters RENAME TO encounters_old")
+            conn.execute(_CREATE_ENCOUNTERS.replace("CREATE TABLE IF NOT EXISTS encounters", "CREATE TABLE encounters"))
+            # Copy all existing rows, backfilling world = 'Varsoon'.
+            conn.execute(
+                """
+                INSERT INTO encounters (
+                    id, world, act_encid, title, zone,
+                    started_at, ended_at, duration_s,
+                    total_damage, encdps, kills, deaths, success_level,
+                    source_dsn, uploaded_by, guild_name, ingested_at, hidden_at
+                )
+                SELECT
+                    id, 'Varsoon', act_encid, title, zone,
+                    started_at, ended_at, duration_s,
+                    total_damage, encdps, kills, deaths, success_level,
+                    source_dsn, uploaded_by, guild_name, ingested_at, hidden_at
+                FROM encounters_old
+                """
+            )
+            conn.execute("DROP TABLE encounters_old")
+    finally:
+        conn.execute("PRAGMA legacy_alter_table = OFF;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+
+
+def _migrate_ingest_log_add_world(conn: sqlite3.Connection) -> None:
+    """Add `world` to ingest_log and change PK from act_encid alone to
+    (world, act_encid).  Same rebuild pattern as encounters; guard on 'world'
+    column presence."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(ingest_log)").fetchall()]
+    if "world" in cols:
+        return  # already migrated
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF;")
+    conn.execute("PRAGMA legacy_alter_table = ON;")
+    try:
+        with conn:
+            conn.execute("ALTER TABLE ingest_log RENAME TO ingest_log_old")
+            conn.execute(_CREATE_INGEST_LOG.replace("CREATE TABLE IF NOT EXISTS ingest_log", "CREATE TABLE ingest_log"))
+            conn.execute(
+                """
+                INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn)
+                SELECT 'Varsoon', act_encid, encounter_id, ingested_at, source_dsn
+                FROM ingest_log_old
+                """
+            )
+            conn.execute("DROP TABLE ingest_log_old")
+    finally:
+        conn.execute("PRAGMA legacy_alter_table = OFF;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+
+
 # ---------------------------------------------------------------------------
 # Insert helpers
 # ---------------------------------------------------------------------------
@@ -314,17 +397,19 @@ def insert_encounter(
     ingested_at: int,
     uploaded_by: str = "local",
     guild_name: str | None = None,
+    world: str = "Varsoon",
 ) -> int:
     cur = conn.execute(
         """
         INSERT INTO encounters (
-            act_encid, title, zone,
+            world, act_encid, title, zone,
             started_at, ended_at, duration_s,
             total_damage, encdps, kills, deaths, success_level,
             source_dsn, uploaded_by, guild_name, ingested_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
+            world,
             enc.encid,
             enc.title,
             enc.zone,
@@ -559,13 +644,14 @@ def mark_ingested(
     *,
     source_dsn: str,
     ingested_at: int,
+    world: str = "Varsoon",
 ) -> None:
     conn.execute(
         """
-        INSERT INTO ingest_log (act_encid, encounter_id, ingested_at, source_dsn)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (act_encid, encounter_id, ingested_at, source_dsn),
+        (world, act_encid, encounter_id, ingested_at, source_dsn),
     )
 
 
@@ -574,19 +660,19 @@ def mark_ingested(
 # ---------------------------------------------------------------------------
 
 
-def is_ingested(conn: sqlite3.Connection, act_encid: str) -> bool:
+def is_ingested(conn: sqlite3.Connection, act_encid: str, world: str = "Varsoon") -> bool:
     row = conn.execute(
-        "SELECT 1 FROM ingest_log WHERE act_encid = ? LIMIT 1",
-        (act_encid,),
+        "SELECT 1 FROM ingest_log WHERE world = ? AND act_encid = ? LIMIT 1",
+        (world, act_encid),
     ).fetchone()
     return row is not None
 
 
-def find_encounter_by_act_encid(conn: sqlite3.Connection, act_encid: str) -> dict | None:
+def find_encounter_by_act_encid(conn: sqlite3.Connection, act_encid: str, world: str = "Varsoon") -> dict | None:
     conn.row_factory = sqlite3.Row
     row = conn.execute(
-        "SELECT * FROM encounters WHERE act_encid = ? LIMIT 1",
-        (act_encid,),
+        "SELECT * FROM encounters WHERE world = ? AND act_encid = ? LIMIT 1",
+        (world, act_encid),
     ).fetchone()
     return dict(row) if row else None
 
@@ -595,22 +681,23 @@ def recent_encounters(
     conn: sqlite3.Connection,
     limit: int = 20,
     zone: str | None = None,
+    world: str = "Varsoon",
 ) -> list[dict]:
     conn.row_factory = sqlite3.Row
     if zone:
         rows = conn.execute(
             """
             SELECT * FROM encounters
-            WHERE zone = ?
+            WHERE world = ? AND zone = ?
             ORDER BY started_at DESC
             LIMIT ?
             """,
-            (zone, limit),
+            (world, zone, limit),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM encounters ORDER BY started_at DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM encounters WHERE world = ? ORDER BY started_at DESC LIMIT ?",
+            (world, limit),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -620,15 +707,22 @@ def list_encounters_for_admin(
     *,
     search: str | None = None,
     limit: int = 200,
+    world: str | None = None,
 ) -> list[dict]:
     """All encounters INCLUDING hidden (soft-deleted) ones, newest first, for
     the admin sanitize view. Optional case-insensitive search over
     title / uploaded_by / guild_name. Includes a player_count and the hidden_at
     marker so an admin can spot a bogus parse even when it's hidden but still
-    polluting the leaderboards."""
+    polluting the leaderboards.
+
+    ``world`` scopes to a single EQ2 server; ``None`` returns all worlds
+    (no longer recommended — pass the active server world in all call sites)."""
     conn.row_factory = sqlite3.Row
     clauses: list[str] = []
     params: list = []
+    if world is not None:
+        clauses.append("e.world = ?")
+        params.append(world)
     if search:
         like = f"%{search.lower()}%"
         clauses.append(
@@ -728,14 +822,21 @@ def find_encounters_by_filter(
     zone: str | None = None,
     date: str | None = None,
     uploaded_by: str | None = None,
+    world: str | None = None,
 ) -> list[dict]:
     """Return (id, title, guild_name, source_dsn) for encounters matching the
     same filter `delete_encounters_by_filter` uses — so the route can decide
-    soft-vs-hard delete per row. `guild_name` is mandatory."""
+    soft-vs-hard delete per row. `guild_name` is mandatory.
+
+    Pass `world` to restrict results to a single server (used by the bulk-
+    delete route to enforce per-server isolation)."""
     if not guild_name:
         raise ValueError("guild_name is required")
     clauses = ["guild_name = ?"]
     params: list = [guild_name]
+    if world:
+        clauses.append("world = ?")
+        params.append(world)
     if zone:
         clauses.append("zone = ?")
         params.append(zone)

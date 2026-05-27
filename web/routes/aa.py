@@ -13,7 +13,7 @@ from census.spells_db import find_by_crc
 from image.aa_tree import detect_tree_type
 from web.cache import aa_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.config import WORLD as _WORLD
+from web.server_context import current_server, current_world
 
 _log = logging.getLogger(__name__)
 
@@ -121,9 +121,7 @@ class CharAAsResponse(BaseModel):
 @router.get("/aa/config", response_model=AAConfigResponse)
 async def get_aa_config() -> AAConfigResponse:
     """Return the current xpac's AA cap and which tree types are unlocked."""
-    import os
-
-    xpac = os.getenv("SERVER_CURRENT_XPAC", "")
+    xpac = current_server().current_xpac or ""
     if not _LIMITS.exists():
         return AAConfigResponse(xpac=xpac, aa_cap=0, unlocked_tree_types=[])
     limits = json.loads(_LIMITS.read_text(encoding="utf-8"))
@@ -201,7 +199,7 @@ async def _bg_refresh_aas(name: str, cache_key: str) -> None:
     try:
         client = CensusClient(service_id=_SERVICE_ID)
         try:
-            char_aas = await client.get_character_aas(name, _WORLD)
+            char_aas = await client.get_character_aas(name, current_world())
         finally:
             await client.close()
         if char_aas is not None:
@@ -224,16 +222,19 @@ async def get_character_aas(name: str) -> CharAAsResponse:
     Return a character's spent AAs grouped by tree, sorted by tree type.
     Responds instantly from cache; fires a background refresh when stale.
     """
-    cache_key = f"aas:{name.lower()}:{_WORLD.lower()}"
+    cache_key = f"aas:{name.lower()}:{current_world().lower()}"
     cached, is_stale = aa_cache.get_stale(cache_key)
     if cached is not None:
         if is_stale:
+            # Spawned within the request context: asyncio.create_task copies the
+            # contextvar, so current_world() inside the task resolves to THIS
+            # request's server even after the middleware resets it post-response.
             asyncio.create_task(_bg_refresh_aas(name, cache_key))
         return cached
 
     client = CensusClient(service_id=_SERVICE_ID)
     try:
-        char_aas = await client.get_character_aas(name, _WORLD)
+        char_aas = await client.get_character_aas(name, current_world())
     finally:
         await client.close()
     if char_aas is None:

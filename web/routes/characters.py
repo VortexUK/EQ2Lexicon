@@ -7,9 +7,9 @@ from pydantic import BaseModel
 from census.client import CensusClient
 from web.cache import character_cache
 from web.config import SERVICE_ID as _SERVICE_ID
-from web.config import WORLD as _WORLD
 from web.db import DB_PATH
 from web.limiter import limiter
+from web.server_context import current_world
 
 router = APIRouter(tags=["characters"])
 
@@ -78,13 +78,13 @@ async def search_characters(request: Request, name: str = "") -> CharSearchRespo
 
     client = CensusClient(service_id=_SERVICE_ID)
     try:
-        raw = await client.search_characters_by_name(q, _WORLD)
+        raw = await client.search_characters_by_name(q, current_world())
 
         if not raw:
             # Prefix search missed — try exact-name lookup (handles cases like "Exobroker"
             # where the prefix index doesn't return results for a complete name)
             try:
-                brief = await client.get_character_brief(q, _WORLD)
+                brief = await client.get_character_brief(q, current_world())
                 if brief:
                     raw = [brief]
             except Exception:
@@ -147,7 +147,7 @@ async def lookup_characters(request: Request, names: str = "") -> BulkLookupResp
 
     out: dict[str, BulkLookupEntry] = {}
     for name in unique:
-        cache_key = f"{name.lower()}:{_WORLD.lower()}"
+        cache_key = f"{name.lower()}:{current_world().lower()}"
         cached = character_cache.get_stale(cache_key)[0]
         if cached is None:
             out[name] = BulkLookupEntry(found=False)
