@@ -48,6 +48,45 @@ Echoes of Faydwer (2006)  [EoF]
 ### Throne of New Tunaria  [1]  (raid_x4)
     - Queen Lenya Thex
 
+### Crypt of Valdoon  [3]  (dungeon)
+    - Elenorel the Beast Tamer
+    - Irodal the Originator
+    - Count Valdoon Kel'Novar
+
+### The Acadechism  [3]  (dungeon)
+    - The War Ancient of Zek
+    - Kelzaral the Animator
+    - Emperor D'Vinn
+
+### The Obelisk of Blight  [5]  (dungeon)
+    - Interrogator Bruek
+    - Occulator Yxorx
+    - Zzorzzazxx
+    - Gretalik the Bloodbourne
+    - Axxyk'Tuur
+
+### The Estate of Unrest  [7]  (dungeon)
+    - Irritated Chef Demme
+    - The Sadistic Bartender
+    - Screwloose the Mad Tinkerer
+    - Torklar Battlemaster
+    - The Festering Hag
+    - The Hemogoblin
+    - "Garanel Rucksif, the Cursed"
+
+### Shard of Fear  [11]  (dungeon)
+    - The Skeletal Destructor
+    - The Skeletal Master
+    - Angst
+    - Spinechill Venomfang
+    - Kza'Bok
+    - Kyr'Tok
+    - Fearmonger
+    - Dracoliche
+    - The Caretaker
+    - The Skeletal Lord
+    - Terror
+
 ======================================================================
 Rise of Kunark (2007)  [RoK]
 ======================================================================

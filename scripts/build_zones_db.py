@@ -111,6 +111,11 @@ def _load_dungeons_into_db(path: Path, conn) -> tuple[int, list[str]]:
 #     label or the next zone.
 #   * Indented `- ...` is an encounter. Mob names within can be
 #     comma-separated OR ` and `-separated for group spawns.
+#   * **Quoted names** — wrap a name in double quotes to keep commas /
+#     ` and ` inside it atomic (one mob), e.g.
+#         - "Garanel Rucksif, the Cursed"
+#     vs. the usual
+#         - Uthtak the Cruel, Aktar the Dark    # two mobs
 #   * Blank lines are separators.
 #   * Top-level banner lines (===... and the totals line) are ignored.
 #
@@ -121,12 +126,6 @@ _ZONE_HEADER_RE = re.compile(r"^###\s+(?P<name>.+?)\s+\[\d+\]\s*\((?P<type>[^)]+
 # Halls but "Wing 1" (no colon) for Veeshan's Peak; both should work.
 _STAGE_LINE_RE = re.compile(r"^\s+(?P<stage>[^-\s].*?):?\s*$")
 _BULLET_LINE_RE = re.compile(r"^\s*-\s+(?P<content>.+?)\s*$")
-# Splits a bullet's content into individual mob names. Handles:
-#   "Adkar Vyx"                                  -> ["Adkar Vyx"]
-#   "Uthtak the Cruel, Aktar the Dark"           -> two
-#   "Zarda and Kodux"                            -> two
-#   "Foo, Bar, Baz and Qux"                      -> four (mixed)
-# Splits on commas first, then any remaining " and " inside a token.
 _AND_SPLIT_RE = re.compile(r"\s+and\s+", flags=re.IGNORECASE)
 
 
@@ -134,21 +133,64 @@ def _split_encounter_mobs(content: str) -> list[str]:
     """Split a bullet's mob list into individual names.
 
     The curator uses two separators interchangeably:
-      * ", "   between most names
-      * " and " for the last pair (e.g. "Foo, Bar, and Baz" or
-        "Foo and Bar")
+      * ``", "``    between most names
+      * ``" and "`` for the last pair (e.g. ``"Foo, Bar, and Baz"`` or
+        ``"Zarda and Kodux"``)
+
+    **Quoted-name escape**: wrapping a name in double quotes makes its
+    content atomic — internal ``,`` and `` and `` no longer split.
+    Designed for in-game canonical names that legitimately contain
+    commas, like ``"Garanel Rucksif, the Cursed"``. Outside the quotes
+    the normal rules still apply, so mixed bullets work::
+
+        Foo, "Bar, Baz", Qux  ->  ["Foo", "Bar, Baz", "Qux"]
+
+    Unclosed quotes are forgiving — the buffered content gets emitted
+    as one mob at end-of-line rather than dropped, so a stray quote in
+    the curation file never costs data.
     """
+    # First pass: walk char-by-char and split into "atomic" (quoted) and
+    # "unquoted" segments at top-level commas. Quoted segments become
+    # single mob names; unquoted segments get the normal `,` + ` and `
+    # split applied below.
+    atoms: list[tuple[str, str]] = []  # (kind, text) where kind is "quoted" | "open"
+    buf: list[str] = []
+    in_quote = False
+    for ch in content:
+        if ch == '"':
+            if in_quote:
+                atoms.append(("quoted", "".join(buf).strip()))
+                buf = []
+                in_quote = False
+            else:
+                # Closing the current open run (if any) before opening the quote
+                if buf:
+                    atoms.append(("open", "".join(buf)))
+                    buf = []
+                in_quote = True
+        else:
+            buf.append(ch)
+    # Flush the trailing buffer — either the tail of an unquoted run, or
+    # (defensively) an unclosed quote whose content we don't want to lose.
+    if buf:
+        atoms.append(("open" if not in_quote else "quoted", "".join(buf).strip()))
+
     parts: list[str] = []
-    for chunk in content.split(","):
-        chunk = chunk.strip()
-        if not chunk:
+    for kind, text in atoms:
+        if not text:
             continue
-        # Split each comma-chunk on " and " too, in case the curator
-        # used the Oxford pattern or skipped commas before "and".
-        for piece in _AND_SPLIT_RE.split(chunk):
-            piece = piece.strip()
-            if piece:
-                parts.append(piece)
+        if kind == "quoted":
+            parts.append(text)
+            continue
+        # Unquoted segment — apply the historical comma + " and " splits.
+        for chunk in text.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            for piece in _AND_SPLIT_RE.split(chunk):
+                piece = piece.strip()
+                if piece:
+                    parts.append(piece)
     return parts
 
 
@@ -226,9 +268,19 @@ def parse_curated_bosses(path: Path) -> list[dict]:
             if not mob_names:
                 continue
             encounter_position += 1
+            # Display label for the encounter. For a single-mob row we use the
+            # parsed name directly so the quoted-name escape (`"Foo, Bar"`)
+            # doesn't leak its delimiter quotes into the visible label.
+            # Multi-mob rows keep the curator's verbatim text (commas, " and ",
+            # whatever was there) because parser output would lose the
+            # original separators.
+            if len(mob_names) == 1:
+                encounter_name = mob_names[0]
+            else:
+                encounter_name = content
             current_zone["encounters"].append(
                 {
-                    "encounter_name": content,
+                    "encounter_name": encounter_name,
                     "position": encounter_position,
                     "stage": current_stage,
                     "mobs": [{"mob_name": name, "position": idx} for idx, name in enumerate(mob_names)],
