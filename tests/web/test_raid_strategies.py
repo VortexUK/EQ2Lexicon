@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -124,11 +124,14 @@ async def test_put_strategy_session_but_no_role_is_403(app):
 
     ``require_editor`` calls ``require_user_session(request)`` directly (not
     via ``Depends``), so we patch the imported symbol on web.auth_deps where
-    the dep now lives."""
+    the dep now lives. The capability primitives are stubbed so the dep
+    falls through to the dynamic officer branch, which finds no primary
+    guild and 403s."""
     with (
         patch("web.auth_deps.require_user_session", return_value={"id": "rando-9", "username": "rando"}),
         patch("web.auth_deps.is_admin", return_value=False),
-        patch("web.auth_deps.is_contributor", return_value=False),
+        patch("web.auth_deps.users_db.user_has_capability_via_db", new_callable=AsyncMock, return_value=False),
+        patch("web.auth_deps.users_db.role_has_capability", new_callable=AsyncMock, return_value=True),
         patch(
             "web.routes.raid_strategies.get_active_claims",
             return_value={"approved": [], "pending": None},
@@ -146,9 +149,9 @@ async def test_put_strategy_session_but_no_role_is_403(app):
 async def test_put_strategy_contributor_path_allows_write(app):
     """Non-admin contributor → request passes through to the write helper.
 
-    This is the new third branch in require_editor. Cheaper than the officer
-    path (one DB lookup vs cache + Census fallback) so checked second after
-    the admin shortcut."""
+    Capability resolution: user_has_capability_via_db returns True (the
+    JOIN'd contributor→edit_content row), so we short-circuit before the
+    officer branch."""
     fresh_row = {
         "id": 1,
         "mob_name": "Prince Thirneg",
@@ -161,7 +164,7 @@ async def test_put_strategy_contributor_path_allows_write(app):
     with (
         patch("web.auth_deps.require_user_session", return_value={"id": "contrib-7", "username": "contributor"}),
         patch("web.auth_deps.is_admin", return_value=False),
-        patch("web.auth_deps.is_contributor", return_value=True),
+        patch("web.auth_deps.users_db.user_has_capability_via_db", new_callable=AsyncMock, return_value=True),
         patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
         patch("web.routes.raid_strategies._write_strategy_sync", return_value=fresh_row) as m_write,
     ):
@@ -198,7 +201,8 @@ async def test_put_strategy_officer_path_allows_write(app):
     with (
         patch("web.auth_deps.require_user_session", return_value={"id": "officer-9", "username": "officer"}),
         patch("web.auth_deps.is_admin", return_value=False),
-        patch("web.auth_deps.is_contributor", return_value=False),
+        patch("web.auth_deps.users_db.user_has_capability_via_db", new_callable=AsyncMock, return_value=False),
+        patch("web.auth_deps.users_db.role_has_capability", new_callable=AsyncMock, return_value=True),
         patch(
             "web.routes.raid_strategies.get_active_claims",
             return_value={
@@ -231,7 +235,8 @@ async def test_put_strategy_officer_path_403_on_cold_cache(app):
     with (
         patch("web.auth_deps.require_user_session", return_value={"id": "officer-9", "username": "officer"}),
         patch("web.auth_deps.is_admin", return_value=False),
-        patch("web.auth_deps.is_contributor", return_value=False),
+        patch("web.auth_deps.users_db.user_has_capability_via_db", new_callable=AsyncMock, return_value=False),
+        patch("web.auth_deps.users_db.role_has_capability", new_callable=AsyncMock, return_value=True),
         patch(
             "web.routes.raid_strategies.get_active_claims",
             return_value={

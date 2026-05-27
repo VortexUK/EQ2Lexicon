@@ -105,6 +105,28 @@ CREATE TABLE IF NOT EXISTS user_roles (
 
 CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role);
 
+-- Per-role capability map. The route-layer auth gate (`require_capability`
+-- in web/auth_deps.py) JOINs user_roles ↔ role_permissions on `role` to
+-- answer "does this user have capability X?".
+--
+-- Admin is the synthetic "all capabilities" branch and never appears here.
+-- Officer DOES appear here even though it's not stored in user_roles — the
+-- dep dynamically resolves officer status when it sees an ('officer', X)
+-- row and the user lacks the capability via DB roles. That keeps adding a
+-- new capability for officer a one-row INSERT rather than a code change.
+--
+-- New capability = INSERT rows here (admins/contributors/officers as
+-- appropriate). Re-seeding is idempotent via INSERT OR IGNORE in
+-- ``init_db``.
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role        TEXT NOT NULL,
+    capability  TEXT NOT NULL,
+    PRIMARY KEY (role, capability)
+);
+
+CREATE INDEX IF NOT EXISTS idx_role_permissions_capability
+    ON role_permissions(capability);
+
 -- Self-service role requests. Mirrors the character_claims queue pattern:
 -- users submit, admin reviews, request transitions through statuses. On
 -- approval the route also writes a row into user_roles so the request +
@@ -182,6 +204,18 @@ def init_db(path: Path = DB_PATH) -> None:
         claims_cols = {row[1] for row in conn.execute("PRAGMA table_info(character_claims)")}
         if "is_primary" not in claims_cols:
             conn.execute("ALTER TABLE character_claims ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0")
+
+        # Seed role_permissions. INSERT OR IGNORE keeps it idempotent and
+        # leaves any admin-edited rows alone if/when a future UI exposes the
+        # table for live edits. Listed here (not in _SCHEMA) so the seed
+        # statements live with their semantic intent.
+        conn.executemany(
+            "INSERT OR IGNORE INTO role_permissions (role, capability) VALUES (?, ?)",
+            [
+                ("contributor", "edit_content"),
+                ("officer", "edit_content"),
+            ],
+        )
         conn.commit()
 
 
@@ -481,6 +515,47 @@ async def withdraw_role_request(
         )
         await db.commit()
     return cur.rowcount > 0
+
+
+async def user_has_capability_via_db(
+    discord_id: str,
+    capability: str,
+    path: Path = DB_PATH,
+) -> bool:
+    """True iff any DB-granted role for this user maps to ``capability``.
+
+    Single JOIN'd EXISTS query — indexed on both join keys. Doesn't consider
+    admin (synthetic) or officer (dynamic) — those live in the auth dep on
+    top of this primitive."""
+    async with aiosqlite.connect(path) as db:
+        async with db.execute(
+            """
+            SELECT 1
+            FROM user_roles ur
+            JOIN role_permissions rp ON rp.role = ur.role
+            WHERE ur.discord_id = ? AND rp.capability = ?
+            LIMIT 1
+            """,
+            (discord_id, capability),
+        ) as cur:
+            return await cur.fetchone() is not None
+
+
+async def role_has_capability(
+    role: str,
+    capability: str,
+    path: Path = DB_PATH,
+) -> bool:
+    """True iff ``(role, capability)`` is in role_permissions.
+
+    Used by the auth dep to decide whether to bother running the dynamic
+    officer check at all — if officers don't have the capability, no point."""
+    async with aiosqlite.connect(path) as db:
+        async with db.execute(
+            "SELECT 1 FROM role_permissions WHERE role = ? AND capability = ? LIMIT 1",
+            (role, capability),
+        ) as cur:
+            return await cur.fetchone() is not None
 
 
 async def list_role_assignments(path: Path = DB_PATH) -> dict[str, list[str]]:

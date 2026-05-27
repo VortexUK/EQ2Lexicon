@@ -30,9 +30,23 @@ inside `require_editor`:
 `KNOWN_ROLES` is the route-layer allowlist for grant/revoke endpoints; new
 roles get added there before they're meaningful anywhere else.
 
-TODO(future): per-role permission system. Currently each role-aware dep
-hardcodes which roles it accepts. When the codebase grows >1 capability
-dimensions, layer a `role_permissions` table and have the deps consult it.
+Capabilities + the role → capability map
+----------------------------------------
+
+Routes don't gate on roles directly — they gate on **capabilities** via
+`require_capability(...)`. The `role_permissions` table (web/db.py) maps
+each persistent role to the capabilities it grants. Admin is the synthetic
+"all capabilities" branch (so it never appears in the table); officer is
+dynamic but does appear in the table so adding a new capability for officer
+is a one-row INSERT rather than a code change.
+
+`KNOWN_CAPABILITIES` is the programmer-facing allowlist for capability
+strings — guards against typos at route-definition time (`require_capability`
+raises if the capability isn't registered here).
+
+Adding a new capability is two lines: register the string in
+`KNOWN_CAPABILITIES` and seed any `role_permissions` rows in
+`web/db.py:init_db`.
 """
 
 from __future__ import annotations
@@ -119,56 +133,91 @@ def require_admin(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# DB-driven roles (see `user_roles` schema in web/db.py)
+# DB-driven roles + capabilities
+# (see `user_roles` + `role_permissions` schema in web/db.py)
 # ---------------------------------------------------------------------------
 
 # Allowlist for grant/revoke routes. Routes reject unknown role names with a
 # 400 — keeps the table free of typo'd "Contibutor" rows that'd silently grant
-# nothing. Add a new role here AND wire its capability into the appropriate
-# require_X dep before exposing it in the admin UI.
+# nothing. Add a new role here AND seed its role_permissions rows in
+# web/db.py:init_db before exposing it in the admin UI.
 KNOWN_ROLES: frozenset[str] = frozenset({"contributor"})
+
+# Programmer-facing capability allowlist. `require_capability` raises at
+# route-definition time if a typo'd string is used, so a misnamed capability
+# can never silently authorize nothing. Adding a new capability is two lines:
+# add the string here AND seed its role_permissions rows in db.init_db.
+KNOWN_CAPABILITIES: frozenset[str] = frozenset({"edit_content"})
 
 
 async def is_contributor(user: dict | None) -> bool:
-    """True iff the session user holds the 'contributor' DB role."""
+    """True iff the session user holds the 'contributor' DB role.
+
+    Kept for explicit callers / tests; the auth gate uses the
+    capability-driven helpers below, not this specific role check."""
     if not user:
         return False
     return await users_db.has_role(user["id"], "contributor")
 
 
-async def require_editor(request: Request) -> dict:
-    """Gate for content-edit endpoints (raid strategies, zone overviews).
+def require_capability(capability: str):
+    """Build a FastAPI ``Depends``-able function that gates the route on a
+    named capability.
 
-    Allows the request through if the session user is any of:
-      * admin (env-driven via ADMIN_DISCORD_IDS), or
-      * a contributor (DB-granted via the `user_roles` table), or
-      * an officer (dynamic — computed from their primary character's guild
-        rank by `_officer_chars` in web/routes/guild.py).
+    Resolution order, cheapest first:
+      1. **admin** — env-driven, synthesized to "has every capability".
+      2. **DB roles** — single JOIN'd EXISTS over (user_roles ⨝
+         role_permissions). Cheap, indexed on both join keys.
+      3. **officer** — dynamic. Only runs if ``('officer', capability)`` is
+         in role_permissions (skip the Census-fallback path for capabilities
+         officers can't do anyway).
 
-    The officer check is the most expensive (cache hit then potentially a
-    Census round-trip) — admin and contributor get checked first so the hot
-    path is cheap. The officer branch lives in this module's caller, kept
-    imported lazily to avoid a routes→auth circular import.
-    """
-    user = require_user_session(request)
-    if is_admin(user):
-        return user
-    if await is_contributor(user):
-        return user
+    The factory pattern means routes specify *what* they need
+    (``require_capability("edit_content")``), not *who* qualifies — the
+    role → capability mapping stays purely data."""
+    if capability not in KNOWN_CAPABILITIES:
+        # Defensive: catches typos at module-import / route-definition time
+        # rather than at request time. Programmer error, never user-facing.
+        raise ValueError(
+            f"Unknown capability {capability!r}. Add it to KNOWN_CAPABILITIES "
+            f"and seed role_permissions rows in web/db.py:init_db first."
+        )
 
-    # Officer check — lazy import to avoid the routes→auth_deps circular
-    # dependency that a top-level import would create.
-    from web.routes.guild import _officer_chars
-    from web.routes.raid_strategies import _resolve_primary_guild_cached
-
-    discord_id = user["id"]
-    guild_name = await _resolve_primary_guild_cached(discord_id)
-    if guild_name:
-        officer_chars = await _officer_chars(discord_id, guild_name)
-        if officer_chars:
+    async def dep(request: Request) -> dict:
+        user = require_user_session(request)
+        if is_admin(user):
             return user
 
-    raise HTTPException(
-        status_code=403,
-        detail="Editing requires admin, contributor, or officer rank.",
-    )
+        discord_id = user["id"]
+        if await users_db.user_has_capability_via_db(discord_id, capability):
+            return user
+
+        # Only run the officer (dynamic) check if officers can actually do
+        # this capability — saves a get_active_claims + cache lookup on
+        # capabilities they wouldn't qualify for anyway.
+        if await users_db.role_has_capability("officer", capability):
+            # Lazy import to skirt the routes→auth_deps circular dependency.
+            from web.routes.guild import _officer_chars
+            from web.routes.raid_strategies import _resolve_primary_guild_cached
+
+            guild_name = await _resolve_primary_guild_cached(discord_id)
+            if guild_name:
+                officer_chars = await _officer_chars(discord_id, guild_name)
+                if officer_chars:
+                    return user
+
+        raise HTTPException(
+            status_code=403,
+            detail=f"This action requires the {capability!r} capability.",
+        )
+
+    # Set a recognisable __name__ so dependency_overrides keys in tests are
+    # legible and so FastAPI's OpenAPI schema shows something useful.
+    dep.__name__ = f"require_capability_{capability}"
+    return dep
+
+
+# Module-level named instance: stays singular so test overrides work. Routes
+# import this name; a future capability-aware route can either build its own
+# (`require_capability("foo")`) or define a sibling alias here.
+require_editor = require_capability("edit_content")
