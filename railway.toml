@@ -12,11 +12,15 @@ builder = "nixpacks"
 # The trailing `exec` matters: litestream then becomes PID 1's child and
 # Railway's restart policy applies to the app process correctly.
 #
-# Python binary path note (2026-05-27): Nixpacks installs its venv at
-# /opt/venv (not /app/.venv); `uv sync` then inherits VIRTUAL_ENV and
-# installs into that. litestream's `-exec` runs via os.exec (no shell,
-# no /root/.profile sourcing), so the absolute path matters.
-startCommand = "mkdir -p /app/data/parses && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/users.db || true) && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/parses/parses.db || true) && exec litestream replicate -config /app/litestream.yml -exec '/opt/venv/bin/python main.py'"
+# Python binary path note (2026-05-27): Nixpacks moves the venv around
+# across builder-image versions (we've seen /app/.venv, /opt/venv, and
+# possibly the Nix-store path directly). Rather than hardcode any single
+# location, we resolve `python` against PATH in the shell that runs the
+# startCommand, then pass the absolute path to litestream's `-exec` (which
+# uses os.exec — no shell, no PATH lookup of its own). A diagnostic dump
+# of the candidate paths runs first so any future breakage is one log
+# scroll away from a fix.
+startCommand = "mkdir -p /app/data/parses && echo '=== python path discovery ===' && (which python python3 2>&1 || true) && (ls -la /opt/venv/bin/python* /app/.venv/bin/python* /root/.nix-profile/bin/python* 2>&1 | head -20 || true) && echo '=== end discovery ===' && PYTHON_BIN=$(command -v python || command -v python3) && [ -n \"$PYTHON_BIN\" ] && echo \"Resolved Python: $PYTHON_BIN\" && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/users.db || true) && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/parses/parses.db || true) && exec litestream replicate -config /app/litestream.yml -exec \"$PYTHON_BIN main.py\""
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 watchPaths = ["**", "!alloy/**", "!grafana/**"]
