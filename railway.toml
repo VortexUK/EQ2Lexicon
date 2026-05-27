@@ -11,7 +11,12 @@ builder = "nixpacks"
 #      streamed to R2 in near-real-time.
 # The trailing `exec` matters: litestream then becomes PID 1's child and
 # Railway's restart policy applies to the app process correctly.
-startCommand = "mkdir -p /app/data/parses && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/users.db || true) && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/parses/parses.db || true) && exec litestream replicate -config /app/litestream.yml -exec '/app/.venv/bin/python main.py'"
+#
+# Python binary path note (2026-05-27): Nixpacks installs its venv at
+# /opt/venv (not /app/.venv); `uv sync` then inherits VIRTUAL_ENV and
+# installs into that. litestream's `-exec` runs via os.exec (no shell,
+# no /root/.profile sourcing), so the absolute path matters.
+startCommand = "mkdir -p /app/data/parses && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/users.db || true) && (litestream restore -if-replica-exists -config /app/litestream.yml /app/data/parses/parses.db || true) && exec litestream replicate -config /app/litestream.yml -exec '/opt/venv/bin/python main.py'"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 watchPaths = ["**", "!alloy/**", "!grafana/**"]
