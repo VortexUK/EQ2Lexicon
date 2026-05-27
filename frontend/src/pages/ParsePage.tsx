@@ -5,6 +5,7 @@ import Breadcrumb from '../components/Breadcrumb'
 import Caret from '../components/Caret'
 import { useClasses } from '../useClasses'
 import { fmtDuration, fmtLocalDateTime, fmtNum } from '../formatters'
+import { percentileColor } from '../percentileColors'
 import { Card } from '../components/ui'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -68,6 +69,10 @@ interface CombatantSummary {
   damage_perc: number
   dps: number
   encdps: number
+  dps_percentile: number | null
+  dps_best_overall: boolean
+  hps_percentile: number | null
+  hps_best_overall: boolean
   healed: number
   enchps: number
   heals: number
@@ -122,6 +127,8 @@ interface BulkLookupResponse {
 // Single-word ally names are probably players (mirrors backend's player_count
 // heuristic). Used to decide whether to render the name as a link.
 function isLikelyPlayer(c: CombatantSummary): boolean {
+  // A class snapshot resolved at ingest is proof this is a real character.
+  if (c.cls) return c.ally
   return c.ally && !c.name.includes(' ') && c.name !== 'Unknown' && c.name !== ''
 }
 
@@ -184,6 +191,7 @@ export default function ParsePage() {
     // avoid showing real players as pets while the lookup is in-flight.
     const isPet = (c: CombatantSummary): boolean => {
       if (!c.ally) return false
+      if (c.cls) return false // resolved a class at ingest → a real player, never a pet
       if (!isLikelyPlayer(c)) return true
       const entry = lookup[c.name]
       return entry !== undefined && entry.found === false
@@ -339,10 +347,24 @@ function CombatantRow({
           <NameCell combatant={c} player={player} level={level} guildName={guildName} cls={cls} />
         </div>
         <div className={CELL_RIGHT_CLS}>{fmtNum(c.damage)}</div>
-        <div className={`${CELL_RIGHT_CLS} text-gold`}>{fmtNum(c.encdps)}</div>
+        <div
+          className={`${CELL_RIGHT_CLS} font-semibold`}
+          style={c.dps_percentile != null ? { color: percentileColor(c.dps_percentile) } : undefined}
+          title={c.dps_percentile != null ? `${c.dps_percentile}% of the best ${cls ?? ''} on this boss`.trim() : undefined}
+        >
+          {fmtNum(c.encdps)}
+          {c.dps_best_overall && <span title="Best DPS of all classes on this boss"> *</span>}
+        </div>
         <div className={CELL_RIGHT_CLS}>{c.damage_perc > 0 ? `${Math.round(c.damage_perc)}%` : '—'}</div>
         <div className={CELL_RIGHT_CLS}>{c.healed > 0 ? fmtNum(c.healed) : '—'}</div>
-        <div className={CELL_RIGHT_CLS}>{c.enchps > 0 ? fmtNum(c.enchps) : '—'}</div>
+        <div
+          className={`${CELL_RIGHT_CLS} font-semibold`}
+          style={c.enchps > 0 && c.hps_percentile != null ? { color: percentileColor(c.hps_percentile) } : undefined}
+          title={c.enchps > 0 && c.hps_percentile != null ? `${c.hps_percentile}% of the best ${cls ?? ''} on this boss`.trim() : undefined}
+        >
+          {c.enchps > 0 ? fmtNum(c.enchps) : '—'}
+          {c.enchps > 0 && c.hps_best_overall && <span title="Best HPS of all classes on this boss"> *</span>}
+        </div>
         <div className={CELL_RIGHT_CLS}>{c.damage_taken > 0 ? fmtNum(c.damage_taken) : '—'}</div>
         <div className={CELL_RIGHT_CLS}>{c.crit_dam_perc > 0 ? `${Math.round(c.crit_dam_perc)}%` : '—'}</div>
         <div className={CELL_RIGHT_CLS}>{c.deaths > 0 ? c.deaths : ''}</div>
