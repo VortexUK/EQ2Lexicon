@@ -28,11 +28,12 @@ def _fake_zone() -> dict:
 
 
 def _writer_client(app):
-    """Override ``require_officer_or_admin`` so the test acts as an authorised
-    strategy writer (admin or officer — the dep treats them equivalently)."""
-    from web.routes.raid_strategies import require_officer_or_admin
+    """Override ``require_editor`` so the test acts as an authorised content
+    editor — bypasses the admin/contributor/officer fanout and just returns a
+    fixed user dict."""
+    from web.auth_deps import require_editor
 
-    app.dependency_overrides[require_officer_or_admin] = lambda: {"id": "admin-1", "username": "admin"}
+    app.dependency_overrides[require_editor] = lambda: {"id": "admin-1", "username": "admin"}
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
@@ -108,7 +109,7 @@ async def test_get_strategy_no_content_yet_is_404(app):
 
 @pytest.mark.asyncio
 async def test_put_strategy_unauthenticated_is_401(app):
-    """No session at all → 401 (require_user_session inside require_officer_or_admin)."""
+    """No session at all → 401 (require_user_session inside require_editor)."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.put(
             "/api/zones/The Emerald Halls/encounters/1/strategy",
@@ -118,15 +119,16 @@ async def test_put_strategy_unauthenticated_is_401(app):
 
 
 @pytest.mark.asyncio
-async def test_put_strategy_session_but_not_admin_or_officer_is_403(app):
-    """Signed in, but not an admin and not an officer → 403.
+async def test_put_strategy_session_but_no_role_is_403(app):
+    """Signed in, but not admin, contributor, or officer → 403.
 
-    ``require_officer_or_admin`` calls ``require_user_session(request)``
-    directly (not via ``Depends``), so we patch the imported symbol rather
-    than overriding through ``app.dependency_overrides``."""
+    ``require_editor`` calls ``require_user_session(request)`` directly (not
+    via ``Depends``), so we patch the imported symbol on web.auth_deps where
+    the dep now lives."""
     with (
-        patch("web.routes.raid_strategies.require_user_session", return_value={"id": "rando-9", "username": "rando"}),
-        patch("web.routes.raid_strategies.is_admin", return_value=False),
+        patch("web.auth_deps.require_user_session", return_value={"id": "rando-9", "username": "rando"}),
+        patch("web.auth_deps.is_admin", return_value=False),
+        patch("web.auth_deps.is_contributor", return_value=False),
         patch(
             "web.routes.raid_strategies.get_active_claims",
             return_value={"approved": [], "pending": None},
@@ -141,8 +143,44 @@ async def test_put_strategy_session_but_not_admin_or_officer_is_403(app):
 
 
 @pytest.mark.asyncio
+async def test_put_strategy_contributor_path_allows_write(app):
+    """Non-admin contributor → request passes through to the write helper.
+
+    This is the new third branch in require_editor. Cheaper than the officer
+    path (one DB lookup vs cache + Census fallback) so checked second after
+    the admin shortcut."""
+    fresh_row = {
+        "id": 1,
+        "mob_name": "Prince Thirneg",
+        "position": 1,
+        "strategy_md": "contributor wrote this",
+        "source": "manual",
+        "last_edited_at": 1716300000,
+        "last_edited_by": "contrib-7",
+    }
+    with (
+        patch("web.auth_deps.require_user_session", return_value={"id": "contrib-7", "username": "contributor"}),
+        patch("web.auth_deps.is_admin", return_value=False),
+        patch("web.auth_deps.is_contributor", return_value=True),
+        patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
+        patch("web.routes.raid_strategies._write_strategy_sync", return_value=fresh_row) as m_write,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.put(
+                "/api/zones/The Emerald Halls/encounters/1/strategy",
+                json={"markdown": "contributor wrote this"},
+            )
+
+    assert r.status_code == 200
+    assert m_write.call_args.kwargs["editor_discord_id"] == "contrib-7"
+
+
+@pytest.mark.asyncio
 async def test_put_strategy_officer_path_allows_write(app):
-    """Non-admin officer → request passes through to the write helper."""
+    """Non-admin / non-contributor officer → request passes through.
+
+    Officer is the most expensive branch (cache + Census fallback) so it's
+    checked last in require_editor."""
 
     class _Cached:
         guild_name = "Exordium"
@@ -158,10 +196,9 @@ async def test_put_strategy_officer_path_allows_write(app):
     }
 
     with (
-        patch(
-            "web.routes.raid_strategies.require_user_session", return_value={"id": "officer-9", "username": "officer"}
-        ),
-        patch("web.routes.raid_strategies.is_admin", return_value=False),
+        patch("web.auth_deps.require_user_session", return_value={"id": "officer-9", "username": "officer"}),
+        patch("web.auth_deps.is_admin", return_value=False),
+        patch("web.auth_deps.is_contributor", return_value=False),
         patch(
             "web.routes.raid_strategies.get_active_claims",
             return_value={
@@ -170,7 +207,7 @@ async def test_put_strategy_officer_path_allows_write(app):
             },
         ),
         patch("web.routes.raid_strategies.character_cache.get_stale", return_value=(_Cached(), True)),
-        patch("web.routes.raid_strategies._officer_chars", return_value={"sigarth"}),
+        patch("web.routes.guild._officer_chars", return_value={"sigarth"}),
         patch("web.routes.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),
         patch("web.routes.raid_strategies._write_strategy_sync", return_value=fresh_row) as m_write,
     ):
@@ -192,10 +229,9 @@ async def test_put_strategy_officer_path_403_on_cold_cache(app):
     Fail-closed is deliberate: an empty cache shouldn't silently widen who
     can write. Visiting /character/<name> once warms it."""
     with (
-        patch(
-            "web.routes.raid_strategies.require_user_session", return_value={"id": "officer-9", "username": "officer"}
-        ),
-        patch("web.routes.raid_strategies.is_admin", return_value=False),
+        patch("web.auth_deps.require_user_session", return_value={"id": "officer-9", "username": "officer"}),
+        patch("web.auth_deps.is_admin", return_value=False),
+        patch("web.auth_deps.is_contributor", return_value=False),
         patch(
             "web.routes.raid_strategies.get_active_claims",
             return_value={

@@ -96,7 +96,13 @@ const MARKDOWN_COMPONENTS: Components = {
 
 export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
   const auth = useAuth()
-  const isAdmin = auth.status === 'authenticated' && auth.user.is_admin
+  // Edit affordance is shown for admins AND DB-granted contributors. Officers
+  // also pass the backend gate but aren't surfaced here (dynamic check; would
+  // need a Census round-trip on every page load — see useAuth's static_roles
+  // doc-comment for the trade-off).
+  const isAdmin =
+    auth.status === 'authenticated' &&
+    (auth.user.is_admin || auth.user.static_roles.includes('contributor'))
 
   const [data, setData] = useState<StrategyResponse | null>(null)
   const [loading, setLoading] = useState(true)

@@ -7,6 +7,14 @@ export interface User {
   avatar: string | null
   is_admin: boolean
   access_status: string   // 'approved' | 'pending' | 'denied'
+  /**
+   * DB-granted roles (currently `'contributor'`). Excludes `'admin'`
+   * (exposed separately via `is_admin`) and `'officer'` (dynamic,
+   * computed server-side and not exposed here to avoid a Census round-
+   * trip on every page load). Frontend uses this to show the Edit
+   * affordance to contributors.
+   */
+  static_roles: string[]
 }
 
 export type AuthState =
