@@ -313,3 +313,8 @@ frontend/tsconfig.app.tsbuildinfo
 data/classes/classes.db
 data/classes/classes.db-wal
 data/classes/classes.db-shm
+
+# Census persistence (generated at runtime, copied to the Railway volume)
+data/census/census.db
+data/census/census.db-wal
+data/census/census.db-shm
