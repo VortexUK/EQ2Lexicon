@@ -1,18 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ActTriggers } from '../components/ActTriggers'
+import { BossRosterEditor } from '../components/BossRosterEditor'
 import Breadcrumb from '../components/Breadcrumb'
 import { EncounterStrategy } from '../components/EncounterStrategy'
 import { ZoneOverview } from '../components/ZoneOverview'
 import { Card, SectionLabel } from '../components/ui'
 import { fmtRelative } from '../formatters'
+import { useAuth } from '../hooks/useAuth'
 import { useRaidProgress, type KilledEncounter } from '../hooks/useRaidProgress'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface EncounterMob { mob_name: string; position: number }
+interface EncounterMob { id: number; mob_name: string; position: number }
 interface Encounter {
+  id: number
   encounter_name: string
   position: number
   stage: string | null
@@ -46,37 +49,44 @@ interface Zone {
 export default function RaidZonePage() {
   const { name = '', position } = useParams<{ name: string; position?: string }>()
   const navigate = useNavigate()
+  const auth = useAuth()
+
+  const canEdit =
+    auth.status === 'authenticated' &&
+    (auth.user.is_admin || auth.user.static_roles.includes('contributor'))
 
   const [zone, setZone] = useState<Zone | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editingRoster, setEditingRoster] = useState(false)
   const progress = useRaidProgress()
 
-  useEffect(() => {
-    let cancelled = false
+  const fetchZone = useCallback((signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
-    setZone(null)
-
-    fetch(`/api/zones/${encodeURIComponent(name)}`, { credentials: 'include' })
+    return fetch(`/api/zones/${encodeURIComponent(name)}`, { credentials: 'include', signal })
       .then(r => {
         if (r.status === 404) return Promise.reject(new Error('not found'))
         return r.ok ? r.json() : Promise.reject(new Error(String(r.status)))
       })
       .then((z: Zone) => {
-        if (!cancelled) setZone(z)
+        if (!signal?.aborted) setZone(z)
       })
       .catch(err => {
-        if (!cancelled) setError(err.message)
+        // Ignore abort errors — they're intentional cancellations, not real failures.
+        if (!signal?.aborted) setError((err as Error).message)
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!signal?.aborted) setLoading(false)
       })
-
-    return () => {
-      cancelled = true
-    }
   }, [name])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    setZone(null)
+    void fetchZone(ctrl.signal)
+    return () => ctrl.abort()
+  }, [fetchZone])
 
   // Group encounters by stage in curator order. Memoise both for cheap
   // re-renders when only the selected position changes.
@@ -145,12 +155,35 @@ export default function RaidZonePage() {
 
           <div className="mt-5 grid gap-4 grid-cols-1 md:grid-cols-[16rem_1fr]">
             <aside className="min-w-0">
-              <EncounterSidebar
-                stages={stages}
-                selected={selected}
-                killsByName={killsByName}
-                onSelect={selectEncounter}
-              />
+              {/* Edit roster toggle — visible only to editors */}
+              {canEdit && (
+                <div className="mb-2 flex items-center">
+                  <button
+                    type="button"
+                    className="appearance-none border-0 bg-transparent text-xs text-gold underline decoration-dotted underline-offset-2 cursor-pointer hover:text-gold-bright"
+                    onClick={() => setEditingRoster(v => !v)}
+                  >
+                    {editingRoster ? 'Done editing' : 'Edit roster'}
+                  </button>
+                </div>
+              )}
+
+              {editingRoster ? (
+                <Card className="p-3">
+                  <BossRosterEditor
+                    zoneName={zone.name}
+                    encounters={zone.bosses}
+                    onReload={fetchZone}
+                  />
+                </Card>
+              ) : (
+                <EncounterSidebar
+                  stages={stages}
+                  selected={selected}
+                  killsByName={killsByName}
+                  onSelect={selectEncounter}
+                />
+              )}
             </aside>
             <section className="min-w-0">
               {selected ? (
