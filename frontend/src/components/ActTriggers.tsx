@@ -894,6 +894,7 @@ function SpellTimersSection({
   const [timerDraft, setTimerDraft] = useState<SpellTimerDraft>(defaultSpellTimerDraft)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
 
   const sorted = [...spellTimers].sort((a, b) => a.name.localeCompare(b.name))
 
@@ -991,12 +992,30 @@ function SpellTimersSection({
     <section className="mt-6">
       <header className="flex items-baseline justify-between flex-wrap gap-2 mb-1">
         <SectionLabel>Spell Timers</SectionLabel>
-        {canEdit && editingId !== 'new' && (
-          <Button size="sm" variant="primary" onClick={startNew}>
-            New spell timer
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canEdit && !importing && (
+            <Button size="sm" variant="secondary" onClick={() => { setImporting(true); setEditingId(null) }}>
+              Import XML
+            </Button>
+          )}
+          {canEdit && editingId !== 'new' && (
+            <Button size="sm" variant="primary" onClick={() => { startNew(); setImporting(false) }}>
+              New spell timer
+            </Button>
+          )}
+        </div>
       </header>
+
+      {importing && (
+        <XmlImporter
+          base={base}
+          onCancel={() => setImporting(false)}
+          onImported={async () => {
+            setImporting(false)
+            await onReload()
+          }}
+        />
+      )}
 
       {editingId === null && saveError && (
         <p className="text-danger text-sm mb-2">{saveError}</p>
@@ -1072,14 +1091,19 @@ function SpellTimersSection({
                         ? `used by ${usedBy} trigger${usedBy === 1 ? '' : 's'}`
                         : 'standalone'}
                     </span>
-                    {canEdit && (
-                      <div className="flex items-center gap-2 shrink-0 ml-auto">
-                        <Button size="sm" variant="ghost" onClick={() => startEdit(timer)}>Edit</Button>
-                        <Button size="sm" variant="danger" onClick={() => deleteTimer(timer.id, timer.name)}>Delete</Button>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0 ml-auto">
+                      <LinkButton size="sm" variant="ghost" href={`${base}/spell-timers/${timer.id}/export.xml`} download>
+                        Export
+                      </LinkButton>
+                      {canEdit && (
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => startEdit(timer)}>Edit</Button>
+                          <Button size="sm" variant="danger" onClick={() => deleteTimer(timer.id, timer.name)}>Delete</Button>
+                        </>
+                      )}
+                    </div>
                     {timer.last_edited_at && !canEdit && (
-                      <span className="text-text-muted text-[0.72rem] ml-auto">
+                      <span className="text-text-muted text-[0.72rem]">
                         Edited {fmtRelative(timer.last_edited_at)}
                       </span>
                     )}

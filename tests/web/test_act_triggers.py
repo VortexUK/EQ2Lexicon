@@ -846,6 +846,56 @@ async def test_export_all_triggers_includes_standalone_spell_timer(app):
     assert 'Name="Manaward Reuse"' in body
 
 
+# ---------------------------------------------------------------------------
+# Per-spell-timer XML export
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_export_spell_timer_happy_path(app):
+    """Single-timer export returns valid XML with the <Spell> row."""
+    with (
+        patch("web.routes.act_triggers._resolve_encounter_sync", return_value=_resolved()),
+        patch("web.routes.act_triggers.raids_db.get_act_spell_timer", return_value=_SPELL_ROW),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/encounters/1/spell-timers/7/export.xml")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/xml")
+    body = r.text
+    assert body.startswith('<?xml version="1.0" encoding="utf-8"?>')
+    assert "<SpellTimers>" in body
+    assert 'Name="Doom Cooldown"' in body
+    assert 'Timer="45"' in body
+    assert "attachment" in r.headers["content-disposition"]
+    assert ".xml" in r.headers["content-disposition"]
+
+
+@pytest.mark.asyncio
+async def test_export_spell_timer_404_when_missing(app):
+    """Unknown timer_id → 404."""
+    with (
+        patch("web.routes.act_triggers._resolve_encounter_sync", return_value=_resolved()),
+        patch("web.routes.act_triggers.raids_db.get_act_spell_timer", return_value=None),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/encounters/1/spell-timers/9999/export.xml")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_spell_timer_404_when_wrong_encounter(app):
+    """Timer exists but belongs to a different encounter → 404 (ownership check)."""
+    wrong_encounter = {**_SPELL_ROW, "raid_encounter_id": 999}
+    with (
+        patch("web.routes.act_triggers._resolve_encounter_sync", return_value=_resolved()),
+        patch("web.routes.act_triggers.raids_db.get_act_spell_timer", return_value=wrong_encounter),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/zones/The Emerald Halls/encounters/1/spell-timers/7/export.xml")
+    assert r.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_export_trigger_quotes_attributes_safely(app):
     """Regex content with the literal quote/ampersand chars must be escaped

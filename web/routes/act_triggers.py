@@ -14,6 +14,7 @@ Surface:
   POST   /api/zones/{zone}/encounters/{position}/spell-timers          (create, editor)
   PUT    /api/zones/{zone}/encounters/{position}/spell-timers/{id}     (update, editor)
   DELETE /api/zones/{zone}/encounters/{position}/spell-timers/{id}     (delete, editor)
+  GET    /api/zones/{zone}/encounters/{position}/spell-timers/{id}/export.xml  (single XML)
 
 The XML exports round-trip against ACT's ``spell_timers.xml`` import format —
 drop the file into Advanced Combat Tracker's Custom Triggers import and it
@@ -439,6 +440,29 @@ async def export_trigger(zone_name: str, position: int, trigger_id: int) -> Resp
     xml = _build_xml([trigger], spells)
     label = trigger.get("label") or trigger.get("sound_data") or "trigger"
     filename = _safe_filename(f"{canonical_zone}-{mob_name}-{label}.xml")
+    return Response(
+        content=xml,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/zones/{zone_name}/encounters/{position}/spell-timers/{timer_id}/export.xml",
+    response_class=Response,
+)
+async def export_spell_timer(zone_name: str, position: int, timer_id: int) -> Response:
+    """A single spell timer as a paste-friendly XML chunk. Lets curators
+    share one standalone timer without bundling the encounter's full
+    trigger pack — the mirror of export_trigger above."""
+    canonical_zone, mob_name, encounter_id = await _resolve_encounter(zone_name, position)
+    loop = asyncio.get_event_loop()
+    timer = await loop.run_in_executor(None, raids_db.get_act_spell_timer, timer_id)
+    if timer is None or timer["raid_encounter_id"] != encounter_id:
+        raise HTTPException(status_code=404, detail="Spell timer not found")
+
+    xml = _build_xml([], [timer])
+    filename = _safe_filename(f"{canonical_zone}-{mob_name}-{timer['name']}.xml")
     return Response(
         content=xml,
         media_type="application/xml",
