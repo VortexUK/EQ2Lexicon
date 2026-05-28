@@ -522,6 +522,90 @@ def upsert_raid_encounter(
 
 
 # ---------------------------------------------------------------------------
+# zones_db mirror helpers
+# ---------------------------------------------------------------------------
+# These helpers operate on a connection passed in (consistent with the
+# existing module style); they do NOT commit themselves — callers commit.
+
+
+def rename_raid_encounter_if_exists(
+    conn: sqlite3.Connection,
+    *,
+    zone_name: str,
+    old_mob_name: str,
+    new_mob_name: str,
+) -> bool:
+    """If a raid_encounters row matches (zone_name, old_mob_name) case-insensitively,
+    rename its mob_name + mob_name_lower and bump last_edited_at. No-op
+    otherwise. Returns True if a row was updated."""
+    cur = conn.execute(
+        """
+        UPDATE raid_encounters
+           SET mob_name = ?,
+               mob_name_lower = ?,
+               last_edited_at = strftime('%s','now')
+         WHERE id IN (
+             SELECT re.id FROM raid_encounters re
+             JOIN raid_zones rz ON rz.id = re.raid_zone_id
+             WHERE rz.zone_name_lower = ?
+               AND re.mob_name_lower = ?
+         )
+        """,
+        (new_mob_name, new_mob_name.lower(), zone_name.lower(), old_mob_name.lower()),
+    )
+    return cur.rowcount > 0
+
+
+def update_raid_encounter_if_exists(
+    conn: sqlite3.Connection,
+    *,
+    zone_name: str,
+    mob_name: str,
+    position: int,
+) -> bool:
+    """Update only the position on the raid_encounters row found by
+    (zone_name, mob_name) — used by reorder to mirror the new position.
+    No-op if no matching row. Returns True if updated.
+
+    (Renames are a separate operation; this helper deliberately takes only
+    `position` so the rename and reorder mirrors stay distinct call sites.)"""
+    cur = conn.execute(
+        """
+        UPDATE raid_encounters
+           SET position = ?,
+               last_edited_at = strftime('%s','now')
+         WHERE id IN (
+             SELECT re.id FROM raid_encounters re
+             JOIN raid_zones rz ON rz.id = re.raid_zone_id
+             WHERE rz.zone_name_lower = ?
+               AND re.mob_name_lower = ?
+         )
+        """,
+        (position, zone_name.lower(), mob_name.lower()),
+    )
+    return cur.rowcount > 0
+
+
+def delete_raid_encounter_by_zone_mob(conn: sqlite3.Connection, *, zone_name: str, mob_name: str) -> bool:
+    """Delete a raid_encounters row by its (zone_name, mob_name) lookup.
+    CASCADEs to triggers, spell timers, strategy revisions via the FK.
+    Returns True if a row was deleted."""
+    cur = conn.execute(
+        """
+        DELETE FROM raid_encounters
+         WHERE id IN (
+             SELECT re.id FROM raid_encounters re
+             JOIN raid_zones rz ON rz.id = re.raid_zone_id
+             WHERE rz.zone_name_lower = ?
+               AND re.mob_name_lower = ?
+         )
+        """,
+        (zone_name.lower(), mob_name.lower()),
+    )
+    return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
 # Read helpers (for the future web routes + the smoke tests)
 # ---------------------------------------------------------------------------
 

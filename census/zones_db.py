@@ -689,3 +689,165 @@ def expansion_counts(path: Path = DB_PATH) -> dict[str, int]:
         return dict(
             conn.execute("SELECT expansion_short, COUNT(*) FROM zones GROUP BY expansion_short ORDER BY 2 DESC")
         )
+
+
+# ---------------------------------------------------------------------------
+# Editable encounter helpers
+# ---------------------------------------------------------------------------
+
+
+def _row_to_encounter(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
+    """Shape an encounter row as list_bosses_for_zone returns one."""
+    mobs = [
+        {"mob_name": r["mob_name"], "position": r["position"]}
+        for r in conn.execute(
+            "SELECT mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position ASC",
+            (row["id"],),
+        )
+    ]
+    return {
+        "id": row["id"],
+        "zone_id": row["zone_id"],
+        "encounter_name": row["encounter_name"],
+        "position": row["position"],
+        "stage": row["stage"],
+        "wiki_url": row["wiki_url"],
+        "mobs": mobs,
+    }
+
+
+def _zone_name_and_expansion(zone_id: int, path: Path) -> tuple[str | None, str | None]:
+    """Canonical zone name + expansion for the raids_db mirror."""
+    with sqlite3.connect(path) as conn:
+        r = conn.execute("SELECT name, expansion_short FROM zones WHERE id = ?", (zone_id,)).fetchone()
+        return (r[0], r[1]) if r else (None, None)
+
+
+def add_encounter(
+    zone_id: int,
+    *,
+    primary_mob: str,
+    position: int | None = None,
+    stage: str | None = None,
+    wiki_url: str | None = None,
+    path: Path = DB_PATH,
+) -> dict:
+    """Append a new encounter to a zone with a single primary mob at position 0.
+
+    If `position` is None, appends after the current max. If provided, inserts
+    at that slot — caller is responsible for it being free (UNIQUE(zone_id,
+    position) will raise otherwise)."""
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        if position is None:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(position), 0) + 1 AS p FROM zone_encounters WHERE zone_id = ?",
+                (zone_id,),
+            ).fetchone()
+            position = int(row["p"])
+        cur = conn.execute(
+            "INSERT INTO zone_encounters (zone_id, encounter_name, position, stage, wiki_url) VALUES (?, ?, ?, ?, ?)",
+            (zone_id, primary_mob, position, stage, wiki_url),
+        )
+        enc_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) VALUES (?, ?, ?, 0)",
+            (enc_id, primary_mob, primary_mob.lower()),
+        )
+        conn.commit()
+        encounter_row = conn.execute(
+            "SELECT id, zone_id, encounter_name, position, stage, wiki_url FROM zone_encounters WHERE id = ?",
+            (enc_id,),
+        ).fetchone()
+        return _row_to_encounter(conn, encounter_row)
+
+
+# Sentinel used by update_encounter to distinguish "leave unchanged" from
+# "explicitly set to None". `stage = None` should clear the stage; `stage`
+# omitted entirely should keep whatever was there.
+_UNSET: object = object()
+
+
+def update_encounter(
+    encounter_id: int,
+    *,
+    primary_mob: str | None = None,
+    stage: str | None = _UNSET,  # type: ignore[assignment]
+    wiki_url: str | None = _UNSET,  # type: ignore[assignment]
+    path: Path = DB_PATH,
+) -> dict:
+    """Edit encounter metadata. When `primary_mob` is given, also renames the
+    position-0 mob in zone_encounter_mobs (the canonical primary) and mirrors
+    the rename onto raids_db.raid_encounters (if a row exists there)."""
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        row = conn.execute(
+            "SELECT id, zone_id, encounter_name, position, stage, wiki_url FROM zone_encounters WHERE id = ?",
+            (encounter_id,),
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"zone_encounter {encounter_id} not found")
+        new_name = primary_mob if primary_mob is not None else row["encounter_name"]
+        new_stage = row["stage"] if stage is _UNSET else stage
+        new_wiki = row["wiki_url"] if wiki_url is _UNSET else wiki_url
+        conn.execute(
+            "UPDATE zone_encounters SET encounter_name = ?, stage = ?, wiki_url = ? WHERE id = ?",
+            (new_name, new_stage, new_wiki, encounter_id),
+        )
+        if primary_mob is not None:
+            conn.execute(
+                "UPDATE zone_encounter_mobs SET mob_name = ?, mob_name_lower = ? "
+                "WHERE encounter_id = ? AND position = 0",
+                (primary_mob, primary_mob.lower(), encounter_id),
+            )
+        conn.commit()
+        updated = conn.execute(
+            "SELECT id, zone_id, encounter_name, position, stage, wiki_url FROM zone_encounters WHERE id = ?",
+            (encounter_id,),
+        ).fetchone()
+        result = _row_to_encounter(conn, updated)
+    # Mirror rename onto raids_db (if a row exists there). Deferred import
+    # to avoid any import-time cycle.
+    if primary_mob is not None:
+        zone_name, _exp = _zone_name_and_expansion(row["zone_id"], path)
+        if zone_name is not None:
+            from census import raids_db as _raids_db
+
+            with sqlite3.connect(_raids_db.DB_PATH) as rconn:
+                rconn.execute("PRAGMA foreign_keys = ON;")
+                _raids_db.rename_raid_encounter_if_exists(
+                    rconn,
+                    zone_name=zone_name,
+                    old_mob_name=row["encounter_name"],
+                    new_mob_name=primary_mob,
+                )
+                rconn.commit()
+    return result
+
+
+def delete_encounter(encounter_id: int, path: Path = DB_PATH) -> bool:
+    """Delete an encounter. Cascades zone_encounter_mobs via FK; cascades the
+    matching raids_db row (if any) which itself cascades triggers/timers/
+    strategies via their FK. Returns True if a zone_encounter row was deleted."""
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        row = conn.execute(
+            "SELECT id, zone_id, encounter_name FROM zone_encounters WHERE id = ?",
+            (encounter_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        zone_name, _exp = _zone_name_and_expansion(row["zone_id"], path)
+        conn.execute("DELETE FROM zone_encounters WHERE id = ?", (encounter_id,))
+        conn.commit()
+    if zone_name is not None:
+        from census import raids_db as _raids_db
+
+        with sqlite3.connect(_raids_db.DB_PATH) as rconn:
+            rconn.execute("PRAGMA foreign_keys = ON;")
+            _raids_db.delete_raid_encounter_by_zone_mob(rconn, zone_name=zone_name, mob_name=row["encounter_name"])
+            rconn.commit()
+    return True
