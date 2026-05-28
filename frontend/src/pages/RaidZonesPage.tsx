@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import Breadcrumb from '../components/Breadcrumb'
-import { Card, SectionLabel } from '../components/ui'
+import { Card } from '../components/ui'
 import { fmtRelative } from '../formatters'
 import { useRaidProgress, type KilledEncounter } from '../hooks/useRaidProgress'
+import { useServer } from '../hooks/useServer'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,11 @@ export default function RaidZonesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const progress = useRaidProgress()
+  const server = useServer()
+  // Per-section open/closed. Initialised once data + server settings are in:
+  // the server's current_xpac is opened by default, everything else closed.
+  // After that, the user toggles freely — we don't re-collapse on re-render.
+  const [openExpansions, setOpenExpansions] = useState<Set<string> | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -95,6 +101,30 @@ export default function RaidZonesPage() {
     [byExpansion]
   )
 
+  // First time both the visible list and the server settings are populated,
+  // seed the open set with the server's current expansion. If we don't have
+  // a current_xpac (or it doesn't match any visible expansion), fall back to
+  // the newest visible one (first in the list) so the page is never entirely
+  // collapsed. Only runs once — subsequent toggles are user-driven.
+  useEffect(() => {
+    if (openExpansions !== null) return
+    if (loading || visible.length === 0) return
+    const current = server?.currentXpac
+    const seed = current && visible.some(e => e.short === current)
+      ? current
+      : visible[0].short
+    setOpenExpansions(new Set([seed]))
+  }, [openExpansions, loading, visible, server])
+
+  function toggleExpansion(short: string) {
+    setOpenExpansions(prev => {
+      const next = new Set(prev ?? [])
+      if (next.has(short)) next.delete(short)
+      else next.add(short)
+      return next
+    })
+  }
+
   return (
     <main className="page-enter mx-auto max-w-5xl px-4 py-6">
       <Breadcrumb items={[{ label: 'Raids' }]} />
@@ -116,23 +146,54 @@ export default function RaidZonesPage() {
       )}
 
       <div className="flex flex-col gap-7">
-        {visible.map(exp => (
-          <section key={exp.short}>
-            <SectionLabel>
-              {exp.name} ({exp.short})
-            </SectionLabel>
-            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-              {byExpansion[exp.short].map(zone => (
-                <ZoneCard
-                  key={zone.name}
-                  zone={zone}
-                  killed={progress.killed_encounters[zone.name] ?? []}
-                  hasGuild={!!progress.guild_name}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
+        {visible.map(exp => {
+          const zones = byExpansion[exp.short]
+          const isOpen = openExpansions?.has(exp.short) ?? false
+          const isCurrent = server?.currentXpac === exp.short
+          return (
+            <section key={exp.short}>
+              <button
+                type="button"
+                onClick={() => toggleExpansion(exp.short)}
+                aria-expanded={isOpen}
+                className="
+                  group w-full flex items-baseline gap-2 mb-1 text-left cursor-pointer
+                  appearance-none border-0 bg-transparent p-0
+                  text-[0.7rem] uppercase tracking-[0.08em] text-gold font-semibold
+                  hover:text-gold-bright transition-colors
+                "
+              >
+                <span
+                  aria-hidden
+                  className="inline-block w-[0.6rem] text-text-muted group-hover:text-gold transition-colors"
+                >
+                  {isOpen ? '▾' : '▸'}
+                </span>
+                <span>{exp.name} ({exp.short})</span>
+                {isCurrent && (
+                  <span className="ml-1 normal-case tracking-normal text-[0.65rem] text-gold-dim font-normal">
+                    · current
+                  </span>
+                )}
+                <span className="ml-auto normal-case tracking-normal text-[0.7rem] text-text-muted font-normal tabular-nums">
+                  {zones.length} zone{zones.length === 1 ? '' : 's'}
+                </span>
+              </button>
+              {isOpen && (
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                  {zones.map(zone => (
+                    <ZoneCard
+                      key={zone.name}
+                      zone={zone}
+                      killed={progress.killed_encounters[zone.name] ?? []}
+                      hasGuild={!!progress.guild_name}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )
+        })}
       </div>
     </main>
   )
