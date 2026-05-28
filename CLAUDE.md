@@ -14,9 +14,9 @@ A Discord bot and web companion site (FastAPI + React/TypeScript) that queries t
 | `census/item_parser.py` | Item data parsing (parse_item, parse_stats, parse_effects, parse_flags, _armor_type, _slot_type, _fmt_duration, parse_set_bonuses) extracted from client.py |
 | `census/spells_db.py` | Local SQLite spell catalogue: strip_roman, unique_highest_entries, load_blocklist, find_by_ids, find_by_crc (@lru_cache maxsize=4096), spell_to_row, upsert_spells |
 | `census/recipes_db.py` | Local SQLite recipe catalogue (~70k rows): recipe_to_row, upsert_recipes, find_by_id, find_by_name, find_by_output_id. Secondary components stored as JSON array. Download with scripts/download_recipes.py |
-| `census/zones_db.py` | Local SQLite zone catalogue (~1124 rows). Four tables: `zones` (canonical record + expansion attribution + classification flags), `zone_types` (many-to-many type tokens — `solo`/`group`/`raid_x4`/etc.), `zone_aliases` (alias→canonical for ACT log fuzziness), `zone_bosses` (raid boss list per zone, sourced from EQ2i scrape). Lookup helpers: `find_by_name` (canonical OR alias, includes bosses array), `list_by_expansion(short, type_filter=None)`, `list_by_event`, `list_by_type`, `list_bosses_for_zone`, `find_zones_by_boss`. Sourced from `scripts/dev/eq2_zones.cleaned.json` + `scripts/dev/eq2_raid_data.json`; rebuild via `scripts/build_zones_db.py`. |
+| `census/zones_db.py` | Local SQLite zone catalogue (~1124 rows). Tables: `zones` (canonical record + expansion attribution + classification flags), `zone_types` (many-to-many type tokens — `solo`/`group`/`raid_x4`/etc.), `zone_aliases` (alias→canonical for ACT log fuzziness), `zone_encounters` + `zone_encounter_mobs` (raid boss roster — web-editable by admins/contributors). Lookup helpers: `find_by_name` (canonical OR alias, includes bosses array), `list_by_expansion(short, type_filter=None)`, `list_by_event`, `list_by_type`, `list_bosses_for_zone`, `find_zones_by_boss`. Zone metadata sourced from `scripts/dev/eq2_zones.cleaned.json`; rebuild via `scripts/build_zones_db.py`. Boss data is curator-managed in-place. |
 | `census/wikitext_md.py` | MediaWiki wikitext → markdown converter using `mwparserfromhell`. Handles EQ2i-specific templates (`{{Monster}}`, `{{loc}}`, `{{IZoneInformation}}`), wikilinks → markdown links with EQ2i base URL, nested lists, headings, bold/italic. Used by the raid scraper and (future) the strategy editor preview. |
-| `census/raids_db.py` | Local SQLite raid-strategy catalogue. Schema: `raid_zones` + `raid_encounters` (one markdown blob per encounter for PoC) + `raid_encounter_revisions` (version history). Companion to `zones_db.py` — strategies are human-edited and revision-tracked, while the boss LIST lives in `zones_db.zone_bosses`. `DB_RAIDS_PATH` env var. |
+| `census/raids_db.py` | Local SQLite raid-strategy catalogue. Schema: `raid_zones` + `raid_encounters` (one markdown blob per encounter for PoC) + `raid_encounter_revisions` (version history). Companion to `zones_db.py` — strategies are human-edited and revision-tracked, while the boss roster lives in `zones_db.zone_encounters` / `zone_encounter_mobs` (web-editable). `DB_RAIDS_PATH` env var. |
 | `census/census_store.py` | Persistent SQLite store (characters + guilds tables keyed (name_lower, world), data_json + last_resolved_at). Keep-best-known merge: a sparse Census refresh never nulls good data. `DB_CENSUS_PATH` env, mirrors parses/db.py. |
 | `image/tooltip.py` | PIL renderer for item tooltips. Renders at 2× then downsamples (SCALE=2, ZOOM=1.3). Width is `round(368 * ZOOM)`. |
 | `image/aa_tree.py` | AA tree renderers and coordinate systems. See AA tree notes below. |
@@ -297,7 +297,11 @@ litestream restore -config /app/litestream.yml -timestamp 2026-05-24T18:00:00Z -
 
 ### Manual upload: zones.db
 
-`data/zones/zones.db` is **read-only reference data** built from the cleaned wiki dump that lives in the repo. It's `.gitignore`d (it's a binary; rebuilding it is cheap and deterministic) and lives on the Railway persistent volume so it survives container restarts. Refresh procedure:
+`data/zones/zones.db` is **zone-metadata reference data** built from the cleaned wiki dump that lives in the repo. It's `.gitignore`d (it's a binary; rebuilding it is cheap and deterministic) and lives on the Railway persistent volume so it survives container restarts.
+
+**Boss rosters are web-editable** — admins and contributors manage `zone_encounters` / `zone_encounter_mobs` through the per-zone editor in the raids UI. The curated source file (`eq2_raid_bosses.review.txt`) and the `--curated-bosses` build-script flag were decommissioned when the editable-roster feature shipped. `build_zones_db.py` now only writes zones/types/aliases; boss data is curator-managed in-place. `zones.db` is included in the `litestream.yml` replication (see Backups section), so curator edits are backed up to R2.
+
+Refresh procedure (zone metadata only):
 
 1. **Locally**, after any change to `scripts/dev/eq2_zones.json`, the overrides file, the aliases file, or the cleanup rules in `scripts/dev/clean_eq2_zones.py`:
 
@@ -314,7 +318,7 @@ litestream restore -config /app/litestream.yml -timestamp 2026-05-24T18:00:00Z -
 
 4. **Verify** post-deploy with any code path that hits `zones_db.find_by_name(...)` — or curl an endpoint that reads it once one exists.
 
-The DB has no migration story right now because everything is regenerated. If the schema in `census/zones_db.py` ever changes, just rebuild + re-upload — there's no user-data risk because zones.db carries no user-supplied rows.
+The DB has no migration story for zone metadata because everything is regenerated. If the schema in `census/zones_db.py` ever changes, rebuild + re-upload the zone rows — the rebuild **does not touch** `zone_encounters` / `zone_encounter_mobs`, so curator boss data is preserved.
 
 ### Manual upload: raids.db (first-time seed)
 
