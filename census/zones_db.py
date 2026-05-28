@@ -399,14 +399,15 @@ def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     d["bosses"] = []
     for er in encounter_rows:
         mobs = [
-            {"mob_name": r[0], "position": r[1]}
+            {"id": r[0], "mob_name": r[1], "position": r[2]}
             for r in conn.execute(
-                "SELECT mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position",
+                "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position",
                 (er[0],),
             )
         ]
         d["bosses"].append(
             {
+                "id": er[0],
                 "encounter_name": er[1],
                 "position": er[2],
                 "stage": er[3],
@@ -604,14 +605,15 @@ def list_bosses_for_zone(zone_name: str, path: Path = DB_PATH) -> list[dict]:
         out: list[dict] = []
         for er in encounter_rows:
             mobs = [
-                {"mob_name": r[0], "position": r[1]}
+                {"id": r[0], "mob_name": r[1], "position": r[2]}
                 for r in conn.execute(
-                    "SELECT mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position",
+                    "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position",
                     (er["id"],),
                 )
             ]
             out.append(
                 {
+                    "id": er["id"],
                     "encounter_name": er["encounter_name"],
                     "position": er["position"],
                     "stage": er["stage"],

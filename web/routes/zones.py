@@ -38,11 +38,13 @@ router = APIRouter(tags=["zones"])
 
 
 class EncounterMobResponse(BaseModel):
+    id: int
     mob_name: str
     position: int
 
 
 class EncounterResponse(BaseModel):
+    id: int
     encounter_name: str
     position: int
     stage: str | None = None
@@ -118,6 +120,7 @@ def _to_response(z: dict) -> ZoneResponse:
         is_openworld=bool(z.get("is_openworld")),
         bosses=[
             EncounterResponse(
+                id=b["id"],
                 encounter_name=b["encounter_name"],
                 position=b["position"],
                 stage=b.get("stage"),
