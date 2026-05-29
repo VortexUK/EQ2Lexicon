@@ -63,6 +63,7 @@ def _resolve_guild_sync(uploader: str) -> str | None:
     from census.config import SERVICE_ID, WORLD
 
     async def _go() -> str | None:
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=SERVICE_ID)
         try:
             return await client.get_character_guild_name(uploader, WORLD)

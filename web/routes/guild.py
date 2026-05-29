@@ -209,6 +209,7 @@ async def _fetch_and_cache_guild(
 
     async def _do_fetch():
         world = current_world()
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             full = await client.get_guild_full(guild_name, world)
@@ -826,6 +827,7 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
     if len(q) > 64:
         return GuildSearchResponse(results=[], total=0)
 
+    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         raw = await client.search_guilds_by_name(q, current_world())

@@ -222,7 +222,15 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
     under the "Raids" dropdown alongside the actual raids.
 
     Empty when zones.db is absent (dev/pre-upload), so everything falls back
-    to the is_boss heuristic and parse-derived dropdowns."""
+    to the is_boss heuristic and parse-derived dropdowns.
+
+    PROCESS-LOCAL: this LRU lives in one Python process. invalidate_zones_cache()
+    only clears it on the worker that handled the mutation; sibling workers
+    serve stale data until they happen to evict. A startup assertion in
+    web/app.py:_startup pins WEB_CONCURRENCY=1 so this is safe — if that
+    assertion is ever loosened, swap this for an mtime-based reload (compare
+    ``zones.db.stat().st_mtime`` against the cached value on each call) or
+    move invalidation to a Redis-backed fan-out."""
     path = zones_db.DB_PATH
     if not path.exists():
         return {}, [], []

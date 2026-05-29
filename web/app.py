@@ -222,6 +222,23 @@ _SHOW_DOCS = os.getenv("SHOW_API_DOCS", "false").lower() in ("1", "true", "yes")
 
 def create_app(session_secret: str | None = None) -> FastAPI:
     def _startup() -> None:
+        # Assert the single-process assumption baked into:
+        #   - web/census_events.py — SSE pub/sub uses an in-process asyncio
+        #     queue; cross-worker fan-out would need Redis.
+        #   - web/routes/rankings.py:_cached_zones_data — LRU is per-process;
+        #     invalidate_zones_cache() only clears the LRU on THIS worker.
+        #
+        # Set GUNICORN_WORKERS=1 (or unset it for uvicorn's default) on the
+        # deploy. If you ever need to scale workers, the SSE + LRU layers
+        # need a Redis-backed rewrite before that flip is safe.
+        _workers = int(os.getenv("WEB_CONCURRENCY", "1"))
+        if _workers != 1:
+            raise RuntimeError(
+                f"WEB_CONCURRENCY={_workers} is incompatible with the in-process "
+                f"SSE pub/sub (web/census_events.py) and _cached_zones_data LRU "
+                f"(web/routes/rankings.py). Set WEB_CONCURRENCY=1 or rewrite "
+                f"both layers to use a cross-process backplane before scaling."
+            )
         users_db.init_db()
         server_context.load_registry()
         # Initialise the parses DB too so the schema + migrations are in place
@@ -266,7 +283,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
     app = FastAPI(
         on_startup=[_startup, _prewarm, _init_metrics],
-        title="EQ2 TLE Companion",
+        title="EQ2 Lexicon",
         version="0.1.0",
         docs_url="/api/docs" if _SHOW_DOCS else None,
         redoc_url="/api/redoc" if _SHOW_DOCS else None,

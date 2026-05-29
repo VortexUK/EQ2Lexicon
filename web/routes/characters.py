@@ -76,6 +76,7 @@ async def search_characters(request: Request, name: str = "") -> CharSearchRespo
     if len(q) > 64:
         return CharSearchResponse(results=[], total=0)
 
+    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         raw = await client.search_characters_by_name(q, current_world())

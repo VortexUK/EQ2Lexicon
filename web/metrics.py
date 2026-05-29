@@ -11,6 +11,7 @@ is open (fine for a private Railway service).
 
 from __future__ import annotations
 
+import hmac as _hmac
 import logging
 import os
 import re
@@ -314,10 +315,18 @@ METRICS_TOKEN: str = os.getenv("METRICS_TOKEN", "")
 
 
 def check_metrics_auth(authorization: str | None) -> bool:
-    """Return True if the request is authorised to view /metrics."""
+    """Return True if the request is authorised to view /metrics.
+
+    Uses ``hmac.compare_digest`` to avoid the timing-attack window that ``==``
+    on the token string would open. Consistent with
+    ``web.routes.parses._validate_payload_signature`` which uses the same
+    helper for the plugin-upload HMAC.
+    """
     if not METRICS_TOKEN:
         return True  # no token configured → open access
     if not authorization:
         return False
     scheme, _, token = authorization.partition(" ")
-    return scheme.lower() == "bearer" and token == METRICS_TOKEN
+    if scheme.lower() != "bearer":
+        return False
+    return _hmac.compare_digest(token, METRICS_TOKEN)

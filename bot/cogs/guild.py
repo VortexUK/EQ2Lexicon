@@ -73,6 +73,7 @@ def _build_table(data: GuildData) -> str:
 class GuildCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         self.census = CensusClient(service_id=SERVICE_ID)
         self.world = WORLD
 

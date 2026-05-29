@@ -153,6 +153,12 @@ INSERT OR REPLACE INTO spells (
 # ---------------------------------------------------------------------------
 
 
+def _like_escape(s: str) -> str:
+    """Escape SQLite ``LIKE`` wildcards. Will move to ``web/lib/db_helpers.py``
+    in Phase 2a — duplicated per-module for the Phase 1 surgical fix."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _str(v) -> str | None:
     if v is None or isinstance(v, dict):
         return None
@@ -498,8 +504,9 @@ def find_by_name(name: str, path: Path = DB_PATH) -> list[dict]:
             (name.lower(),),
         ).fetchall()
         if not rows:
+            # LIKE fallback — escape user wildcards (BE-006).
             rows = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM spells WHERE name_lower LIKE ? ORDER BY level",
-                (f"%{name.lower()}%",),
+                f"SELECT {_SELECT_COLS} FROM spells WHERE name_lower LIKE ? ESCAPE '\\' ORDER BY level",
+                (f"%{_like_escape(name.lower())}%",),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]

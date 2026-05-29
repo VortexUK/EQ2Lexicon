@@ -197,6 +197,7 @@ def _build_trees(aa_list) -> list[CharAATree]:
 async def _bg_refresh_aas(name: str, cache_key: str) -> None:
     """Background task: silently re-fetch a character's AAs and update the cache."""
     try:
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             char_aas = await client.get_character_aas(name, current_world())
@@ -232,6 +233,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
             asyncio.create_task(_bg_refresh_aas(name, cache_key))
         return cached
 
+    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         char_aas = await client.get_character_aas(name, current_world())

@@ -398,6 +398,17 @@ INSERT OR REPLACE INTO items (
 # ---------------------------------------------------------------------------
 
 
+def _like_escape(s: str) -> str:
+    """Escape SQLite ``LIKE`` wildcards so a user-supplied search string can't
+    silently broaden the match (``%``) or force a table scan (``_``).
+
+    Matching SQL must use ``ESCAPE '\\'`` for these escapes to take effect.
+    Will move to ``web/lib/db_helpers.py`` in Phase 2a — duplicated per-module
+    in Phase 1 for the surgical fix.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _flag(flags: dict, key: str) -> int:
     val = flags.get(key)
     if isinstance(val, dict):
@@ -902,8 +913,12 @@ async def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
         row = await _best("displayname_lower = ?", (name.lower(),))
         if row:
             return json.loads(row["raw_json"])
-        # LIKE fallback
-        row = await _best("displayname_lower LIKE ?", (f"%{name.lower()}%",))
+        # LIKE fallback — escape user input so '%' / '_' in a literal name
+        # can't silently broaden the match or force a table scan.
+        row = await _best(
+            "displayname_lower LIKE ? ESCAPE '\\'",
+            (f"%{_like_escape(name.lower())}%",),
+        )
         return json.loads(row["raw_json"]) if row else None
 
 
@@ -951,7 +966,11 @@ def _find_by_name_sync(name: str, path: Path) -> dict | None:
         conn.row_factory = sqlite3.Row
         row = _best(conn, "displayname_lower = ?", (name.lower(),))
         if not row:
-            row = _best(conn, "displayname_lower LIKE ?", (f"%{name.lower()}%",))
+            row = _best(
+                conn,
+                "displayname_lower LIKE ? ESCAPE '\\'",
+                (f"%{_like_escape(name.lower())}%",),
+            )
         return json.loads(row["raw_json"]) if row else None
 
 

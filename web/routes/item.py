@@ -559,6 +559,7 @@ async def get_item(item_id: str) -> ItemResponse:
     except ValueError:
         raise HTTPException(status_code=400, detail="Item ID must be numeric")
 
+    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         item = await client.get_item(item_id)

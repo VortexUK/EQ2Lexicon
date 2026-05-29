@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from web.auth_deps import require_admin as _require_admin
 from web.db import (
     get_claim_by_id,
     list_claims,
@@ -15,8 +14,6 @@ from web.db import (
 from web.routes.claim import invalidate_user_claim_cache_all_worlds
 from web.routes.guild import _officer_chars, _roster_rank_map, _validate_guild_name
 from web.server_context import current_world
-
-_ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
 
 router = APIRouter(tags=["guild"])
 
@@ -149,15 +146,6 @@ async def officer_reject_claim(
 # ---------------------------------------------------------------------------
 # Admin — user access approval
 # ---------------------------------------------------------------------------
-
-
-def _require_admin(request: Request) -> dict:
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if user["id"] not in _ADMIN_IDS:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user
 
 
 class PendingUserItem(BaseModel):

@@ -27,12 +27,24 @@ _GEAR_RATING_DEFAULTS: dict[str, Any] = {
 
 
 def _load_gear_rating() -> dict[str, Any]:
+    """Read + parse the gear-rating config once at module import.
+
+    The file is static reference data — it doesn't change at runtime, so
+    re-reading on every /api/config hit (every page load) was pointless I/O.
+    A future hot-reload toggle would re-run this helper; today it's
+    module-load-only.
+    """
     try:
         raw = json.loads(_GEAR_RATING_PATH.read_text(encoding="utf-8"))
         raw.pop("_comment", None)
         return raw
     except Exception:
         return _GEAR_RATING_DEFAULTS
+
+
+# Cached at module import — config file is reference data; rebuild requires
+# a process restart (Railway redeploys on push, so this is fine).
+_GEAR_RATING_CACHED: dict[str, Any] = _load_gear_rating()
 
 
 class HealthResponse(BaseModel):
@@ -59,6 +71,6 @@ async def get_config() -> ConfigResponse:
     return ConfigResponse(
         server_max_level=SERVER_MAX_LEVEL,
         world=WORLD,
-        gear_rating=_load_gear_rating(),
+        gear_rating=_GEAR_RATING_CACHED,
         launch_dt=LAUNCH_DT_ISO or None,
     )

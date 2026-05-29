@@ -64,6 +64,7 @@ async def _run_character_refresh(name: str, key: str, world: str) -> None:
     from web.routes.character import _build_char_response  # local: avoid import cycle
 
     try:
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             char = await client.get_character(name, world)

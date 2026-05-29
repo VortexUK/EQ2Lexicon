@@ -9,6 +9,7 @@ import hashlib
 import os
 import secrets
 import sqlite3
+import time
 from pathlib import Path
 
 import aiosqlite
@@ -1289,6 +1290,7 @@ async def lookup_api_token(raw_token: str, path: Path = DB_PATH) -> dict | None:
         async with db.execute(
             """
             SELECT t.id AS token_id, t.user_id, t.name AS token_name, t.revoked_at,
+                   t.last_used_at,
                    u.discord_id, u.discord_name, u.discord_username, u.avatar,
                    u.access_status
             FROM api_tokens t
@@ -1300,10 +1302,25 @@ async def lookup_api_token(raw_token: str, path: Path = DB_PATH) -> dict | None:
             row = await cur.fetchone()
         if row is None or row["revoked_at"] is not None:
             return None
-        # Bump last_used_at — fire and forget, don't fail the auth on this.
-        await db.execute(
-            "UPDATE api_tokens SET last_used_at = strftime('%s','now') WHERE id = ?",
-            (row["token_id"],),
-        )
-        await db.commit()
-    return dict(row)
+        # Coalesce last_used_at writes to 60s buckets.
+        #
+        # Plugin uploads fire multiple times per second during a raid; committing
+        # an UPDATE on every upload was a real write-storm risk (WAL mitigates
+        # locking but the disk write itself is the cost). Sub-minute precision
+        # on this column isn't useful — the UI shows "last used 5 min ago",
+        # not "last used 0.6 seconds ago". The existing SELECT already pulled
+        # the current value as part of the row fetch in lookup callers; check
+        # against it here.
+        now = int(time.time())
+        last_used = row["last_used_at"]
+        did_write = last_used is None or (now - int(last_used)) >= 60
+        if did_write:
+            await db.execute(
+                "UPDATE api_tokens SET last_used_at = ? WHERE id = ?",
+                (now, row["token_id"]),
+            )
+            await db.commit()
+    result = dict(row)
+    if did_write:
+        result["last_used_at"] = now
+    return result

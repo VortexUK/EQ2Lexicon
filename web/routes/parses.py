@@ -149,6 +149,7 @@ async def _resolve_uploader_guild_async(
     if cached is not None:
         return getattr(cached, "guild_name", None) or None
 
+    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         guild_name = await client.get_character_guild_name(uploader, effective_world)
@@ -215,6 +216,7 @@ async def _resolve_combatant_snapshots(
             cached, _ = character_cache.get_stale(cache_key)
             if cached is None:
                 if client is None:
+                    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
                     client = CensusClient(service_id=_SERVICE_ID)
                 try:
                     guild_name = await client.get_character_guild_name(name, effective_world)
@@ -235,6 +237,7 @@ async def _resolve_combatant_snapshots(
             # for resolved players still lacking an ilvl.
             if cached is not None and getattr(cached, "cls", None) and getattr(cached, "ilvl", None) is None:
                 if client is None:
+                    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
                     client = CensusClient(service_id=_SERVICE_ID)
                 try:
                     char = await client.get_character(name, effective_world)
@@ -1323,6 +1326,14 @@ async def _validate_payload_signature(
 
     # Request.body() is cached after FastAPI's body-injection consumes it
     # to build `body: IngestRequest`, so re-reading here is free.
+    #
+    # ASSUMPTION: no middleware between this handler and the body-injection
+    # mutates or re-emits the body in a way that breaks the cache. Adding
+    # such a middleware will silently break every plugin upload. The
+    # regression test in tests/web/test_parses_ingest_hmac.py pins this
+    # behaviour against a no-op body-reading middleware — if you add a
+    # middleware that rewrites the body (gzip decode, JSON normaliser,
+    # etc.), extend that test to cover the new middleware before shipping.
     body_bytes = await request.body()
     expected = hmac.new(
         raw_token.encode("utf-8"),

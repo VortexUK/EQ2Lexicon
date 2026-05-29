@@ -97,6 +97,7 @@ async def _build_claims_response(discord_id: str, world: str) -> tuple[ClaimsRes
     any_failed = False
     census_guild: dict[str, str | None | BaseException] = {}
     if need_census:
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             # return_exceptions=True so a Census timeout/error comes back as an
@@ -232,6 +233,7 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
         avatar=user.get("avatar"),
     )
 
+    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         char = await client.get_character(name, current_world())

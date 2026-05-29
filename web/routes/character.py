@@ -419,6 +419,7 @@ async def prewarm_character_cache() -> None:
             if character_cache.get_stale(cache_key)[0] is not None:
                 return  # already warm
             async with sem:
+                # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
                 client = CensusClient(service_id=_SERVICE_ID)
                 try:
                     char = await client.get_character(name, current_world())
@@ -508,6 +509,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
             status_code=503,
             detail=f"'{name}' not cached yet and Census is unavailable. Try again shortly.",
         )
+    # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
     client = CensusClient(service_id=_SERVICE_ID)
     try:
         char = await client.get_character(name, current_world())
@@ -573,6 +575,7 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
         char_name = cached.name
         spell_ids = cached.spell_ids
     else:
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             char = await client.get_character(name, current_world())
@@ -753,6 +756,7 @@ async def get_upgrade_materials(request: Request, name: str) -> UpgradeMaterials
     if cached is not None:
         spell_ids = cached.spell_ids
     else:
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             char = await client.get_character(name, current_world())
@@ -864,6 +868,7 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
     if cached is not None:
         spell_ids = cached.spell_ids
     else:
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             char = await client.get_character(name, current_world())

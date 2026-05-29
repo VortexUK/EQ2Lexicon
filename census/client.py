@@ -27,6 +27,22 @@ from census.models import (
 
 _log = logging.getLogger(__name__)
 
+# Strip the /s:<service_id>/ segment from a URL before logging. Pre-compiled at
+# module load so the regex isn't rebuilt per log line.
+_SERVICE_ID_RE = re.compile(r"/s:[^/]+/")
+
+
+def _redact_url(url: str) -> str:
+    """Return the URL with the SERVICE_ID segment redacted.
+
+    Census URLs are shaped ``https://census.daybreakgames.com/s:<id>/json/...``.
+    The ``s:<id>`` segment is the paid API key identifier — fine to log at
+    DEBUG, but at INFO it ends up in third-party log aggregators where it
+    could be exfiltrated and griefed (rate-limited by an attacker).
+    """
+    return _SERVICE_ID_RE.sub("/s:REDACTED/", url)
+
+
 BASE_URL = "https://census.daybreakgames.com"
 
 
@@ -172,10 +188,10 @@ class CensusClient:
             "c:show": "member_list,name,world,rank_list",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)
@@ -333,10 +349,10 @@ class CensusClient:
             "c:show": "name,type,stats,equipmentslot_list,spell_list,guild",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)
@@ -408,10 +424,10 @@ class CensusClient:
             "c:show": "name,alternateadvancements,orderedalternateadvancement_list",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)
@@ -468,10 +484,10 @@ class CensusClient:
             "c:show": "member_list,name,world,rank_list",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return {}, []
                 data = await resp.json(content_type=None)
@@ -517,10 +533,10 @@ class CensusClient:
             "c:show": "member_list,name,world,rank_list,dateformed,description,alignment,type,level,members,accounts,achievement_list",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)
@@ -663,10 +679,10 @@ class CensusClient:
             "c:show": "name,guild",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     raise RuntimeError(f"Census HTTP {resp.status} for guild lookup of {character_name!r}")
                 data = await resp.json(content_type=None)
@@ -695,10 +711,10 @@ class CensusClient:
             "c:show": "name,type,guild",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)
@@ -742,10 +758,10 @@ class CensusClient:
             "c:show": "name,type,guild",
             "c:limit": str(limit),
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return []
                 data = await resp.json(content_type=None)
@@ -791,10 +807,10 @@ class CensusClient:
             "c:show": "name,world",
             "c:limit": str(limit),
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return []
                 data = await resp.json(content_type=None)
@@ -881,10 +897,10 @@ class CensusClient:
             # aiohttp percent-encodes ] as %5D which Census accepts fine
             params["type.level"] = f"]{min_level}"
 
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return []
                 data = await resp.json(content_type=None)
@@ -922,10 +938,10 @@ class CensusClient:
             "c:show": "name,spell_list",
             "c:limit": "1",
         }
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)
@@ -980,10 +996,10 @@ class CensusClient:
 
     async def _fetch(self, params: dict) -> dict | None:
         url = f"{BASE_URL}/s:{self.service_id}/json/get/eq2/item/"
-        _log.info("[Census] GET %s params=%s", url, params)
+        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                _log.info("[Census] HTTP %s url=%s", resp.status, resp.url)
+                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)

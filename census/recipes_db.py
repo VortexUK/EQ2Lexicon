@@ -181,6 +181,12 @@ INSERT OR REPLACE INTO recipes (
 # ---------------------------------------------------------------------------
 
 
+def _like_escape(s: str) -> str:
+    """Escape SQLite ``LIKE`` wildcards. Will move to ``web/lib/db_helpers.py``
+    in Phase 2a — duplicated per-module for the Phase 1 surgical fix."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _int(v) -> int | None:
     if v is None:
         return None
@@ -401,9 +407,10 @@ def find_by_name(name: str, path: Path = DB_PATH) -> list[dict]:
             (name.lower(),),
         ).fetchall()
         if not rows:
+            # LIKE fallback — escape user wildcards (BE-006).
             rows = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM recipes WHERE name_lower LIKE ? ORDER BY name",
-                (f"%{name.lower()}%",),
+                f"SELECT {_SELECT_COLS} FROM recipes WHERE name_lower LIKE ? ESCAPE '\\' ORDER BY name",
+                (f"%{_like_escape(name.lower())}%",),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
 

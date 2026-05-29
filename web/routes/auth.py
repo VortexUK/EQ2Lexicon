@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from web.auth_deps import ADMIN_IDS as _ADMIN_IDS  # canonical source; auth_deps logs the "not set" warning once
 from web.db import get_user_access_status, list_roles_for_user, upsert_user
 
 _log = logging.getLogger(__name__)
@@ -20,12 +21,6 @@ DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
 DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
 _DISCORD_API = "https://discord.com/api/v10"
 _SCOPES = "identify"
-
-_ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
-if not _ADMIN_IDS:
-    _log.warning(
-        "ADMIN_DISCORD_IDS is not set — no users will have admin access. Set this env var to your Discord user ID."
-    )
 
 
 def _is_allowed_return_host(host: str | None) -> bool:

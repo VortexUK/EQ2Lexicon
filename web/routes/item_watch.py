@@ -138,7 +138,7 @@ async def add_item_watch_entry(
     item_name = body.item_name.strip()
     raw = await item_db.find_by_name(item_name)
     if raw is None:
-        # Try Census live
+        # CENSUS-CLIENT-LIFECYCLE: migrate to web.lib.census_lifecycle.shared_census_client (Phase 2c.2)
         client = CensusClient(service_id=_SERVICE_ID)
         try:
             raw = await client.get_raw_item(item_name)

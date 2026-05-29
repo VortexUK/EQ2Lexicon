@@ -1,5 +1,5 @@
 [project]
-name = "eq2censusbot"
+name = "eq2lexicon"
 version = "0.1.0"
 description = "Discord bot and web companion site for the EverQuest 2 Daybreak Census API"
 requires-python = ">=3.13"

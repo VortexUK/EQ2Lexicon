@@ -19,7 +19,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-_TEST_DB_DIR = Path(tempfile.gettempdir()) / "eq2censusbot-pytest"
+_TEST_DB_DIR = Path(tempfile.gettempdir()) / "eq2lexicon-pytest"
 if _TEST_DB_DIR.exists():
     shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
 _TEST_DB_DIR.mkdir(parents=True)

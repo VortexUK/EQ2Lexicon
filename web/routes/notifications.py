@@ -13,18 +13,15 @@ hit on every poll.
 
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter
 from pydantic import BaseModel
 from starlette.requests import Request
 
+from web.auth_deps import ADMIN_IDS as _ADMIN_IDS  # canonical source
 from web.cache import character_cache
 from web.db import get_active_claims, list_claims, list_pending_users
 from web.routes.guild import _OFFICER_RANKS, _roster_rank_map
 from web.server_context import current_world
-
-_ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
 
 router = APIRouter(tags=["notifications"])
 
