@@ -5,6 +5,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import Caret from '../components/Caret'
 import { Card } from '../components/ui'
 import { FilterPill } from '../components/FilterPill'
+import { UploaderTag } from '../components/UploaderTag'
 import { fmtDuration, fmtLocalDate, fmtLocalTime, fmtNum } from '../formatters'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -15,7 +16,9 @@ interface ParsePermissions {
 
 interface ParseUploadSummary {
   id: number
-  uploaded_by: string
+  uploaded_by: string                       // EQ2 character name (logger_name)
+  uploader_discord_id: string | null        // resolved from source_dsn ('plugin:<id>')
+  uploader_display_name: string | null      // joined from users.discord_name
   started_at: number
   duration_s: number
   total_damage: number
@@ -39,7 +42,9 @@ interface ParseEncounterSummary {
   success_level: number      // ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
   combatant_count: number
   player_count: number
-  uploaded_by: string         // canonical upload's uploader
+  uploaded_by: string                       // canonical upload's character name
+  uploader_discord_id: string | null        // canonical upload's Discord ID
+  uploader_display_name: string | null      // canonical upload's Discord display name
   guild_name: string | null   // stamped at ingest from uploader's Census guild
   permissions: ParsePermissions
   // Server-side mirror grouping (B2.15e) — every raider's upload for this
@@ -616,7 +621,13 @@ function MirrorRowGroup({
                 to={`/parse/${u.id}`}
                 className="text-text no-underline"
               >
-                <span className="text-gold">{u.uploaded_by}</span>
+                <span className="text-gold">
+                  <UploaderTag
+                    characterName={u.uploaded_by}
+                    discordId={u.uploader_discord_id}
+                    displayName={u.uploader_display_name}
+                  />
+                </span>
                 {u.id === fight.id && (
                   <span className="ml-[0.4rem] text-[0.65rem] text-text-muted">(primary)</span>
                 )}

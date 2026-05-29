@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 
 import Breadcrumb from '../components/Breadcrumb'
 import Caret from '../components/Caret'
+import { UploaderTag } from '../components/UploaderTag'
 import { useClasses } from '../useClasses'
 import { fmtDuration, fmtLocalDateTime, fmtNum } from '../formatters'
 import { percentileColor } from '../percentileColors'
@@ -108,6 +109,11 @@ interface ParseDetail {
   deaths: number
   success_level: number    // ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
   hidden?: boolean
+  // Who uploaded this specific parse — character name + Discord identity.
+  // Both Discord fields are null on pre-plugin / local uploads.
+  uploaded_by: string
+  uploader_discord_id: string | null
+  uploader_display_name: string | null
   combatants: CombatantSummary[]
 }
 
@@ -302,6 +308,16 @@ function Header({ data, raidZoneCanonical }: { data: ParseDetail; raidZoneCanoni
           </span>
         )}
         <span><span className={HDR_KEY_CLS}>Started:</span> {fmtLocalDateTime(data.started_at)}</span>
+        <span>
+          <span className={HDR_KEY_CLS}>Uploaded by:</span>{' '}
+          <span className="text-text">
+            <UploaderTag
+              characterName={data.uploaded_by}
+              discordId={data.uploader_discord_id}
+              displayName={data.uploader_display_name}
+            />
+          </span>
+        </span>
         <span><span className={HDR_KEY_CLS}>Duration:</span> {fmtDuration(data.duration_s)}</span>
         <span><span className={HDR_KEY_CLS}>Damage:</span> {fmtNum(data.total_damage)}</span>
         <span><span className={HDR_KEY_CLS}>encDPS:</span> <span className="text-gold">{fmtNum(data.encdps)}</span></span>
