@@ -493,7 +493,7 @@ export function SpellsTab({ charName }: { charName: string }) {
           placeholder="Search spells…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="mb-3 w-[260px] box-border"
+          className="mb-3 w-full md:w-[260px] box-border"
         />
 
         {filtered.length === 0 ? (

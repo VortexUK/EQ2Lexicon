@@ -620,7 +620,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
       <GeneralBanner char={char} />
 
       {/* Tab bar */}
-      <div className="flex gap-0 border-b border-border mt-4">
+      <div className="flex flex-wrap gap-0 border-b border-border mt-4">
         {(['equipment', 'aas', 'spells'] as ActiveTab[]).map(tab => {
           const label = tab === 'equipment' ? 'Equipment & Stats'
                       : tab === 'aas'       ? 'Alternate Advancements'

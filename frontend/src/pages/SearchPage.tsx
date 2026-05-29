@@ -96,7 +96,7 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
   }, [query, config.apiUrl])
 
   return (
-    <main className="max-w-[640px] my-16 mx-auto px-6">
+    <main className="max-w-[640px] my-8 md:my-16 mx-auto px-6">
       {/* Header */}
       <div className="mt-5 mb-7">
         <h1

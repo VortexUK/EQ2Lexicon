@@ -67,7 +67,7 @@ export default function UserWidget() {
 
       {open && (
         <div
-          className="absolute left-0 bg-surface-raised border border-border rounded-md min-w-[160px] z-[100] overflow-hidden"
+          className="absolute right-0 bg-surface-raised border border-border rounded-md min-w-[160px] z-[100] overflow-hidden"
           style={{ top: 'calc(100% + 6px)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
         >
           <Link

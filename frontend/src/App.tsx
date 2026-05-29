@@ -301,7 +301,7 @@ function Layout() {
               href="https://github.com/VortexUK"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[color:inherit] underline underline-offset-[3px]"
+              className="text-[color:inherit] underline underline-offset-[3px] inline-block py-1 -my-1"
             >
               VortexUK
             </a>
@@ -312,7 +312,7 @@ function Layout() {
               href="https://census.daybreakgames.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[color:inherit] underline underline-offset-[3px]"
+              className="text-[color:inherit] underline underline-offset-[3px] inline-block py-1 -my-1"
             >
               Daybreak Games Census API
             </a>
