@@ -40,6 +40,7 @@ from parses.models import (
     _to_str_or_none,
     _to_ts,
 )
+from web import db as users_db
 from web.auth_deps import (
     is_admin as _is_admin,
 )
@@ -321,10 +322,20 @@ class ParseUploadSummary(BaseModel):
     """One raider's submission within a mirror group. Smaller than
     ParseEncounterSummary — just the fields the expansion UI on /parses
     actually needs (per-uploader link, duration, damage, dps, deletion
-    rights)."""
+    rights).
+
+    ``uploaded_by`` is the EQ2 character name (ACT's logger_name) for
+    backward compatibility — still useful for "whose POV is this parse
+    from?". ``uploader_discord_id`` + ``uploader_display_name`` are the
+    Discord identity of the human who uploaded it, resolved from
+    ``source_dsn`` (``"plugin:<discord_id>"``) at response build time.
+    Pre-plugin or non-plugin uploads (``source_dsn = "eq2act"`` /
+    ``"local"``) carry None for both Discord fields."""
 
     id: int
     uploaded_by: str
+    uploader_discord_id: str | None = None
+    uploader_display_name: str | None = None
     started_at: int
     duration_s: int
     total_damage: int
@@ -355,6 +366,11 @@ class ParseEncounterSummary(BaseModel):
     combatant_count: int
     player_count: int  # ally combatants with single-word names, excluding 'Unknown'
     uploaded_by: str  # who ingested the canonical upload; 'local' for local-only era
+    # Discord identity of the canonical upload's submitter — same shape as
+    # ParseUploadSummary's fields. Surfaced here too so the list view can
+    # render the badge directly without needing to dig into uploads[0].
+    uploader_discord_id: str | None = None
+    uploader_display_name: str | None = None
     guild_name: str | None  # stamped at ingest time from uploader's Census guild
     permissions: ParsePermissions = ParsePermissions()
     uploads: list[ParseUploadSummary] = []  # always at least 1 (the canonical itself)
@@ -484,6 +500,14 @@ class ParseDetailResponse(BaseModel):
     kills: int
     deaths: int
     success_level: int  # ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
+    # Who uploaded this specific parse. ``uploaded_by`` is the character
+    # name (kept for backward compatibility and "whose POV is this?");
+    # ``uploader_discord_id`` + ``uploader_display_name`` carry the
+    # Discord identity for badge rendering. None on pre-plugin uploads
+    # (``source_dsn`` = ``"eq2act"`` / ``"local"``).
+    uploaded_by: str = "local"
+    uploader_discord_id: str | None = None
+    uploader_display_name: str | None = None
     hidden: bool = False  # True when the parse is soft-deleted (still openable via a ranking link)
     combatants: list[CombatantSummary]
 
@@ -738,10 +762,26 @@ async def list_parses(
     all_uploads_in_view: list[dict] = [u for f in fights for u in f["uploads"]]
     permissions = await _compute_permissions(request, all_uploads_in_view)
 
+    # Batch-resolve Discord display names for every unique uploader in the
+    # current view (one DB query for the whole page, no N+1). The
+    # canonical-upload fight rows live in ``fights``; the per-uploader
+    # rows live in ``all_uploads_in_view``. Both can carry plugin
+    # source_dsns so feed both into the unique-ID set.
+    uploader_ids = {
+        did
+        for source in (all_uploads_in_view, fights)
+        for row in source
+        if (did := _uploader_discord_id(row.get("source_dsn"))) is not None
+    }
+    uploader_names = await users_db.get_display_names_for_discord_ids(list(uploader_ids))
+
     def _upload_summary(u: dict) -> ParseUploadSummary:
+        did = _uploader_discord_id(u.get("source_dsn"))
         return ParseUploadSummary(
             id=u["id"],
             uploaded_by=u.get("uploaded_by") or "local",
+            uploader_discord_id=did,
+            uploader_display_name=uploader_names.get(did) if did else None,
             started_at=u["started_at"],
             duration_s=u["duration_s"],
             total_damage=u["total_damage"],
@@ -750,8 +790,9 @@ async def list_parses(
             permissions=permissions.get(u["id"], ParsePermissions()),
         )
 
-    results = [
-        ParseEncounterSummary(
+    def _encounter_summary(f: dict) -> ParseEncounterSummary:
+        did = _uploader_discord_id(f.get("source_dsn"))
+        return ParseEncounterSummary(
             id=f["id"],
             act_encid=f["act_encid"],
             title=f["title"],
@@ -767,12 +808,14 @@ async def list_parses(
             combatant_count=f.get("combatant_count", 0),
             player_count=f.get("player_count", 0),
             uploaded_by=f.get("uploaded_by") or "local",
+            uploader_discord_id=did,
+            uploader_display_name=uploader_names.get(did) if did else None,
             guild_name=f.get("guild_name"),
             permissions=permissions.get(f["id"], ParsePermissions()),
             uploads=[_upload_summary(u) for u in f["uploads"]],
         )
-        for f in fights
-    ]
+
+    results = [_encounter_summary(f) for f in fights]
     return ParsesListResponse(results=results, total=total_fights)
 
 
@@ -903,6 +946,15 @@ async def get_parse(
         )
         for c in enc["combatants"]
     ]
+    # Resolve the uploader's Discord identity for badge rendering on the
+    # detail page. Single-row lookup since this is one parse — the list
+    # endpoint batches across the whole page.
+    uploader_discord_id = _uploader_discord_id(enc.get("source_dsn"))
+    uploader_display_name: str | None = None
+    if uploader_discord_id:
+        name_map = await users_db.get_display_names_for_discord_ids([uploader_discord_id])
+        uploader_display_name = name_map.get(uploader_discord_id)
+
     return ParseDetailResponse(
         id=enc["id"],
         act_encid=enc["act_encid"],
@@ -916,6 +968,9 @@ async def get_parse(
         kills=enc["kills"],
         deaths=enc["deaths"],
         success_level=enc.get("success_level", 0) or 0,
+        uploaded_by=enc.get("uploaded_by") or "local",
+        uploader_discord_id=uploader_discord_id,
+        uploader_display_name=uploader_display_name,
         hidden=bool(enc.get("hidden_at")),
         combatants=combatants,
     )
