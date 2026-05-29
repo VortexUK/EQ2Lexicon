@@ -6,7 +6,7 @@
  *   item and, for Journeyman / Expert, the crafting recipe with a ✦ CRAFTABLE
  *   badge.
  */
-import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type MouseEvent, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   type ItemDetail,
@@ -18,6 +18,7 @@ import {
   prefetchItem,
   getCachedItem,
 } from './ItemTooltip'
+import { useTooltipPosition } from '../hooks/useTooltipPosition'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,6 @@ const _scrollCache = new Map<string, SpellScrollInfo>()
 // ── Style constants ───────────────────────────────────────────────────────────
 
 const TIP_W       = 360
-const MARGIN      = 12
 const C_CRAFTABLE = '#84cc16'
 const C_GOLD      = '#e6e970'
 const C_BODY      = '#c7cfc7'
@@ -98,8 +98,6 @@ function SpellScrollTooltipPortal({
   const [info, setInfo]       = useState<SpellScrollInfo | null>(_scrollCache.get(cacheKey) ?? null)
   const [item, setItem]       = useState<ItemDetail | null>(null)
   const [loading, setLoading] = useState(!_scrollCache.has(cacheKey))
-  const tipRef                = useRef<HTMLDivElement>(null)
-  const [top, setTop]         = useState(Math.max(MARGIN, y - 8))
 
   // ── Fetch spell-scroll info (and item) ──────────────────────────────────────
   useEffect(() => {
@@ -145,21 +143,12 @@ function SpellScrollTooltipPortal({
     return () => { cancelled = true }
   }, [cacheKey, spellName, tier])
 
-  // ── Clamp tooltip so it doesn't overflow the viewport bottom ───────────────
-  useLayoutEffect(() => {
-    if (!tipRef.current) return
-    const h      = tipRef.current.offsetHeight
-    const ideal  = Math.max(MARGIN, y - 8)
-    const maxTop = window.innerHeight - h - MARGIN
-    setTop(Math.min(ideal, Math.max(MARGIN, maxTop)))
-  }, [item, info, loading, y])
-
-  const xPos = x + 16 + TIP_W > window.innerWidth ? x - TIP_W - 8 : x + 16
-  const qs   = item ? qualityStyle(item.quality) : null
+  const { ref, position } = useTooltipPosition({ x, y, width: TIP_W, marginX: 16, marginY: 8 })
+  const qs = item ? qualityStyle(item.quality) : null
 
   return createPortal(
-    <div ref={tipRef} style={{
-      position: 'fixed', left: xPos, top,
+    <div ref={ref} style={{
+      position: 'fixed', left: position.left, top: position.top,
       width: TIP_W, zIndex: 9999,
       pointerEvents: 'none', userSelect: 'none',
       fontFamily: '"Times New Roman", Times, serif',

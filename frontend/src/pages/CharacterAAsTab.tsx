@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { AATree, AATreeData } from '../components/AATree'
 import { Card, SectionLabel } from '../components/ui'
+import { TabButton } from '../components/ui/TabButton'
 import { StatGroup, StatRow } from './CharacterPage'
 
 // ── AA types ─────────────────────────────────────────────────────────────────
@@ -347,23 +348,17 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
             {/* Tree sub-tabs */}
             <div className="flex flex-wrap gap-[2px] border-b border-border mb-3">
               {visibleTrees.map(ct => {
-                const active    = ct.tree_id === (activeCt?.tree_id)
                 const typeLabel = _TREE_TYPE_LABEL[ct.tree_type] ?? ct.tree_type
                 return (
-                  <button
+                  <TabButton
                     key={ct.tree_id}
+                    active={ct.tree_id === activeCt?.tree_id}
                     onClick={() => setSelectedTreeId(ct.tree_id)}
-                    className="border-none cursor-pointer py-[5px] px-3 -mb-[1px] text-[0.8rem] whitespace-nowrap [transition:color_0.12s,border-color_0.12s]"
-                    style={{
-                      background: active ? 'var(--surface)' : 'transparent',
-                      borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-                      color: active ? 'var(--text)' : 'var(--text-muted)',
-                      fontWeight: active ? 600 : 400,
-                    }}
                     title={`${typeLabel} · ${ct.total_spent} pts`}
+                    className="whitespace-nowrap"
                   >
                     {ct.tree_name}
-                  </button>
+                  </TabButton>
                 )
               })}
             </div>

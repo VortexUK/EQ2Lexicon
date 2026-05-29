@@ -2,9 +2,12 @@ import { useMemo, useState } from 'react'
 
 import Breadcrumb from '../components/Breadcrumb'
 import { Button, Card, SectionLabel } from '../components/ui'
+import { Badge } from '../components/ui/Badge'
+import { Textarea } from '../components/ui/Textarea'
 import { fmtLocalDateTime, fmtRelative } from '../formatters'
 import { useAuth } from '../hooks/useAuth'
 import { useFetch } from '../hooks/useFetch'
+import { toErrorMessage } from '../lib/errors'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -145,7 +148,7 @@ function RoleCard({ role, granted, latestRequest, adminGrantedDirect, onChanged 
       setNote('')
       onChanged()
     } catch (err) {
-      setError(String((err as Error).message ?? err))
+      setError(toErrorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -162,7 +165,7 @@ function RoleCard({ role, granted, latestRequest, adminGrantedDirect, onChanged 
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
       onChanged()
     } catch (err) {
-      setError(String((err as Error).message ?? err))
+      setError(toErrorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -218,13 +221,13 @@ function RoleCard({ role, granted, latestRequest, adminGrantedDirect, onChanged 
             </div>
           ) : (
             <div className="flex flex-col gap-2 mt-1">
-              <textarea
+              <Textarea
                 value={note}
                 onChange={e => setNote(e.target.value)}
                 rows={3}
                 maxLength={2000}
                 placeholder="Optional: a short note for the admin reviewing your request."
-                className="w-full bg-bg/60 border border-border rounded-md p-2 text-[0.88rem] text-text outline-none focus:border-gold/60 resize-y"
+                className="!p-2"
               />
               <div className="flex items-center gap-2 justify-end">
                 <Button size="sm" variant="ghost" onClick={() => { setDraftOpen(false); setNote(''); setError(null) }} disabled={busy}>
@@ -249,29 +252,16 @@ function RoleCard({ role, granted, latestRequest, adminGrantedDirect, onChanged 
 function StatusBadge({ granted, latestRequest }: { granted: boolean; latestRequest: RoleRequest | null }) {
   // Granted always wins — direct admin grants don't have a request row.
   if (granted) {
-    return <Badge label="Active" tone="success" />
+    return <Badge variant="success">Active</Badge>
   }
   if (!latestRequest) {
-    return <Badge label="Not requested" tone="muted" />
+    return <Badge variant="muted">Not requested</Badge>
   }
-  const tone =
-    latestRequest.status === 'pending'   ? 'gold'
-  : latestRequest.status === 'rejected'  ? 'danger'
-  : 'muted'
-  return <Badge label={STATUS_LABELS[latestRequest.status]} tone={tone} />
-}
-
-function Badge({ label, tone }: { label: string; tone: 'success' | 'gold' | 'danger' | 'muted' }) {
-  const cls =
-    tone === 'success' ? 'bg-success/15 border-success/40 text-success'
-  : tone === 'gold'    ? 'bg-gold/15 border-gold/40 text-gold-bright'
-  : tone === 'danger'  ? 'bg-danger/15 border-danger/40 text-danger'
-  : 'bg-surface-raised/60 border-border text-text-muted'
-  return (
-    <span className={`text-[0.7rem] uppercase tracking-[0.05em] border rounded-sm px-1.5 py-[1px] shrink-0 ${cls}`}>
-      {label}
-    </span>
-  )
+  const variant =
+    latestRequest.status === 'pending'   ? 'gold'    as const
+  : latestRequest.status === 'rejected'  ? 'danger'  as const
+  : 'muted' as const
+  return <Badge variant={variant}>{STATUS_LABELS[latestRequest.status]}</Badge>
 }
 
 // ── History table ─────────────────────────────────────────────────────────────
@@ -295,14 +285,15 @@ function RequestHistoryTable({ requests }: { requests: RoleRequest[] }) {
               <td className="px-3 py-2 capitalize">{req.role}</td>
               <td className="px-3 py-2">
                 <Badge
-                  label={STATUS_LABELS[req.status]}
-                  tone={
+                  variant={
                     req.status === 'approved'  ? 'success'
                   : req.status === 'pending'   ? 'gold'
                   : req.status === 'rejected'  ? 'danger'
                   : 'muted'
                   }
-                />
+                >
+                  {STATUS_LABELS[req.status]}
+                </Badge>
               </td>
               <td className="px-3 py-2 text-text-muted whitespace-nowrap" title={fmtLocalDateTime(req.requested_at)}>
                 {fmtRelative(req.requested_at)}

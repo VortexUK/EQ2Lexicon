@@ -6,6 +6,10 @@ import {
   SECTION_TITLE_CLS,
 } from './types'
 
+// ── Shared styles ─────────────────────────────────────────────────────────────
+
+const inputCls = 'w-full appearance-none bg-surface border border-border rounded-md px-3 py-[0.4rem] text-text text-[0.88rem] outline-none focus:border-gold/60'
+
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
 /** Convert an ISO UTC string like "2026-06-09T20:00:00Z" to the value
@@ -164,7 +168,7 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
             max={999}
             value={maxLevel}
             onChange={e => setMaxLevel(Number(e.target.value))}
-            className="w-full appearance-none bg-surface border border-border rounded-md px-3 py-[0.4rem] text-text text-[0.88rem] outline-none focus:border-gold/60"
+            className={inputCls}
           />
         </div>
 
@@ -186,7 +190,7 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
             <select
               value={xpacShort}
               onChange={e => setXpacShort(e.target.value)}
-              className="w-full appearance-none bg-surface border border-border rounded-md px-3 py-[0.4rem] text-text text-[0.88rem] outline-none focus:border-gold/60 cursor-pointer"
+              className={`${inputCls} cursor-pointer`}
             >
               <option value="">— none —</option>
               {expansions.map(ex => (
@@ -207,7 +211,7 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
             type="datetime-local"
             value={launchDt}
             onChange={e => setLaunchDt(e.target.value)}
-            className="w-full appearance-none bg-surface border border-border rounded-md px-3 py-[0.4rem] text-text text-[0.88rem] outline-none focus:border-gold/60 [color-scheme:dark]"
+            className={`${inputCls} [color-scheme:dark]`}
           />
         </div>
       </div>

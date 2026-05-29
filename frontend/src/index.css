@@ -233,7 +233,8 @@
   .btn--danger    { background: transparent; color: var(--danger); border-color: rgba(var(--danger-rgb), 0.4); }
   .btn--danger:hover:not(:disabled)    { background: rgba(var(--danger-rgb), 0.12); }
 
-  .btn--sm { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
+  .btn--sm   { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
+  .btn--icon { padding: 0.25rem 0.3rem; font-size: 1rem; line-height: 1; }
 
   /* Cards — gilded panels: a faint gold-tinted edge catches the light, a soft
      drop shadow lifts them off the textured background, and a hairline gold

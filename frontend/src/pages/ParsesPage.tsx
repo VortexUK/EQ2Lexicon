@@ -363,7 +363,7 @@ function GuildSection({
   return (
     <Card className="p-0">
       <div className="flex items-center">
-        <button onClick={() => setOpen(v => !v)} style={headerBtnStyle}>
+        <button onClick={() => setOpen(v => !v)} className={headerBtnCls}>
           <Caret open={open} />
           <span className="font-heading text-[0.98rem] text-gold">
             {bucket.guild}
@@ -425,7 +425,7 @@ function ZoneSection({
   return (
     <div className="border border-border rounded-[6px]" style={{ background: 'rgba(0,0,0,0.15)' }}>
       <div className="flex items-center">
-        <button onClick={() => setOpen(v => !v)} style={{ ...headerBtnStyle, padding: '0.4rem 0.6rem' }}>
+        <button onClick={() => setOpen(v => !v)} className={`${headerBtnCls} py-[0.4rem] px-[0.6rem]`}>
           <Caret open={open} />
           <span className="text-[0.88rem] text-text">
             <span className="text-text-muted mr-2">{bucket.date}</span>
@@ -667,19 +667,7 @@ function TrashButton({ onClick, title, small = false }: {
 
 // ── Style helpers ─────────────────────────────────────────────────────────────
 
-const headerBtnStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0.5rem',
-  width: '100%',
-  background: 'none',
-  border: 'none',
-  color: 'inherit',
-  cursor: 'pointer',
-  padding: '0.5rem 0.75rem',
-  textAlign: 'left',
-  font: 'inherit',
-}
+const headerBtnCls = 'flex items-center gap-2 w-full bg-transparent border-none text-inherit cursor-pointer py-2 px-3 text-left font-inherit'
 
 const HDR_CELL_CLS = 'text-text-muted text-[0.7rem] uppercase tracking-[0.06em] py-1 border-b border-border mb-[0.2rem]'
 

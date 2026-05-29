@@ -1,10 +1,11 @@
 import type { ButtonHTMLAttributes, AnchorHTMLAttributes, ReactNode } from 'react'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
-type Size = 'sm' | 'md'
+type Size = 'sm' | 'md' | 'icon'
 
 function classes(variant: Variant, size: Size, extra?: string): string {
-  return ['btn', `btn--${variant}`, size === 'sm' ? 'btn--sm' : '', extra]
+  const sizeCls = size === 'sm' ? 'btn--sm' : size === 'icon' ? 'btn--icon' : ''
+  return ['btn', `btn--${variant}`, sizeCls, extra]
     .filter(Boolean)
     .join(' ')
 }

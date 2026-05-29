@@ -1,6 +1,7 @@
 ﻿import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { avatarUrl, useAuth } from '../hooks/useAuth'
+import { DiscordButton } from './ui/DiscordButton'
 
 async function doLogout() {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
@@ -23,25 +24,7 @@ export default function UserWidget() {
   if (auth.status === 'loading') return null
 
   if (auth.status === 'unauthenticated') {
-    return (
-      <a
-        href="/api/auth/login"
-        style={{
-          display: 'inline-block',
-          padding: '0.4rem 1rem',
-          background: 'var(--discord-brand)',
-          color: 'var(--text)',
-          borderRadius: 6,
-          border: '1px solid var(--border)',
-          cursor: 'pointer',
-          fontSize: '0.88rem',
-          whiteSpace: 'nowrap',
-          textDecoration: 'none',
-        }}
-      >
-        Sign in with Discord
-      </a>
-    )
+    return <DiscordButton />
   }
 
   const { user } = auth

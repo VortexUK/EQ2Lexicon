@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { discordAvatarUrl } from '../../hooks/useAuth'
 import { Button } from '../../components/ui'
+import { Badge } from '../../components/ui/Badge'
 import { FilterPill } from '../../components/FilterPill'
 import { fmtRelative } from '../../formatters'
-import { Badge } from './Badge'
 import {
   type ClaimDetail,
-  CLAIM_BADGE,
+  CLAIM_BADGE_VARIANT,
   TH_CLS, TD_CLS, TABLE_CLS,
   fmt,
 } from './types'
@@ -41,8 +41,8 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
     }
   }
 
-  const displayName = claim.discord_name ?? claim.discord_username ?? claim.discord_id
-  const badgeStyle  = CLAIM_BADGE[claim.status] ?? CLAIM_BADGE.withdrawn
+  const displayName   = claim.discord_name ?? claim.discord_username ?? claim.discord_id
+  const badgeVariant = CLAIM_BADGE_VARIANT[claim.status] ?? CLAIM_BADGE_VARIANT.withdrawn
 
   return (
     <tr>
@@ -66,7 +66,7 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
 
       {/* Status */}
       <td className={TD_CLS}>
-        <Badge label={claim.status} style={badgeStyle} />
+        <Badge variant={badgeVariant}>{claim.status}</Badge>
       </td>
 
       {/* Submitted */}
@@ -133,10 +133,9 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
               </Button>
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => doAction(`/api/admin/claims/${claim.id}`, null, 'DELETE')}
                 disabled={busy}
-                style={{ fontSize: '1rem', padding: '0 0.1rem' }}
                 title="Delete permanently"
               >
                 🗑
@@ -146,10 +145,9 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
         ) : (
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => doAction(`/api/admin/claims/${claim.id}`, null, 'DELETE')}
             disabled={busy}
-            style={{ fontSize: '1rem', padding: '0 0.1rem' }}
             title="Delete permanently"
           >
             🗑

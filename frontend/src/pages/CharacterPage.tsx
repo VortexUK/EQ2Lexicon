@@ -1,8 +1,9 @@
-﻿import { useEffect, useState, useCallback } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import Breadcrumb from '../components/Breadcrumb'
 import { Card, SectionLabel } from '../components/ui'
-import { ItemTooltip, TooltipState, getCachedItem, prefetchItem } from '../components/ItemTooltip'
+import { TabButton } from '../components/ui/TabButton'
+import { ItemTooltip, useItemTooltip, getCachedItem, prefetchItem } from '../components/ItemTooltip'
 import { FreshnessBadge } from '../components/FreshnessBadge'
 import { AAsTab } from './CharacterAAsTab'
 import { SpellsTab } from './CharacterSpellsTab'
@@ -470,10 +471,22 @@ type State =
   | { status: 'error'; message: string }
   | { status: 'census_unavailable'; name: string }
 
-// Module-level config cache — fetched once, shared across navigations.
-// max_level is now sourced from useServer(); only gear_rating comes from /api/config.
-let _ratingConfig  = DEFAULT_RATING_CONFIG
-let _configFetched = false
+// Module-level promise-cache for gear_rating config — fetched once, shared
+// across navigations. Nulled on failure so the next mount can retry.
+let _configPromise: Promise<RatingConfig> | null = null
+
+function getRatingConfig(): Promise<RatingConfig> {
+  if (!_configPromise) {
+    _configPromise = fetch('/api/config', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(d => (d?.gear_rating ?? DEFAULT_RATING_CONFIG) as RatingConfig)
+      .catch(err => {
+        _configPromise = null   // allow retry on next mount
+        throw err
+      })
+  }
+  return _configPromise
+}
 
 export default function CharacterPage() {
   const { name } = useParams<{ name: string }>()
@@ -482,25 +495,17 @@ export default function CharacterPage() {
     const cached = name ? _charCache.get(name.toLowerCase()) : undefined
     return cached ? { status: 'ok', char: cached } : { status: 'loading' }
   })
-  const [ratingConfig, setRatingConfig] = useState<RatingConfig>(_ratingConfig)
+  const [ratingConfig, setRatingConfig] = useState<RatingConfig>(DEFAULT_RATING_CONFIG)
   const { subscribe } = useCensusStream()
 
   // max_level is served by useServer() (from /api/server).
   // Fall back to 50 while the context is still loading.
   const maxLevel = server?.maxLevel ?? 50
 
-  // Fetch gear_rating from /api/config once (cached in module scope after first load).
+  // Fetch gear_rating from /api/config once (promise-cached in module scope).
   // max_level is no longer read from here — it comes from useServer() above.
   useEffect(() => {
-    if (_configFetched) return
-    _configFetched = true
-    fetch('/api/config', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (!d) return
-        if (d.gear_rating) { _ratingConfig = d.gear_rating; setRatingConfig(d.gear_rating) }
-      })
-      .catch(() => {})
+    getRatingConfig().then(setRatingConfig).catch(() => { /* render with default config */ })
   }, [])
 
   useEffect(() => {
@@ -562,7 +567,7 @@ type ActiveTab = 'equipment' | 'aas' | 'spells'
 
 function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxLevel: number; ratingConfig: RatingConfig }) {
   const bySlot = buildSlotMap(char.equipment)
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+  const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
   const [hoveredStat, setHoveredStat] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<ActiveTab>('equipment')
   // Tracks when background prefetch completes so highlights + gear rating re-evaluate.
@@ -605,14 +610,6 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
     return adornHit ? 'adorn' : null
   }
 
-  const showTip = useCallback((itemId: string, e: React.MouseEvent, adorns?: { color: string; bonus: number }[]) => {
-    setTooltip({ itemId, x: e.clientX, y: e.clientY, adorns })
-  }, [])
-  const hideTip = useCallback(() => setTooltip(null), [])
-  const moveTip = useCallback((e: React.MouseEvent) => {
-    if (tooltip) setTooltip(t => t ? { ...t, x: e.clientX, y: e.clientY } : null)
-  }, [tooltip])
-
   return (
     <div className="mt-6" onMouseMove={moveTip}>
       {/* Full-width general banner */}
@@ -624,21 +621,14 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
           const label = tab === 'equipment' ? 'Equipment & Stats'
                       : tab === 'aas'       ? 'Alternate Advancements'
                       :                       'Spells'
-          const active = tab === activeTab
           return (
-            <button
+            <TabButton
               key={tab}
+              active={tab === activeTab}
               onClick={() => setActiveTab(tab)}
-              className="border-none cursor-pointer text-[0.82rem] tracking-[0.04em] px-4 py-[7px] mb-[-1px] transition-[color,border-color] duration-150"
-              style={{
-                background: active ? 'var(--surface)' : 'transparent',
-                borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-                color: active ? 'var(--text)' : 'var(--text-muted)',
-                fontWeight: active ? 600 : 400,
-              }}
             >
               {label}
-            </button>
+            </TabButton>
           )
         })}
       </div>
@@ -656,7 +646,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
 
           {/* Right: paperdoll */}
           <div className="flex-1 min-w-0">
-            <h2 className={sectionHeadingClass}>Equipment</h2>
+            <SectionLabel variant="muted">Equipment</SectionLabel>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-[4px] gap-x-3">
               <div className="flex flex-col gap-1">
                 {LEFT_SLOTS.map(([label, key]) => {
@@ -672,7 +662,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
               </div>
             </div>
 
-            <h2 className={`${sectionHeadingClass} mt-4`}>Consumables</h2>
+            <SectionLabel variant="muted" className="mt-4">Consumables</SectionLabel>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-[4px] gap-x-3">
               {CONSUMABLE_SLOTS.map(([label, key]) => {
                 const item = bySlot.get(key) ?? null
@@ -741,8 +731,7 @@ function GeneralBanner({ char }: { char: Character }) {
         {char.guild_name && (
           <Link
             to={`/guild/${encodeURIComponent(char.guild_name)}`}
-            className="inline-block mt-[0.2rem] text-[0.82rem] no-underline font-medium"
-            style={{ color: 'var(--accent)' }}
+            className="inline-block mt-[0.2rem] text-[0.82rem] no-underline font-medium text-gold"
           >
             ⚔ {char.guild_name}
           </Link>
@@ -753,11 +742,7 @@ function GeneralBanner({ char }: { char: Character }) {
       {columns.map(([top, bottom], i) => (
         <div
           key={i}
-          className="flex-1 pl-4 flex flex-col justify-center gap-[0.2rem]"
-          style={{
-            paddingRight: i < columns.length - 1 ? '1rem' : 0,
-            borderRight: i < columns.length - 1 ? '1px solid var(--border)' : undefined,
-          }}
+          className={`flex-1 pl-4 flex flex-col justify-center gap-[0.2rem] ${i < columns.length - 1 ? 'pr-4 border-r border-border' : ''}`}
         >
           <BannerStat label={top[0]} value={top[1]} />
           {bottom && <BannerStat label={bottom[0]} value={bottom[1]} />}
@@ -986,5 +971,4 @@ function SlotRow({ label, item, iconSide, onShow, onHide, highlight }: {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const sectionHeadingClass = 'text-[0.78rem] uppercase tracking-[0.07em] text-text-muted mb-2'
 const iconBoxClass = 'w-10 h-10 shrink-0 rounded-[3px] flex items-center justify-center overflow-hidden'

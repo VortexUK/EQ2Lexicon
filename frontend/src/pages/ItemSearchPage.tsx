@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ItemTooltip, TooltipState } from '../components/ItemTooltip'
+import { ItemTooltip, useItemTooltip } from '../components/ItemTooltip'
 import { Button, Card } from '../components/ui'
 import { itemRarityColor } from '../rarityColors'
 import ItemSearchFilters, { ItemSearchQuery, StatFilter } from './items/ItemSearchFilters'
@@ -40,25 +40,8 @@ function displayTier(tier: string | null): string {
 
 // ── Table header / cell styles ────────────────────────────────────────────────
 
-const TH: React.CSSProperties = {
-  padding:       '0.5rem 0.7rem',
-  fontSize:      '0.72rem',
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color:         'var(--text-muted)',
-  fontWeight:    600,
-  whiteSpace:    'nowrap',
-  textAlign:     'left',
-  borderBottom:  '2px solid var(--border)',
-  background:    'var(--surface-raised)',
-}
-
-const TD: React.CSSProperties = {
-  padding:      '0.42rem 0.7rem',
-  fontSize:     '0.85rem',
-  whiteSpace:   'nowrap',
-  borderBottom: '1px solid var(--border)',
-}
+const TH = 'px-[0.7rem] py-2 text-[0.72rem] uppercase tracking-[0.05em] text-text-muted font-semibold whitespace-nowrap text-left border-b-2 border-border bg-surface-raised'
+const TD = 'px-[0.7rem] py-[0.42rem] text-[0.85rem] whitespace-nowrap border-b border-border'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -115,14 +98,7 @@ export default function ItemSearchPage() {
   })
 
   // ── Tooltip state ─────────────────────────────────────────────────────────
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
-  const showTip = useCallback((itemId: string, e: React.MouseEvent) => {
-    setTooltip({ itemId, x: e.clientX, y: e.clientY })
-  }, [])
-  const hideTip = useCallback(() => setTooltip(null), [])
-  const moveTip = useCallback((e: React.MouseEvent) => {
-    setTooltip(t => t ? { ...t, x: e.clientX, y: e.clientY } : null)
-  }, [])
+  const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
 
   // ── Keep URL in sync ──────────────────────────────────────────────────────
   // Runs whenever sort, page, or the active query changes (query → activeQuery).
@@ -364,23 +340,16 @@ function ItemTable({
       <table className="w-full border-collapse">
         <thead>
           <tr>
-            <th style={TH}>Name</th>
-            <th style={TH}>Quality</th>
-            <th style={TH}>Slot</th>
-            <th style={{ ...TH, textAlign: 'right' }}>Level</th>
+            <th className={TH}>Name</th>
+            <th className={TH}>Quality</th>
+            <th className={TH}>Slot</th>
+            <th className={`${TH} text-right`}>Level</th>
             {statCols.map(f => {
               const active = sortBy === f.stat
               return (
                 <th
                   key={f.id}
-                  style={{
-                    ...TH,
-                    textAlign: 'right',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    color: active ? 'var(--accent)' : 'var(--text-muted)',
-                    whiteSpace: 'nowrap',
-                  }}
+                  className={`${TH} text-right cursor-pointer select-none ${active ? 'text-gold' : 'text-text-muted'}`}
                   onClick={() => onSortByStat(f.stat)}
                   title={`Sort by ${f.stat}`}
                 >
@@ -388,8 +357,8 @@ function ItemTable({
                 </th>
               )
             })}
-            <th style={TH}>Classes</th>
-            <th style={TH}>Stats</th>
+            <th className={TH}>Classes</th>
+            <th className={TH}>Stats</th>
           </tr>
         </thead>
         <tbody>
@@ -406,7 +375,7 @@ function ItemTable({
                 onHideTip()
               }}
             >
-              <td style={TD}>
+              <td className={TD}>
                 <div className="flex items-center gap-[0.45rem]">
                   {item.icon_id ? (
                     <img
@@ -429,13 +398,13 @@ function ItemTable({
                   </Link>
                 </div>
               </td>
-              <td style={{ ...TD, color: itemRarityColor(item.tier, 'var(--text-muted)'), fontSize: '0.8rem', fontWeight: 500 }}>
+              <td className={`${TD} text-[0.8rem] font-medium`} style={{ color: itemRarityColor(item.tier, 'var(--text-muted)') }}>
                 {displayTier(item.tier)}
               </td>
-              <td style={{ ...TD, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+              <td className={`${TD} text-text-muted text-[0.82rem]`}>
                 {item.slot ?? (item.item_type ?? '—')}
               </td>
-              <td style={{ ...TD, textAlign: 'right' }}>
+              <td className={`${TD} text-right`}>
                 {item.level ?? '—'}
               </td>
               {statCols.map(f => {
@@ -444,12 +413,7 @@ function ItemTable({
                 return (
                   <td
                     key={f.id}
-                    style={{
-                      ...TD,
-                      textAlign: 'right',
-                      fontWeight: active ? 600 : undefined,
-                      color: active ? 'var(--accent)' : undefined,
-                    }}
+                    className={`${TD} text-right ${active ? 'font-semibold text-gold' : ''}`}
                   >
                     {val != null
                       ? val
@@ -457,14 +421,14 @@ function ItemTable({
                   </td>
                 )
               })}
-              <td style={{ ...TD, color: 'var(--text-muted)', fontSize: '0.8rem', maxWidth: 160, whiteSpace: 'normal', lineHeight: '1.45' }}>
+              <td className={`${TD} text-text-muted text-[0.8rem] max-w-[160px] whitespace-normal leading-[1.45]`}>
                 {item.class_label
                   ? item.class_label.split(' / ').map((part, i) => (
                       <span key={i} className="block">{part}</span>
                     ))
                   : '—'}
               </td>
-              <td style={{ ...TD, fontSize: '0.78rem', color: 'var(--text-muted)', maxWidth: 260 }}>
+              <td className={`${TD} text-[0.78rem] text-text-muted max-w-[260px]`}>
                 <StatPills stats={item.stats} highlight={statFilters.map(f => f.stat)} />
               </td>
             </tr>

@@ -7,6 +7,8 @@ import { fmtRelative } from '../formatters'
 import { useAuth, isContributor } from '../hooks/useAuth'
 import { SupporterBadge, useSupporters } from './SupporterBadge'
 import { Button, SectionLabel } from './ui'
+import { Textarea } from './ui/Textarea'
+import { toErrorMessage } from '../lib/errors'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -192,7 +194,7 @@ export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
       const j = (await r.json()) as RevisionListResponse
       setRevisions(j.revisions)
     } catch (err) {
-      setHistoryError(String((err as Error).message ?? err))
+      setHistoryError(toErrorMessage(err))
     } finally {
       setHistoryLoading(false)
     }
@@ -237,7 +239,7 @@ export function EncounterStrategy({ zoneName, position, wikiUrl }: Props) {
       // so the next history-open fetches fresh.
       setRevisions(null)
     } catch (err) {
-      setSaveError(String((err as Error).message ?? err))
+      setSaveError(toErrorMessage(err))
     } finally {
       setSaving(false)
     }
@@ -379,12 +381,12 @@ function Editor({ draft, onDraft, preview, onPreview, saving, error, onSave, onC
       </div>
 
       {!preview ? (
-        <textarea
+        <Textarea
+          mono
           value={draft}
           onChange={e => onDraft(e.target.value)}
           rows={16}
           spellCheck={false}
-          className="w-full bg-bg/60 border border-border rounded-md p-3 font-mono text-[0.88rem] leading-relaxed text-text outline-none focus:border-gold/60 resize-y"
           placeholder={'## Tactics\n\n- Tank positioning\n- Healer assignments\n- Cure rotations\n'}
         />
       ) : (

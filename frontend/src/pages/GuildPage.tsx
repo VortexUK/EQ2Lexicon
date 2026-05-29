@@ -6,6 +6,7 @@ import { FilterPill } from '../components/FilterPill'
 import { useClaim } from '../hooks/useClaim'
 import { useAuth, discordAvatarUrl } from '../hooks/useAuth'
 import { Button, Card } from '../components/ui'
+import { TabButton } from '../components/ui/TabButton'
 import { FreshnessBadge } from '../components/FreshnessBadge'
 import { useCensusStream } from '../hooks/useCensusStream'
 import { fmtRelative } from '../formatters'
@@ -71,25 +72,6 @@ function InfoStat({ label, value }: { label: string; value: string }) {
         {value}
       </span>
     </div>
-  )
-}
-
-// ── Tab button ────────────────────────────────────────────────────────────────
-
-function TabBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="px-4 py-[0.4rem] rounded-[6px] border cursor-pointer text-[0.88rem]"
-      style={{
-        borderColor: active ? 'var(--accent)' : 'var(--border)',
-        background: active ? 'rgba(var(--accent-rgb),0.12)' : 'var(--surface)',
-        color: active ? 'var(--accent)' : 'var(--text-muted)',
-        fontWeight: active ? 600 : 400,
-      }}
-    >
-      {label}
-    </button>
   )
 }
 
@@ -625,15 +607,15 @@ export default function GuildPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-[0.4rem] mb-4 flex-wrap">
-        <TabBtn label="Roster"       active={tab === 'roster'} onClick={() => switchTab('roster')} />
-        <TabBtn label="Spell Check"  active={tab === 'spells'} onClick={() => switchTab('spells')} />
-        <TabBtn label="Adorn Check"  active={tab === 'adorns'} onClick={() => switchTab('adorns')} />
+      <div className="flex gap-[0.4rem] mb-4 flex-wrap border-b border-border">
+        <TabButton active={tab === 'roster'} onClick={() => switchTab('roster')}>Roster</TabButton>
+        <TabButton active={tab === 'spells'} onClick={() => switchTab('spells')}>Spell Check</TabButton>
+        <TabButton active={tab === 'adorns'} onClick={() => switchTab('adorns')}>Adorn Check</TabButton>
         {isOfficer && (
-          <TabBtn label="Claim Requests" active={tab === 'claims'} onClick={() => switchTab('claims')} />
+          <TabButton active={tab === 'claims'} onClick={() => switchTab('claims')}>Claim Requests</TabButton>
         )}
         {isOfficer && (
-          <TabBtn label="Item Watch" active={tab === 'watch'} onClick={() => switchTab('watch')} />
+          <TabButton active={tab === 'watch'} onClick={() => switchTab('watch')}>Item Watch</TabButton>
         )}
       </div>
 

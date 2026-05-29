@@ -78,18 +78,34 @@ export const TABLE_CLS         = 'w-full border-collapse text-[0.875rem]'
 export const TH_CLS            = 'text-left px-3 py-[0.45rem] text-text-muted text-[0.72rem] font-semibold uppercase tracking-[0.05em] border-b border-border whitespace-nowrap'
 export const TD_CLS            = 'px-3 py-2 border-b border-white/5 align-middle'
 
+/** @deprecated Use ACCESS_BADGE_VARIANT + ui/Badge instead. */
 export const ACCESS_BADGE: Record<string, React.CSSProperties> = {
   pending:  { background: 'rgba(var(--warning-rgb), 0.18)',   color: 'var(--warning)', border: '1px solid rgba(var(--warning-rgb), 0.4)'  },
   approved: { background: 'rgba(34,197,94,0.13)',   color: 'var(--success)', border: '1px solid rgba(34,197,94,0.35)' },
   denied:   { background: 'rgba(239,68,68,0.13)',   color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.35)' },
 }
 
+/** @deprecated Use CLAIM_BADGE_VARIANT + ui/Badge instead. */
 export const CLAIM_BADGE: Record<string, React.CSSProperties> = {
   pending:    { background: 'rgba(var(--warning-rgb), 0.18)',    color: 'var(--warning)', border: '1px solid rgba(var(--warning-rgb), 0.4)'    },
   approved:   { background: 'rgba(34,197,94,0.13)',    color: 'var(--success)', border: '1px solid rgba(34,197,94,0.35)'   },
   rejected:   { background: 'rgba(239,68,68,0.13)',    color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.35)'   },
   withdrawn:  { background: 'rgba(100,116,139,0.13)',  color: '#94a3b8', border: '1px solid rgba(100,116,139,0.3)'  },
   superseded: { background: 'rgba(100,116,139,0.13)',  color: '#94a3b8', border: '1px solid rgba(100,116,139,0.3)'  },
+}
+
+export const ACCESS_BADGE_VARIANT: Record<string, 'warning' | 'success' | 'danger'> = {
+  pending:  'warning',
+  approved: 'success',
+  denied:   'danger',
+}
+
+export const CLAIM_BADGE_VARIANT: Record<string, 'warning' | 'success' | 'danger' | 'muted'> = {
+  pending:    'warning',
+  approved:   'success',
+  rejected:   'danger',
+  withdrawn:  'muted',
+  superseded: 'muted',
 }
 
 // ── Shared helper ─────────────────────────────────────────────────────────────

@@ -144,7 +144,7 @@ export default function NotificationBell() {
       {open && (
         <div
           className="absolute right-0 bg-surface-raised border border-border rounded-md min-w-[240px] z-[300] overflow-hidden"
-          style={{ top: 'calc(100% + 6px)', boxShadow: '0 8px 28px rgba(0,0,0,0.5)' }}
+          style={{ top: 'calc(100% + 6px)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
         >
 
           {/* Header */}

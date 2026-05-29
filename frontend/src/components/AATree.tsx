@@ -5,6 +5,7 @@
  */
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useTooltipPosition } from '../hooks/useTooltipPosition'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -168,12 +169,11 @@ function AANodeTooltip({ data }: { data: TooltipData }) {
     spellResp.matched_tier   !== spellResp.requested_tier
 
   const TIP_W = 320
-  const left  = mx + 14 + TIP_W > window.innerWidth ? mx - TIP_W - 6 : mx + 14
-  const top   = Math.min(Math.max(8, my - 8), window.innerHeight - 300)
+  const { ref, position } = useTooltipPosition({ x: mx, y: my, width: TIP_W, marginX: 14, marginY: 8 })
 
   return createPortal(
-    <div style={{
-      position: 'fixed', left, top,
+    <div ref={ref} style={{
+      position: 'fixed', left: position.left, top: position.top,
       width: TIP_W, zIndex: 9999,
       pointerEvents: 'none', userSelect: 'none',
       fontFamily: '"Times New Roman", Times, serif',

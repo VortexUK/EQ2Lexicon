@@ -143,19 +143,17 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
       )}
 
       {results.length > 0 && (
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <Card className="p-0 overflow-hidden">
           {results.map((r, i) => {
             const sub = config.renderSub ? config.renderSub(r) : null
             return (
               <Link
                 key={r.name}
                 to={`${config.linkPrefix}${encodeURIComponent(r.name)}`}
-                className="flex items-center gap-[0.6rem] py-[0.6rem] px-4 no-underline transition-colors"
+                className="flex items-center gap-[0.6rem] py-[0.6rem] px-4 no-underline transition-colors hover:bg-surface-raised"
                 style={{
                   borderBottom: i < results.length - 1 ? '1px solid var(--border)' : 'none',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-raised)')}
-                onMouseLeave={e => (e.currentTarget.style.background = '')}
               >
                 <span className="font-medium text-[0.95rem]" style={{ color: config.linkColor }}>
                   {r.name}

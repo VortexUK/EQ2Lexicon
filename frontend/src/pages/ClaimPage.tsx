@@ -2,27 +2,13 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { Claim, useClaim } from '../hooks/useClaim'
-import { Button, Card } from '../components/ui'
+import { Button, Card, SectionLabel } from '../components/ui'
+import { DiscordButton } from '../components/ui/DiscordButton'
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 // Shared Card layout: matches `padding: 1.25rem 1.5rem; margin-top: 1rem`.
 const CARD_CLS = 'px-6 py-5 mt-4'
-
-// The Discord sign-in button keeps its bespoke brand styling.
-function discordBtn(): React.CSSProperties {
-  return {
-    display: 'inline-block',
-    padding: '0.4rem 1rem',
-    background: 'var(--discord-brand)',
-    color: '#fff',
-    borderRadius: 6,
-    border: '1px solid var(--border)',
-    cursor: 'pointer',
-    fontSize: '0.88rem',
-    whiteSpace: 'nowrap',
-  }
-}
 
 // ── Claim form ────────────────────────────────────────────────────────────────
 
@@ -210,7 +196,7 @@ export default function ClaimPage() {
       {isUnauth && (
         <Card className={CARD_CLS}>
           <p className="mb-4">You need to sign in with Discord first.</p>
-          <a href="/api/auth/login" style={discordBtn()}>Sign in with Discord</a>
+          <DiscordButton />
         </Card>
       )}
 
@@ -230,9 +216,7 @@ export default function ClaimPage() {
             {/* Approved characters */}
             {approved.length > 0 && (
               <Card className={CARD_CLS}>
-                <div className="text-[0.72rem] uppercase tracking-[0.06em] text-text-muted mb-2">
-                  Approved Characters
-                </div>
+                <SectionLabel variant="muted">Approved Characters</SectionLabel>
                 {approved.map(c => (
                   <ApprovedRow key={c.id} claim={c} onUpdate={claimState.refetch} />
                 ))}

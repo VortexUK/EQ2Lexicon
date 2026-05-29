@@ -1,6 +1,7 @@
 ﻿import { lazy, Suspense } from 'react'
 import type { CSSProperties } from 'react'
 import { Routes, Route, Outlet, NavLink, useLocation } from 'react-router-dom'
+import { DiscordButton } from './components/ui/DiscordButton'
 import HomePage from './pages/HomePage'
 import SupportPage from './pages/SupportPage'
 import CharacterPage from './pages/CharacterPage'
@@ -49,23 +50,7 @@ function LoginGate() {
         Sign in with Discord to access your EQ2 Lexicon.
       </p>
       <ServerLaunchTimer />
-      <a
-        href="/api/auth/login"
-        style={{
-          display: 'inline-block',
-          padding: '0.6rem 1.6rem',
-          background: 'var(--discord-brand)',
-          color: '#fff',
-          borderRadius: 8,
-          border: 'none',
-          fontSize: '1rem',
-          fontWeight: 600,
-          textDecoration: 'none',
-          letterSpacing: '0.02em',
-        }}
-      >
-        Sign in with Discord
-      </a>
+      <DiscordButton />
     </main>
   )
 }
@@ -160,20 +145,7 @@ function ServerBadge() {
             <a
               key={s.world}
               href={buildSwitchUrl(s.subdomain, activeSubdomain)}
-              className="font-heading text-[0.65rem] font-semibold tracking-[0.1em] uppercase px-[0.4rem] py-[0.18rem] rounded-sm no-underline transition-colors duration-150"
-              style={{
-                color: 'var(--gold-dim)',
-                background: 'transparent',
-                border: '1px solid rgba(var(--gold-rgb), 0.15)',
-              }}
-              onMouseEnter={e => {
-                ;(e.currentTarget as HTMLAnchorElement).style.color = 'var(--gold)'
-                ;(e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(var(--gold-rgb), 0.35)'
-              }}
-              onMouseLeave={e => {
-                ;(e.currentTarget as HTMLAnchorElement).style.color = 'var(--gold-dim)'
-                ;(e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(var(--gold-rgb), 0.15)'
-              }}
+              className="font-heading text-[0.65rem] font-semibold tracking-[0.1em] uppercase px-[0.4rem] py-[0.18rem] rounded-sm no-underline transition-colors duration-150 text-gold-dim bg-transparent border border-gold/15 hover:text-gold hover:border-gold/35"
               title={`Switch to ${s.displayName}`}
             >
               {s.displayName}

@@ -2,9 +2,10 @@
  * HTML tooltip mirroring image/tooltip.py.
  * Colours, layout order, and section logic kept in sync with that file.
  */
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useState, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { qualityStyle, type QualityStyle } from '../rarityColors'
+import { useTooltipPosition } from '../hooks/useTooltipPosition'
 
 // Re-exported so existing importers (SpellScrollTooltip) keep working while the
 // canonical definition lives in rarityColors.
@@ -116,15 +117,11 @@ export async function prefetchItem(id: string): Promise<void> {
 
 // ── Tooltip portal ────────────────────────────────────────────────────────────
 
-const TIP_W   = 360
-const MARGIN  = 12
+const TIP_W = 360
 
 export function ItemTooltip({ state }: { state: TooltipState }) {
   const [item, setItem]   = useState<ItemDetail | null>(_cache.get(state.itemId) ?? null)
   const [loading, setLoading] = useState(!_cache.has(state.itemId))
-  const tipRef = useRef<HTMLDivElement>(null)
-  // top position, adjusted after render to prevent viewport overflow
-  const [top, setTop] = useState(Math.max(MARGIN, state.y - 8))
 
   useEffect(() => {
     if (_cache.has(state.itemId)) {
@@ -139,24 +136,13 @@ export function ItemTooltip({ state }: { state: TooltipState }) {
       .catch(() => setLoading(false))
   }, [state.itemId])
 
-  // After content renders, clamp top so tooltip doesn't overflow the bottom
-  useLayoutEffect(() => {
-    if (!tipRef.current) return
-    const h = tipRef.current.offsetHeight
-    const ideal = Math.max(MARGIN, state.y - 8)
-    const maxTop = window.innerHeight - h - MARGIN
-    setTop(Math.min(ideal, Math.max(MARGIN, maxTop)))
-  }, [item, loading, state.y])
-
-  const x = state.x + 16 + TIP_W > window.innerWidth
-    ? state.x - TIP_W - 8
-    : state.x + 16
+  const { ref, position } = useTooltipPosition({ x: state.x, y: state.y, width: TIP_W, marginX: 16, marginY: 8 })
 
   const qs = item ? qualityStyle(item.quality) : null
 
   return createPortal(
-    <div ref={tipRef} style={{
-      position: 'fixed', left: x, top,
+    <div ref={ref} style={{
+      position: 'fixed', left: position.left, top: position.top,
       width: TIP_W, zIndex: 9999,
       pointerEvents: 'none', userSelect: 'none',
       fontFamily: '"Times New Roman", Times, serif',
@@ -411,4 +397,25 @@ function EffectBlock({ eff, qs, showName }: { eff: ItemEffect; qs: QualityStyle;
 function fmtStat(s: ItemStat): string {
   const v = s.value
   return `${Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1)} ${s.display_name}`
+}
+
+// ── useItemTooltip hook ───────────────────────────────────────────────────────
+
+/**
+ * Encapsulates the tooltip/showTip/hideTip/moveTip state triple used by
+ * CharacterPage and ItemSearchPage (and any future page that needs item
+ * hover-tooltips). Callers just spread `{ tooltip, showTip, hideTip, moveTip }`.
+ */
+export function useItemTooltip() {
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+
+  const showTip = useCallback((itemId: string, e: MouseEvent, adorns?: TooltipState['adorns']) => {
+    setTooltip({ itemId, x: e.clientX, y: e.clientY, adorns })
+  }, [])
+  const hideTip = useCallback(() => setTooltip(null), [])
+  const moveTip = useCallback((e: MouseEvent) => {
+    setTooltip(t => t ? { ...t, x: e.clientX, y: e.clientY } : null)
+  }, [])
+
+  return { tooltip, showTip, hideTip, moveTip }
 }

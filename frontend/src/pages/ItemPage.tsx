@@ -101,7 +101,7 @@ export default function ItemPage() {
         </div>
       </div>
 
-      <Card style={{ padding: '1.1rem 1.25rem' }}>
+      <Card className="px-5 py-[1.1rem]">
 
         {/* Description */}
         {item.description && (

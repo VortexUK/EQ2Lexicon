@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { discordAvatarUrl } from '../../hooks/useAuth'
 import { Button } from '../../components/ui'
+import { Badge } from '../../components/ui/Badge'
 import { FilterPill } from '../../components/FilterPill'
 import { fmtRelative } from '../../formatters'
-import { Badge } from './Badge'
 import {
   type UserItem,
-  ACCESS_BADGE,
+  ACCESS_BADGE_VARIANT,
   TH_CLS, TD_CLS, TABLE_CLS,
   fmt,
 } from './types'
@@ -60,8 +60,8 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
     }
   }
 
-  const displayName = user.discord_name ?? user.discord_username ?? 'Unknown'
-  const badgeStyle  = ACCESS_BADGE[user.access_status] ?? ACCESS_BADGE.denied
+  const displayName   = user.discord_name ?? user.discord_username ?? 'Unknown'
+  const badgeVariant = ACCESS_BADGE_VARIANT[user.access_status] ?? ACCESS_BADGE_VARIANT.denied
 
   return (
     <tr>
@@ -94,7 +94,7 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
 
       {/* Status */}
       <td className={TD_CLS}>
-        <Badge label={user.access_status} style={badgeStyle} />
+        <Badge variant={badgeVariant}>{user.access_status}</Badge>
       </td>
 
       {/* Claims */}
