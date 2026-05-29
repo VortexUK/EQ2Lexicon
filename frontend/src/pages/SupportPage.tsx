@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { SupporterBadge } from '../components/SupporterBadge'
+import { LinkButton } from '../components/ui'
 
 /**
  * /support — the donations + "what hosting costs" page.
@@ -95,14 +96,14 @@ export default function SupportPage() {
           other place names appear. No extra features are gated behind
           donations: everything stays free for everyone.
         </p>
-        <a
+        <LinkButton
           href={SPONSOR_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block rounded-md bg-accent px-5 py-2 text-sm font-medium text-bg hover:bg-accent-hover transition-colors"
+          variant="primary"
         >
           Sponsor on GitHub →
-        </a>
+        </LinkButton>
       </section>
 
       <section className="space-y-3">
