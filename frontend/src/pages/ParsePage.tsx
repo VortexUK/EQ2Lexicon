@@ -268,8 +268,6 @@ function Header({ data, raidZoneCanonical }: { data: ParseDetail; raidZoneCanoni
   )
 }
 
-const HDR_KEY_CLS = 'uppercase text-[0.7rem] tracking-[0.06em] text-text-muted opacity-70 mr-1'
-
 // ── Combatant section ────────────────────────────────────────────────────────
 
 function CombatantSection({
@@ -289,7 +287,7 @@ function CombatantSection({
       </h2>
       <div className="overflow-x-auto -mx-4 sm:mx-0">
         <Card
-          className="grid items-center text-[0.82rem] rounded-[6px] px-[0.6rem] py-[0.4rem] gap-x-2 gap-y-0 min-w-[640px]"
+          className="grid items-center text-[0.82rem] rounded-sm2 px-2.5 py-1.5 gap-x-2 gap-y-0 min-w-[640px]"
           style={{
             gridTemplateColumns:
               'minmax(160px,1.6fr) 90px 80px 50px 90px 70px 90px 60px 40px',
@@ -335,10 +333,10 @@ function CombatantRow({
     <>
       <div
         onClick={() => setOpen(v => !v)}
-        className="col-[1/-1] grid grid-cols-subgrid items-center px-2 py-[0.35rem] -mx-2 border-t border-border cursor-pointer"
+        className="col-[1/-1] grid grid-cols-subgrid items-center px-2 py-1.5 -mx-2 border-t border-border cursor-pointer"
         style={{ background: tint ?? 'transparent' }}
       >
-        <div className="flex items-center gap-[0.35rem] min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
           <Caret open={open} />
           <NameCell combatant={c} player={player} level={level} guildName={guildName} cls={cls} />
         </div>
@@ -367,7 +365,7 @@ function CombatantRow({
       </div>
 
       {open && (
-        <div className="col-[1/-1] pt-[0.4rem] pb-[0.6rem] pl-6">
+        <div className="col-[1/-1] pt-1.5 pb-2.5 pl-6">
           <CombatantDetailPanel combatant={c} />
         </div>
       )}
@@ -403,7 +401,7 @@ function NameCell({
   return (
     <span
       onClick={e => e.stopPropagation()}
-      className="flex items-center gap-[0.4rem] min-w-0"
+      className="flex items-center gap-1.5 min-w-0"
     >
       <Link
         to={`/character/${encodeURIComponent(c.name)}`}
@@ -440,4 +438,6 @@ const PAGE_CLS = 'max-w-[1100px] mx-auto px-4 py-6'
 
 export const CELL_RIGHT_CLS = 'text-right text-text'
 
-const HDR_CELL_CLS = 'text-text-muted text-[0.7rem] uppercase tracking-[0.06em] py-[0.15rem]'
+const HDR_BASE_CLS  = 'text-text-muted text-[0.7rem] uppercase tracking-[0.06em]'
+const HDR_CELL_CLS  = `${HDR_BASE_CLS} py-[0.15rem]`
+const HDR_KEY_CLS   = `${HDR_BASE_CLS} opacity-70 mr-1`

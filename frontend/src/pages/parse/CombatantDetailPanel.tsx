@@ -51,7 +51,7 @@ export interface ThreatSummary {
 
 // ── Style constants (local to the detail panel) ──────────────────────────────
 
-const HDR_SUB_CELL_CLS = 'text-text-muted text-[0.66rem] uppercase tracking-[0.05em] py-[0.1rem] border-b border-border mb-[0.15rem]'
+const HDR_SUB_CELL_CLS = 'text-text-muted text-[0.66rem] uppercase tracking-[0.05em] py-0.5 border-b border-border mb-0.5'
 
 const SUB_ROW_CLS = 'col-[1/-1] grid grid-cols-subgrid items-center py-[2px]'
 
@@ -88,7 +88,7 @@ function CombatantTabs({ combatant: c }: { combatant: CombatantSummary }) {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-[0.3rem] mb-[0.4rem]">
+      <div className="flex flex-wrap gap-1 mb-1.5">
         <TabBtn id="damage"  current={effectiveTab} disabled={!hasDamage} onClick={setTab}>Damage</TabBtn>
         <TabBtn id="types"   current={effectiveTab} disabled={!hasTypes}  onClick={setTab}>By Type</TabBtn>
         <TabBtn id="heals"   current={effectiveTab} disabled={!hasHeals}  onClick={setTab}>Healed</TabBtn>
@@ -120,7 +120,7 @@ function TabBtn({
     <button
       disabled={disabled}
       onClick={() => onClick(id)}
-      className="border border-solid rounded-sm px-[0.65rem] py-[0.2rem] text-[0.74rem]"
+      className="border border-solid rounded-sm px-2.5 py-1 text-[0.74rem]"
       style={{
         background: active ? 'var(--surface)' : 'transparent',
         borderColor: active ? 'var(--gold)' : 'var(--border)',
@@ -242,7 +242,7 @@ function HealsTable({ heals, totalHealed }: { heals: HealSummary[]; totalHealed:
 function CuresTable({ cures }: { cures: CureSummary[] }) {
   return (
     <div
-      className="grid items-center gap-x-[0.6rem] gap-y-px text-[0.78rem]"
+      className="grid items-center gap-x-2.5 gap-y-px text-[0.78rem]"
       style={{ gridTemplateColumns: 'minmax(160px,1.4fr) 100px 100px 80px' }}
     >
       <div className={HDR_SUB_CELL_CLS}>Cure ability</div>
@@ -264,7 +264,7 @@ function CuresTable({ cures }: { cures: CureSummary[] }) {
 function ThreatTable({ threats }: { threats: ThreatSummary[] }) {
   return (
     <div
-      className="grid items-center gap-x-[0.6rem] gap-y-px text-[0.78rem]"
+      className="grid items-center gap-x-2.5 gap-y-px text-[0.78rem]"
       style={{ gridTemplateColumns: 'minmax(160px,1.4fr) 100px 70px 80px 90px' }}
     >
       <div className={HDR_SUB_CELL_CLS}>Ability</div>
@@ -333,12 +333,12 @@ function SummaryCard({ combatant: c }: { combatant: CombatantSummary }) {
       {groups.map(g => (
         <div
           key={g.label}
-          className="border border-border rounded-[5px] px-[0.7rem] py-[0.55rem]"
+          className="border border-border rounded-sm px-3 py-2"
           style={{ background: 'rgba(0,0,0,0.18)' }}
         >
-          <h4 className="mb-[0.35rem] text-[0.7rem] text-text-muted uppercase tracking-[0.06em]">{g.label}</h4>
+          <h4 className="mb-1.5 text-[0.7rem] text-text-muted uppercase tracking-[0.06em]">{g.label}</h4>
           <div
-            className="grid gap-x-2 gap-y-[2px] text-[0.8rem]"
+            className="grid gap-x-2 gap-y-0.5 text-[0.8rem]"
             style={{ gridTemplateColumns: '1fr auto' }}
           >
             {g.stats.map(([k, v]) => (
@@ -357,7 +357,7 @@ function SummaryCard({ combatant: c }: { combatant: CombatantSummary }) {
 function DamageBar({ share }: { share: number }) {
   const pct = Math.max(0, Math.min(1, share)) * 100
   return (
-    <div className="w-full h-[6px] bg-white/6 rounded-[3px] overflow-hidden">
+    <div className="w-full h-[6px] bg-white/6 rounded-full overflow-hidden">
       <div
         className="h-full bg-gold opacity-70"
         style={{ width: `${pct}%` }}

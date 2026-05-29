@@ -71,6 +71,7 @@ const SIZE_OPTIONS: { value: SizeFilter; label: string; range: string }[] = [
 ]
 
 const NO_GUILD = 'No Guild'
+const PARSES_FETCH_LIMIT = 500
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -86,9 +87,7 @@ function sizeLabel(playerCount: number): string {
 // ("Captain Krasniv", "The Shadowed One"). First-character capitalisation is
 // the simplest reliable signal.
 function isBoss(title: string): boolean {
-  if (!title) return false
-  const first = title.charCodeAt(0)
-  return first >= 65 && first <= 90  // 'A'..'Z'
+  return /^[A-Z]/.test(title)
 }
 
 // ── Grouped structure ─────────────────────────────────────────────────────────
@@ -186,7 +185,7 @@ export default function ParsesPage() {
   const parsesUrl = useMemo(() => {
     const url = new URL('/api/parses', window.location.origin)
     if (size) url.searchParams.set('size', size)
-    url.searchParams.set('limit', '500')
+    url.searchParams.set('limit', String(PARSES_FETCH_LIMIT))
     return url.toString()
   }, [size])
 
@@ -229,7 +228,6 @@ export default function ParsesPage() {
     return groupEncounters(filtered)
   }, [data, bossesOnly])
 
-  const setFilter = useCallback((v: SizeFilter) => setSize(v), [])
 
   return (
     <main className="max-w-[1100px] mx-auto px-4 py-6">
@@ -245,9 +243,9 @@ export default function ParsesPage() {
       </div>
 
       {/* Filter pills */}
-      <div className="flex flex-wrap gap-[0.4rem] mb-[1.2rem]">
+      <div className="flex flex-wrap gap-1.5 mb-[1.2rem]">
         {SIZE_OPTIONS.map(opt => (
-          <FilterPill key={opt.value || 'all'} active={size === opt.value} onClick={() => setFilter(opt.value)}>
+          <FilterPill key={opt.value || 'all'} active={size === opt.value} onClick={() => setSize(opt.value)}>
             {opt.label}
             {opt.range && <span className="ml-[0.35rem] opacity-60 text-[0.72rem]">{opt.range}</span>}
           </FilterPill>
@@ -272,7 +270,7 @@ export default function ParsesPage() {
       )}
 
       {!loading && grouped.length > 0 && (
-        <div className="flex flex-col gap-[0.4rem]">
+        <div className="flex flex-col gap-1.5">
           {grouped.map(g => (
             <GuildSection
               key={g.guild}
@@ -377,7 +375,7 @@ function GuildSection({
         )}
       </div>
       {open && (
-        <div className="flex flex-col gap-[0.35rem] px-2 pb-[0.6rem]">
+        <div className="flex flex-col gap-1.5 px-2 pb-2.5">
           {bucket.zoneBuckets.map(z => (
             <ZoneSection
               key={z.key}
@@ -423,9 +421,9 @@ function ZoneSection({
   }
 
   return (
-    <div className="border border-border rounded-[6px]" style={{ background: 'rgba(0,0,0,0.15)' }}>
+    <div className="border border-border rounded-sm2" style={{ background: 'rgba(0,0,0,0.15)' }}>
       <div className="flex items-center">
-        <button onClick={() => setOpen(v => !v)} className={`${headerBtnCls} py-[0.4rem] px-[0.6rem]`}>
+        <button onClick={() => setOpen(v => !v)} className={`${headerBtnCls} py-1.5 px-2.5`}>
           <Caret open={open} />
           <span className="text-[0.88rem] text-text">
             <span className="text-text-muted mr-2">{bucket.date}</span>
@@ -440,7 +438,7 @@ function ZoneSection({
         )}
       </div>
       {open && (
-        <div className="px-[0.4rem] pb-[0.4rem]">
+        <div className="px-1.5 pb-1.5">
           <EncounterTable fights={bucket.fights} onDeleted={onDeleted} />
         </div>
       )}
@@ -456,7 +454,7 @@ function EncounterTable({
 }) {
   return (
     <div
-      className="grid items-center gap-x-2 gap-y-[2px] text-[0.82rem]"
+      className="grid items-center gap-x-2 gap-y-0.5 text-[0.82rem]"
       style={{ gridTemplateColumns: '1fr 70px 70px 110px 90px 90px 28px' }}
     >
       <div className={HDR_CELL_CLS}>Encounter</div>
@@ -549,7 +547,7 @@ function MirrorRowGroup({
       {isMirror ? (
         <button
           onClick={() => setExpanded(v => !v)}
-          className="flex items-center gap-[0.4rem] border-none text-left cursor-pointer py-1 no-underline"
+          className="flex items-center gap-1.5 border-none text-left cursor-pointer py-1 no-underline"
           style={{
             ...cellBase, color: titleColor,
             background: rowBg ?? 'none', font: 'inherit',
@@ -594,10 +592,10 @@ function MirrorRowGroup({
 
       {isMirror && expanded && (
         <div
-          className="col-[1/-1] flex flex-col gap-[0.15rem] text-[0.78rem] pt-[0.25rem] pb-2 pl-6"
+          className="col-[1/-1] flex flex-col gap-0.5 text-[0.78rem] pt-1 pb-2 pl-6"
           style={{ background: rowBg ?? undefined }}
         >
-          <div className="text-text-muted text-[0.7rem] mb-[0.15rem]">
+          <div className="text-text-muted text-[0.7rem] mb-0.5">
             Pick a raider's view:
           </div>
           {fight.uploads.map(u => (
@@ -669,6 +667,6 @@ function TrashButton({ onClick, title, small = false }: {
 
 const headerBtnCls = 'flex items-center gap-2 w-full bg-transparent border-none text-inherit cursor-pointer py-2 px-3 text-left font-inherit'
 
-const HDR_CELL_CLS = 'text-text-muted text-[0.7rem] uppercase tracking-[0.06em] py-1 border-b border-border mb-[0.2rem]'
+const HDR_CELL_CLS = 'text-text-muted text-[0.7rem] uppercase tracking-[0.06em] py-1 border-b border-border mb-1'
 
 

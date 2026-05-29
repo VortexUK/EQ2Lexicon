@@ -4,14 +4,19 @@
  * Results come from the Census API (all characters/guilds on the server),
  * with a fallback to locally-registered data when Census is unavailable.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui'
+import { useDebounce } from '../hooks/useDebounce'
+
+// ── Timing constants ─────────────────────────────────────────────────────────
+
+const SEARCH_DEBOUNCE_MS = 300
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
 const CTRL_CLASS =
-  'py-[0.52rem] px-3 rounded-[6px] border border-border bg-surface-raised text-text text-base leading-[1.4] [color-scheme:dark] flex-1'
+  'py-2 px-3 rounded-sm2 border border-border bg-surface-raised text-text text-base leading-[1.4] [color-scheme:dark] flex-1'
 
 // ── Generic live-search shell ─────────────────────────────────────────────────
 
@@ -44,7 +49,6 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Keep URL in sync so Back navigation restores the query
   useEffect(() => {
@@ -58,6 +62,27 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
     }
   }, [query]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const doSearch = useDebounce(async (q: string) => {
+    setLoading(true)
+    setSearched(true)
+    try {
+      const res = await fetch(
+        `${config.apiUrl}?name=${encodeURIComponent(q)}`,
+        { credentials: 'include' },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setResults(data.results ?? [])
+      } else {
+        setResults([])
+      }
+    } catch {
+      setResults([])
+    } finally {
+      setLoading(false)
+    }
+  }, SEARCH_DEBOUNCE_MS)
+
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
@@ -66,33 +91,8 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
       setLoading(false)
       return
     }
-
-    // Debounce 300 ms
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true)
-      setSearched(true)
-      try {
-        const res = await fetch(
-          `${config.apiUrl}?name=${encodeURIComponent(q)}`,
-          { credentials: 'include' },
-        )
-        if (res.ok) {
-          const data = await res.json()
-          setResults(data.results ?? [])
-        } else {
-          setResults([])
-        }
-      } catch {
-        setResults([])
-      } finally {
-        setLoading(false)
-      }
-    }, 300)
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    }
+    doSearch(q)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, config.apiUrl])
 
   return (
@@ -100,7 +100,7 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
       {/* Header */}
       <div className="mt-5 mb-7">
         <h1
-          className="font-heading text-[1.9rem] font-bold tracking-[0.06em] mt-0 mx-0 mb-[0.3rem] inline-block"
+          className="font-heading text-[1.9rem] font-bold tracking-[0.06em] mt-0 mx-0 mb-1 inline-block"
           style={{
             background: 'linear-gradient(135deg, var(--gold) 0%, var(--gold-bright) 40%, var(--gold) 70%, var(--gold-dim) 100%)',
             WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
@@ -115,7 +115,7 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
       </div>
 
       {/* Input */}
-      <div className="flex gap-[0.6rem] items-center mb-[0.4rem]">
+      <div className="flex gap-2.5 items-center mb-1.5">
         <input
           type="text"
           placeholder={config.placeholder}
@@ -150,7 +150,7 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
               <Link
                 key={r.name}
                 to={`${config.linkPrefix}${encodeURIComponent(r.name)}`}
-                className="flex items-center gap-[0.6rem] py-[0.6rem] px-4 no-underline transition-colors hover:bg-surface-raised"
+                className="flex items-center gap-2.5 py-2.5 px-4 no-underline transition-colors hover:bg-surface-raised"
                 style={{
                   borderBottom: i < results.length - 1 ? '1px solid var(--border)' : 'none',
                 }}

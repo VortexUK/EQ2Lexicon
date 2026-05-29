@@ -53,7 +53,7 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
 
       {/* User */}
       <td className={TD_CLS}>
-        <div className="flex items-center gap-[0.4rem]">
+        <div className="flex items-center gap-1.5">
           <img
             src={discordAvatarUrl(claim.discord_id, claim.avatar)}
             alt=""
@@ -96,7 +96,7 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
         <div className="flex flex-col gap-1">
         {claim.status === 'pending' ? (
           rejectOpen ? (
-            <div className="flex flex-col gap-[0.3rem] min-w-[200px]">
+            <div className="flex flex-col gap-1 min-w-[200px]">
               <textarea
                 placeholder="Optional rejection reason…"
                 value={note}
@@ -104,7 +104,7 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
                 rows={2}
                 className="text-[0.78rem] resize-y w-full box-border"
               />
-              <div className="flex gap-[0.3rem]">
+              <div className="flex gap-1">
                 <Button
                   variant="danger"
                   size="sm"
@@ -119,7 +119,7 @@ function ClaimRow({ claim, onDelete }: { claim: ClaimDetail; onDelete: () => voi
               </div>
             </div>
           ) : (
-            <div className="flex gap-[0.35rem]">
+            <div className="flex gap-1.5">
               <Button
                 variant="primary"
                 size="sm"
@@ -171,7 +171,7 @@ export function ClaimsTable({ claims, onAction }: { claims: ClaimDetail[]; onAct
   return (
     <div>
       {/* Filter pills */}
-      <div className="flex gap-[0.4rem] mb-3">
+      <div className="flex gap-1.5 mb-3">
         {(['pending', 'all'] as const).map(f => {
           const count = f === 'pending' ? pendingCount : claims.length
           return (

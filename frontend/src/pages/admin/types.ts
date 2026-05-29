@@ -1,4 +1,5 @@
 // ── Shared types for the admin sub-tables ─────────────────────────────────────
+import { fmtLocalDateTime } from '../../formatters'
 
 export interface ServerConfig {
   world:        string
@@ -75,7 +76,7 @@ export interface RoleRequest {
 
 export const SECTION_TITLE_CLS = 'text-[0.8rem] uppercase tracking-[0.07em] text-text-muted mb-3 font-semibold'
 export const TABLE_CLS         = 'w-full border-collapse text-[0.875rem]'
-export const TH_CLS            = 'text-left px-3 py-[0.45rem] text-text-muted text-[0.72rem] font-semibold uppercase tracking-[0.05em] border-b border-border whitespace-nowrap'
+export const TH_CLS            = 'text-left px-3 py-2 text-text-muted text-[0.72rem] font-semibold uppercase tracking-[0.05em] border-b border-border whitespace-nowrap'
 export const TD_CLS            = 'px-3 py-2 border-b border-white/5 align-middle'
 
 /** @deprecated Use ACCESS_BADGE_VARIANT + ui/Badge instead. */
@@ -111,7 +112,5 @@ export const CLAIM_BADGE_VARIANT: Record<string, 'warning' | 'success' | 'danger
 // ── Shared helper ─────────────────────────────────────────────────────────────
 
 export function fmt(unix: number): string {
-  return new Date(unix * 1000).toLocaleDateString(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-  })
+  return fmtLocalDateTime(unix)
 }

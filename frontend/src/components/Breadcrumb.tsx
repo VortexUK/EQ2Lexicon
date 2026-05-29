@@ -14,12 +14,12 @@ export default function Breadcrumb({ items }: { items: CrumbItem[] }) {
   return (
     <nav
       aria-label="Breadcrumb"
-      className="flex items-center gap-[0.35rem] mb-3 text-[0.88rem] text-text-muted flex-wrap"
+      className="flex items-center gap-1.5 mb-3 text-[0.88rem] text-text-muted flex-wrap"
     >
       {items.map((item, i) => {
         const isLast = i === items.length - 1
         return (
-          <span key={i} className="flex items-center gap-[0.35rem]">
+          <span key={i} className="flex items-center gap-1.5">
             {i > 0 && (
               <span className="opacity-45 select-none">›</span>
             )}

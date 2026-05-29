@@ -8,7 +8,7 @@ import {
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
-const inputCls = 'w-full appearance-none bg-surface border border-border rounded-md px-3 py-[0.4rem] text-text text-[0.88rem] outline-none focus:border-gold/60'
+const inputCls = 'w-full appearance-none bg-surface border border-border rounded-md px-3 py-1.5 text-text text-[0.88rem] outline-none focus:border-gold/60'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
           <div className="font-heading text-gold text-[1rem] leading-[1.2]">
             {server.display_name}
           </div>
-          <div className="text-text-muted text-[0.78rem] mt-[2px]">
+          <div className="text-text-muted text-[0.78rem] mt-0.5">
             {server.subdomain} · <span className="font-mono text-[0.75rem]">{server.world}</span>
           </div>
         </div>
@@ -179,7 +179,7 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
           </label>
           {noExpansions ? (
             <div>
-              <div className="w-full appearance-none bg-surface border border-border rounded-md px-3 py-[0.4rem] text-text-muted text-[0.88rem] opacity-60 cursor-not-allowed">
+              <div className="w-full appearance-none bg-surface border border-border rounded-md px-3 py-1.5 text-text-muted text-[0.88rem] opacity-60 cursor-not-allowed">
                 {server.current_xpac ?? '—'}
               </div>
               <p className="text-[0.7rem] text-text-muted mt-1 italic">

@@ -61,10 +61,10 @@ export default function RankingsPage() {
       .catch(() => setFilters({ scopes: [] }))
   }, [])
 
-  const scope = useMemo(() => filters.scopes.find(s => s.key === size), [filters, size])
-  const zoneObj = useMemo(() => scope?.zones.find(z => z.zone === zone), [scope, zone])
-  const raidZones = useMemo(() => filters.scopes.find(s => s.key === 'raid')?.zones ?? [], [filters])
-  const groupZones = useMemo(() => filters.scopes.find(s => s.key === 'group')?.zones ?? [], [filters])
+  const scope = filters.scopes.find(s => s.key === size)
+  const zoneObj = scope?.zones.find(z => z.zone === zone)
+  const raidZones = filters.scopes.find(s => s.key === 'raid')?.zones ?? []
+  const groupZones = filters.scopes.find(s => s.key === 'group')?.zones ?? []
   const raidExpansions = filters.raid_expansions ?? []
 
   // Active expansion: explicit ?xpac, else the selected zone's own expansion

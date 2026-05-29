@@ -130,7 +130,7 @@ const CLASS_OPTIONS: { label: string; value: string }[] = [
 
 // ── Shared control style ──────────────────────────────────────────────────────
 
-const CTRL_CLS = 'py-[0.42rem] px-[0.6rem] rounded-[6px] border border-border bg-surface-raised text-text text-[0.88rem] leading-[1.4] [color-scheme:dark]'
+const CTRL_CLS = 'py-1.5 px-2.5 rounded-sm2 border border-border bg-surface-raised text-text text-[0.88rem] leading-[1.4] [color-scheme:dark]'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -349,10 +349,10 @@ export default function ItemSearchFilters({
         {/* Row 3: stat filters */}
         {statFilters.length > 0 && (
           <div className="mb-2">
-            <div className="text-[0.68rem] uppercase tracking-[0.07em] text-text-muted mb-[0.4rem]">
+            <div className="text-[0.68rem] uppercase tracking-[0.07em] text-text-muted mb-1.5">
               Has Stats
             </div>
-            <div className="flex flex-col gap-[0.4rem]">
+            <div className="flex flex-col gap-1.5">
               {statFilters.map(f => (
                 <div key={f.id} className="flex gap-2 items-center">
                   {/* Stat name */}

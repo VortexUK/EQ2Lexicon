@@ -9,7 +9,7 @@ import { Button, Card } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { FreshnessBadge } from '../components/FreshnessBadge'
 import { useCensusStream } from '../hooks/useCensusStream'
-import { fmtRelative } from '../formatters'
+import { fmtLocalDate, fmtRelative } from '../formatters'
 import { GuildRosterTab } from './guild/GuildRosterTab'
 import { GuildSpellCheckTab } from './guild/GuildSpellCheckTab'
 import { GuildAdornCheckTab } from './guild/GuildAdornCheckTab'
@@ -64,7 +64,7 @@ interface ItemWatchEntry {
 
 function InfoStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-[0.1rem]">
+    <div className="flex flex-col gap-0.5">
       <span className="text-[0.68rem] uppercase tracking-[0.07em] text-text-muted">
         {label}
       </span>
@@ -152,7 +152,7 @@ function ClaimRequestsTab({
         const ageStr = age < 1 ? 'just now' : age < 24 ? `${age}h ago` : `${Math.floor(age / 24)}d ago`
 
         return (
-          <div key={c.id} className="flex items-start gap-[0.85rem] py-[0.85rem] border-b border-border">
+          <div key={c.id} className="flex items-start gap-3 py-3 border-b border-border">
             {/* Discord avatar */}
             <img
               src={discordAvatarUrl(c.discord_id, c.avatar)}
@@ -168,18 +168,18 @@ function ClaimRequestsTab({
                 <span className="text-gold font-semibold">{c.character_name}</span>
                 {isOwn && (
                   <span
-                    className="text-[0.68rem] font-bold px-[0.4rem] py-[0.1rem] rounded-sm text-gold uppercase tracking-[0.05em]"
+                    className="text-[0.68rem] font-bold px-1.5 py-px rounded-sm text-gold uppercase tracking-[0.05em]"
                     style={{ background: 'rgba(var(--gold-rgb), 0.15)', border: '1px solid rgba(var(--gold-rgb), 0.3)' }}
                   >Your claim</span>
                 )}
               </div>
-              <div className="text-[0.78rem] text-text-muted mt-[0.15rem]">
+              <div className="text-[0.78rem] text-text-muted mt-0.5">
                 Submitted {ageStr}
               </div>
 
               {/* Reject note input */}
               {rejecting && (
-                <div className="mt-[0.6rem] flex gap-[0.4rem] flex-wrap">
+                <div className="mt-2.5 flex gap-1.5 flex-wrap">
                   <input
                     type="text"
                     placeholder="Reason (optional)…"
@@ -209,11 +209,11 @@ function ClaimRequestsTab({
 
             {/* Action buttons — hidden for own claims and while reject form is open */}
             {!isOwn && !rejecting && (
-              <div className="flex gap-[0.4rem] shrink-0">
+              <div className="flex gap-1.5 shrink-0">
                 <button
                   onClick={() => handleApprove(c.id)}
                   disabled={isBusy}
-                  className="px-[0.85rem] py-[0.3rem] rounded-[5px] cursor-pointer text-[0.85rem] font-semibold"
+                  className="px-3 py-1 rounded-sm cursor-pointer text-[0.85rem] font-semibold"
                   style={{
                     background: 'rgba(var(--success-rgb), 0.15)', color: 'var(--success)',
                     border: '1px solid rgba(var(--success-rgb), 0.35)',
@@ -320,11 +320,11 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
   if (error)   return <p className="text-danger p-4">{error}</p>
 
   return (
-    <div className="px-4 py-[0.85rem]">
+    <div className="px-4 py-3">
 
       {/* Add form */}
       <div className="flex gap-2 flex-wrap items-start mb-[1.1rem] pb-4 border-b border-border">
-        <div className="flex flex-col gap-[0.2rem]">
+        <div className="flex flex-col gap-1">
           <label className="text-[0.7rem] text-text-muted uppercase tracking-[0.06em]">Character</label>
           <input
             type="text"
@@ -335,7 +335,7 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
             className="w-[160px] text-[0.88rem]"
           />
         </div>
-        <div className="flex flex-col gap-[0.2rem]">
+        <div className="flex flex-col gap-1">
           <label className="text-[0.7rem] text-text-muted uppercase tracking-[0.06em]">Item name</label>
           <input
             type="text"
@@ -346,12 +346,12 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
             className="w-[240px] text-[0.88rem]"
           />
         </div>
-        <div className="flex flex-col gap-[0.2rem]">
+        <div className="flex flex-col gap-1">
           <label className="text-[0.7rem] text-transparent select-none">_</label>
           <button
             onClick={handleAdd}
             disabled={adding || !charInput.trim() || !itemInput.trim()}
-            className="px-4 py-[0.42rem] rounded-[6px] cursor-pointer text-[0.88rem] font-semibold"
+            className="px-4 py-1.5 rounded-sm2 cursor-pointer text-[0.88rem] font-semibold"
             style={{
               background: 'rgba(var(--accent-rgb),0.15)',
               color: 'var(--accent)',
@@ -363,7 +363,7 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
           </button>
         </div>
         {addError && (
-          <div className="w-full text-danger text-[0.83rem] mt-[0.2rem]">
+          <div className="w-full text-danger text-[0.83rem] mt-1">
             {addError}
           </div>
         )}
@@ -398,7 +398,7 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
                   <td className={`${TD_CLS} text-[0.85rem] whitespace-nowrap`} style={{ color: colour }}>
                     {icon} {label}
                   </td>
-                  <td className={`${TD_CLS} text-right px-2 py-[0.3rem]`}>
+                  <td className={`${TD_CLS} text-right px-2 py-1`}>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -586,7 +586,7 @@ export default function GuildPage() {
 
         {/* Guild info panel */}
         {info && (
-          <Card className="flex flex-wrap gap-x-6 gap-y-2 px-[1.1rem] py-[0.85rem]">
+          <Card className="flex flex-wrap gap-x-6 gap-y-2 px-[1.1rem] py-3">
             {info.level    != null && <InfoStat label="Guild Level"  value={String(info.level)} />}
             {info.members  != null && <InfoStat label="Characters"   value={String(info.members)} />}
             {info.accounts != null && <InfoStat label="Accounts"     value={String(info.accounts)} />}
@@ -594,12 +594,12 @@ export default function GuildPage() {
             {info.alignment && <InfoStat label="Alignment" value={info.alignment} />}
             {info.type      && <InfoStat label="Type"      value={info.type} />}
             {info.dateformed && (
-              <InfoStat label="Founded" value={new Date(info.dateformed * 1000).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })} />
+              <InfoStat label="Founded" value={fmtLocalDate(info.dateformed)} />
             )}
             {info.description && (
-              <div className="w-full pt-[0.4rem] border-t border-border mt-[0.2rem]">
+              <div className="w-full pt-1.5 border-t border-border mt-1">
                 <span className="text-[0.75rem] text-text-muted uppercase tracking-[0.06em]">Description</span>
-                <p className="text-[0.88rem] text-text mt-[0.2rem] leading-normal">{info.description}</p>
+                <p className="text-[0.88rem] text-text mt-1 leading-normal">{info.description}</p>
               </div>
             )}
           </Card>
@@ -607,7 +607,7 @@ export default function GuildPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-[0.4rem] mb-4 flex-wrap border-b border-border">
+      <div className="flex gap-1.5 mb-4 flex-wrap border-b border-border">
         <TabButton active={tab === 'roster'} onClick={() => switchTab('roster')}>Roster</TabButton>
         <TabButton active={tab === 'spells'} onClick={() => switchTab('spells')}>Spell Check</TabButton>
         <TabButton active={tab === 'adorns'} onClick={() => switchTab('adorns')}>Adorn Check</TabButton>
@@ -621,7 +621,7 @@ export default function GuildPage() {
 
       {/* Filters — hidden on claims and watch tabs */}
       {tab !== 'claims' && tab !== 'watch' && !isLoading && !error && (
-        <div className="mb-3 flex flex-col gap-[0.55rem]">
+        <div className="mb-3 flex flex-col gap-2">
           <input
             type="text"
             placeholder="Filter by name, class or rank…"
@@ -630,7 +630,7 @@ export default function GuildPage() {
             className="max-w-[300px] box-border"
           />
           {ranksOrdered.length > 0 && (
-            <div className="flex items-center gap-[0.4rem] flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[0.72rem] text-text-muted uppercase tracking-[0.06em] mr-[0.2rem]">
                 Ranks
               </span>

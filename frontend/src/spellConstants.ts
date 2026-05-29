@@ -40,8 +40,8 @@ export interface UpgradeMaterialsData {
 // ── Module-level caches ───────────────────────────────────────────────────────
 // Survive re-renders and Vite HMR remounts. Keyed by lower-cased character name.
 
-export const _spellsCache    = new Map<string, CharacterSpellsData>()
-export const _materialsCache = new Map<string, UpgradeMaterialsData>()
+export const spellsCache    = new Map<string, CharacterSpellsData>()
+export const materialsCache = new Map<string, UpgradeMaterialsData>()
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ export default function NotFoundPage() {
       </p>
       <Link
         to="/"
-        className="mt-2 py-2 px-[1.4rem] rounded-[6px] text-gold no-underline text-[0.88rem] font-semibold transition-colors"
+        className="mt-2 py-2 px-[1.4rem] rounded-sm2 text-gold no-underline text-[0.88rem] font-semibold transition-colors"
         style={{ border: '1px solid rgba(var(--gold-rgb), 0.4)' }}
         onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold)')}
         onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(var(--gold-rgb), 0.4)')}

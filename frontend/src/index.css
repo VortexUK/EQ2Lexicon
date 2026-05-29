@@ -45,6 +45,10 @@
 
   --font-heading: 'Cinzel', serif;            /* classical display caps */
   --font-body:    'Spectral', Georgia, serif; /* screen-optimised serif */
+  /* font-mono is permitted for technical content (regex inputs, hex codes,
+     CLI examples, ACT trigger patterns). Game-client tooltip recreations
+     (ItemTooltip, SpellScrollTooltip, AATree) intentionally use Times New
+     Roman via inline style to mirror the EQ2 client; do not migrate those. */
 
   --radius-sm:   4px;
   --radius-sm2:  6px;   /* between sm and md — used by table cells, tooltips */

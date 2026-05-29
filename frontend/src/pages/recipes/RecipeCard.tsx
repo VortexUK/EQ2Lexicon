@@ -35,7 +35,7 @@ export function RecipeCard({ recipe, onAdd, inList, onDec }: RecipeCardProps) {
     <Card className="p-0 overflow-hidden">
       {/* Header row */}
       <div
-        className="flex items-center gap-[0.6rem] px-3 py-[0.55rem] cursor-pointer select-none"
+        className="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none"
         onClick={() => setOpen(v => !v)}
       >
         <span

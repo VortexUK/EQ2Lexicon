@@ -49,7 +49,7 @@ function NotifRow({
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="flex items-center gap-[0.65rem] w-full py-[0.65rem] px-4 border-none text-text cursor-pointer text-left text-[0.88rem] transition-colors"
+      className="flex items-center gap-2.5 w-full py-2.5 px-4 border-none text-text cursor-pointer text-left text-[0.88rem] transition-colors"
       style={{
         background: hovered ? 'var(--surface)' : 'transparent',
         borderBottom: hasBorder ? '1px solid var(--border)' : 'none',
@@ -57,7 +57,7 @@ function NotifRow({
     >
       {/* Count pill */}
       <span
-        className="rounded-sm text-[0.68rem] font-bold py-[0.15rem] px-[0.45rem] min-w-[22px] text-center shrink-0"
+        className="rounded-sm text-[0.68rem] font-bold py-0.5 px-2 min-w-[22px] text-center shrink-0"
         style={{
           background: accentBg,
           color:      accentColor,
@@ -121,7 +121,7 @@ export default function NotificationBell() {
       <button
         onClick={() => setOpen(v => !v)}
         title="Pending notifications"
-        className="flex items-center gap-[0.35rem] bg-none rounded-[6px] py-[0.3rem] px-[0.55rem] cursor-pointer text-gold text-[0.82rem] leading-none transition-colors"
+        className="flex items-center gap-1.5 bg-none rounded-sm2 py-1 px-2 cursor-pointer text-gold text-[0.82rem] leading-none transition-colors"
         style={{ border: '1px solid rgba(var(--gold-rgb), 0.35)' }}
         onMouseEnter={e => {
           e.currentTarget.style.borderColor = 'rgba(var(--gold-rgb), 0.7)'
@@ -134,7 +134,7 @@ export default function NotificationBell() {
       >
         <BellIcon />
         <span
-          className="text-[0.65rem] font-bold leading-none py-[0.12rem] px-[0.32rem] rounded-[10px] min-w-[16px] text-center bg-danger text-white"
+          className="text-[0.65rem] font-bold leading-none py-0.5 px-1.5 rounded-full min-w-[16px] text-center bg-danger text-white"
         >
           {total}
         </span>
@@ -143,12 +143,12 @@ export default function NotificationBell() {
       {/* Dropdown */}
       {open && (
         <div
-          className="absolute right-0 bg-surface-raised border border-border rounded-md min-w-[240px] z-[300] overflow-hidden"
-          style={{ top: 'calc(100% + 6px)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+          className="absolute right-0 top-[calc(100%+6px)] bg-surface-raised border border-border rounded-md min-w-[240px] z-dropdown overflow-hidden"
+          style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
         >
 
           {/* Header */}
-          <div className="py-[0.45rem] px-4 text-[0.66rem] uppercase tracking-[0.08em] text-text-muted border-b border-border font-heading">
+          <div className="py-2 px-4 text-[0.66rem] uppercase tracking-[0.08em] text-text-muted border-b border-border font-heading">
             Needs Attention
           </div>
 

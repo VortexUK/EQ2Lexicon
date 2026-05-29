@@ -50,6 +50,10 @@ interface Props {
   onReload: () => Promise<void> | void
 }
 
+// ── DnD timing constants ──────────────────────────────────────────────────────
+const DND_TOUCH_DELAY_MS    = 250
+const DND_TOUCH_TOLERANCE_PX = 5
+
 // ── Shared input class (avoids white UA background on raw inputs) ──────────────
 const inputCls =
   'w-full appearance-none bg-surface border border-border rounded-md px-3 py-1 text-text outline-none focus:border-gold/60 text-[0.88rem]'
@@ -67,7 +71,7 @@ export function BossRosterEditor({ zoneName, encounters, onReload }: Props) {
     useSensor(PointerSensor),
     // TouchSensor with a 250 ms long-press activation so a tap-and-drag is
     // unambiguously a reorder and a quick swipe still scrolls the page on iOS.
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: DND_TOUCH_DELAY_MS, tolerance: DND_TOUCH_TOLERANCE_PX } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
@@ -547,7 +551,7 @@ function MobRow({ mob, isPrimary, canDelete, canPromote, onRename, onPromote, on
         <button
           type="button"
           className="appearance-none border-0 bg-transparent text-[0.72rem] text-gold-dim hover:text-gold px-1"
-          onClick={() => { setEditing(true); setTimeout(() => inputRef.current?.focus(), 0) }}
+          onClick={() => { setEditing(true); /* 0 ms: defer focus until after the input is attached to the DOM */ setTimeout(() => inputRef.current?.focus(), 0) }}
           title="Rename"
         >
           Rename

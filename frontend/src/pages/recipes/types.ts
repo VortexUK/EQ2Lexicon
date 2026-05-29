@@ -106,11 +106,11 @@ export const CLASS_OPTIONS: { label: string; value: string }[] = [
   { label: '  Beastlord',    value: 'beastlord' },
 ]
 
-export const CTRL_CLS = 'bg-surface border border-border rounded-[6px] text-text text-[0.88rem] py-[0.35rem] px-[0.6rem] outline-none w-full box-border'
+export const CTRL_CLS = 'bg-surface border border-border rounded-sm2 text-text text-[0.88rem] py-1.5 px-2.5 outline-none w-full box-border'
 
 // ── XML download ──────────────────────────────────────────────────────────────
 
-function _xmlEsc(s: string): string {
+function xmlEsc(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -123,13 +123,13 @@ export function downloadShoppingListXml(list: ShoppingEntry[], summary: Ingredie
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<shoppinglist>',
     '  <spells>',
-    ...list.map(e => `    <spell Name="${_xmlEsc(e.recipeName)}">${e.qty}</spell>`),
+    ...list.map(e => `    <spell Name="${xmlEsc(e.recipeName)}">${e.qty}</spell>`),
     '  </spells>',
     '  <materials>',
-    ...summary.regular.map(m => `    <material Name="${_xmlEsc(m.name)}">${m.total}</material>`),
+    ...summary.regular.map(m => `    <material Name="${xmlEsc(m.name)}">${m.total}</material>`),
     '  </materials>',
     '  <fuels>',
-    ...summary.fuel.map(f => `    <fuel Name="${_xmlEsc(f.name)}">${f.total}</fuel>`),
+    ...summary.fuel.map(f => `    <fuel Name="${xmlEsc(f.name)}">${f.total}</fuel>`),
     '  </fuels>',
     '</shoppinglist>',
   ]

@@ -169,7 +169,7 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
       <td className={`${TD_CLS} whitespace-nowrap`}>
         <div className="flex flex-col gap-1">
           {kickConfirm ? (
-            <div className="flex items-center gap-[0.35rem] flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[0.75rem] text-danger">Kick + delete all claims?</span>
               <Button variant="danger" size="sm" onClick={() => doAccess('kick')} disabled={busy}>
                 {busy ? '…' : 'Confirm'}
@@ -177,7 +177,7 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
               <Button variant="ghost" size="sm" onClick={() => setKickConfirm(false)}>Cancel</Button>
             </div>
           ) : (
-            <div className="flex gap-[0.35rem] flex-wrap">
+            <div className="flex gap-1.5 flex-wrap">
               {user.access_status !== 'approved' && (
                 <Button variant="primary" size="sm" onClick={() => doAccess('approve')} disabled={busy}>
                   Approve
@@ -223,7 +223,7 @@ export function UsersTable({ users, onAction }: { users: UserItem[]; onAction: (
   return (
     <div>
       {/* Filter pills */}
-      <div className="flex gap-[0.4rem] mb-3 flex-wrap">
+      <div className="flex gap-1.5 mb-3 flex-wrap">
         {(['all', 'pending', 'approved', 'denied'] as const).map(f => (
           <FilterPill key={f} active={filter === f} onClick={() => setFilter(f)}>
             {f.charAt(0).toUpperCase() + f.slice(1)} <span className="opacity-70 text-[0.7rem]">({counts[f]})</span>

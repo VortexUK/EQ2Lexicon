@@ -24,7 +24,7 @@ export function FilterPill({
       type="button"
       onClick={onClick}
       title={title}
-      className={`cursor-pointer appearance-none whitespace-nowrap rounded-pill border px-[0.85rem] py-[0.35rem] text-[0.82rem] transition-colors ${
+      className={`cursor-pointer appearance-none whitespace-nowrap rounded-pill border px-3 py-1.5 text-[0.82rem] transition-colors ${
         active
           ? 'border-gold/50 bg-gold/15 font-semibold text-gold-bright'
           : 'border-border bg-surface font-medium text-text-muted hover:border-gold/40 hover:text-text'

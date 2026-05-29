@@ -53,38 +53,38 @@ interface AATreeProps {
 
 // ── Coordinate systems (native 640×480 space) ─────────────────────────────────
 
-const _COL_X: Record<number, number> = { 1: 86, 4: 206, 7: 327, 10: 447, 13: 567 }
-const _CLASS_BASE_Y = 42
-const _CLASS_ROW_H  = (442 - 42) / 6  // ≈ 66.67
+const COL_X: Record<number, number> = { 1: 86, 4: 206, 7: 327, 10: 447, 13: 567 }
+const CLASS_BASE_Y = 42
+const CLASS_ROW_H  = (442 - 42) / 6  // ≈ 66.67
 
 function classCoord(x: number, y: number): [number, number] {
-  return [_COL_X[x] ?? 320, _CLASS_BASE_Y + y * _CLASS_ROW_H]
+  return [COL_X[x] ?? 320, CLASS_BASE_Y + y * CLASS_ROW_H]
 }
 
-const _SUB_ANCHOR_X  = 234
-const _SUB_ANCHOR_XC = 15
-const _SUB_STEP_X    = 155 / 12         // ≈ 12.917
-const _SUB_BASE_Y    = 42
-const _SUB_STEP_Y    = (442 - 42) / 19  // ≈ 21.05
+const SUB_ANCHOR_X  = 234
+const SUB_ANCHOR_XC = 15
+const SUB_STEP_X    = 155 / 12         // ≈ 12.917
+const SUB_BASE_Y    = 42
+const SUB_STEP_Y    = (442 - 42) / 19  // ≈ 21.05
 
 function subclassCoord(x: number, y: number): [number, number] {
   return [
-    _SUB_ANCHOR_X + (x - _SUB_ANCHOR_XC) * _SUB_STEP_X,
-    _SUB_BASE_Y   + y * _SUB_STEP_Y,
+    SUB_ANCHOR_X + (x - SUB_ANCHOR_XC) * SUB_STEP_X,
+    SUB_BASE_Y   + y * SUB_STEP_Y,
   ]
 }
 
 // bg_shadows.png is 632×472 native; scale to 640×480
-const _SHAD_NW = 632
-const _SHAD_NH = 472
-const _SHAD_AX = 40
-const _SHAD_SX = 13
-const _SHAD_ROW_Y: Record<number, number> = { 1: 59, 6: 166, 11: 273, 16: 377 }
+const SHAD_NW = 632
+const SHAD_NH = 472
+const SHAD_AX = 40
+const SHAD_SX = 13
+const SHAD_ROW_Y: Record<number, number> = { 1: 59, 6: 166, 11: 273, 16: 377 }
 
 function shadowsCoord(x: number, y: number): [number, number] {
   return [
-    ((_SHAD_AX + x * _SHAD_SX) / _SHAD_NW) * 640,
-    (_SHAD_ROW_Y[y] ?? 240) / _SHAD_NH * 480,
+    ((SHAD_AX + x * SHAD_SX) / SHAD_NW) * 640,
+    (SHAD_ROW_Y[y] ?? 240) / SHAD_NH * 480,
   ]
 }
 

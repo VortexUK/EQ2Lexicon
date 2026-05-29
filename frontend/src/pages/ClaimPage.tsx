@@ -63,7 +63,7 @@ function ClaimForm({ onSubmitted, label = 'Request claim' }: {
         </Button>
       </div>
       {error && (
-        <p className="text-danger text-[0.85rem] mt-[0.4rem]">{error}</p>
+        <p className="text-danger text-[0.85rem] mt-1.5">{error}</p>
       )}
     </form>
   )
@@ -99,10 +99,10 @@ function ApprovedRow({ claim, onUpdate }: { claim: Claim; onUpdate: () => void }
   const isPrimary = claim.is_primary === 1
 
   return (
-    <div className="flex items-center gap-[0.6rem] py-[0.55rem] border-b border-border">
+    <div className="flex items-center gap-2.5 py-2 border-b border-border">
       {/* Primary / Alt badge */}
       <span
-        className="text-[0.68rem] font-bold tracking-[0.05em] py-[0.15rem] px-[0.45rem] rounded-sm border shrink-0 uppercase"
+        className="text-[0.68rem] font-bold tracking-[0.05em] py-0.5 px-2 rounded-sm border shrink-0 uppercase"
         style={{
           background: isPrimary ? 'rgba(var(--accent-rgb), 0.18)' : 'var(--surface-raised)',
           color: isPrimary ? '#4ade80' : 'var(--text-muted)',
@@ -122,7 +122,7 @@ function ApprovedRow({ claim, onUpdate }: { claim: Claim; onUpdate: () => void }
       </Button>
 
       {/* Actions */}
-      <div className="ml-auto flex gap-[0.4rem] items-center">
+      <div className="ml-auto flex gap-1.5 items-center">
         {!isPrimary && (
           <Button
             variant="secondary"
@@ -250,7 +250,7 @@ export default function ClaimPage() {
             <Card className={CARD_CLS}>
               {!hasAny ? (
                 <>
-                  <div className="font-semibold mb-[0.4rem]">Claim your character</div>
+                  <div className="font-semibold mb-1.5">Claim your character</div>
                   <p className="text-text-muted text-[0.88rem] mb-0">
                     Enter your character's name exactly as it appears in-game.
                   </p>

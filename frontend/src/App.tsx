@@ -1,5 +1,4 @@
 ﻿import { lazy, Suspense } from 'react'
-import type { CSSProperties } from 'react'
 import { Routes, Route, Outlet, NavLink, useLocation } from 'react-router-dom'
 import { DiscordButton } from './components/ui/DiscordButton'
 import HomePage from './pages/HomePage'
@@ -73,17 +72,9 @@ function stablePathKey(pathname: string): string {
   return m ? m[1] : pathname
 }
 
-const navLinkStyle = ({ isActive }: { isActive: boolean }): CSSProperties => ({
-  fontFamily: "var(--font-heading)",
-  fontSize: '0.82rem',
-  fontWeight: 600,
-  letterSpacing: '0.07em',
-  textDecoration: 'none',
+const navLinkStyle = ({ isActive }: { isActive: boolean }) => ({
   color: isActive ? 'var(--gold-bright)' : 'var(--gold-dim)',
   borderBottom: isActive ? '1px solid var(--gold)' : '1px solid transparent',
-  paddingBottom: '2px',
-  transition: 'color 0.15s, border-color 0.15s',
-  whiteSpace: 'nowrap',
 })
 
 /**
@@ -128,7 +119,7 @@ function ServerBadge() {
     <div className="flex items-center gap-2 ml-2">
       {/* Active server name */}
       <span
-        className="font-heading text-[0.7rem] font-semibold tracking-[0.12em] uppercase px-[0.45rem] py-[0.2rem] rounded-sm"
+        className="font-heading text-[0.7rem] font-semibold tracking-[0.12em] uppercase px-2 py-[0.2rem] rounded-sm"
         style={{
           color: 'var(--gold)',
           background: 'rgba(var(--gold-rgb), 0.1)',
@@ -145,7 +136,7 @@ function ServerBadge() {
             <a
               key={s.world}
               href={buildSwitchUrl(s.subdomain, activeSubdomain)}
-              className="font-heading text-[0.65rem] font-semibold tracking-[0.1em] uppercase px-[0.4rem] py-[0.18rem] rounded-sm no-underline transition-colors duration-150 text-gold-dim bg-transparent border border-gold/15 hover:text-gold hover:border-gold/35"
+              className="font-heading text-[0.65rem] font-semibold tracking-[0.1em] uppercase px-1.5 py-[0.18rem] rounded-sm no-underline transition-colors duration-150 text-gold-dim bg-transparent border border-gold/15 hover:text-gold hover:border-gold/35"
               title={`Switch to ${s.displayName}`}
             >
               {s.displayName}
@@ -161,7 +152,12 @@ function NavItem({ to, label, also }: { to: string; label: string; also?: string
   const { pathname } = useLocation()
   const isActive = pathname === to || (also ? pathname.startsWith(also) : false)
   return (
-    <NavLink to={to} end style={() => navLinkStyle({ isActive })}>
+    <NavLink
+      to={to}
+      end
+      className="font-heading text-[0.82rem] font-semibold tracking-[0.07em] no-underline pb-[2px] transition-[color,border-color] duration-150 whitespace-nowrap"
+      style={() => navLinkStyle({ isActive })}
+    >
       {label}
     </NavLink>
   )
@@ -229,7 +225,7 @@ function Layout() {
 
   return (
     <>
-      <div className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between py-[0.4rem] px-5 bg-bg/75 backdrop-blur-md border-b border-border">
+      <div className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between py-1.5 px-5 bg-bg/75 backdrop-blur-md border-b border-border">
         <div className="flex items-center">
           <Link to="/" className="flex items-center leading-none">
             <img src={logo} alt="EQ2 Lexicon" className="h-10 w-auto" />
@@ -240,7 +236,7 @@ function Layout() {
         <div className="hidden lg:block">
           <NavLinks />
         </div>
-        <div className="flex items-center gap-[0.6rem]">
+        <div className="flex items-center gap-2.5">
           {/* ACT download icon: lg+ only (it's also in the MobileNav drawer). */}
           {/* The wrapper pins the rendered height to match the
               UserWidget button next to it (Tailwind h-11 = 44px); the

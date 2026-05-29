@@ -77,7 +77,7 @@ function RoleRequestRow({ request, onAction }: { request: RoleRequest; onAction:
                 placeholder={noteOpen === 'approve' ? 'Optional note (e.g. welcome message)' : 'Optional reason (visible to the requester)'}
                 className="w-full bg-bg/60 border border-border rounded-md p-2 text-[0.82rem] text-text outline-none focus:border-gold/60 resize-y"
               />
-              <div className="flex items-center gap-[0.35rem] justify-end">
+              <div className="flex items-center gap-1.5 justify-end">
                 <Button variant="ghost" size="sm" onClick={() => { setNoteOpen(null); setAdminNote('') }} disabled={busy}>Cancel</Button>
                 <Button
                   variant={noteOpen === 'approve' ? 'primary' : 'danger'}
@@ -90,7 +90,7 @@ function RoleRequestRow({ request, onAction }: { request: RoleRequest; onAction:
               </div>
             </div>
           ) : (
-            <div className="flex gap-[0.35rem] flex-wrap">
+            <div className="flex gap-1.5 flex-wrap">
               <Button variant="primary" size="sm" disabled={busy} onClick={() => setNoteOpen('approve')}>
                 Approve
               </Button>

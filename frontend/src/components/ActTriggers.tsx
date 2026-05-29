@@ -350,7 +350,7 @@ function TriggerDetail({ trigger, timer }: { trigger: Trigger; timer: SpellTimer
 
 function SpellTimerDetail({ timer }: { timer: SpellTimer }) {
   return (
-    <div className="mt-1 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-[2px] text-[0.78rem]">
+    <div className="mt-1 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-[0.78rem]">
       <Mini>Duration</Mini>     <span className="text-text">{timer.timer_duration_s}s</span>
       <Mini>Warning</Mini>      <span className="text-text">{timer.warning_value}s before end</span>
       <Mini>Colour</Mini>       <span className="flex items-center gap-2 text-text"><Swatch packed={timer.fill_color} /> <code className="font-mono text-[0.72rem]">{argbToHex(timer.fill_color)}</code></span>

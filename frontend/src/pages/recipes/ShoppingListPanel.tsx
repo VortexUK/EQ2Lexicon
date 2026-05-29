@@ -39,7 +39,7 @@ export function ShoppingListPanel({
 }: ShoppingListPanelProps) {
   return (
     <Card className="p-4 self-start sticky top-16 max-h-[calc(100vh-5rem)] overflow-y-auto">
-      <div className="flex justify-between items-center mb-[0.8rem]">
+      <div className="flex justify-between items-center mb-3">
         <h2 className="m-0 text-base font-heading text-gold">
           Shopping List
         </h2>
@@ -67,7 +67,7 @@ export function ShoppingListPanel({
 
       {/* View options */}
       {list.length > 0 && (
-        <label className="flex items-center gap-[0.4rem] text-[0.76rem] text-text-muted cursor-pointer mb-[0.6rem] select-none">
+        <label className="flex items-center gap-1.5 text-[0.76rem] text-text-muted cursor-pointer mb-2.5 select-none">
           <input
             type="checkbox"
             checked={showMats}
@@ -80,7 +80,7 @@ export function ShoppingListPanel({
 
       {/* List entries */}
       {list.map(entry => (
-        <div key={entry.recipeId} className="border-b border-border pb-[0.55rem] mb-[0.55rem]">
+        <div key={entry.recipeId} className="border-b border-border pb-2 mb-2">
           <div className="flex items-center gap-2" style={{ marginBottom: showMats ? '0.2rem' : 0 }}>
             <span className="text-[0.85rem] flex-1 leading-[1.3]">{entry.recipeName}</span>
             <div className="flex items-center gap-1 shrink-0">
@@ -98,13 +98,13 @@ export function ShoppingListPanel({
       {/* Ingredient Summary */}
       {list.length > 0 && (
         <div className="mt-2">
-          <h3 className="text-[0.82rem] text-text-muted mt-0 mx-0 mb-[0.4rem] uppercase tracking-[0.06em]">
+          <h3 className="text-[0.82rem] text-text-muted mt-0 mx-0 mb-1.5 uppercase tracking-[0.06em]">
             Ingredient Summary
           </h3>
 
           {summary.regular.length > 0 && (
             <>
-              <p className="text-[0.72rem] text-text-muted mt-[0.4rem] mx-0 mb-[0.2rem] font-semibold">Materials</p>
+              <p className="text-[0.72rem] text-text-muted mt-1.5 mx-0 mb-1 font-semibold">Materials</p>
               {summary.regular.map(row => (
                 <div key={row.name} className="flex justify-between text-[0.8rem] py-px px-0">
                   <span className="text-text">{row.name}</span>
@@ -116,7 +116,7 @@ export function ShoppingListPanel({
 
           {summary.fuel.length > 0 && (
             <>
-              <p className="text-[0.72rem] text-text-muted mt-[0.7rem] mx-0 mb-[0.2rem] font-semibold">
+              <p className="text-[0.72rem] text-text-muted mt-3 mx-0 mb-1 font-semibold">
                 Fuel
               </p>
               {summary.fuel.map(row => (

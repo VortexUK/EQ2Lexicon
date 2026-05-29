@@ -64,7 +64,7 @@ function CharacterCard({ claim, detail, isPrimary }: {
 
         {/* Character name */}
         <div
-          className="font-heading text-[1.25rem] font-bold tracking-[0.04em] leading-[1.15] mb-[0.2rem]"
+          className="font-heading text-[1.25rem] font-bold tracking-[0.04em] leading-[1.15] mb-1"
           style={{
             color: isPrimary ? 'var(--rarity-legendary)' : 'var(--rarity-treasured)',
             textShadow: isPrimary
@@ -92,7 +92,7 @@ function CharacterCard({ claim, detail, isPrimary }: {
         </div>
 
         {/* Stats row */}
-        <div className="flex flex-col gap-[0.28rem]">
+        <div className="flex flex-col gap-1">
           {/* Adventure class */}
           <div className="flex items-baseline gap-2">
             {detail ? (
@@ -154,7 +154,7 @@ function GuildsSidebar({ approved }: { approved: Claim[] }) {
 
   return (
     <aside className="w-full md:w-[210px] md:shrink-0">
-      <h2 className="font-heading text-[0.88rem] font-semibold tracking-[0.1em] uppercase text-gold/70 mt-0 mx-0 mb-[0.85rem]">
+      <h2 className="font-heading text-[0.88rem] font-semibold tracking-[0.1em] uppercase text-gold/70 mt-0 mx-0 mb-3">
         My Guilds
       </h2>
 
@@ -163,7 +163,7 @@ function GuildsSidebar({ approved }: { approved: Claim[] }) {
           <Link
             key={name}
             to={`/guild/${encodeURIComponent(name)}`}
-            className="flex items-center justify-between py-[0.6rem] px-[0.85rem] no-underline [transition:background_0.1s]"
+            className="flex items-center justify-between py-2.5 px-3 no-underline [transition:background_0.1s]"
             style={{
               borderBottom: i < guilds.length - 1 ? '1px solid var(--border)' : 'none',
             }}
@@ -173,7 +173,7 @@ function GuildsSidebar({ approved }: { approved: Claim[] }) {
             <span className="font-heading text-[0.82rem] text-gold font-medium tracking-[0.02em] overflow-hidden text-ellipsis whitespace-nowrap flex-1 mr-2">
               {name}
             </span>
-            <span className="text-[0.72rem] text-text-muted bg-surface-raised border border-border rounded-[10px] py-[0.05rem] px-[0.45rem] shrink-0">
+            <span className="text-[0.72rem] text-text-muted bg-surface-raised border border-border rounded-full py-px px-2 shrink-0">
               {count}
             </span>
           </Link>
@@ -266,7 +266,7 @@ function MyCharacters() {
         </div>
 
         {/* Cards grid */}
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-[0.85rem]">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
           {approved.map(c => (
             <CharacterCard
               key={c.id}

@@ -24,7 +24,7 @@ export default function CensusStatus() {
 
   return (
     <span
-      className="inline-flex items-center gap-[0.35rem]"
+      className="inline-flex items-center gap-1.5"
       title={tooltip}
     >
       <span

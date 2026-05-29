@@ -1,5 +1,4 @@
-import type { CSSProperties } from 'react'
-import { useCallback, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 
 import Breadcrumb from '../components/Breadcrumb'
 import { Button, Card } from '../components/ui'
@@ -21,6 +20,10 @@ interface MintResponse {
   token: string
   row: TokenRow
 }
+
+// ── Timing constants ─────────────────────────────────────────────────────────
+
+const COPY_FEEDBACK_DURATION_MS = 1500
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -92,7 +95,7 @@ export default function TokensPage() {
     try {
       await navigator.clipboard.writeText(mintedToken)
       setCopyState('copied')
-      setTimeout(() => setCopyState('idle'), 1500)
+      setTimeout(() => setCopyState('idle'), COPY_FEEDBACK_DURATION_MS)
     } catch {
       // older browsers — leave it visible for manual copy
     }
@@ -135,7 +138,7 @@ export default function TokensPage() {
 
       {tokens && tokens.length > 0 && (
         <Card className="p-0 overflow-hidden">
-          <div style={tableHeaderRow}>
+          <div className={tableHeaderRow}>
             <div>Name</div>
             <div>Token</div>
             <div>Created</div>
@@ -143,10 +146,7 @@ export default function TokensPage() {
             <div></div>
           </div>
           {tokens.map(t => (
-            <div key={t.id} style={{
-              ...tableRow,
-              opacity: t.revoked_at ? 0.55 : 1,
-            }}>
+            <div key={t.id} className={tableRow} style={{ opacity: t.revoked_at ? 0.55 : 1 }}>
               <div>{t.name}</div>
               <div className="font-mono text-[0.82rem] text-text-muted">
                 {t.token_prefix}…
@@ -168,16 +168,18 @@ export default function TokensPage() {
       )}
 
       {mintOpen && (
-        <MintModal
-          name={mintName}
-          setName={setMintName}
-          mintedToken={mintedToken}
-          minting={minting}
-          onMint={onMint}
-          onClose={closeMint}
-          onCopy={onCopy}
-          copyState={copyState}
-        />
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-modal p-4" onClick={closeMint}>
+          <MintModal
+            name={mintName}
+            setName={setMintName}
+            mintedToken={mintedToken}
+            minting={minting}
+            onMint={onMint}
+            onClose={closeMint}
+            onCopy={onCopy}
+            copyState={copyState}
+          />
+        </div>
       )}
     </main>
   )
@@ -198,11 +200,10 @@ function MintModal({
   copyState: 'idle' | 'copied'
 }) {
   return (
-    <div style={modalOverlay} onClick={onClose}>
-      <div style={modalContent} onClick={e => e.stopPropagation()}>
+    <div style={modalContent} onClick={e => e.stopPropagation()}>
         {mintedToken ? (
           <>
-            <h2 style={modalTitle}>Token created</h2>
+            <h2 className="font-heading text-gold text-[1.25rem] mb-2 mt-0">Token created</h2>
             <p className="text-text-muted text-[0.85rem]">
               Copy this token now and paste it into your ACT plugin. You won't be able to see it again —
               if you lose it, revoke it and create a new one.
@@ -224,7 +225,7 @@ function MintModal({
           </>
         ) : (
           <>
-            <h2 style={modalTitle}>New API token</h2>
+            <h2 className="font-heading text-gold text-[1.25rem] mb-2 mt-0">New API token</h2>
             <p className="text-text-muted text-[0.85rem]">
               Give the token a name so you can recognise it later (e.g. "Desktop ACT" or "Laptop").
             </p>
@@ -236,7 +237,7 @@ function MintModal({
               onChange={e => setName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && name.trim() && !minting) onMint() }}
               maxLength={64}
-              className="w-full bg-surface border border-border rounded-md text-text text-[0.92rem] py-2 px-[0.7rem] mt-[0.6rem] mb-4 box-border"
+              className="w-full bg-surface border border-border rounded-md text-text text-[0.92rem] py-2 px-[0.7rem] mt-2.5 mb-4 box-border"
             />
             <div className="flex gap-2 justify-end">
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -247,46 +248,18 @@ function MintModal({
           </>
         )}
       </div>
-    </div>
   )
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
-const tableHeaderRow: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(120px, 1.4fr) minmax(120px, 1fr) 140px 160px 90px',
-  gap: '0.6rem',
-  padding: '0.55rem 0.85rem',
-  borderBottom: '1px solid var(--border)',
-  fontSize: '0.72rem',
-  textTransform: 'uppercase',
-  letterSpacing: '0.06em',
-  color: 'var(--text-muted)',
-}
+const tableHeaderRow =
+  'grid grid-cols-[minmax(120px,1.4fr)_minmax(120px,1fr)_140px_160px_90px] gap-x-[0.6rem] px-[0.85rem] py-[0.55rem] border-b border-border text-[0.72rem] uppercase tracking-[0.06em] text-text-muted'
 
-const tableRow: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(120px, 1.4fr) minmax(120px, 1fr) 140px 160px 90px',
-  gap: '0.6rem',
-  padding: '0.55rem 0.85rem',
-  borderBottom: '1px solid var(--border)',
-  alignItems: 'center',
-  fontSize: '0.88rem',
-}
+const tableRow =
+  'grid grid-cols-[minmax(120px,1.4fr)_minmax(120px,1fr)_140px_160px_90px] gap-x-[0.6rem] px-[0.85rem] py-[0.55rem] border-b border-border items-center text-[0.88rem]'
 
-const modalOverlay: CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0, 0, 0, 0.7)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '1rem',
-}
-
-const modalContent: CSSProperties = {
+const modalContent: React.CSSProperties = {
   background: '#1a1d27',
   border: '1px solid var(--border)',
   borderRadius: 8,
@@ -294,11 +267,4 @@ const modalContent: CSSProperties = {
   maxWidth: 520,
   width: '100%',
   boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
-}
-
-const modalTitle: CSSProperties = {
-  fontFamily: 'var(--font-heading)',
-  color: 'var(--gold)',
-  margin: '0 0 0.5rem',
-  fontSize: '1.25rem',
 }

@@ -9,8 +9,8 @@ import {
   type CharacterSpellsData,
   type Ingredient,
   type UpgradeMaterialsData,
-  _spellsCache,
-  _materialsCache,
+  spellsCache,
+  materialsCache,
   SPELL_TIER_ORDER,
   SPELL_TIER_ICON,
   SPELL_TIER_COLOURS,
@@ -18,35 +18,35 @@ import {
 
 // ── Shopping-list types (mirrors RecipesPage.tsx) ─────────────────────────────
 
-const _SHOPPING_KEY = 'eq2-shopping-list'
+const SHOPPING_KEY = 'eq2-shopping-list'
 
-interface _ShoppingIngredient { description: string; quantity: number }
+interface ShoppingIngredient { description: string; quantity: number }
 
-interface _ShoppingEntry {
+interface ShoppingEntry {
   recipeId:        number
   recipeName:      string
   qty:             number
   primary_comp:    string | null
   primary_qty:     number | null
-  secondary_comps: _ShoppingIngredient[]
+  secondary_comps: ShoppingIngredient[]
   fuel_comp:       string | null
   fuel_qty:        number | null
 }
 
-interface _UpgradeRecipe {
+interface UpgradeRecipe {
   id:              number
   name:            string
   primary_comp:    string | null
   primary_qty:     number | null
-  secondary_comps: _ShoppingIngredient[]
+  secondary_comps: ShoppingIngredient[]
   fuel_comp:       string | null
   fuel_qty:        number | null
 }
 
 // ── Spell table styles ────────────────────────────────────────────────────────
 
-const _SPELL_TH_CLS = 'py-[0.4rem] px-[0.6rem] text-[0.7rem] uppercase tracking-[0.05em] text-text-muted font-semibold whitespace-nowrap text-left'
-const _SPELL_TD_CLS = 'py-[0.35rem] px-[0.6rem] text-[0.88rem] whitespace-nowrap'
+const SPELL_TH_CLS = 'py-1.5 px-2.5 text-[0.7rem] uppercase tracking-[0.05em] text-text-muted font-semibold whitespace-nowrap text-left'
+const SPELL_TD_CLS = 'py-1.5 px-2.5 text-[0.88rem] whitespace-nowrap'
 
 // ── Spell Raid Ready card ─────────────────────────────────────────────────────
 
@@ -60,10 +60,10 @@ function SpellRaidReady({ expertOrBetter, totalSpells }: { expertOrBetter: numbe
     <div className="mb-3">
       <SectionLabel>Raid Ready</SectionLabel>
       <div
-        className="bg-surface border rounded-[5px] py-2 px-2.5"
+        className="bg-surface border rounded-sm py-2 px-2.5"
         style={{ borderColor: raidReady ? 'rgba(74,222,128,0.25)' : 'var(--border)' }}
       >
-        <div className="flex items-center gap-[0.6rem]">
+        <div className="flex items-center gap-2.5">
           <div
             className="font-heading text-[2rem] font-bold leading-none shrink-0 min-w-[3ch] text-center"
             style={{ color, textShadow: `0 0 20px ${color}55` }}
@@ -71,7 +71,7 @@ function SpellRaidReady({ expertOrBetter, totalSpells }: { expertOrBetter: numbe
             {pct}%
           </div>
           <div className="flex-1">
-            <div className="text-[0.78rem] font-semibold mb-[0.2rem]" style={{ color: raidReady ? 'var(--success)' : 'var(--danger)' }}>
+            <div className="text-[0.78rem] font-semibold mb-1" style={{ color: raidReady ? 'var(--success)' : 'var(--danger)' }}>
               {raidReady ? '✓ Raid Ready' : '✗ Not Ready'}
             </div>
             <div className="text-[0.68rem] text-text-muted leading-[1.5]">
@@ -82,9 +82,9 @@ function SpellRaidReady({ expertOrBetter, totalSpells }: { expertOrBetter: numbe
             </div>
           </div>
         </div>
-        <div className="mt-[7px] h-1 rounded-[2px] bg-border overflow-hidden">
+        <div className="mt-2 h-1 rounded-full bg-border overflow-hidden">
           <div
-            className="h-full rounded-[2px] [transition:width_0.3s_ease]"
+            className="h-full rounded-full [transition:width_0.3s_ease]"
             style={{ width: `${pct}%`, background: color }}
           />
         </div>
@@ -107,12 +107,12 @@ function SpellProgressBar({ label, subtitle, value, total, pct, color }: {
   const done    = clamped >= 100
   return (
     <div className="pt-[5px] pb-[7px]">
-      <div className="flex justify-between items-baseline mb-[2px]">
+      <div className="flex justify-between items-baseline mb-0.5">
         <span className="text-[0.78rem] font-semibold" style={{ color: done ? color : 'var(--text)' }}>{label}</span>
         <span className="text-[0.78rem] text-text-muted">{value}/{total}</span>
       </div>
-      <div className="h-[6px] rounded-[3px] bg-border overflow-hidden mb-[2px]">
-        <div className="h-full rounded-[3px] [transition:width_0.3s]" style={{ width: `${clamped}%`, background: color }} />
+      <div className="h-[6px] rounded-full bg-border overflow-hidden mb-0.5">
+        <div className="h-full rounded-full [transition:width_0.3s]" style={{ width: `${clamped}%`, background: color }} />
       </div>
       <div className="flex justify-between items-baseline">
         <span className="text-[0.68rem] text-text-muted">{subtitle}</span>
@@ -126,7 +126,7 @@ function SpellProgressBar({ label, subtitle, value, total, pct, color }: {
 
 // ── Upgrade materials section ─────────────────────────────────────────────────
 
-const _CAT_COLOUR: Record<string, string> = {
+const CAT_COLOUR: Record<string, string> = {
   primary:   'var(--gold)',   // gold  — the key component
   secondary: '#94a3b8',   // slate — stackable mats
   fuel:      '#64748b',   // muted — bulk fuel
@@ -136,21 +136,21 @@ function IngredientTooltip({ ing }: { ing: Ingredient }) {
   const tierColour = itemRarityColor(ing.tier, 'var(--text)')
   return (
     <div
-      className="absolute z-[9999] left-full top-0 ml-2 w-[220px] bg-surface border border-border rounded-md py-[0.6rem] px-3 pointer-events-none"
+      className="absolute z-[9999] left-full top-0 ml-2 w-[220px] bg-surface border border-border rounded-md py-2.5 px-3 pointer-events-none"
       style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}
     >
       {/* Header: icon + name */}
-      <div className="flex items-center gap-2 mb-[6px]">
+      <div className="flex items-center gap-2 mb-1.5">
         {ing.icon_id ? (
           <img
             src={`/icons/${ing.icon_id}.png`}
             alt=""
             width={32} height={32}
-            className="rounded-[3px] border border-border shrink-0"
+            className="rounded-sm border border-border shrink-0"
             onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
         ) : (
-          <div className="w-8 h-8 rounded-[3px] bg-border shrink-0" />
+          <div className="w-8 h-8 rounded-sm bg-border shrink-0" />
         )}
         <span className="text-[0.85rem] font-semibold leading-[1.3]" style={{ color: tierColour }}>
           {ing.name}
@@ -174,7 +174,7 @@ function IngredientTooltip({ ing }: { ing: Ingredient }) {
 
 function IngredientRow({ ing }: { ing: Ingredient }) {
   const [hovered, setHovered] = useState(false)
-  const catColour = _CAT_COLOUR[ing.category] ?? 'var(--text)'
+  const catColour = CAT_COLOUR[ing.category] ?? 'var(--text)'
 
   return (
     <div
@@ -193,11 +193,11 @@ function IngredientRow({ ing }: { ing: Ingredient }) {
               src={`/icons/${ing.icon_id}.png`}
               alt=""
               width={20} height={20}
-              className="rounded-[2px] block"
+              className="rounded-sm block"
               onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
             />
           ) : (
-            <div className="w-5 h-5 rounded-[2px] bg-border" />
+            <div className="w-5 h-5 rounded-sm bg-border" />
           )}
         </div>
         {/* Name */}
@@ -216,7 +216,7 @@ function IngredientRow({ ing }: { ing: Ingredient }) {
 
 function MaterialsSection({ charName }: { charName: string }) {
   const cacheKey = charName.toLowerCase()
-  const cached   = _materialsCache.get(cacheKey)
+  const cached   = materialsCache.get(cacheKey)
   const navigate = useNavigate()
 
   const [data, setData]             = useState<UpgradeMaterialsData | null>(cached ?? null)
@@ -226,7 +226,7 @@ function MaterialsSection({ charName }: { charName: string }) {
   const [addError, setAddError]     = useState<string | null>(null)
 
   useEffect(() => {
-    if (_materialsCache.has(cacheKey)) return
+    if (materialsCache.has(cacheKey)) return
     let cancelled = false
     fetch(`/api/character/${encodeURIComponent(charName)}/upgrade-materials`)
       .then(async res => {
@@ -235,7 +235,7 @@ function MaterialsSection({ charName }: { charName: string }) {
       })
       .then(d => {
         if (cancelled) return
-        _materialsCache.set(cacheKey, d)
+        materialsCache.set(cacheKey, d)
         setData(d)
         setLoading(false)
       })
@@ -270,8 +270,8 @@ function MaterialsSection({ charName }: { charName: string }) {
     try {
       const resp = await fetch(`/api/character/${encodeURIComponent(charName)}/upgrade-recipes`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      const json: { results: _UpgradeRecipe[] } = await resp.json()
-      const entries: _ShoppingEntry[] = json.results.map(r => ({
+      const json: { results: UpgradeRecipe[] } = await resp.json()
+      const entries: ShoppingEntry[] = json.results.map(r => ({
         recipeId:        r.id,
         recipeName:      r.name,
         qty:             1,
@@ -281,7 +281,7 @@ function MaterialsSection({ charName }: { charName: string }) {
         fuel_comp:       r.fuel_comp,
         fuel_qty:        r.fuel_qty,
       }))
-      try { localStorage.setItem(_SHOPPING_KEY, JSON.stringify(entries)) } catch { /* full */ }
+      try { localStorage.setItem(SHOPPING_KEY, JSON.stringify(entries)) } catch { /* full */ }
       navigate('/recipes?list=open')
     } catch (err) {
       setAddError(String(err))
@@ -292,7 +292,7 @@ function MaterialsSection({ charName }: { charName: string }) {
 
   return (
     <StatGroup title="Upgrade Materials">
-      <div className="text-[0.72rem] text-text-muted mb-[6px] leading-[1.4]">
+      <div className="text-[0.72rem] text-text-muted mb-1.5 leading-[1.4]">
         Expert recipes for{' '}
         <span className="text-text font-semibold">{data.spells_with_recipe}</span>
         {' '}of{' '}
@@ -320,8 +320,8 @@ function MaterialsSection({ charName }: { charName: string }) {
         )
 
         return sortedTiers.map(t => (
-          <div key={t} className="mb-[6px]">
-            <div className="text-[0.65rem] font-bold tracking-[0.07em] uppercase text-text-muted pt-[3px] pb-[2px] border-b border-border mb-[1px]">
+          <div key={t} className="mb-1.5">
+            <div className="text-[0.65rem] font-bold tracking-[0.07em] uppercase text-text-muted pt-0.5 pb-0.5 border-b border-border mb-px">
               {t === 0 ? 'Unknown' : `T${t}`}
             </div>
             {groups.get(t)!.map(ing => (
@@ -344,7 +344,7 @@ function MaterialsSection({ charName }: { charName: string }) {
             {addingToList ? '⏳ Adding…' : '🛒 Add upgrades to shopping list'}
           </Button>
           {addError && (
-            <div className="text-[0.68rem] text-danger mt-[3px]">
+            <div className="text-[0.68rem] text-danger mt-1">
               Error: {addError}
             </div>
           )}
@@ -363,7 +363,7 @@ type SpellsTabState =
 
 export function SpellsTab({ charName }: { charName: string }) {
   const cacheKey = charName.toLowerCase()
-  const cached   = _spellsCache.get(cacheKey)
+  const cached   = spellsCache.get(cacheKey)
 
   const [state, setState]         = useState<SpellsTabState>(
     cached ? { status: 'ok', data: cached } : { status: 'loading' }
@@ -372,7 +372,7 @@ export function SpellsTab({ charName }: { charName: string }) {
   const [tierFilter, setTierFilter] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    if (_spellsCache.has(cacheKey)) return
+    if (spellsCache.has(cacheKey)) return
     let cancelled = false
     fetch(`/api/character/${encodeURIComponent(charName)}/spells`)
       .then(async res => {
@@ -381,7 +381,7 @@ export function SpellsTab({ charName }: { charName: string }) {
       })
       .then(data => {
         if (cancelled) return
-        _spellsCache.set(cacheKey, data)
+        spellsCache.set(cacheKey, data)
         setState({ status: 'ok', data })
       })
       .catch(err => { if (!cancelled) setState({ status: 'error', message: String(err) }) })
@@ -441,7 +441,7 @@ export function SpellsTab({ charName }: { charName: string }) {
                   {tier}
                 </span>
                 <span
-                  className="text-[0.85rem] font-semibold rounded-[3px] px-1"
+                  className="text-[0.85rem] font-semibold rounded-sm px-1"
                   style={{
                     color: tc?.text ?? 'var(--text)',
                     background: isActive ? (tc?.bg ?? 'transparent') : 'transparent',
@@ -453,7 +453,7 @@ export function SpellsTab({ charName }: { charName: string }) {
             )
           })}
           {/* Total row */}
-          <div className="flex justify-between pt-[5px] pb-[1px] mt-[2px]">
+          <div className="flex justify-between pt-1 pb-px mt-0.5">
             <span className="text-[0.75rem] text-text-muted uppercase tracking-[0.04em]">Total</span>
             <span className="text-[0.9rem] font-semibold">{totalSpells}</span>
           </div>
@@ -508,18 +508,18 @@ export function SpellsTab({ charName }: { charName: string }) {
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b-2 border-border bg-surface-raised">
-                    <th className={`${_SPELL_TH_CLS} w-9 text-right`}>Lvl</th>
-                    <th className={_SPELL_TH_CLS}>Name</th>
-                    <th className={`${_SPELL_TH_CLS} text-right pr-2`}>Tier</th>
+                    <th className={`${SPELL_TH_CLS} w-9 text-right`}>Lvl</th>
+                    <th className={SPELL_TH_CLS}>Name</th>
+                    <th className={`${SPELL_TH_CLS} text-right pr-2`}>Tier</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((s, i) => (
                     <tr key={i} className="border-b border-border">
-                      <td className={`${_SPELL_TD_CLS} text-right text-text-muted text-[0.8rem] w-9`}>
+                      <td className={`${SPELL_TD_CLS} text-right text-text-muted text-[0.8rem] w-9`}>
                         {s.level}
                       </td>
-                      <td className={`${_SPELL_TD_CLS} font-medium`}>
+                      <td className={`${SPELL_TD_CLS} font-medium`}>
                         <div className="flex items-center gap-[5px]">
                           {(s.icon_id != null || s.icon_backdrop != null) && (
                             <div className="relative w-[18px] h-[18px] shrink-0">
@@ -544,7 +544,7 @@ export function SpellsTab({ charName }: { charName: string }) {
                           <span className="text-[0.82rem]">{s.name}</span>
                         </div>
                       </td>
-                      <td className={`${_SPELL_TD_CLS} text-right pr-2`}>
+                      <td className={`${SPELL_TD_CLS} text-right pr-2`}>
                         <div className="flex items-center justify-end gap-px">
                           {SPELL_TIER_ORDER.map(t => {
                             const base = SPELL_TIER_ICON[t]

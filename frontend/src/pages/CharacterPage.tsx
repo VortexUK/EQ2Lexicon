@@ -208,7 +208,7 @@ function GearRating({ equipment, ready, maxLevel, ratingConfig, ilvl }: {
     return (
       <div className="mb-4">
         <SectionLabel>Raid Ready</SectionLabel>
-        <Card className="rounded-[5px] p-2 text-center text-text-muted text-[0.78rem] italic">
+        <Card className="rounded-sm p-2 text-center text-text-muted text-[0.78rem] italic">
           {ready ? 'No gear data' : 'Loading item data…'}
         </Card>
       </div>
@@ -222,12 +222,12 @@ function GearRating({ equipment, ready, maxLevel, ratingConfig, ilvl }: {
     <div className="mb-4">
       <SectionLabel>Raid Ready</SectionLabel>
       <div
-        className="bg-surface border rounded-[5px] px-2.5 py-2"
+        className="bg-surface border rounded-sm px-2.5 py-2"
         style={{
           borderColor: raidReady ? 'rgba(74,222,128,0.25)' : 'var(--border)',
         }}
       >
-        <div className="flex items-center gap-[0.6rem]">
+        <div className="flex items-center gap-2.5">
           {/* Grade letter */}
           <div
             className="font-heading text-[2.6rem] font-bold leading-none shrink-0 min-w-[2ch] text-center"
@@ -241,7 +241,7 @@ function GearRating({ equipment, ready, maxLevel, ratingConfig, ilvl }: {
 
           {/* Status + detail */}
           <div className="flex-1">
-            <div className="text-[0.78rem] font-semibold mb-[0.2rem]" style={{ color: raidReady ? 'var(--success)' : 'var(--danger)' }}>
+            <div className="text-[0.78rem] font-semibold mb-1" style={{ color: raidReady ? 'var(--success)' : 'var(--danger)' }}>
               {raidReady ? '✓ Raid Ready' : '✗ Not Ready'}
             </div>
             <div className="text-[0.68rem] text-text-muted leading-[1.5]">
@@ -367,12 +367,12 @@ const ADORN_QUALITY_TIER: Record<string, { letter: string; color: string }> = {
   Greater:       { letter: 'L', color: 'var(--rarity-legendary)' },
   Lesser:        { letter: 'T', color: 'var(--rarity-treasured)' },
 }
-const _ADORN_RE = /^(\w+)\s+Adornment\s+of\s+(.+?)\s*\((.+?)\)\s*$/i
+const ADORN_RE = /^(\w+)\s+Adornment\s+of\s+(.+?)\s*\((.+?)\)\s*$/i
 
 interface ParsedAdorn { short: string; tierLetter: string; tierColor: string }
 
 function parseAdornName(name: string): ParsedAdorn | null {
-  const m = name.match(_ADORN_RE)
+  const m = name.match(ADORN_RE)
   if (!m) return null
   const tier = ADORN_QUALITY_TIER[m[3]]
   if (!tier) return null
@@ -381,30 +381,30 @@ function parseAdornName(name: string): ParsedAdorn | null {
 
 type TierStyle = { color: string; textShadow?: string }
 
-const _outline = '-1px 0px 0px #000, 0px 1px 0px #000, 1px 0px 0px #000, 0px -1px 0px #000'
+const OUTLINE = '-1px 0px 0px #000, 0px 1px 0px #000, 1px 0px 0px #000, 0px -1px 0px #000'
 
 // Adornment-name styling: canonical rarity colour + a game-style outline/glow
 // text-shadow. Colours reference the --rarity-* tokens; the glows stay literal.
 const TIER_STYLE: Record<string, TierStyle> = {
   MYTHICAL: {
     color: 'var(--rarity-mythical)',
-    textShadow: `${_outline}, 0px 0px 4px #C859E6, 0px 0px 4px #C859E6`,
+    textShadow: `${OUTLINE}, 0px 0px 4px #C859E6, 0px 0px 4px #C859E6`,
   },
   FABLED: {
     color: 'var(--rarity-fabled)',
-    textShadow: `${_outline}, 0px 0px 4px #DF535F, 0px 0px 4px #DF535F`,
+    textShadow: `${OUTLINE}, 0px 0px 4px #DF535F, 0px 0px 4px #DF535F`,
   },
   LEGENDARY: {
     color: 'var(--rarity-legendary)',
-    textShadow: `${_outline}, 0px 0px 4px #D56900, 0px 0px 4px #ffc993`,
+    textShadow: `${OUTLINE}, 0px 0px 4px #D56900, 0px 0px 4px #ffc993`,
   },
   MASTERCRAFTED: {
     color: 'var(--rarity-treasured)',
-    textShadow: `${_outline}, 0px 0px 4px #D56900, 0px 0px 4px #92d7fd`,
+    textShadow: `${OUTLINE}, 0px 0px 4px #D56900, 0px 0px 4px #92d7fd`,
   },
   TREASURED: {   // same as mastercrafted
     color: 'var(--rarity-treasured)',
-    textShadow: `${_outline}, 0px 0px 4px #D56900, 0px 0px 4px #92d7fd`,
+    textShadow: `${OUTLINE}, 0px 0px 4px #D56900, 0px 0px 4px #92d7fd`,
   },
   UNCOMMON: { color: 'var(--rarity-handcrafted)' },
   COMMON:   { color: 'var(--text)' },
@@ -462,7 +462,7 @@ function statMatches(panelLabel: string, itemStatName: string): boolean {
 
 // Module-level cache: survives re-renders and Vite HMR remounts.
 // Keyed by lower-cased character name.
-const _charCache = new Map<string, Character>()
+const charCache = new Map<string, Character>()
 
 type State =
   | { status: 'loading' }
@@ -492,7 +492,7 @@ export default function CharacterPage() {
   const { name } = useParams<{ name: string }>()
   const server = useServer()
   const [state, setState] = useState<State>(() => {
-    const cached = name ? _charCache.get(name.toLowerCase()) : undefined
+    const cached = name ? charCache.get(name.toLowerCase()) : undefined
     return cached ? { status: 'ok', char: cached } : { status: 'loading' }
   })
   const [ratingConfig, setRatingConfig] = useState<RatingConfig>(DEFAULT_RATING_CONFIG)
@@ -511,7 +511,7 @@ export default function CharacterPage() {
   useEffect(() => {
     if (!name) return
     // Already have fresh data — don't hit Census again.
-    if (_charCache.has(name.toLowerCase())) return
+    if (charCache.has(name.toLowerCase())) return
     fetch(`/api/character/${encodeURIComponent(name)}`, { credentials: 'include' })
       .then(async res => {
         if (res.status === 404) { setState({ status: 'not_found', name }); return }
@@ -525,7 +525,7 @@ export default function CharacterPage() {
           return
         }
         const char: Character = await res.json()
-        _charCache.set(name.toLowerCase(), char)
+        charCache.set(name.toLowerCase(), char)
         setState({ status: 'ok', char })
       })
       .catch(err => setState({ status: 'error', message: String(err) }))
@@ -540,7 +540,7 @@ export default function CharacterPage() {
     if (!charName || !charWorld) return
     const key = `${charName.toLowerCase()}:${charWorld.toLowerCase()}`
     return subscribe<Character>(key, (updated) => {
-      _charCache.set(updated.name.toLowerCase(), updated)
+      charCache.set(updated.name.toLowerCase(), updated)
       setState({ status: 'ok', char: updated })
     })
   }, [charName, charWorld, subscribe])
@@ -647,7 +647,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
           {/* Right: paperdoll */}
           <div className="flex-1 min-w-0">
             <SectionLabel variant="muted">Equipment</SectionLabel>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-[4px] gap-x-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 gap-x-3">
               <div className="flex flex-col gap-1">
                 {LEFT_SLOTS.map(([label, key]) => {
                   const item = bySlot.get(key) ?? null
@@ -663,7 +663,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
             </div>
 
             <SectionLabel variant="muted" className="mt-4">Consumables</SectionLabel>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-[4px] gap-x-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 gap-x-3">
               {CONSUMABLE_SLOTS.map(([label, key]) => {
                 const item = bySlot.get(key) ?? null
                 return <SlotRow key={key} label={label} item={item} iconSide="left" onShow={showTip} onHide={hideTip} highlight={getHighlight(item)} />
@@ -712,7 +712,7 @@ function GeneralBanner({ char }: { char: Character }) {
   ]
 
   return (
-    <Card className="rounded-[6px] px-4 py-2 flex flex-wrap items-stretch gap-y-2">
+    <Card className="rounded-sm2 px-4 py-2 flex flex-wrap items-stretch gap-y-2">
       {/* Identity: name + subtitle, separated by a divider */}
       <div className="w-full md:w-auto md:pr-5 md:mr-5 md:border-r border-border flex flex-col justify-center shrink-0">
         <div
@@ -724,14 +724,14 @@ function GeneralBanner({ char }: { char: Character }) {
             backgroundClip: 'text',
           }}
         >{char.name}</div>
-        <div className="text-text-muted text-[0.82rem] mt-[0.15rem]">
+        <div className="text-text-muted text-[0.82rem] mt-0.5">
           {[char.world, char.race, char.gender].filter(Boolean).join(' · ')}
         </div>
         <FreshnessBadge stale={char.stale} />
         {char.guild_name && (
           <Link
             to={`/guild/${encodeURIComponent(char.guild_name)}`}
-            className="inline-block mt-[0.2rem] text-[0.82rem] no-underline font-medium text-gold"
+            className="inline-block mt-1 text-[0.82rem] no-underline font-medium text-gold"
           >
             ⚔ {char.guild_name}
           </Link>
@@ -742,7 +742,7 @@ function GeneralBanner({ char }: { char: Character }) {
       {columns.map(([top, bottom], i) => (
         <div
           key={i}
-          className={`flex-1 pl-4 flex flex-col justify-center gap-[0.2rem] ${i < columns.length - 1 ? 'pr-4 border-r border-border' : ''}`}
+          className={`flex-1 pl-4 flex flex-col justify-center gap-1 ${i < columns.length - 1 ? 'pr-4 border-r border-border' : ''}`}
         >
           <BannerStat label={top[0]} value={top[1]} />
           {bottom && <BannerStat label={bottom[0]} value={bottom[1]} />}
@@ -869,7 +869,7 @@ export function StatGroup({ title, children }: { title: string; children: React.
   return (
     <div className="mb-4">
       <SectionLabel>{title}</SectionLabel>
-      <Card className="rounded-[5px] px-2 py-1">
+      <Card className="rounded-sm px-2 py-1">
         {children}
       </Card>
     </div>
@@ -906,14 +906,14 @@ function SlotRow({ label, item, iconSide, onShow, onHide, highlight }: {
           : <span className="text-border text-[0.82rem] italic">Empty</span>}
       </div>
       {hasAdorns && (
-        <div className="flex flex-wrap gap-y-[2px] gap-x-[3px] mt-px">
+        <div className="flex flex-wrap gap-y-0.5 gap-x-1 mt-px">
           {item!.adorn_slots.map((a, i) => {
             const parsed = a.adorn_name ? parseAdornName(a.adorn_name) : null
             return (
               <span
                 key={i}
                 data-adorn-id={a.adorn_id ?? undefined}
-                className="text-[0.62rem] leading-none px-1 py-px rounded-[2px] border whitespace-nowrap overflow-hidden text-ellipsis max-w-[150px]"
+                className="text-[0.62rem] leading-none px-1 py-px rounded-sm border whitespace-nowrap overflow-hidden text-ellipsis max-w-[150px]"
                 style={{
                   borderColor: adornColour(a.color),
                   color: a.adorn_name ? adornColour(a.color) : 'var(--text-muted)',
@@ -971,4 +971,4 @@ function SlotRow({ label, item, iconSide, onShow, onHide, highlight }: {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const iconBoxClass = 'w-10 h-10 shrink-0 rounded-[3px] flex items-center justify-center overflow-hidden'
+const iconBoxClass = 'w-10 h-10 shrink-0 rounded-sm flex items-center justify-center overflow-hidden'

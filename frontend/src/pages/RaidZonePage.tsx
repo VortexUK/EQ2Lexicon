@@ -303,7 +303,7 @@ function KillIndicator({ killed }: { killed: boolean }) {
   // one place — currently a green check for kills, a hollow ring for unkilled.
   return killed ? (
     <span
-      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-success/20 text-success text-[0.7rem] shrink-0 mt-[2px]"
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-success/20 text-success text-[0.7rem] shrink-0 mt-0.5"
       aria-label="Killed"
       title="Killed"
     >
@@ -311,7 +311,7 @@ function KillIndicator({ killed }: { killed: boolean }) {
     </span>
   ) : (
     <span
-      className="inline-block w-4 h-4 rounded-full border border-border shrink-0 mt-[2px]"
+      className="inline-block w-4 h-4 rounded-full border border-border shrink-0 mt-0.5"
       aria-label="Not killed"
       title="Not killed"
     />

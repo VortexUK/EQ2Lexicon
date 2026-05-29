@@ -41,11 +41,11 @@ interface AACacheEntry {
   config:   AAConfig
   treeData: Map<number, AATreeData>
 }
-const _aaCache = new Map<string, AACacheEntry>()
+const aaCache = new Map<string, AACacheEntry>()
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const _TREE_TYPE_LABEL: Record<string, string> = {
+const TREE_TYPE_LABEL: Record<string, string> = {
   class:              'Class',
   subclass:           'Subclass',
   shadows:            'Shadows',
@@ -71,10 +71,10 @@ function AARaidReady({ spent, cap }: { spent: number; cap: number }) {
     <div className="mb-3">
       <SectionLabel>Raid Ready</SectionLabel>
       <div
-        className="bg-surface border rounded-[5px] py-2 px-2.5"
+        className="bg-surface border rounded-sm py-2 px-2.5"
         style={{ borderColor: raidReady ? 'rgba(74,222,128,0.25)' : 'var(--border)' }}
       >
-        <div className="flex items-center gap-[0.6rem]">
+        <div className="flex items-center gap-2.5">
           {/* Percentage */}
           <div
             className="font-heading text-[2rem] font-bold leading-none shrink-0 min-w-[3ch] text-center"
@@ -84,7 +84,7 @@ function AARaidReady({ spent, cap }: { spent: number; cap: number }) {
           </div>
           {/* Status + detail */}
           <div className="flex-1">
-            <div className="text-[0.78rem] font-semibold mb-[0.2rem]" style={{ color: raidReady ? 'var(--success)' : 'var(--danger)' }}>
+            <div className="text-[0.78rem] font-semibold mb-1" style={{ color: raidReady ? 'var(--success)' : 'var(--danger)' }}>
               {raidReady ? '✓ Raid Ready' : '✗ Not Ready'}
             </div>
             <div className="text-[0.68rem] text-text-muted leading-[1.5]">
@@ -96,9 +96,9 @@ function AARaidReady({ spent, cap }: { spent: number; cap: number }) {
           </div>
         </div>
         {/* Progress bar */}
-        <div className="mt-[7px] h-1 rounded-[2px] bg-border overflow-hidden">
+        <div className="mt-2 h-1 rounded-full bg-border overflow-hidden">
           <div
-            className="h-full rounded-[2px] [transition:width_0.3s_ease]"
+            className="h-full rounded-full [transition:width_0.3s_ease]"
             style={{ width: `${pct}%`, background: color }}
           />
         </div>
@@ -119,7 +119,7 @@ function AAProgressBar({ label, value, max, pct }: {
   const barColor = filled ? '#22cc22' : 'var(--accent)'
   return (
     <div className="pt-1 pb-[6px]">
-      <div className="flex justify-between items-baseline mb-[3px]">
+      <div className="flex justify-between items-baseline mb-0.5">
         <span className="text-[0.75rem] text-text-muted uppercase tracking-[0.05em]">
           {label}
         </span>
@@ -129,13 +129,13 @@ function AAProgressBar({ label, value, max, pct }: {
       </div>
       {pct !== null && (
         <>
-          <div className="h-[5px] rounded-[3px] bg-border overflow-hidden">
+          <div className="h-[5px] rounded-full bg-border overflow-hidden">
             <div
-              className="h-full rounded-[3px] [transition:width_0.3s_ease]"
+              className="h-full rounded-full [transition:width_0.3s_ease]"
               style={{ width: `${pct}%`, background: barColor }}
             />
           </div>
-          <div className="text-[0.68rem] text-text-muted text-right mt-[2px]">
+          <div className="text-[0.68rem] text-text-muted text-right mt-0.5">
             {pct}%
           </div>
         </>
@@ -154,9 +154,13 @@ type AATabState =
 // 'current' = live AAs; number = index into charAAs.profiles
 type ActiveProfile = 'current' | number
 
+function isProfileIndex(p: ActiveProfile): p is number {
+  return typeof p === 'number'
+}
+
 export function AAsTab({ charName, aaCount }: { charName: string; aaCount: number }) {
   const cacheKey = charName.toLowerCase()
-  const cached   = _aaCache.get(cacheKey)
+  const cached   = aaCache.get(cacheKey)
 
   const [state, setState] = useState<AATabState>(
     cached ? { status: 'ok', ...cached } : { status: 'loading' }
@@ -168,7 +172,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
 
   useEffect(() => {
     // Already cached — nothing to fetch
-    if (_aaCache.has(cacheKey)) return
+    if (aaCache.has(cacheKey)) return
 
     let cancelled = false
 
@@ -207,7 +211,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
         }
 
         const entry: AACacheEntry = { charAAs: { ...charAAs, trees: visibleTrees }, config, treeData }
-        _aaCache.set(cacheKey, entry)
+        aaCache.set(cacheKey, entry)
         setState({ status: 'ok', ...entry })
         setSelectedTreeId(prev => prev ?? (visibleTrees[0]?.tree_id ?? null))
       } catch (err) {
@@ -232,8 +236,9 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
   // Profile trees are filtered to the same unlocked types as the current view.
   const unlocked = new Set(config.unlocked_tree_types)
   const profileTrees: CharAATree[] | null =
-    activeProfile === 'current' ? null :
-    (charAAs.profiles[activeProfile as number]?.trees ?? null)
+    isProfileIndex(activeProfile)
+      ? (charAAs.profiles[activeProfile]?.trees ?? null)
+      : null
 
   // Active tree list: profile trees (filtered) or current trees (already filtered during load).
   const visibleTrees: CharAATree[] = profileTrees
@@ -269,7 +274,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
             <div className="flex flex-col gap-[2px]">
               {(['current', ...charAAs.profiles.map((_, i) => i)] as ActiveProfile[]).map(pid => {
                 const isActive = activeProfile === pid
-                const label    = pid === 'current' ? 'Current' : charAAs.profiles[pid as number].name
+                const label    = pid === 'current' ? 'Current' : charAAs.profiles[isProfileIndex(pid) ? pid : 0].name
                 return (
                   <button
                     key={String(pid)}
@@ -348,7 +353,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
             {/* Tree sub-tabs */}
             <div className="flex flex-wrap gap-[2px] border-b border-border mb-3">
               {visibleTrees.map(ct => {
-                const typeLabel = _TREE_TYPE_LABEL[ct.tree_type] ?? ct.tree_type
+                const typeLabel = TREE_TYPE_LABEL[ct.tree_type] ?? ct.tree_type
                 return (
                   <TabButton
                     key={ct.tree_id}
@@ -367,8 +372,8 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
             {activeCt && (
               <div>
                 {/* Type label */}
-                <div className="mb-[0.4rem] text-[0.72rem] uppercase tracking-[0.06em] text-gold">
-                  {_TREE_TYPE_LABEL[activeCt.tree_type] ?? activeCt.tree_type}
+                <div className="mb-1.5 text-[0.72rem] uppercase tracking-[0.06em] text-gold">
+                  {TREE_TYPE_LABEL[activeCt.tree_type] ?? activeCt.tree_type}
                 </div>
 
                 {/* Tree at 60% of the right column on desktop; full-width with

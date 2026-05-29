@@ -18,10 +18,10 @@ export default function RecipesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   // ── Filter state (URL-synced) ────────────────────────────────────────────────
-  const [q,          setQ]          = useState(searchParams.get('q')           ?? '')
-  const [tier,       setTier]       = useState(searchParams.get('tier')        ?? '')
-  const [craftClass, setCraftClass] = useState(searchParams.get('craft_class') ?? '')
-  const [className,  setClassName]  = useState(searchParams.get('cls')         ?? '')
+  const [q,          setQ]          = useState(() => searchParams.get('q')           ?? '')
+  const [tier,       setTier]       = useState(() => searchParams.get('tier')        ?? '')
+  const [craftClass, setCraftClass] = useState(() => searchParams.get('craft_class') ?? '')
+  const [className,  setClassName]  = useState(() => searchParams.get('cls')         ?? '')
 
   // ── Results state ────────────────────────────────────────────────────────────
   const {
@@ -101,8 +101,6 @@ export default function RecipesPage() {
     runSearch(`/api/recipes/search?${params}`)
   }, [q, tier, craftClass, className, runSearch])
 
-  const handleSearch = useCallback(() => { doSearch(1) }, [doSearch])
-  const handlePage   = useCallback((p: number) => { doSearch(p) }, [doSearch])
 
   // ── Shopping list helpers ─────────────────────────────────────────────────────
   const addToList = useCallback((recipe: RecipeResult) => {
@@ -156,10 +154,10 @@ export default function RecipesPage() {
         {/* ── Left column: filters + results ─────────────────────────────────── */}
         <div>
           {/* Filter row */}
-          <div className="flex flex-wrap gap-[0.6rem] items-end mb-4 [&>div]:flex-1 [&>div]:min-w-[140px]">
+          <div className="flex flex-wrap gap-2.5 items-end mb-4 [&>div]:flex-1 [&>div]:min-w-[140px]">
             {/* Name */}
             <div>
-              <label className="text-xs text-text-muted block mb-[3px]">
+              <label className="text-xs text-text-muted block mb-0.5">
                 Recipe name
               </label>
               <input
@@ -167,13 +165,13 @@ export default function RecipesPage() {
                 placeholder="Search…"
                 value={q}
                 onChange={e => setQ(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                onKeyDown={e => e.key === 'Enter' && doSearch(1)}
               />
             </div>
 
             {/* Tier */}
             <div>
-              <label className="text-xs text-text-muted block mb-[3px]">
+              <label className="text-xs text-text-muted block mb-0.5">
                 Crafting tier
               </label>
               <FilterDropdown
@@ -191,7 +189,7 @@ export default function RecipesPage() {
 
             {/* Tradeskill class */}
             <div>
-              <label className="text-xs text-text-muted block mb-[3px]">
+              <label className="text-xs text-text-muted block mb-0.5">
                 Artisan class
               </label>
               <FilterDropdown
@@ -210,7 +208,7 @@ export default function RecipesPage() {
 
             {/* Adventure class */}
             <div>
-              <label className="text-xs text-text-muted block mb-[3px]">
+              <label className="text-xs text-text-muted block mb-0.5">
                 Adventure class
               </label>
               <FilterDropdown
@@ -226,7 +224,7 @@ export default function RecipesPage() {
             {/* Search button */}
             <Button
               variant="primary"
-              onClick={handleSearch}
+              onClick={() => doSearch(1)}
               disabled={loading}
             >
               {loading ? '…' : 'Search'}
@@ -240,7 +238,7 @@ export default function RecipesPage() {
 
           {/* Results count */}
           {searched && !loading && (
-            <p className="text-[0.8rem] text-text-muted mt-0 mx-0 mb-[0.6rem]">
+            <p className="text-[0.8rem] text-text-muted mt-0 mx-0 mb-2.5">
               {total === 0 ? 'No results.' : `${total.toLocaleString()} recipe${total !== 1 ? 's' : ''} found`}
             </p>
           )}
@@ -262,20 +260,20 @@ export default function RecipesPage() {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="flex gap-[0.4rem] items-center mt-4 flex-wrap">
+                <div className="flex gap-1.5 items-center mt-4 flex-wrap">
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => handlePage(page - 1)}
+                    onClick={() => doSearch(page - 1)}
                     disabled={page <= 1}
                   >← Prev</Button>
-                  <span className="text-[0.82rem] text-text-muted px-[0.3rem]">
+                  <span className="text-[0.82rem] text-text-muted px-1">
                     Page {page} / {totalPages}
                   </span>
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => handlePage(page + 1)}
+                    onClick={() => doSearch(page + 1)}
                     disabled={page >= totalPages}
                   >Next →</Button>
                 </div>

@@ -174,7 +174,7 @@ export function GuildAdornCheckTab({ data, filter, hiddenRanks, myChars }: Guild
       {/* Missing adorn tooltip — fixed so it escapes the scrollable container */}
       {tooltip && (
         <div
-          className="fixed -translate-x-1/2 -translate-y-full rounded-[6px] px-[0.8rem] py-2 z-[9999] pointer-events-none max-w-[220px]"
+          className="fixed -translate-x-1/2 -translate-y-full rounded-sm2 px-[0.8rem] py-2 z-[9999] pointer-events-none max-w-[220px]"
           style={{
             left: tooltip.x,
             top: tooltip.y,
@@ -184,7 +184,7 @@ export function GuildAdornCheckTab({ data, filter, hiddenRanks, myChars }: Guild
           }}
         >
           <div
-            className="text-[0.68rem] uppercase tracking-[0.06em] font-bold mb-[0.35rem]"
+            className="text-[0.68rem] uppercase tracking-[0.06em] font-bold mb-1.5"
             style={{ color: ADORN_COLOURS[tooltip.colour] ?? 'var(--text-muted)' }}
           >
             Missing {tooltip.colour}

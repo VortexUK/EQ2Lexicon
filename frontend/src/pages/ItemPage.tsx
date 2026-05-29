@@ -60,7 +60,7 @@ export default function ItemPage() {
         )}
         <div>
           <h1
-            className="font-heading text-[1.6rem] font-bold mt-0 mx-0 mb-[0.2rem]"
+            className="font-heading text-[1.6rem] font-bold mt-0 mx-0 mb-1"
             style={{
               color: colour,
               textShadow: colour !== 'var(--text)' ? `0 0 12px ${colour}55` : 'none',
@@ -83,11 +83,11 @@ export default function ItemPage() {
             )}
           </div>
           {item.flags.length > 0 && (
-            <div className="mt-[0.3rem] flex gap-[0.3rem] flex-wrap">
+            <div className="mt-1 flex gap-1 flex-wrap">
               {item.flags.map(f => (
                 <span
                   key={f}
-                  className="text-[0.68rem] font-bold tracking-[0.05em] py-[0.1rem] px-[0.4rem] rounded-[3px] text-gold"
+                  className="text-[0.68rem] font-bold tracking-[0.05em] py-px px-1.5 rounded-sm text-gold"
                   style={{
                     background: 'rgba(200,169,110,0.15)',
                     border: '1px solid rgba(200,169,110,0.3)',
@@ -143,12 +143,12 @@ export default function ItemPage() {
         {item.effects.map((eff, i) => (
           <div key={i} className="my-3 text-[0.85rem]">
             {eff.name && (
-              <div className="text-text-muted text-[0.75rem] mb-[0.2rem] italic">
+              <div className="text-text-muted text-[0.75rem] mb-1 italic">
                 {eff.name}
               </div>
             )}
             {eff.trigger && (
-              <div className="text-text font-semibold mb-[0.15rem]">
+              <div className="text-text font-semibold mb-0.5">
                 {eff.trigger}
               </div>
             )}
@@ -187,7 +187,7 @@ export default function ItemPage() {
                 <Link
                   key={r.id}
                   to={`/recipes?q=${encodeURIComponent(r.name)}`}
-                  className="text-[0.88rem] text-gold hover:text-gold-bright no-underline py-[0.15rem]"
+                  className="text-[0.88rem] text-gold hover:text-gold-bright no-underline py-0.5"
                 >
                   {r.name}
                 </Link>

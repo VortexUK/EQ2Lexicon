@@ -72,7 +72,7 @@ export default function AdminPage() {
   return (
     <main className="max-w-[1100px] mx-auto my-8 px-4">
       <Link to="/" className="text-text-muted text-[0.9rem]">← Back</Link>
-      <h1 className="mt-[0.6rem] mb-[0.2rem] font-heading">Admin Panel</h1>
+      <h1 className="mt-2.5 mb-1 font-heading">Admin Panel</h1>
       <p className="text-text-muted text-[0.9rem] mb-7">
         Manage users and character claims.
       </p>

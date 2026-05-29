@@ -40,8 +40,8 @@ function displayTier(tier: string | null): string {
 
 // ── Table header / cell styles ────────────────────────────────────────────────
 
-const TH = 'px-[0.7rem] py-2 text-[0.72rem] uppercase tracking-[0.05em] text-text-muted font-semibold whitespace-nowrap text-left border-b-2 border-border bg-surface-raised'
-const TD = 'px-[0.7rem] py-[0.42rem] text-[0.85rem] whitespace-nowrap border-b border-border'
+const TH = 'px-3 py-2 text-[0.72rem] uppercase tracking-[0.05em] text-text-muted font-semibold whitespace-nowrap text-left border-b-2 border-border bg-surface-raised'
+const TD = 'px-3 py-1.5 text-[0.85rem] whitespace-nowrap border-b border-border'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -258,7 +258,7 @@ export default function ItemSearchPage() {
           />}
 
           {totalPages > 1 && (
-            <div className="flex justify-end gap-[0.4rem] mt-3">
+            <div className="flex justify-end gap-1.5 mt-3">
               <Button variant="secondary" size="sm" onClick={() => handlePageChange(page - 1)} disabled={page <= 1}>← Prev</Button>
               <Button variant="secondary" size="sm" onClick={() => handlePageChange(page + 1)} disabled={page >= totalPages}>Next →</Button>
             </div>
@@ -277,7 +277,7 @@ function ResultsHeader({
   total, page, totalPages, onPrev, onNext,
 }: { total: number; page: number; totalPages: number; onPrev: () => void; onNext: () => void }) {
   return (
-    <div className="flex justify-between items-center mb-[0.6rem] flex-wrap gap-2">
+    <div className="flex justify-between items-center mb-2.5 flex-wrap gap-2">
       <span className="text-[0.83rem] text-text-muted">
         {total === 0
           ? 'No items found.'
@@ -285,7 +285,7 @@ function ResultsHeader({
         {totalPages > 1 && ` · page ${page} of ${totalPages}`}
       </span>
       {totalPages > 1 && (
-        <div className="flex gap-[0.4rem]">
+        <div className="flex gap-1.5">
           <Button variant="secondary" size="sm" onClick={onPrev} disabled={page <= 1}>← Prev</Button>
           <Button variant="secondary" size="sm" onClick={onNext} disabled={page >= totalPages}>Next →</Button>
         </div>
@@ -298,11 +298,11 @@ function StatPills({ stats, highlight }: { stats: string[]; highlight: string[] 
   if (!stats.length) return <span className="text-text-muted">—</span>
   const highlightSet = new Set(highlight)
   return (
-    <div className="flex flex-wrap gap-[0.2rem]">
+    <div className="flex flex-wrap gap-1">
       {stats.map(s => (
         <span
           key={s}
-          className="inline-block px-[0.35rem] py-[0.1rem] rounded-[3px] text-[0.72rem] border"
+          className="inline-block px-1.5 py-px rounded-sm text-[0.72rem] border"
           style={{
             background:   highlightSet.has(s)
               ? 'rgba(var(--accent-rgb),0.18)'
@@ -376,14 +376,14 @@ function ItemTable({
               }}
             >
               <td className={TD}>
-                <div className="flex items-center gap-[0.45rem]">
+                <div className="flex items-center gap-2">
                   {item.icon_id ? (
                     <img
                       src={`/icons/${item.icon_id}.png`}
                       alt=""
                       width={28}
                       height={28}
-                      className="rounded-[3px] border border-border shrink-0 block"
+                      className="rounded-sm border border-border shrink-0 block"
                       onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden' }}
                     />
                   ) : (

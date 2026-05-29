@@ -61,5 +61,5 @@ export interface GuildAdornCheck {
 export type Tab = 'roster' | 'spells' | 'adorns' | 'claims' | 'watch'
 
 // Shared table-cell utility classes (invariant, dynamic bits stay inline at call sites)
-export const TH_CLS = 'px-[0.6rem] py-2 text-[0.72rem] uppercase tracking-[0.05em] font-semibold whitespace-nowrap'
-export const TD_CLS = 'px-[0.6rem] py-[0.42rem] text-[0.88rem] whitespace-nowrap'
+export const TH_CLS = 'px-2.5 py-2 text-[0.72rem] uppercase tracking-[0.05em] font-semibold whitespace-nowrap'
+export const TD_CLS = 'px-2.5 py-1.5 text-[0.88rem] whitespace-nowrap'

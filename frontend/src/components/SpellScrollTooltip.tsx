@@ -45,6 +45,10 @@ interface SpellScrollInfo {
 
 const _scrollCache = new Map<string, SpellScrollInfo>()
 
+// ── Timing constants ─────────────────────────────────────────────────────────
+
+const TOOLTIP_HOVER_DELAY_MS = 150
+
 // ── Style constants ───────────────────────────────────────────────────────────
 
 const TIP_W       = 360
@@ -244,7 +248,7 @@ export function SpellTierPip({
 
   function handleMouseEnter(e: MouseEvent<HTMLImageElement>) {
     setMousePos({ x: e.clientX, y: e.clientY })
-    timerRef.current = setTimeout(() => setShowTooltip(true), 150)
+    timerRef.current = setTimeout(() => setShowTooltip(true), TOOLTIP_HOVER_DELAY_MS)
   }
 
   function handleMouseMove(e: MouseEvent<HTMLImageElement>) {

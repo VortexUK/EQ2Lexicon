@@ -18,6 +18,9 @@ function resultLabel(successLevel: number): string {
   }
 }
 
+// URL-length safety cap for the batch-purge endpoint.
+const PARSE_BATCH_CHUNK_SIZE = 64
+
 // ── ParsesAdminTable ──────────────────────────────────────────────────────────
 
 export function ParsesAdminTable() {
@@ -97,9 +100,8 @@ export function ParsesAdminTable() {
     setBusy(true)
     setError(null)
     try {
-      const CHUNK = 64
-      for (let i = 0; i < ids.length; i += CHUNK) {
-        const chunk = ids.slice(i, i + CHUNK)
+      for (let i = 0; i < ids.length; i += PARSE_BATCH_CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + PARSE_BATCH_CHUNK_SIZE)
         const url = `/api/parses/batch?ids=${chunk.join(',')}&purge=1`
         const res = await fetch(url, { method: 'DELETE', credentials: 'include' })
         if (!res.ok) {
@@ -135,7 +137,7 @@ export function ParsesAdminTable() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search title, zone, guild, uploader…"
-          className="flex-1 min-w-[220px] bg-surface border border-border rounded-sm px-3 py-[0.4rem] text-[0.875rem] text-text"
+          className="flex-1 min-w-[220px] bg-surface border border-border rounded-sm px-3 py-1.5 text-[0.875rem] text-text"
         />
         <Button variant="secondary" size="sm" type="submit" disabled={busy}>
           Search

@@ -59,7 +59,7 @@ export default function ServerLaunchTimer() {
 
   return (
     <div
-      className="mt-6 mx-auto max-w-[500px] pt-[1.4rem] px-7 pb-5 rounded-[10px] text-center"
+      className="mt-6 mx-auto max-w-[500px] pt-[1.4rem] px-7 pb-5 rounded-lg text-center"
       style={{
         background: 'linear-gradient(180deg, rgba(30,24,15,0.85) 0%, rgba(18,14,8,0.92) 100%)',
         border: '1px solid rgba(var(--gold-rgb), 0.3)',
@@ -69,7 +69,7 @@ export default function ServerLaunchTimer() {
 
       {/* Eyebrow */}
       <div
-        className="font-heading text-[0.68rem] font-semibold tracking-[0.2em] uppercase mb-[0.3rem]"
+        className="font-heading text-[0.68rem] font-semibold tracking-[0.2em] uppercase mb-1"
         style={{ color: 'rgba(var(--gold-rgb), 0.55)' }}
       >
         ✦ &nbsp; Server Launch &nbsp; ✦
@@ -89,12 +89,12 @@ export default function ServerLaunchTimer() {
       </div>
 
       {/* Countdown units */}
-      <div className="flex justify-center gap-[0.6rem]">
+      <div className="flex justify-center gap-2.5">
         {units.map(({ value, label }, i) => (
           <Fragment key={label}>
-            <div className="flex flex-col items-center gap-[0.3rem]">
+            <div className="flex flex-col items-center gap-1">
               <div
-                className="font-heading text-[2rem] font-bold leading-none min-w-[2.4ch] py-[0.45rem] px-[0.55rem] rounded-[6px] text-gold-bright tracking-[0.05em]"
+                className="font-heading text-[2rem] font-bold leading-none min-w-[2.4ch] py-2 px-2 rounded-sm2 text-gold-bright tracking-[0.05em]"
                 style={{
                   background: 'rgba(var(--gold-rgb), 0.07)',
                   border: '1px solid rgba(var(--gold-rgb), 0.22)',
