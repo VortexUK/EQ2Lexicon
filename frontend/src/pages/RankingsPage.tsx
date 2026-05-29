@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -32,11 +32,9 @@ interface RankingsResponse { rows: RankingRow[]; classes: string[]; total: numbe
 // ACT log files, the in-game client, and curator-entered roster data are
 // inconsistent about which apostrophe codepoint they use (U+0027 vs U+2019
 // vs U+02BC and others) — and similarly for whitespace (NBSP creeps in from
-// copy-paste). Without this fold the strict-equality check in the boss-default
-// useEffect misses, and the URL flickers as it resets to the first boss.
-// Backend mirror: _normalise_boss_key in web/routes/rankings.py — keep in sync.
+// copy-paste). Backend mirror: _normalise_boss_key in web/routes/rankings.py.
 const APOSTROPHE_VARIANTS = /[`´ʹʺʻʼʽʾʿˈ‘’‛′＇]/g
-const SPACE_VARIANTS = /[     　]/g
+const SPACE_VARIANTS = /[     　]/g
 
 function normaliseBossName(s: string): string {
   return s
@@ -54,32 +52,14 @@ const METRICS: DropdownOption[] = [
   { value: 'speed', label: 'Speed', group: 'Guild' },
 ]
 
-// TEMP PROD DIAG v4 — one-shot monkeypatch of history.pushState/replaceState
-// to log every caller (with stack) so we can identify what's depleting the
-// Firefox History API throttle quota. Our code only fires 1 setParams/click
-// (confirmed by v3) but something else is hitting the quota. Suspects:
-// Cloudflare's cdn-cgi/challenge-platform/jsd bot-detection script (loaded
-// on every page on *.eq2lexicon.com), or react-router internal book-keeping.
-// Module-level + guard so it only installs ONCE per session.
-if (typeof window !== 'undefined' && !(window as unknown as { __historyTraced?: boolean }).__historyTraced) {
-  ;(window as unknown as { __historyTraced?: boolean }).__historyTraced = true
-  const origPush = window.history.pushState.bind(window.history)
-  const origReplace = window.history.replaceState.bind(window.history)
-  window.history.pushState = function (...args: Parameters<typeof window.history.pushState>) {
-    console.warn(`[history.pushState v2026-05-29-prod-diag-v4] →`, args[2], new Error().stack)
-    return origPush(...args)
-  }
-  window.history.replaceState = function (...args: Parameters<typeof window.history.replaceState>) {
-    console.warn(`[history.replaceState v2026-05-29-prod-diag-v4] →`, args[2], new Error().stack)
-    return origReplace(...args)
-  }
-}
-
-// Wrap a setParams call in a DOMException-resilient retry. Firefox throttles
-// history.pushState calls per-Document (~50/10s); if something OUTSIDE our
-// code (CF challenge scripts, browser extensions, etc.) depletes the quota,
-// our setParams throws and the page locks. Catch + retry-after-quota-reset
-// keeps the UI working under any external pressure.
+// safeSetParams — call setSearchParams() defensively. Firefox's per-Document
+// history-API quota can be depleted by browser extensions (e.g. ClearURLs
+// rewriting URLs via webRequest hooks) or by Firefox's own privacy/tracking-
+// protection internals running in a sandbox-eval context. When the quota is
+// empty, react-router's setSearchParams call throws DOMException SecurityError
+// and silently fails. We catch + retry-after-quota-reset so the URL eventually
+// catches up to React state. State is the source of truth (see RankingsPage);
+// URL sync is best-effort — if it never lands, the page still works fine.
 function safeSetParams(
   setParams: (...args: unknown[]) => void,
   args: unknown[],
@@ -88,15 +68,12 @@ function safeSetParams(
     setParams(...args)
   } catch (e) {
     if (e instanceof DOMException && (e.name === 'SecurityError' || e.name === 'InvalidStateError')) {
-      console.warn(`[RankingsPage] history API throttled — retrying in 1.2s`, e)
       // Firefox's throttle window is ~10s. Retry after 1.2s in case quota recovers fast.
-      // If it still fails, give up silently — user can click again.
+      // If it still fails, give up — React state is correct, URL is just slightly stale.
       setTimeout(() => {
         try {
           setParams(...args)
-        } catch (e2) {
-          console.warn(`[RankingsPage] history API still throttled, giving up`, e2)
-        }
+        } catch { /* give up silently — page still works, URL is stale */ }
       }, 1200)
     } else {
       throw e
@@ -106,23 +83,31 @@ function safeSetParams(
 
 export default function RankingsPage() {
   const [filters, setFilters] = useState<FiltersResponse>({ scopes: [] })
-  const [params, setParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  const size = params.get('size') || ''
-  const zone = params.get('zone') || ''
-  const boss = params.get('boss') || ''
-  const metric = params.get('metric') || 'dps'
-  const cls = params.get('class') || ''
+  // ── Filter state ─────────────────────────────────────────────────────────
+  // React state is the SOURCE OF TRUTH for what the user has selected. The
+  // URL is a one-way mirror updated best-effort by the sync effect below.
+  // This decouples our render path from external URL-rewriting code (browser
+  // extensions like ClearURLs, Firefox internals) that can throttle the
+  // history API and break the page if state lived in the URL.
+  //
+  // Initial values seed from the URL once (lazy initialiser). After mount,
+  // URL changes are ignored — clicking the dropdowns mutates state directly.
+  // Back/forward navigation within the rankings page is consequently a no-op;
+  // acceptable given the alternative is the page locking up.
+  const [size, setSize] = useState(() => searchParams.get('size') || '')
+  const [zone, setZone] = useState(() => searchParams.get('zone') || '')
+  const [boss, setBoss] = useState(() => searchParams.get('boss') || '')
+  const [metric, setMetric] = useState(() => searchParams.get('metric') || 'dps')
+  const [cls, setCls] = useState(() => searchParams.get('class') || '')
+  // Explicit ?xpac in URL overrides the zone-derived expansion. null = derive.
+  const [xpacOverride, setXpacOverride] = useState<string | null>(
+    () => searchParams.get('xpac'),
+  )
 
-  function update(patch: Record<string, string>) {
-    const next = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) next.set(k, v); else next.delete(k)
-    }
-    safeSetParams(setParams as (...args: unknown[]) => void, [next])
-  }
-
+  // ── Filters fetch ────────────────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/rankings/filters', { credentials: 'include' })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
@@ -130,6 +115,7 @@ export default function RankingsPage() {
       .catch(() => setFilters({ scopes: [] }))
   }, [])
 
+  // ── Derived dropdown data ────────────────────────────────────────────────
   const scope = filters.scopes.find(s => s.key === size)
   const zoneObj = scope?.zones.find(z => z.zone === zone)
   const raidZones = filters.scopes.find(s => s.key === 'raid')?.zones ?? []
@@ -140,7 +126,7 @@ export default function RankingsPage() {
   // (raids OR dungeons — both carry expansion now since dungeons came from
   // the curated zones.db tagging in #36, not from kill data), else the
   // server's default (SERVER_CURRENT_XPAC / most recent).
-  const xpac = params.get('xpac') || zoneObj?.expansion || filters.default_expansion || ''
+  const xpac = xpacOverride || zoneObj?.expansion || filters.default_expansion || ''
   const raidZonesForXpac = useMemo(
     () => raidZones.filter(z => (z.expansion ?? 'Other') === xpac),
     [raidZones, xpac],
@@ -154,27 +140,47 @@ export default function RankingsPage() {
     [groupZones, xpac],
   )
 
-  // Picking a zone from the top bar also selects its first boss.
-  function pickZone(scopeKey: string, zoneName: string, zones: FilterZone[]) {
-    const z = zones.find(x => x.zone === zoneName)
-    update({ size: scopeKey, zone: zoneName, boss: z?.bosses[0] ?? '' })
-  }
+  // ── URL sync (state → URL, best-effort) ──────────────────────────────────
+  // Mirror state to the URL whenever it changes. Wrapped in safeSetParams
+  // so a throttled history API doesn't break the page — worst case the URL
+  // is slightly stale, state remains the source of truth.
+  useEffect(() => {
+    const next = new URLSearchParams()
+    if (size)    next.set('size',   size)
+    if (zone)    next.set('zone',   zone)
+    if (boss)    next.set('boss',   boss)
+    if (metric && metric !== 'dps') next.set('metric', metric)
+    if (cls)     next.set('class',  cls)
+    if (xpacOverride) next.set('xpac', xpacOverride)
+    safeSetParams(setSearchParams as (...args: unknown[]) => void, [next, { replace: true }])
+  }, [size, zone, boss, metric, cls, xpacOverride, setSearchParams])
 
-  // Hard cap on consecutive boss auto-resets per zone. Above this count we
-  // stop trying — protects against an infinite loop if a future apostrophe /
-  // whitespace variant slips through normaliseBossName AND the browser's URL
-  // parser is mutating the codepoint on round-trip (we observed exactly this
-  // in Firefox: rate-limited history.pushState eventually throws SecurityError
-  // and the URL flickers between the clicked value and bosses[0]).
+  // ── Click handlers ───────────────────────────────────────────────────────
+  // Picking a zone from the top bar also selects its first boss.
+  const pickZone = useCallback(
+    (scopeKey: string, zoneName: string, zones: FilterZone[]) => {
+      const z = zones.find(x => x.zone === zoneName)
+      setSize(scopeKey)
+      setZone(zoneName)
+      setBoss(z?.bosses[0] ?? '')
+      // Clear xpac override so the new zone's own expansion drives the filter.
+      setXpacOverride(null)
+    },
+    [],
+  )
+
+  // ── Boss-default fallback ────────────────────────────────────────────────
+  // If a URL-seeded boss isn't in the current zone's roster (typo, stale link,
+  // deleted boss), fall back to the first boss. The loop-breaker is preserved
+  // from the old URL-based implementation as defence-in-depth — even though
+  // state-based setBoss can't generate the URL round-trip mutation that the
+  // original ref was guarding against, an unforeseen render loop would still
+  // hit Firefox's renderer hot loop detection.
   const resetCountRef = useRef(0)
   const lastZoneRef = useRef<string>('')
-
-  // Default to the first boss when a zone is set without a valid boss (e.g. URL load).
   useEffect(() => {
     if (!size || !zone || !zoneObj || !zoneObj.bosses.length) return
 
-    // Reset the consecutive-reset counter when the zone changes — each zone
-    // gets its own fresh allowance.
     if (lastZoneRef.current !== zone) {
       lastZoneRef.current = zone
       resetCountRef.current = 0
@@ -183,57 +189,17 @@ export default function RankingsPage() {
     const normBoss = normaliseBossName(boss)
     const inList = zoneObj.bosses.some(b => normaliseBossName(b) === normBoss)
     if (boss && inList) {
-      // Healthy state — drop the counter so future legitimate mismatches
-      // (e.g. user navigates to a different boss via URL) get the full
-      // retry budget again.
       resetCountRef.current = 0
       return
     }
 
-    if (resetCountRef.current >= 2) {
-      // We've already tried to auto-reset twice for this zone. If we're here
-      // a third time, the URL round-trip is mutating our reset value and
-      // further setParams calls will just feed the loop. Bail out — the user
-      // sees whatever the URL currently holds; the board may render empty
-      // until they pick a different boss. Better than browser-throttle
-      // SecurityError storms.
-      if (import.meta.env.DEV) {
-        console.warn(
-          `[RankingsPage] suppressed auto-reset loop (zone="${zone}", boss="${boss}"). ` +
-          `URL round-trip is likely mutating codepoints — see prior diagnostic for codepoints.`,
-        )
-      }
-      return
-    }
-
-    if (import.meta.env.DEV && boss) {
-      // Dev-only: surface the codepoints when normalisation still misses,
-      // so a remaining flicker can be diagnosed in the browser console.
-      const cps = (s: string) => [...s].map(c => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`).join(' ')
-      console.warn(
-        `[RankingsPage] boss "${boss}" not in zone "${zone}" boss list — resetting.`,
-        `\n  URL boss codepoints: ${cps(boss)}`,
-        `\n  Normalised URL boss: "${normBoss}"`,
-        `\n  Zone bosses (count=${zoneObj.bosses.length}):`,
-        ...zoneObj.bosses.map(b => `\n    "${b}" → "${normaliseBossName(b)}" [${cps(b)}]`),
-      )
-    }
+    if (resetCountRef.current >= 2) return
 
     resetCountRef.current += 1
-    // Use setParams directly (not update) so we can pass replace:true and
-    // avoid polluting browser history with the auto-selection. Wrapped in
-    // safeSetParams to survive Firefox's History API throttle.
-    safeSetParams(setParams as (...args: unknown[]) => void, [
-      (prev: URLSearchParams) => {
-        const next = new URLSearchParams(prev)
-        next.set('boss', zoneObj.bosses[0])
-        return next
-      },
-      { replace: true },
-    ])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setBoss(zoneObj.bosses[0])
   }, [size, zone, zoneObj, boss])
 
+  // ── Board fetch ──────────────────────────────────────────────────────────
   const boardUrl = useMemo(() => {
     if (!size || !zone || !boss) return null
     const u = new URL('/api/rankings', window.location.origin)
@@ -258,7 +224,7 @@ export default function RankingsPage() {
             <FilterDropdown
               value={xpac}
               options={raidExpansions.map(e => ({ value: e.short, label: e.name }))}
-              onChange={v => update({ xpac: v })}
+              onChange={v => setXpacOverride(v)}
             />
           )}
           <FilterDropdown
@@ -293,18 +259,18 @@ export default function RankingsPage() {
       {size && zone && (
         <div className="mb-4">
           <FilterBar>
-            <FilterDropdown value={metric} options={METRICS} onChange={v => update({ metric: v })} />
+            <FilterDropdown value={metric} options={METRICS} onChange={v => setMetric(v)} />
             <FilterDropdown
               value={boss}
               placeholder="Boss…"
               options={(zoneObj?.bosses ?? []).map(b => ({ value: b, label: b }))}
-              onChange={v => update({ boss: v })}
+              onChange={v => setBoss(v)}
             />
             {!isSpeed && (
               <FilterDropdown
                 value={cls}
                 options={[{ value: '', label: 'All classes' }, ...(board?.classes ?? []).map(c => ({ value: c, label: c }))]}
-                onChange={v => update({ class: v })}
+                onChange={v => setCls(v)}
               />
             )}
           </FilterBar>
