@@ -50,7 +50,11 @@ export default function UserWidget() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-2 bg-surface border border-border rounded-md py-[0.35rem] pr-[0.7rem] pl-[0.45rem] cursor-pointer text-text"
+        /* h-11 (44px) matches the Download ACT Plugin badge wrapper in
+           App.tsx so the two header-right buttons share top and bottom
+           edges. Padding stays — the small extra vertical space the
+           explicit height creates centres the 28px avatar nicely. */
+        className="flex h-11 items-center gap-2 bg-surface border border-border rounded-md py-[0.35rem] pr-[0.7rem] pl-[0.45rem] cursor-pointer text-text"
       >
         <img
           src={avatarUrl(user)}

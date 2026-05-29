@@ -266,14 +266,20 @@ function Layout() {
         </div>
         <div className="flex items-center gap-[0.6rem]">
           {/* ACT download icon: lg+ only (it's also in the MobileNav drawer). */}
+          {/* The wrapper pins the rendered height to match the
+              UserWidget button next to it (Tailwind h-11 = 44px); the
+              <img> fills that height with h-full so its top and bottom
+              align with the user dropdown's. block-display + items-
+              center handle the rare case where the PNG has internal
+              transparent padding above/below the visible badge. */}
           <a
             href="https://github.com/VortexUK/EQ2LexiconACTPlugin/releases/latest"
             target="_blank"
             rel="noopener noreferrer"
             title="Download the EQ2 Lexicon ACT plugin"
-            className="hidden lg:block shrink-0 transition-[transform,filter] duration-150 hover:brightness-110 hover:scale-[1.03]"
+            className="hidden lg:flex h-11 items-center shrink-0 transition-[transform,filter] duration-150 hover:brightness-110 hover:scale-[1.03]"
           >
-            <img src="/download_plugin.png" alt="Download ACT Plugin" className="h-10 w-auto" />
+            <img src="/download_plugin.png" alt="Download ACT Plugin" className="h-full w-auto" />
           </a>
           <NotificationBell />
           <UserWidget />
