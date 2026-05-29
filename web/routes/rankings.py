@@ -30,6 +30,32 @@ from web.server_context import current_server, current_world
 
 router = APIRouter(tags=["rankings"])
 
+# Apostrophe variants seen in EQ2 mob names — straight ASCII apostrophe (U+0027),
+# right single quote (U+2019), modifier letter apostrophe (U+02BC),
+# left single quote (U+2018), backtick (U+0060), acute (U+00B4).
+# ACT log files and the in-game client are inconsistent about which one
+# they emit, and the curator-entered roster in zones.db may use yet another.
+# Normalise both sides to the ASCII straight quote at lookup time so apostrophe
+# codepoint mismatches don't cause silent rankings-board misses.
+_APOSTROPHE_VARIANTS = str.maketrans(
+    {
+        "’": "'",  # ' right single quote
+        "‘": "'",  # ' left single quote
+        "ʼ": "'",  # ʼ modifier letter apostrophe
+        "`": "'",  # ` backtick
+        "´": "'",  # ´ acute accent
+    }
+)
+
+
+def _normalise_boss_key(s: str) -> str:
+    """Lowercase + collapse apostrophe variants. Used as the cache-key shape
+    for boss_index lookups so curator-entered and parse-shipped apostrophes
+    can never silently miss each other. Mirrors the frontend
+    `normaliseBossName` in RankingsPage.tsx — keep the two in sync."""
+    return s.lower().translate(_APOSTROPHE_VARIANTS)
+
+
 # Valid ?size= keys + the GROUP player-count range. Raid is deliberately
 # open-ended (anything above the group max) — EQ2 ACT tallies mercs, pets and
 # swap-ins as "players", so a 24-player raid routinely counts higher (a real
@@ -186,7 +212,7 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
             JOIN zones z ON z.id = e.zone_id
             """
         ):
-            boss_index[mob_lower].append((zname, ename))
+            boss_index[_normalise_boss_key(mob_lower)].append((zname, ename))
 
         def _tree_for_type(type_token: str) -> list[dict]:
             """Materialise the (zone, expansion, bosses) ordered list for one
@@ -229,7 +255,7 @@ def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str |
     zone/title."""
     if scope == "raid":
         boss_index, _, _ = _cached_zones_data()
-        candidates = boss_index.get(title.lower())
+        candidates = boss_index.get(_normalise_boss_key(title))
         if candidates:
             if len(candidates) > 1 and zone:
                 resolved = zones_db.find_by_name(zone)

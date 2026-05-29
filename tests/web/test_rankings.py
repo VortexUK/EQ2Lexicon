@@ -352,7 +352,10 @@ class TestFilters:
 
         from web.routes.rankings import _resolve_boss
 
-        index = {"phara dar": [("Veeshan's Peak", "Phara Dar")]}
+        index = {
+            "phara dar": [("Veeshan's Peak", "Phara Dar")],
+            "d'lizta cheroon": [("The Poet's Palace", "D'Lizta Cheroon")],
+        }
         with patch("web.routes.rankings._cached_zones_data", return_value=(index, [], [])):
             # Raid: matches zones.db → canonical zone + encounter.
             assert _resolve_boss("Phara Dar", "ACT Zone Name", "raid") == (True, "Veeshan's Peak", "Phara Dar")
@@ -362,6 +365,12 @@ class TestFilters:
             assert _resolve_boss("a decaying skeleton", "Vetrovia", "raid")[0] is False
             # Group scope never consults zones.db — pure heuristic.
             assert _resolve_boss("Phara Dar", "Crypt", "group") == (True, "Crypt", "Phara Dar")
+            # Apostrophe-variant normalisation: parse ships U+2019, index key uses ASCII ' — must match.
+            assert _resolve_boss("D’Lizta Cheroon", "Poet's Palace", "raid") == (
+                True,
+                "The Poet's Palace",
+                "D'Lizta Cheroon",
+            )
 
 
 import time as _time
