@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import os
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from web.cache import claim_cache
 from web.db import (
     get_claim_by_id,
     list_claims,
@@ -14,7 +12,7 @@ from web.db import (
     review_claim,
     set_user_access,
 )
-from web.routes.claim import _refresh_claim_cache
+from web.routes.claim import invalidate_user_claim_cache_all_worlds
 from web.routes.guild import _officer_chars, _roster_rank_map, _validate_guild_name
 from web.server_context import current_world
 
@@ -109,8 +107,7 @@ async def officer_approve_claim(guild_name: str, claim_id: int, request: Request
     result = await review_claim(claim_id, "approved", user["id"])
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
-    claim_cache.delete(f"claims:{result['discord_id']}")
-    asyncio.create_task(_refresh_claim_cache(result["discord_id"]))
+    invalidate_user_claim_cache_all_worlds(result["discord_id"])
     return GuildClaimItem(
         id=result["id"],
         discord_name=result["discord_name"],
@@ -145,8 +142,7 @@ async def officer_reject_claim(
     result = await review_claim(claim_id, "rejected", user["id"], note=body.note)
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
-    claim_cache.delete(f"claims:{result['discord_id']}")
-    asyncio.create_task(_refresh_claim_cache(result["discord_id"]))
+    invalidate_user_claim_cache_all_worlds(result["discord_id"])
     return {"ok": True}
 
 

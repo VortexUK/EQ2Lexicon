@@ -238,7 +238,7 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
               disabled={busy}
               title="Revoke contributor role"
             >
-              Revoke
+              Revoke contributor
             </Button>
           ) : (
             <Button
@@ -249,6 +249,30 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
               title="Grant the contributor role (can edit raid strategies + overviews)"
             >
               Make contributor
+            </Button>
+          )}
+          {/* Supporter — cosmetic-only role surfaced as the 👑 badge.
+              Awarded manually in recognition of GitHub Sponsors. No
+              capability granted; revoking it just hides the badge. */}
+          {user.roles.includes('supporter') ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => toggleRole('supporter', false)}
+              disabled={busy}
+              title="Revoke supporter role (removes the 👑 badge)"
+            >
+              Revoke supporter
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => toggleRole('supporter', true)}
+              disabled={busy}
+              title="Grant the supporter role (adds the 👑 badge next to their name across the site)"
+            >
+              Make supporter
             </Button>
           )}
         </div>

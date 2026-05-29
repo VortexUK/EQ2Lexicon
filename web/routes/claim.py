@@ -52,19 +52,34 @@ class SubmitClaimRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _build_claims_response(discord_id: str) -> tuple[ClaimsResponse, bool]:
+# Cache key for per-(user, world) claim data. Including ``world`` is
+# essential since the per-server-URL split — a request to
+# varsoon.eq2lexicon.com and one to wuoshi.eq2lexicon.com from the same
+# Discord user need separate cache slots, otherwise whichever subdomain
+# loads first wins and the other server shows the wrong character list
+# (or nothing at all) until the 5-minute TTL expires.
+def _claim_cache_key(discord_id: str, world: str) -> str:
+    return f"claims:{discord_id}:{world}"
+
+
+async def _build_claims_response(discord_id: str, world: str) -> tuple[ClaimsResponse, bool]:
     """
-    Fetch claim + guild data from DB/Census.
+    Fetch claim + guild data from DB/Census for a specific world.
     Returns (response, cacheable) — cacheable is False if any Census guild
     fetch failed, meaning the result should not be stored (retry next request).
 
     Guild names are sourced from character_cache when available (no Census call
     needed).  Census is only called for characters not already in cache.
+
+    ``world`` is passed explicitly rather than read from current_world() so
+    background tasks (which may run outside any request context) get the
+    right value without relying on ContextVar propagation across
+    asyncio.create_task boundaries.
     """
-    data = await get_active_claims(discord_id, world=current_world())
+    data = await get_active_claims(discord_id, world=world)
     approved_raw = data["approved"]
 
-    world_lower = current_world().lower()
+    world_lower = world.lower()
 
     # Check character_cache first — guild members loaded via the guild page
     # will already have their guild_name populated there.
@@ -87,7 +102,7 @@ async def _build_claims_response(discord_id: str) -> tuple[ClaimsResponse, bool]
             # return_exceptions=True so a Census timeout/error comes back as an
             # Exception instance rather than propagating and losing all results
             results = await asyncio.gather(
-                *[client.get_character_guild_name(n, current_world()) for n in need_census],
+                *[client.get_character_guild_name(n, world) for n in need_census],
                 return_exceptions=True,
             )
         finally:
@@ -115,18 +130,41 @@ async def _build_claims_response(discord_id: str) -> tuple[ClaimsResponse, bool]
     return result, not any_failed
 
 
-async def _refresh_claim_cache(discord_id: str) -> None:
-    """Background task: silently rebuild the claim cache for a user."""
+async def _refresh_claim_cache(discord_id: str, world: str) -> None:
+    """Background task: silently rebuild the per-(user, world) claim cache."""
     try:
-        result, cacheable = await _build_claims_response(discord_id)
+        result, cacheable = await _build_claims_response(discord_id, world)
         if cacheable:
-            claim_cache.set(f"claims:{discord_id}", result)
+            claim_cache.set(_claim_cache_key(discord_id, world), result)
         else:
             _log.warning(
-                "[Cache] Background claim refresh for %s: some fetches failed, skipping cache update", discord_id
+                "[Cache] Background claim refresh for %s on %s: some fetches failed, skipping cache update",
+                discord_id,
+                world,
             )
     except Exception as exc:
-        _log.error("[Cache] Background claim refresh failed for %s: %s", discord_id, exc)
+        _log.error("[Cache] Background claim refresh failed for %s on %s: %s", discord_id, world, exc)
+
+
+def invalidate_user_claim_cache_all_worlds(discord_id: str) -> None:
+    """Bust every per-world claim cache slot for this user and schedule a
+    background refresh for each registered world.
+
+    Admin handlers that approve/reject/delete claims (or kick users) run
+    outside any per-subdomain context, so there's no current_world() to
+    narrow on — and we wouldn't want to anyway: a Varsoon-claim approval
+    shouldn't leave the user's Wuoshi cache stale. Iterating the server
+    registry covers every world the deployment serves with one call.
+
+    Exposed at module scope (not under a leading underscore) so other
+    routes can import it without reaching past the privacy convention.
+    """
+    from web.server_context import list_public_servers
+
+    for srv in list_public_servers():
+        world = srv["world"]
+        claim_cache.delete(_claim_cache_key(discord_id, world))
+        asyncio.create_task(_refresh_claim_cache(discord_id, world))
 
 
 @router.get("/claim/me", response_model=ClaimsResponse)
@@ -137,16 +175,18 @@ async def get_my_claims(request: Request) -> ClaimsResponse:
     background refresh is fired so the *next* request is also instant.
     """
     user = _require_user(request)
-    cache_key = f"claims:{user['id']}"
+    world = current_world()
+    cache_key = _claim_cache_key(user["id"], world)
 
     cached, is_stale = claim_cache.get_stale(cache_key)
     if cached is not None:
         if is_stale:
-            asyncio.create_task(_refresh_claim_cache(user["id"]))
+            asyncio.create_task(_refresh_claim_cache(user["id"], world))
         return cached
 
-    # First-ever load for this user — fetch synchronously (no cache to serve yet)
-    result, cacheable = await _build_claims_response(user["id"])
+    # First-ever load for this (user, world) pair — fetch synchronously
+    # (no cache to serve yet).
+    result, cacheable = await _build_claims_response(user["id"], world)
     if cacheable:
         claim_cache.set(cache_key, result)
     return result
@@ -194,7 +234,7 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    asyncio.create_task(_refresh_claim_cache(user["id"]))
+    asyncio.create_task(_refresh_claim_cache(user["id"], current_world()))
     return ClaimResponse(**claim)
 
 
@@ -204,7 +244,7 @@ async def remove_claim(claim_id: int, request: Request) -> dict:
     user = _require_user(request)
     if not await withdraw_claim(claim_id, user["id"], world=current_world()):
         raise HTTPException(status_code=404, detail="Claim not found or already inactive")
-    asyncio.create_task(_refresh_claim_cache(user["id"]))
+    asyncio.create_task(_refresh_claim_cache(user["id"], current_world()))
     return {"ok": True}
 
 
@@ -214,5 +254,5 @@ async def set_primary_claim(claim_id: int, request: Request) -> dict:
     user = _require_user(request)
     if not await set_primary(user["id"], claim_id, world=current_world()):
         raise HTTPException(status_code=404, detail="Claim not found, not approved, or not yours")
-    asyncio.create_task(_refresh_claim_cache(user["id"]))
+    asyncio.create_task(_refresh_claim_cache(user["id"], current_world()))
     return {"ok": True}
