@@ -147,21 +147,23 @@ export default function RankingsPage() {
       // sees whatever the URL currently holds; the board may render empty
       // until they pick a different boss. Better than browser-throttle
       // SecurityError storms.
-      if (import.meta.env.DEV) {
-        console.warn(
-          `[RankingsPage] suppressed auto-reset loop (zone="${zone}", boss="${boss}"). ` +
-          `URL round-trip is likely mutating codepoints — see prior diagnostic for codepoints.`,
-        )
-      }
+      // TEMP: not DEV-gated so we can capture the codepoints from prod once.
+      // Revert once the V'Tekla K'Zalk codepoint is identified.
+      console.warn(
+        `[RankingsPage v2026-05-29-loopbreaker-prod-diag] suppressed auto-reset loop ` +
+        `(zone="${zone}", boss="${boss}"). URL round-trip is mutating codepoints — ` +
+        `see prior diagnostic for codepoints.`,
+      )
       return
     }
 
-    if (import.meta.env.DEV && boss) {
-      // Dev-only: surface the codepoints when normalisation still misses,
-      // so a remaining flicker can be diagnosed in the browser console.
+    if (boss) {
+      // TEMP: not DEV-gated so we can capture which exotic codepoint slipped
+      // through normaliseBossName on prod (V'Tekla K'Zalk reported flicker).
+      // Revert once the codepoint is added to the normaliser regex.
       const cps = (s: string) => [...s].map(c => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`).join(' ')
       console.warn(
-        `[RankingsPage] boss "${boss}" not in zone "${zone}" boss list — resetting.`,
+        `[RankingsPage v2026-05-29-loopbreaker-prod-diag] boss "${boss}" not in zone "${zone}" boss list — resetting.`,
         `\n  URL boss codepoints: ${cps(boss)}`,
         `\n  Normalised URL boss: "${normBoss}"`,
         `\n  Zone bosses (count=${zoneObj.bosses.length}):`,
