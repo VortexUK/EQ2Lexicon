@@ -226,7 +226,7 @@ async def _bg_refresh_aas(name: str, cache_key: str) -> None:
             await run_sync(_write)
             aa_cache.set(cache_key, result)
     except Exception as exc:
-        _log.warning("[Cache] Background AA refresh failed for %s: %s", name, exc)
+        _log.warning("[cache] Background AA refresh failed for %s: %s", name, exc)
 
 
 @router.get("/character/{name}/aas", response_model=CharAAsResponse)

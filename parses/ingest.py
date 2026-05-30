@@ -29,6 +29,7 @@ from pathlib import Path
 
 from parses import act_reader
 from parses import db as parses_db
+from web.lib.log_safety import scrub as _scrub
 
 _log = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ def ingest_once(
 ) -> IngestStats:
     """One pass: copy any new encounters from `act_db_path` into `parses_db_path`."""
     if not act_db_path.exists():
-        _log.warning("ACT export DB not present at %s; nothing to ingest.", act_db_path)
+        _log.info("ACT export DB not present at %s; nothing to ingest.", act_db_path)
         return IngestStats()
 
     uploader = uploaded_by or _default_uploader()
@@ -102,9 +103,9 @@ def ingest_once(
     # NULL is fine (uploader='local', Census error, or unguilded).
     guild_name = _resolve_guild_sync(uploader)
     if guild_name:
-        _log.info("Uploader %s → guild %s", uploader, guild_name)
+        _log.info("Uploader %s → guild %s", _scrub(uploader), _scrub(guild_name))
     elif uploader != "local":
-        _log.info("Uploader %s → no guild (or lookup failed)", uploader)
+        _log.info("Uploader %s → no guild (or lookup failed)", _scrub(uploader))
 
     new = 0
     skipped = 0
@@ -247,14 +248,14 @@ def backfill_guild_names(
         for uploader in uploaders:
             guild = _resolve_guild_sync(uploader)
             if guild is None:
-                _log.info("Backfill: no guild resolved for %s — leaving NULL.", uploader)
+                _log.info("Backfill: no guild resolved for %s — leaving NULL.", _scrub(uploader))
                 continue
             with conn:
                 cur = conn.execute(
                     "UPDATE encounters SET guild_name = ? WHERE uploaded_by = ? AND guild_name IS NULL",
                     (guild, uploader),
                 )
-                _log.info("Backfill: %s → %s (%d rows updated)", uploader, guild, cur.rowcount)
+                _log.info("Backfill: %s → %s (%d rows updated)", _scrub(uploader), _scrub(guild), cur.rowcount)
                 total_updated += cur.rowcount
         return total_updated
     finally:

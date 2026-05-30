@@ -182,7 +182,7 @@ def load_tree_index() -> dict[int, dict[str, str]]:
                     "type": detect_tree_type(data),
                 }
         except Exception:
-            _log.exception("[aa_tree] Failed to load tree index %s", path.name)
+            _log.exception("[aa-tree] Failed to load tree index %s", path.name)
     return out
 
 

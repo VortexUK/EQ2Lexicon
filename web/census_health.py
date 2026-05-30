@@ -11,6 +11,7 @@ import time
 
 import aiohttp
 
+from census.client import _redact_url as _redact_url
 from census.config import CENSUS_BASE_URL as _CENSUS_BASE_URL
 from web.config import SERVICE_ID as _SERVICE_ID
 
@@ -71,7 +72,11 @@ async def _probe_census() -> bool:
             try:
                 body = json.loads(text)
             except json.JSONDecodeError:
-                _log.warning("[census-health] non-JSON 200 response: %r", text[:200])
+                _log.warning(
+                    "[census-health] non-JSON 200 from %s: %r",
+                    _redact_url(_PROBE_URL),
+                    text[:200],
+                )
                 return False
             return _body_looks_healthy(body)
     except Exception as exc:

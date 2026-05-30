@@ -95,7 +95,7 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
             conn.execute(stmt)
         except sqlite3.OperationalError as exc:
             _log.info(
-                "[census_store] migration skipped (likely already applied): %s — %s",
+                "[census-store] migration skipped (likely already applied): %s — %s",
                 stmt,
                 exc,
             )

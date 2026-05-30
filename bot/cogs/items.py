@@ -25,9 +25,10 @@ class ItemsCog(commands.Cog):
     async def item(self, interaction: discord.Interaction, name: str) -> None:
         await interaction.response.defer(thinking=True)
 
-        _log.debug("item query=%r params=%s", name, self.bot.census._build_params(name))
+        _log.debug("item query=%r", name)
         item_data = await self.bot.census.get_item(name)
-        _log.debug("item result=%s", "found: " + item_data.name if item_data else "not found")
+        result_str = f"found: {item_data.name}" if item_data else "not found"
+        _log.debug("item result=%s", result_str)
         if item_data is None:
             await interaction.followup.send(
                 f"No item found for **{name}**. Check the spelling or try a more specific name.",

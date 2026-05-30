@@ -318,7 +318,7 @@ async def _fetch_and_cache_guild(
                 fails.append((ov.name, exc))
         if fails:
             _log.warning(
-                "[guild_cache] %d pre-warm failures (first: %s — %s)",
+                "[guild-cache] %d pre-warm failures (first: %s — %s)",
                 len(fails),
                 fails[0][0],
                 fails[0][1],
@@ -385,7 +385,7 @@ async def _fetch_and_cache_guild(
     try:
         return await task
     except Exception as exc:
-        _log.warning("[Cache] Guild fetch failed for %s: %s", guild_name, exc)
+        _log.warning("[cache] Guild fetch failed for %s: %s", guild_name, exc)
         return None
     finally:
         if _guild_fetch_tasks.get(task_key) is task:

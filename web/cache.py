@@ -80,7 +80,7 @@ class TTLCache:
             self._update_size()
             self._inc_miss()
             return None
-        _log.debug("[Cache] HIT   %s", key)
+        _log.debug("[cache] HIT   %s", key)
         self._inc_hit()
         return value
 
@@ -103,11 +103,11 @@ class TTLCache:
         if self._max_age is not None and age > self._max_age:
             del self._store[key]
             self._update_size()
-            _log.debug("[Cache] EXPIRED %s (%.1f min old)", key, age / 60)
+            _log.debug("[cache] EXPIRED %s (%.1f min old)", key, age / 60)
             self._inc_miss()
             return None, False
         is_stale = age > self._ttl
-        _log.debug("[Cache] %s %s", "STALE" if is_stale else "HIT  ", key)
+        _log.debug("[cache] %s %s", "STALE" if is_stale else "HIT  ", key)
         if is_stale:
             self._inc_stale()
         else:
@@ -115,12 +115,12 @@ class TTLCache:
         return value, is_stale
 
     def set(self, key: str, value: Any) -> None:
-        _log.debug("[Cache] SET   %s", key)
+        _log.debug("[cache] SET   %s", key)
         # Evict oldest entry if we're at capacity and this is a new key.
         if key not in self._store and len(self._store) >= self._maxsize:
             oldest_key = next(iter(self._store))
             del self._store[oldest_key]
-            _log.debug("[Cache] EVICT (maxsize) %s", oldest_key)
+            _log.debug("[cache] EVICT (maxsize) %s", oldest_key)
         self._store[key] = (time.monotonic(), value)
         with swallow("metrics"):
             from web.metrics import CACHE_SETS
@@ -142,13 +142,13 @@ class TTLCache:
         for k in expired:
             del self._store[k]
         if expired:
-            _log.debug("[Cache] SWEEP removed %d expired entries from %s", len(expired), self._name)
+            _log.debug("[cache] SWEEP removed %d expired entries from %s", len(expired), self._name)
             self._update_size()
         return len(expired)
 
     def delete(self, key: str) -> None:
         self._store.pop(key, None)
-        _log.debug("[Cache] DEL   %s", key)
+        _log.debug("[cache] DEL   %s", key)
         self._update_size()
 
 

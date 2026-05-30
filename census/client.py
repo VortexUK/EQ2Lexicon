@@ -138,15 +138,14 @@ class CensusClient:
         try/except blocks in the public methods.
         """
         url = f"{BASE_URL}/s:{self.service_id}/json/get/eq2/{path}"
-        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=timeout_s)) as resp:
-                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
+                _log.debug("[census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     return None
                 return await resp.json(content_type=None)
         except Exception as exc:
-            _log.warning("[Census] API error on %s: %s: %r", path, type(exc).__name__, exc)
+            _log.warning("[census] API error on %s: %s: %r", path, type(exc).__name__, exc)
             return None
 
     # ------------------------------------------------------------------
@@ -160,12 +159,12 @@ class CensusClient:
         # Try local DB first (fast, no rate limits)
         raw = await self._find_in_db(query)
         if raw:
-            _log.debug("[DB] Cache hit for %r", query)
+            _log.debug("[db] Cache hit for %r", query)
             return _parse_item_fn(raw)
         if db_exists:
-            _log.debug("[DB] Cache miss for %r — falling back to Census API", query)
+            _log.debug("[db] Cache miss for %r — falling back to Census API", query)
         else:
-            _log.debug("[DB] No database at %s — using Census API", DB_PATH)
+            _log.debug("[db] No database at %s — using Census API", DB_PATH)
         # Fall back to live Census API
         data = await self._fetch(self._build_params(query))
         if not data:
@@ -200,9 +199,9 @@ class CensusClient:
             conn = item_db.init_db()
             item_db.upsert_items([raw], conn)
             conn.close()
-            _log.debug("[DB] Cached item %s (%s)", raw.get("id"), raw.get("displayname"))
+            _log.debug("[db] Cached item %s (%s)", raw.get("id"), raw.get("displayname"))
         except Exception:
-            _log.exception("[DB] Failed to cache item %s", raw.get("id"))
+            _log.exception("[db] Failed to cache item %s", raw.get("id"))
 
     async def get_raw_item(self, query: str) -> dict | None:
         """Return the raw parsed JSON — used by inspect_item.py."""
@@ -668,15 +667,14 @@ class CensusClient:
             "c:show": "name,guild",
             "c:limit": "1",
         }
-        _log.debug("[Census] GET %s params=%s", _redact_url(url), params)
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                _log.debug("[Census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
+                _log.debug("[census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
                     raise RuntimeError(f"Census HTTP {resp.status} for guild lookup of {character_name!r}")
                 data = await resp.json(content_type=None)
         except Exception as exc:
-            _log.warning("[Census] API error fetching guild for %r: %s: %r", character_name, type(exc).__name__, exc)
+            _log.warning("[census] API error fetching guild for %r: %s: %r", character_name, type(exc).__name__, exc)
             raise  # re-raise so callers can detect the failure
 
         char_list = data.get("character_list", [])
@@ -942,5 +940,5 @@ class CensusClient:
     async def _fetch(self, params: dict) -> dict | None:
         data = await self._census_get("item/", params, timeout_s=10)
         if data is not None:
-            _log.debug("[Census] returned=%s items", data.get("returned"))
+            _log.debug("[census] returned=%s items", data.get("returned"))
         return data

@@ -109,7 +109,7 @@ async def _build_claims_response(discord_id: str, world: str) -> tuple[ClaimsRes
         if failed_names:
             any_failed = True
             _log.warning(
-                "[Claims] Guild fetch failed for %d names (first: %s) — result will not be cached",
+                "[claims] Guild fetch failed for %d names (first: %s) — result will not be cached",
                 len(failed_names),
                 failed_names[0],
             )
@@ -139,13 +139,13 @@ async def _refresh_claim_cache(discord_id: str, world: str) -> None:
             claim_cache.set(_claim_cache_key(discord_id, world), result)
         else:
             _log.warning(
-                "[Cache] Background claim refresh for %s on %s: some fetches failed, skipping cache update",
+                "[cache] Background claim refresh for %s on %s: some fetches failed, skipping cache update",
                 _safe_for_log(discord_id),
                 _safe_for_log(world),
             )
     except Exception:
         _log.exception(
-            "[Cache] Background claim refresh failed for %s on %s",
+            "[cache] Background claim refresh failed for %s on %s",
             _safe_for_log(discord_id),
             _safe_for_log(world),
         )

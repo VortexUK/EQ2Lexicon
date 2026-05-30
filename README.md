@@ -267,6 +267,19 @@ The file is re-read on every request — no restart required.
 
 ---
 
+## Logging
+
+The app reads two env vars at startup (`configure_logging()` in `web/lib/logging_config.py`):
+
+- `LOG_LEVEL` — `DEBUG` / `INFO` (default) / `WARNING` / `ERROR`. Setting `DEBUG` is safe for one-off debug sessions but noisy on cache + Census layers.
+- `LOG_FORMAT` — `text` (default, human-readable) or `json` (one structured record per line — recommended for Railway, where the aggregator parses JSON natively).
+
+Every log record carries `request_id`, `user_id`, and `world` fields populated by `RequestContextMiddleware`, so a single user-reported issue can be correlated across log lines.
+
+Audit-trail events (claim approvals, role grants, parse purges, etc.) emit via the `eq2.audit` logger — filter on logger name in your aggregator to build an audit dashboard.
+
+---
+
 ## Contributing & Security
 
 - Dev setup, the test gates, and the PR checklist live in [CONTRIBUTING.md](CONTRIBUTING.md).

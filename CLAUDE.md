@@ -422,6 +422,16 @@ on every deploy. Two-phase deploy story:
    plan-of-record for "running it in place" is a one-shot admin endpoint
    (not yet built; the script can also be invoked via `railway run`).
 
+## Logging conventions
+
+- **Module-level binding**: `_log = logging.getLogger(__name__)`.
+- **Lazy `%s` formatting**: `_log.info("foo %s", x)` — never f-strings inside log calls.
+- **Bracketed prefix per module**: `[lowercase-with-hyphens]` (e.g. `[cache]`, `[census-refresh]`). Helps grep by component.
+- **For audit events**: use `audit_log("snake_case_action", actor=..., **fields)` from `web.lib.audit_log`. Don't hand-roll `_log.info("[audit] …")`.
+- **Levels**: WARNING for security signals (HMAC mismatch, invalid token); INFO for audit-trail / startup config / state changes; DEBUG for per-request noise; ERROR/exception for "needs investigation". Recoverable Census flakes are WARNING, not ERROR (per the 2026-05-30 audit).
+- **Env vars**: `LOG_LEVEL` (default `INFO`) and `LOG_FORMAT` (`text` default, `json` for Railway) are read by `configure_logging()` in `web/lib/logging_config.py` at startup.
+- **Sensitive values that NEVER appear inside a log-call argument list**: bearer tokens, HMAC signature bytes, `DISCORD_CLIENT_SECRET`, OAuth `access_token`s, the `raw` token from `mint_api_token`.
+
 ## Frontend design principles
 
 When building or changing the React frontend, hold to these — the goal is a distinctive, cohesive interface that reads as *deliberately designed for an EverQuest 2 guild tool*, not a generic dashboard. (Implementation rules live in [Frontend styling — Tailwind v4](#frontend-styling--tailwind-v4-enforced) above; these are the aesthetic intent behind them.)

@@ -14,8 +14,9 @@ from fastapi import FastAPI, HTTPException, Request, Response
 load_dotenv()
 from pathlib import Path
 
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
@@ -226,6 +227,36 @@ _HTTPS_ONLY = os.getenv("HTTPS_ONLY", "true").lower() not in ("0", "false", "no"
 _SHOW_DOCS = os.getenv("SHOW_API_DOCS", "false").lower() in ("1", "true", "yes")
 
 
+# ---------------------------------------------------------------------------
+# Exception handlers — surface X-Request-ID in error JSON bodies
+# ---------------------------------------------------------------------------
+
+
+async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """HTTPException → JSON body with the request_id surfaced so a user
+    reporting an error can quote it back to support."""
+    from web.lib.request_context import request_id_var
+
+    rid = request_id_var.get() or "-"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "request_id": rid},
+        headers={"X-Request-ID": rid},
+    )
+
+
+async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """RequestValidationError (422) → JSON body with request_id surfaced."""
+    from web.lib.request_context import request_id_var
+
+    rid = request_id_var.get() or "-"
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "request_id": rid},
+        headers={"X-Request-ID": rid},
+    )
+
+
 def create_app(session_secret: str | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -314,6 +345,9 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    # Surface X-Request-ID in 4xx/5xx JSON so users can quote it back to support.
+    app.add_exception_handler(HTTPException, _http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, _validation_exception_handler)  # type: ignore[arg-type]
 
     # Outermost: security headers on every response
     app.add_middleware(_SecurityHeadersMiddleware)
