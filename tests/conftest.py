@@ -66,6 +66,11 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     os.environ["DB_USERS_PATH"] = str(_TEST_DB_DIR / "users.db")
     os.environ["DB_PARSES_PATH"] = str(_TEST_DB_DIR / "parses.db")
     os.environ["DB_CENSUS_PATH"] = str(_TEST_DB_DIR / "census.db")
+    os.environ["DB_ZONES_PATH"] = str(_TEST_DB_DIR / "zones.db")
+    os.environ["DB_SPELLS_PATH"] = str(_TEST_DB_DIR / "spells.db")
+    os.environ["DB_RECIPES_PATH"] = str(_TEST_DB_DIR / "recipes.db")
+    os.environ["DB_RAIDS_PATH"] = str(_TEST_DB_DIR / "raids.db")
+    os.environ["DB_CLASSES_PATH"] = str(_TEST_DB_DIR / "classes.db")
 
     # web.app reads SESSION_SECRET at module-import time and raises if it's
     # unset or shorter than 32 chars. CI and fresh contributor checkouts have
@@ -82,6 +87,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
 
     # Imports below this line read the env vars above when they evaluate their
     # module-level constants (DB_PATH, SESSION_SECRET, ...).
+    from census import census_store, classes_db, raids_db, recipes_db, spells_db, zones_db
     from parses import db as parses_db
     from web import db as users_db
 
@@ -93,13 +99,21 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     # output), the cached constants point at the wrong path. Re-evaluate
     # via the modules' own _db_path() helpers.
     #
-    # Same latent pattern exists for census_store / zones_db / spells_db /
-    # recipes_db / raids_db / classes_db / boss_index — extend this rebind
-    # list if a test ever needs them to honour an env-var override. Deferred
-    # from the 2026-05-30 parse-grouping-redo plan because Phase 4's tests
-    # don't exercise those paths.
+    # Every DB module is included — parses_db / users_db were the original
+    # Phase 4 fix (2026-05-30); the rest are now extended per the follow-up.
+    # Add new modules here whenever a new DB layer is introduced under the
+    # same DB_PATH = _db_path() convention.
+    #
+    # census/boss_index.py does not exist; census/db.py uses _resolve_db_path()
+    # (a different helper name) and is not part of this convention — skip both.
     parses_db.DB_PATH = parses_db._db_path()
     users_db.DB_PATH = users_db._db_path()
+    census_store.DB_PATH = census_store._db_path()
+    zones_db.DB_PATH = zones_db._db_path()
+    spells_db.DB_PATH = spells_db._db_path()
+    recipes_db.DB_PATH = recipes_db._db_path()
+    raids_db.DB_PATH = raids_db._db_path()
+    classes_db.DB_PATH = classes_db._db_path()
 
     # Create both schemas immediately. FastAPI's startup hooks (which would
     # normally call init_db) don't fire under ASGITransport, so without this
