@@ -121,7 +121,22 @@ class _DBCollector(Collector):
         self._conns: dict[str, sqlite3.Connection] = {}
 
     def _get_conn(self, name: str, path: object) -> sqlite3.Connection | None:
-        """Return a cached read-only connection, opening it lazily."""
+        """Return a cached read-only connection, opening it lazily.
+
+        ``check_same_thread=False`` is required because Prometheus scrapes can
+        arrive on different threads (uvicorn worker vs the request thread the
+        first scrape happened on). Safe for our use because:
+          1. Connections are opened in read-only (``?mode=ro``) URI mode — no
+             writes ever happen on these connections, so SQLite's serialised
+             write mode isn't entered.
+          2. SQLite itself supports concurrent reads from multiple threads;
+             ``check_same_thread`` is Python's conservative default safety
+             guard, not a SQLite-level constraint.
+
+        Without this flag, scrape #2 from a different thread than scrape #1
+        crashes with ``sqlite3.ProgrammingError: SQLite objects created in a
+        thread can only be used in that same thread``.
+        """
         from pathlib import Path as _Path
 
         if not isinstance(path, _Path) or not path.exists():
@@ -129,7 +144,11 @@ class _DBCollector(Collector):
         conn = self._conns.get(name)
         if conn is None:
             try:
-                conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+                conn = sqlite3.connect(
+                    f"file:{path}?mode=ro",
+                    uri=True,
+                    check_same_thread=False,
+                )
                 self._conns[name] = conn
             except Exception as exc:
                 _log.warning("[metrics] failed to open %s: %s", name, exc)
