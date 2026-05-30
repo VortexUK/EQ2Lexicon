@@ -3,14 +3,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from web.app import create_app
-
-
-@pytest.fixture
-def app():
-    return create_app()
-
-
 # ---------------------------------------------------------------------------
 # Helper: minimal stored CharacterResponse dict (all required fields present)
 # ---------------------------------------------------------------------------

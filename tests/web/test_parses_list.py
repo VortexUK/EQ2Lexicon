@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.users import make_fake_require_user, make_fake_user
 from tests.web._parses_fixtures import (
     _FAKE_COMBATANTS,
     _FAKE_DAMAGE_TYPES,
@@ -22,9 +23,7 @@ from tests.web._parses_fixtures import (
     _FAKE_TOP_THREATS,
 )
 
-
-def _fake_user(request=None) -> dict:  # matches _require_user(request) signature
-    return {"id": "123456789", "username": "testuser"}
+_fake_user = make_fake_require_user(make_fake_user(id="123456789"))
 
 
 # ---------------------------------------------------------------------------

@@ -475,9 +475,9 @@ from unittest.mock import patch
 
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.users import make_fake_require_user, make_fake_user
 
-def _fake_user(request=None) -> dict:
-    return {"id": "123", "username": "alice"}
+_fake_user = make_fake_require_user(make_fake_user(id="123", username="alice"))
 
 
 @pytest.mark.asyncio

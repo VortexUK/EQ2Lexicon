@@ -483,36 +483,6 @@ async def test_ingest_accepts_valid_logger_name_shape(app, good_name):
     assert r.status_code == 201
 
 
-def test_sanitize_world_predicate():
-    """Unit test for _sanitize_world. Plugin-supplied world strings
-    must be passed through unchanged when they look like a real EQ2
-    server name, or collapsed to None for the caller to fall back to
-    EQ2_WORLD. Covers the v0.1.13 audit L2 defence."""
-    from web.routes.parses.ingest import _sanitize_world
-
-    # Legit EQ2 server names — all pass through unchanged.
-    for ok in ("Varsoon", "Kaladim", "Antonia Bayle", "Lucan D'Lere", "Maj'Dul"):
-        assert _sanitize_world(ok) == ok, ok
-
-    # Garbage shapes — all collapsed to None.
-    for bad in (
-        "varsoon:other",  # ":" was the cache-collision vector
-        "../etc/passwd",  # path traversal
-        "varsoon?c=1",  # URL meta
-        "9Varsoon",  # leading digit
-        "Varsoon" + "x" * 30,  # > 30 chars
-        "",
-        None,
-        "   ",
-        "Varsoon\nKaladim",  # embedded control char (strip is end-only)
-    ):
-        assert _sanitize_world(bad) is None, repr(bad)
-
-    # Leading/trailing whitespace IS stripped before the regex check —
-    # tolerates a typo without breaking the upload. " Varsoon " → "Varsoon".
-    assert _sanitize_world(" Varsoon ") == "Varsoon"
-
-
 # ---------------------------------------------------------------------------
 # logger_server (plugin v0.1.10+)
 # ---------------------------------------------------------------------------

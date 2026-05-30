@@ -5,13 +5,6 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from web.app import create_app
-
-
-@pytest.fixture
-def app():
-    return create_app()
-
 
 @pytest.mark.asyncio
 async def test_404_includes_request_id(app) -> None:

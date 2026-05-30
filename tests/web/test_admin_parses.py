@@ -8,9 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.users import make_fake_admin
+
+_fake_admin_user = make_fake_admin(id="admin1")
+
 
 def _fake_admin(request=None):
-    return {"id": "admin1", "username": "boss"}
+    return _fake_admin_user
 
 
 @pytest.mark.asyncio

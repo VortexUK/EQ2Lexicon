@@ -14,15 +14,6 @@ from census import census_store
 from census.models import GuildData, GuildMember
 from web.routes.guild import GuildInfoResponse, GuildMemberResponse, GuildResponse
 
-_SECRET = "test-secret-fixed"
-
-
-@pytest.fixture
-def app():
-    from web.app import create_app
-
-    return create_app(session_secret=_SECRET)
-
 
 def _make_member(
     name: str = "Sihtric", cls: str = "Shadowknight", rank: str = "Officer", rank_id: int = 1

@@ -20,8 +20,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 # Matches the fixed secret used by the `app` fixture in tests/conftest.py
-# (create_app(session_secret=_TEST_SECRET) where _TEST_SECRET = "test-secret-for-pytest").
-_TEST_SECRET = "test-secret-for-pytest"
+# (create_app(session_secret="pytest-session-secret-not-real-0123456789")).
+_TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
 
 def _make_session_cookie(user: dict) -> str:

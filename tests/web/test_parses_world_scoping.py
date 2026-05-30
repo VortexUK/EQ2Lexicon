@@ -21,8 +21,11 @@ from httpx import ASGITransport, AsyncClient
 
 from parses import db as parses_db
 from parses.models import Encounter
+from tests.fixtures.users import make_fake_admin
 from web.routes.parses import IngestRequest
 from web.routes.parses.ingest import _ingest_payload_sync
+
+_fake_admin_user = make_fake_admin(id="admin1")
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -207,7 +210,7 @@ class TestDeleteCrossServerIsolation:
     untouched."""
 
     def _fake_admin(self, request=None):
-        return {"id": "admin1", "username": "boss"}
+        return _fake_admin_user
 
     @pytest.mark.asyncio
     async def test_cross_server_delete_by_id_blocked(self, tmp_path, monkeypatch, app):

@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.users import make_fake_require_user, make_fake_user
 
-def _fake_user(request=None) -> dict:  # matches _require_user(request) signature
-    return {"id": "123456789", "username": "testuser"}
+_fake_user = make_fake_require_user(make_fake_user(id="123456789"))
 
 
 def _fake_conn_for_fetch(row: dict | None) -> MagicMock:

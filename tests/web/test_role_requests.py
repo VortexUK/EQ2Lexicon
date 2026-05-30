@@ -9,9 +9,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.users import make_fake_admin
+
+_fake_admin_user = make_fake_admin()
+
 
 def _fake_admin(request=None):
-    return {"id": "admin-1", "username": "boss"}
+    return _fake_admin_user
 
 
 def _fake_session_user(request=None):

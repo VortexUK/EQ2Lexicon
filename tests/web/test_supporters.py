@@ -8,16 +8,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.supporters_cache import _supporters_cache_isolation  # noqa: F401
+
 
 @pytest.mark.asyncio
-async def test_supporters_empty_when_no_one_has_role(app, monkeypatch):
+async def test_supporters_empty_when_no_one_has_role(app):
     """No supporter rows → returns an empty list, not a 500. Edge case for
     a fresh deploy with no donations yet."""
-    from web.routes import supporters as supporters_mod
-
-    # Fresh cache so the first request actually queries.
-    supporters_mod.invalidate()
-
     with patch(
         "web.routes.supporters.users_db.list_role_assignments",
         new=AsyncMock(return_value={}),
@@ -30,14 +27,10 @@ async def test_supporters_empty_when_no_one_has_role(app, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_supporters_returns_only_users_with_supporter_role(app, monkeypatch):
+async def test_supporters_returns_only_users_with_supporter_role(app):
     """Mixed role assignments → only users whose roles include 'supporter'
     are returned. Sorted output so the frontend can render in a stable
     order without sorting itself."""
-    from web.routes import supporters as supporters_mod
-
-    supporters_mod.invalidate()
-
     assignments = {
         "100": ["contributor", "supporter"],  # contributor AND supporter
         "200": ["supporter"],  # supporter only
@@ -58,13 +51,9 @@ async def test_supporters_returns_only_users_with_supporter_role(app, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_supporters_response_is_cached(app, monkeypatch):
+async def test_supporters_response_is_cached(app):
     """Two back-to-back requests result in ONE DB call. The cache is
     module-level so subsequent requests in the same process hit memory."""
-    from web.routes import supporters as supporters_mod
-
-    supporters_mod.invalidate()
-
     mock = AsyncMock(return_value={"42": ["supporter"]})
     with patch("web.routes.supporters.users_db.list_role_assignments", mock):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -79,13 +68,11 @@ async def test_supporters_response_is_cached(app, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_supporters_invalidate_forces_refetch(app, monkeypatch):
+async def test_supporters_invalidate_forces_refetch(app):
     """After invalidate() is called (admin grant/revoke), the next
     request hits the DB again. This is the contract the admin route
     relies on to show a freshly-granted badge immediately."""
     from web.routes import supporters as supporters_mod
-
-    supporters_mod.invalidate()
 
     side_effect = [
         {"42": ["supporter"]},  # first load
@@ -110,10 +97,6 @@ async def test_supporters_endpoint_is_public(app):
     """No auth required — the supporter list is intentionally public
     (it powers a cosmetic badge anyone can see) and the data is just
     opaque Discord IDs already visible in any guild the user is in."""
-    from web.routes import supporters as supporters_mod
-
-    supporters_mod.invalidate()
-
     with patch(
         "web.routes.supporters.users_db.list_role_assignments",
         new=AsyncMock(return_value={}),

@@ -21,20 +21,39 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 
 # ---------------------------------------------------------------------------
-# Module-level: path resolution and temp-dir wipe.
+# Module-level: path resolution and temp-dir creation.
 # Must happen before pytest_configure so _TEST_DB_DIR is available
 # as a module-level constant (imported by some test modules directly).
+#
+# Per-process suffix (os.getpid()) makes the path unique per worker so
+# parallel pytest-xdist invocations don't race on rmtree + mkdir (TEST-039).
 # ---------------------------------------------------------------------------
 
-_TEST_DB_DIR = Path(tempfile.gettempdir()) / "eq2lexicon-pytest"
-if _TEST_DB_DIR.exists():
-    shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
-_TEST_DB_DIR.mkdir(parents=True)
+_PROC_SUFFIX = f"{os.getpid()}"
+_TEST_DB_DIR = Path(tempfile.gettempdir()) / f"eq2lexicon-pytest-{_PROC_SUFFIX}"
+_TEST_DB_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _tmp_db_dir_isolation() -> Generator[Path]:
+    """Clean up the tmp DB dir at session teardown.
+
+    Per-process suffix means parallel pytest-xdist workers don't race
+    on rmtree (TEST-039) — each worker creates a fresh unique directory.
+    The directory contents are initialised by pytest_configure before any
+    test runs; we skip the pre-session wipe to avoid touching open DB
+    file handles on Windows (PermissionError on locked SQLite files).
+    """
+    try:
+        yield _TEST_DB_DIR
+    finally:
+        shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
 
 
 def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
@@ -76,8 +95,6 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
 
 from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 
-_TEST_SECRET = "test-secret-for-pytest"
-
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
     """Close any leaked aiohttp ClientSession instances before pytest exits.
@@ -116,7 +133,7 @@ def app():
     """FastAPI application instance with a fixed session secret."""
     from web.app import create_app
 
-    return create_app(session_secret=_TEST_SECRET)
+    return create_app(session_secret="pytest-session-secret-not-real-0123456789")
 
 
 @pytest.fixture

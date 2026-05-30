@@ -3,13 +3,6 @@ from unittest.mock import patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from web.app import create_app
-
-
-@pytest.fixture
-def app():
-    return create_app()
-
 
 @pytest.mark.asyncio
 async def test_health_returns_ok(app):

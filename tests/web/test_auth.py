@@ -10,6 +10,9 @@ _SECRET = "test-secret-fixed"
 
 @pytest.fixture
 def app():
+    # Explicit session_secret — test_auth.py exercises the OAuth callback's
+    # state-cookie roundtrip; pinning the secret guarantees stable cookies
+    # across test runs. Other test files use the global `app` fixture.
     return create_app(session_secret=_SECRET)
 
 

@@ -8,7 +8,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from census.spells_db import Blocklist
-from web.app import create_app
 from web.routes.character import CharacterResponse, CharacterStats
 
 _EMPTY_BLOCKLIST = Blocklist(frozenset(), [])
@@ -16,13 +15,6 @@ _EMPTY_BLOCKLIST = Blocklist(frozenset(), [])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-_SECRET = "test-secret-fixed"
-
-
-@pytest.fixture
-def app():
-    return create_app(session_secret=_SECRET)
 
 
 def _fake_char(name: str = "Sihtric", spell_ids: list[int] | None = None) -> CharacterResponse:

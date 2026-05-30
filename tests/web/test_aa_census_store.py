@@ -20,17 +20,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from census import census_store as cs
-from web.app import create_app
 from web.lib.cache_keys import aa_cache_key
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def app():
-    return create_app()
 
 
 def _make_census_aas(name: str = "Testchar") -> MagicMock:
