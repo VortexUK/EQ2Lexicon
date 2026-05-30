@@ -232,15 +232,31 @@ _SHOW_DOCS = os.getenv("SHOW_API_DOCS", "false").lower() in ("1", "true", "yes")
 # ---------------------------------------------------------------------------
 
 
-async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    """HTTPException → JSON body with the request_id surfaced so a user
-    reporting an error can quote it back to support."""
+async def _http_exception_handler(request: Request, exc: HTTPException) -> Response:
+    """HTTPException → JSON body with the request_id surfaced (for API paths)
+    or plain text (for everything else — most importantly static assets).
+
+    Why the split: lazy-loaded JS chunks request URLs like
+    ``/assets/ParsesPage-<hash>.js``. If that file is missing (stale CDN
+    cache pointing at old hashes, etc.), Starlette raises a 404. Previously
+    we returned that as ``Content-Type: application/json`` for EVERY path,
+    which Firefox refused to execute as a JS module ("disallowed MIME
+    type"), breaking the whole SPA. JSON is only useful for our API
+    consumers; static-asset fetches just need a proper status code.
+    """
     from web.lib.request_context import request_id_var
 
     rid = request_id_var.get() or "-"
-    return JSONResponse(
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail, "request_id": rid},
+            headers={"X-Request-ID": rid},
+        )
+    return Response(
+        content=f"{exc.status_code} {exc.detail}",
         status_code=exc.status_code,
-        content={"detail": exc.detail, "request_id": rid},
+        media_type="text/plain",
         headers={"X-Request-ID": rid},
     )
 
