@@ -4,9 +4,29 @@
 [![CodeQL](https://github.com/VortexUK/EQ2Lexicon/actions/workflows/codeql.yml/badge.svg)](https://github.com/VortexUK/EQ2Lexicon/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A Discord bot **and** web companion site for EverQuest 2 (TLE server). Queries the [Daybreak Census API](https://census.daybreakgames.com) to provide item tooltips, guild summaries, character sheets, parses ingested from the [ACT plugin](https://github.com/VortexUK/EQ2LexiconACTPlugin), and more.
+A web companion site for EverQuest 2 (TLE), with a Discord bot for spot checks. Queries the [Daybreak Census API](https://census.daybreakgames.com) and the [ACT plugin](https://github.com/VortexUK/EQ2LexiconACTPlugin) to bring character data, guild parses, and raid information into one place.
 
-Live at <https://eq2lexicon.com> (plugin API on <https://parses.eq2lexicon.com>).
+Live at <https://eq2lexicon.com> · plugin API at <https://parses.eq2lexicon.com>.
+
+---
+
+## Web Companion Site
+
+A React + TypeScript (Tailwind v4) + FastAPI site. Each EQ2 server gets its own subdomain (e.g. `varsoon.eq2lexicon.com`); one Discord login covers all.
+
+### Features
+
+- **Character sheet** — full stat panel, paperdoll with tier-coloured item names, adornment chips, item and adorn tooltips on hover, stat-to-item highlight
+- **Spells tab** — deduplicated spell/art list; tier pip icons (Apprentice → Grandmaster); "Raid Ready" and "Fully Mastered" progress bars; spell blocklist support
+- **AAs tab** — visual AA tree with tier badges (Class / Subclass / Shadows / Heroic / Trade); per-tree point totals
+- **Item tooltips** — HTML-rendered in-game style, with quality glow colours, stats, effects, adornment slots, and flags
+- **Item search** — browse and filter the full item catalogue by name, level, rarity, and slot
+- **Recipes** — searchable recipe catalogue (~70 k recipes); shopping-list panel with quantity tracking
+- **Parses & rankings** — encounter DPS/HPS boards ingested from the ACT plugin; per-character and per-encounter breakdowns; raid-zone rankings
+- **Raid strategies** — per-encounter strategy notes (wiki-seeded, admin/contributor-editable with revision history)
+- **Item watch** — track specific items for guild members; officer review workflow
+- **Character claiming** — link a Discord account to an EQ2 character (admin-approved)
+- **Multi-server** — single deployment serves multiple TLE servers via subdomains; admin-editable per-server settings
 
 ---
 
@@ -24,95 +44,16 @@ Live at <https://eq2lexicon.com> (plugin API on <https://parses.eq2lexicon.com>)
 
 ---
 
-## Web Companion Site
-
-A React + TypeScript (Tailwind v4) + FastAPI site served at `http://localhost:8000` (dev: `http://localhost:5173`). Styling is Tailwind utilities throughout, themed from CSS tokens; see [CLAUDE.md → Frontend styling](CLAUDE.md) for the conventions new work must follow.
-
-### Features
-
-- **Character sheet** — full stat panel, paperdoll with tier-coloured item names, adornment chips, item and adorn tooltips on hover, stat-to-item highlight (hover a stat on the left to see which items contribute it)
-- **Spells tab** — full deduplicated spell/art list in a two-column layout; each spell shows its icon (backdrop + foreground layered) and a row of 6 tier pip icons lit to its current tier (Apprentice → Journeyman → Adept → Expert → Master → Grandmaster); sidebar shows spells in lowest→highest tier order with progress bars for "Raid Ready" (≥ Expert) and "Fully Mastered" (≥ Master); spell blocklist support hides spells that cannot be upgraded
-- **AAs tab** — AA profile selector (Class / Subclass / Shadows / Heroic / Trade); renders the visual AA tree with tier badges and shows per-tree point totals
-- **Item tooltips** — rendered in HTML matching the in-game style, with quality glow colours, stats, effects, adornment slots, and flags
-- **Discord login** — OAuth2 sign-in via Discord
-- **Character claiming** — users link their Discord account to their EQ2 character; claims require admin approval before taking effect
-- **Admin panel** — approve or reject pending claims with an optional rejection note; view full claim history
-
----
-
 ## Project Structure
 
 ```
-main.py                  # Discord bot entry point
-
-bot/
-  bot.py                 # EQ2Bot — registers cogs, syncs slash commands
-  cogs/
-    items.py             # /item command
-    guild.py             # /guild command
-    spellcheck.py        # /spellcheck command
-    aacheck.py           # /aacheck command
-
-census/
-  client.py              # CensusClient — all Census API HTTP calls
-  models.py              # Dataclasses: ItemData, EquipmentSlot, AdornSlot, CharacterOverview, …
-  constants.py           # STAT_MAP, class groups, ARCHETYPES, CLASS_GROUPS
-  db.py                  # Item catalogue SQLite DB (data/items/items.db)
-  item_parser.py         # Item data parsing helpers (extracted from client.py)
-  spells_db.py           # Local SQLite spell catalogue helpers
-
-image/
-  tooltip.py             # PIL item tooltip renderer (2× supersampling)
-  aa_tree.py             # AA tree renderers
-
-web/
-  app.py                 # FastAPI application factory
-  config.py              # Centralised env config (SERVICE_ID, WORLD)
-  db.py                  # Users / character_claims SQLite DB (data/users.db)
-  routes/
-    health.py            # GET /api/health
-    auth.py              # Discord OAuth2 — login, callback, /me, logout
-    character.py         # GET /api/character/{name}
-    item.py              # GET /api/item/{item_id}
-    claim.py             # GET|POST|DELETE /api/claim  (character claiming)
-    admin.py             # GET /api/admin/claims  +  approve/reject endpoints
-    aa.py                # GET /api/character/{name}/aas
-    characters.py        # GET /api/characters/search
-    guild.py             # Guild endpoints (spellcheck, adorn check, roster)
-    guild_officer.py     # Officer claim-review endpoints
-    item_watch.py        # Item watch endpoints
-
-frontend/
-  src/
-    App.tsx              # React Router routes + layout shell
-    index.css            # Tailwind v4 entry + @theme design tokens + base/component layers
-    rarityColors.ts      # Single source of truth for EQ2 rarity/tier colours
-    components/ui/        # Shared primitives: Button, Card, SectionLabel
-    pages/
-      HomePage.tsx       # Search + login + claim status strip
-      CharacterPage.tsx  # Full character sheet with stat panel, paperdoll, tooltips
-      CharacterAAsTab.tsx  # AA tree tab
-      CharacterSpellsTab.tsx  # Spells tab
-      ClaimPage.tsx      # Claim submission / status / change character
-      AdminPage.tsx      # Admin claim queue + history
-    hooks/
-      useAuth.ts         # Discord auth state hook
-      useClaim.ts        # Character claim state hook
-    components/
-      ItemTooltip.tsx    # HTML item tooltip (portal, viewport-clamped)
-
-data/
-  items/
-    items.db             # Local item catalogue (SQLite, downloaded from Census)
-    icons/               # Item icon PNGs
-  users.db               # Users + character claims (created automatically)
-  AAs/                   # AA tree JSON files and node icons
-  spells/
-    spells.db            # Local spell catalogue (SQLite, seeded by download_spells.py)
-    blocklist.json       # Spell names to hide from spell tab and /spellcheck
-    icons/               # Spell icon PNGs (0–1177.png)
-
-scripts/                 # Local preview and download scripts (see below)
+bot/            Discord bot cogs (/item, /guild, /spellcheck, /aacheck)
+census/         Census API client, dataclasses, SQLite catalogues (items, spells, recipes, zones, raids)
+image/          PIL renderers — item tooltips and AA trees
+web/            FastAPI app, routes, cache, auth, SSE refresh
+frontend/       React/TypeScript UI (Tailwind v4, src/components/ui/, src/hooks/, src/lib/)
+data/           Local SQLite DBs, AA tree JSON + icons, spell icons (gitignored / Railway volume)
+scripts/        Preview, download, and build utilities — see scripts/README.md
 ```
 
 ---
@@ -141,7 +82,7 @@ uv run ruff check .
 uv run python main.py
 ```
 
-**Activate the pre-push hook** (recommended) — runs the same lint, type, and test checks as CI before every `git push`, so you find out about a regression in seconds instead of after CI runs:
+**Activate the pre-push hook** (recommended) — runs the same lint, type, and test checks as CI before every `git push`:
 
 ```bash
 git config core.hooksPath .githooks
@@ -223,26 +164,7 @@ Set all required environment variables in the Railway dashboard, then push to `m
 
 ## Preview / Utility Scripts
 
-```bash
-# Item inspection
-python scripts/preview_item.py "Faded Black Hood"   # render tooltip image
-python scripts/inspect_item.py "Faded Black Hood"   # dump raw Census JSON
-
-# Guild & characters
-python scripts/preview_guild.py "Exordium"
-python scripts/preview_spellcheck.py Sihtric
-python scripts/preview_spellcheck.py Sihtric --details
-python scripts/preview_aa_tree.py 25               # render AA tree by ID
-python scripts/preview_aacheck.py Menludiir        # list character AA trees
-python scripts/preview_aacheck.py Menludiir Templar # render a specific tree
-
-# Data downloads
-python scripts/download_aa_trees.py               # fetch all AA tree JSONs from Census
-python scripts/download_aa_icons.py               # fetch all AA node icon PNGs
-python scripts/download_spell_icons.py            # download all spell icon PNGs
-python scripts/download_spell_icons.py --start N  # resume from icon N
-python scripts/preview_spellcheck.py Sihtric --debug  # show each counted spell
-```
+See [scripts/README.md](scripts/README.md) for the full list of preview, download, and DB-build scripts.
 
 ---
 
