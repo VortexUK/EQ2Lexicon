@@ -2,13 +2,23 @@
 #
 # Four databases are backed up: the parses corpus (parses.db), the
 # Discord/claims/api_tokens store (users.db), the zone/boss-roster
-# catalogue (zones.db), and the raid strategy/triggers/timers store
+# catalogue (zones.db), and the raid strategy/timers store
 # (raids.db — strategy markdown is hand-edited and revision-tracked, so
-# losing it on a volume wipe would erase audit history). All live on the
-# persistent Railway volume mounted at /app/data; without off-volume
-# backup, a Railway volume failure or accidental wipe is unrecoverable.
+# losing it on a volume wipe would erase audit history).
+#
+# PATHS MUST MATCH THE APP'S DB_*_PATH RESOLUTION. The app reads
+# DB_USERS_PATH / DB_PARSES_PATH / DB_ZONES_PATH / DB_RAIDS_PATH at
+# import time (census/raids_db.py + parses/db.py + web/db.py) and uses
+# those for every read and write. This file MUST reference the same
+# files via the same env vars — otherwise litestream watches one path
+# while the app writes to another, the configured-but-nonexistent file
+# never appears, and the R2 bucket stays empty.
 #
 # Configuration via env vars (set in Railway → Variables):
+#   DB_USERS_PATH       /data/users.db (or wherever the volume is mounted)
+#   DB_PARSES_PATH      /data/parses.db
+#   DB_ZONES_PATH       /data/zones.db
+#   DB_RAIDS_PATH       /data/raids.db
 #   R2_ENDPOINT          https://<account>.r2.cloudflarestorage.com
 #   R2_BUCKET            e.g. eq2lexicon-backups
 #   R2_ACCESS_KEY_ID     R2 API token "Access Key ID"
@@ -17,10 +27,10 @@
 # Recovery: on container start, railway.toml's startCommand first runs
 # `litestream restore -if-replica-exists` for each DB, so a wiped volume
 # auto-reseeds from R2 before the app starts. After that the long-running
-# `litestream replicate` keeps all three DBs in sync (RPO ~10 s).
+# `litestream replicate` keeps all four DBs in sync (RPO ~10 s).
 
 dbs:
-  - path: /app/data/parses/parses.db
+  - path: ${DB_PARSES_PATH:-/app/data/parses/parses.db}
     replicas:
       - type: s3
         endpoint: ${R2_ENDPOINT}
@@ -34,7 +44,7 @@ dbs:
         retention-check-interval: 24h
         snapshot-interval: 24h
 
-  - path: /app/data/users.db
+  - path: ${DB_USERS_PATH:-/app/data/users.db}
     replicas:
       - type: s3
         endpoint: ${R2_ENDPOINT}
@@ -47,7 +57,7 @@ dbs:
         retention-check-interval: 24h
         snapshot-interval: 24h
 
-  - path: /app/data/zones/zones.db
+  - path: ${DB_ZONES_PATH:-/app/data/zones/zones.db}
     replicas:
       - type: s3
         endpoint: ${R2_ENDPOINT}
@@ -60,7 +70,7 @@ dbs:
         retention-check-interval: 24h
         snapshot-interval: 24h
 
-  - path: /app/data/raids/raids.db
+  - path: ${DB_RAIDS_PATH:-/app/data/raids/raids.db}
     replicas:
       - type: s3
         endpoint: ${R2_ENDPOINT}
