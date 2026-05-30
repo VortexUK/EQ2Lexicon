@@ -75,6 +75,46 @@ _PLAYER_COUNT_SQL = """\
       AND instr(c.name, ' ') = 0
 """
 
+# Top-N ally helpers — the building blocks for the merger's top-N
+# mutual-containment gate (see Phase 4 of the 2026-05-30 parse-grouping-redo
+# plan). The filter mirrors _PLAYER_COUNT_SQL exactly so "top players" and
+# "is a player" agree about who counts: ally=1, single-word, not the
+# 'Unknown' rollup, not the empty-name row.
+_TOP_N_ALLY_SQL = """\
+    SELECT name FROM combatants
+    WHERE encounter_id = ? AND ally = 1
+      AND name != '' AND name != 'Unknown' AND instr(name, ' ') = 0
+    ORDER BY encdps DESC, name ASC
+    LIMIT ?
+"""
+
+_ALL_ALLY_SQL = """\
+    SELECT name FROM combatants
+    WHERE encounter_id = ? AND ally = 1
+      AND name != '' AND name != 'Unknown' AND instr(name, ' ') = 0
+"""
+
+
+def _top_n_ally_names(conn: sqlite3.Connection, encounter_id: int, n: int) -> set[str]:
+    """Return the top-N player names in this encounter by encDPS descending.
+
+    Tiebreaker on name ASC so two combatants with identical encDPS pick the
+    same N — important because the merger uses ``set ==`` semantics on these
+    lists and a flapping last slot would break determinism.
+
+    Returns ``min(n, available)`` names if the encounter has fewer qualifying
+    allies than ``n``. Empty set when there are no qualifying allies at all
+    (e.g. an empty-ally parse) — that case still merges trivially under the
+    Phase 4 mutual-containment rule (``set() ⊆ X`` is always true)."""
+    return {row[0] for row in conn.execute(_TOP_N_ALLY_SQL, (encounter_id, n))}
+
+
+def _all_ally_names(conn: sqlite3.Connection, encounter_id: int) -> set[str]:
+    """Every qualifying player name in the encounter. Pairs with
+    ``_top_n_ally_names`` to evaluate the merger's mutual-containment rule
+    (``top_N(A) ⊆ allies(B)`` and vice versa)."""
+    return {row[0] for row in conn.execute(_ALL_ALLY_SQL, (encounter_id,))}
+
 
 def _list_encounters_sync(
     inner_cap: int,
