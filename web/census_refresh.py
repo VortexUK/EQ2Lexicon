@@ -74,8 +74,8 @@ async def _run_character_refresh(name: str, key: str, world: str) -> None:
         if resolved:
             character_cache.set(key, resp)
             census_events.publish({"type": "character", "key": key, "data": data, "fetched_at": int(time.time())})
-    except Exception as exc:
-        _log.warning("[census-refresh] character %s failed: %s", _scrub(name), exc)
+    except Exception:
+        _log.exception("[census-refresh] character %s failed", _scrub(name))
     finally:
         _in_flight.discard(key)
 
@@ -111,7 +111,7 @@ async def _run_guild_refresh(name: str, key: str, world: str) -> None:
 
     try:
         await _persist_and_publish_guild(name, world)
-    except Exception as exc:
-        _log.warning("[census-refresh] guild %s failed: %s", _scrub(name), exc)
+    except Exception:
+        _log.exception("[census-refresh] guild %s failed", _scrub(name))
     finally:
         _in_flight.discard(key)

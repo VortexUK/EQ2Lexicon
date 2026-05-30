@@ -70,7 +70,18 @@ from web.lib.session_user import SessionUser, TokenUser
 # deploy model (Railway redeploys on push).
 ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
 _log = logging.getLogger(__name__)
-if not ADMIN_IDS:
+_admin_warning_emitted = False
+
+
+def _warn_admin_missing_once() -> None:
+    """Emit the 'ADMIN_DISCORD_IDS not set' warning at most once per process,
+    deferred until the first admin-gated request actually hits. Avoids the
+    import-time-flood issue in tests (every test that imports auth_deps with
+    no env set used to log the warning)."""
+    global _admin_warning_emitted
+    if _admin_warning_emitted:
+        return
+    _admin_warning_emitted = True
     _log.warning("ADMIN_DISCORD_IDS is not set — admin-only endpoints will return 403 for every caller.")
 
 
@@ -154,6 +165,8 @@ def is_admin(user: SessionUser | None) -> bool:
 def require_admin(request: Request) -> SessionUser:
     """Require a logged-in admin. 401 if no session, 403 if not in
     ADMIN_DISCORD_IDS. Returns the session user dict."""
+    if not ADMIN_IDS:
+        _warn_admin_missing_once()
     user = require_user_session(request)
     if not is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required")

@@ -75,7 +75,7 @@ async def _probe_census() -> bool:
                 return False
             return _body_looks_healthy(body)
     except Exception as exc:
-        _log.debug("[census-health] Probe failed: %s", exc)
+        _log.info("[census-health] Probe failed: %s", exc)
         return False
 
 
@@ -99,6 +99,6 @@ async def poll_loop() -> None:
     while True:
         try:
             await refresh_health()
-        except Exception as exc:  # pragma: no cover - defensive
-            _log.warning("[census-health] probe error: %s", exc)
+        except Exception:  # pragma: no cover - defensive
+            _log.exception("[census-health] probe error")
         await asyncio.sleep(_POLL_INTERVAL)

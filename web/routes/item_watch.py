@@ -14,6 +14,7 @@ from web.db import (
     remove_item_watch,
     update_item_watch_check,
 )
+from web.lib.audit_log import audit_log
 from web.lib.cache_keys import char_cache_key, guild_roster_key
 from web.lib.census_lifecycle import shared_census_client
 from web.lib.log_safety import scrub as _scrub
@@ -75,11 +76,21 @@ async def _check_watch(watch: dict) -> None:
 async def _check_all_watches(guild_name: str, world: str) -> None:
     """Background task: check every watch entry for a guild/server against the cache."""
     watches = await list_item_watches(guild_name, world=world)
+    failures: list[tuple[int, Exception]] = []
     for w in watches:
         try:
             await _check_watch(w)
         except Exception as exc:
-            _log.warning("[item_watch] Check failed for watch_id=%s: %s", w.get("id"), exc)
+            failures.append((w.get("id", -1), exc))
+    if failures:
+        _log.warning(
+            "[item-watch] %d/%d watch checks failed for guild=%s (first: watch_id=%s err=%s)",
+            len(failures),
+            len(watches),
+            _scrub(guild_name),
+            failures[0][0],
+            failures[0][1],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -193,12 +204,12 @@ async def add_item_watch_entry(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    _log.info(
-        "[item-watch] Added: guild=%s character=%s item=%s by=%s",
-        _scrub(guild_name),
-        _scrub(canon_name),
-        _scrub(item_name),
-        user["id"],
+    audit_log(
+        "item_watch_added",
+        actor=user["id"],
+        guild=guild_name,
+        character=canon_name,
+        item=item_name,
     )
     # Immediately check if the character is already wearing it
     asyncio.create_task(_check_watch(row))
@@ -217,10 +228,10 @@ async def delete_item_watch(guild_name: str, watch_id: int, request: Request) ->
         raise HTTPException(status_code=403, detail="Officer access required")
     if not await remove_item_watch(watch_id, guild_name, world=current_world()):
         raise HTTPException(status_code=404, detail="Watch entry not found")
-    _log.info(
-        "[item-watch] Removed: guild=%s watch_id=%s by=%s",
-        _scrub(guild_name),
-        watch_id,
-        user["id"],
+    audit_log(
+        "item_watch_removed",
+        actor=user["id"],
+        guild=guild_name,
+        watch_id=watch_id,
     )
     return {"ok": True}

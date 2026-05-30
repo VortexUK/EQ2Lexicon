@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import logging
 from typing import TYPE_CHECKING
 
 import discord
@@ -13,8 +12,6 @@ from image.aa_tree import load_tree_index, render_tree
 
 if TYPE_CHECKING:
     from bot.bot import EQ2Bot
-
-_log = logging.getLogger(__name__)
 
 # Static choice value → detect_tree_type key(s) that satisfy it
 _CHOICE_TO_TYPES: dict[str, set[str]] = {

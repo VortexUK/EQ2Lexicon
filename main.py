@@ -8,14 +8,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-# Configure once before anything else imports logging.  force=True re-applies
-# even if uvicorn or another library already touched the root logger.
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s.%(msecs)03d  %(levelname)-8s  %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    force=True,
-)
+# Configure once before anything else imports logging.  force=True semantics
+# are inside configure_logging() — re-applies even if uvicorn already touched
+# the root logger.  Reads LOG_LEVEL + LOG_FORMAT from env.
+from web.lib.logging_config import configure_logging  # noqa: E402
+
+configure_logging()
 
 
 async def run_bot() -> None:

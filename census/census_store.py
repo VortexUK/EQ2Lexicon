@@ -94,7 +94,11 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
         try:
             conn.execute(stmt)
         except sqlite3.OperationalError as exc:
-            _log.debug("[census_store] migration swallowed: %s (%s)", stmt[:60], exc)
+            _log.info(
+                "[census_store] migration skipped (likely already applied): %s — %s",
+                stmt,
+                exc,
+            )
     conn.commit()
     return conn
 

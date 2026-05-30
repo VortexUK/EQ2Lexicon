@@ -8,7 +8,6 @@ ingest.py (and the read paths import them).
 from __future__ import annotations
 
 import asyncio
-import logging
 import sqlite3
 from collections.abc import Mapping
 from types import MappingProxyType
@@ -41,8 +40,6 @@ from web.routes.parses.models import (
     ThreatSummary,
 )
 from web.server_context import current_world
-
-_log = logging.getLogger(__name__)
 
 
 def _uploader_discord_id(source_dsn: str | None) -> str | None:

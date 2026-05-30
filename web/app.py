@@ -120,8 +120,8 @@ def _ensure_item_stats() -> None:
             _backfill(rebuild=False)
             _log.info("[startup] item_stats backfill complete.")
 
-    except Exception as exc:
-        _log.error("[startup] item_stats init/backfill error: %s", exc)
+    except Exception:
+        _log.exception("[startup] item_stats init/backfill error")
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +239,11 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         # Set GUNICORN_WORKERS=1 (or unset it for uvicorn's default) on the
         # deploy. If you ever need to scale workers, the SSE + LRU layers
         # need a Redis-backed rewrite before that flip is safe.
+        from web.lib.logging_config import configure_logging
+
+        configure_logging()
         _workers = int(os.getenv("WEB_CONCURRENCY", "1"))
+        _log.info("[startup] WEB_CONCURRENCY=%d (must be 1 for in-process SSE + LRU)", _workers)
         if _workers != 1:
             raise RuntimeError(
                 f"WEB_CONCURRENCY={_workers} is incompatible with the in-process "
@@ -339,6 +343,16 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     )
 
     app.add_middleware(ServerContextMiddleware)
+
+    # RequestContextMiddleware: mints UUID4 request_id, sets contextvars,
+    # echoes X-Request-ID on responses. Install between ServerContextMiddleware
+    # and SessionMiddleware in add_middleware order — Starlette executes
+    # add_middleware calls in reverse, so this runs AFTER SessionMiddleware
+    # (request.session["user"] is available) and BEFORE ServerContextMiddleware
+    # (request_id is set before ServerContextMiddleware fires its logs).
+    from web.lib.request_context_middleware import RequestContextMiddleware
+
+    app.add_middleware(RequestContextMiddleware)
 
     # API routers — one entry per router, registered at /api prefix
     _ROUTERS = [

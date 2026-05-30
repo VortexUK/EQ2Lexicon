@@ -30,6 +30,20 @@ _log = logging.getLogger("eq2.audit")
 _log.setLevel(logging.INFO)
 
 
+# Fields that Python's logging.LogRecord already defines — passing them in
+# extra= raises KeyError("Attempt to overwrite %r in LogRecord").  We rename
+# any clashing caller-supplied key to ``<key>_`` so the value is preserved
+# without conflicting with the logging machinery.
+_LOGRECORD_RESERVED = frozenset(
+    {
+        "name", "msg", "args", "created", "relativeCreated", "thread", "threadName",
+        "process", "processName", "pathname", "filename", "module", "funcName",
+        "lineno", "levelname", "levelno", "exc_info", "exc_text", "stack_info",
+        "taskName", "message",
+    }
+)
+
+
 def audit_log(action: str, actor: str | None, **fields: Any) -> None:
     """Emit a stable-shape audit-trail INFO record.
 
@@ -57,7 +71,10 @@ def audit_log(action: str, actor: str | None, **fields: Any) -> None:
             discord_id=result["discord_id"],
         )
     """
-    safe_fields: dict[str, Any] = {k: scrub(v) for k, v in fields.items()}
+    safe_fields: dict[str, Any] = {
+        (f"{k}_" if k in _LOGRECORD_RESERVED else k): scrub(v)
+        for k, v in fields.items()
+    }
     safe_fields["action"] = action
     safe_fields["actor"] = actor or "-"
     safe_fields["request_id"] = request_id_var.get() or "-"

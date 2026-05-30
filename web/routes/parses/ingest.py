@@ -146,7 +146,7 @@ async def _prewarm_guild_silently(guild_name: str) -> None:
 
         await _fetch_and_cache_guild(guild_name)
     except Exception as exc:
-        _log.debug("Background guild prewarm failed for %s: %s", guild_name, exc)
+        _log.warning("Background guild prewarm failed for %s: %s", guild_name, exc)
 
 
 async def _resolve_combatant_snapshots(
@@ -262,9 +262,16 @@ async def _backfill_encounter_guild(encounter_id: int, uploader: str, world: str
     """
     try:
         result = await _resolve_uploader_guild_async(uploader, world)
-        if isinstance(result, _CensusUnavailable) or result is None:
+        if isinstance(result, _CensusUnavailable):
+            _log.info(
+                "[parses-ingest] Background guild backfill for encounter %s: Census still unavailable, will retry on next opportunity",
+                encounter_id,
+            )
+            return
+        if result is None:
             _log.debug(
-                "Background guild backfill for encounter %s: Census still unavailable or unguilded", encounter_id
+                "[parses-ingest] Background guild backfill for encounter %s: no guild (unguilded)",
+                encounter_id,
             )
             return
         conn = parses_db.init_db(parses_db.DB_PATH)
@@ -277,7 +284,9 @@ async def _backfill_encounter_guild(encounter_id: int, uploader: str, world: str
         _log.warning("Background guild backfill failed for encounter %s: %s", encounter_id, exc)
 
 
-async def _resolve_and_update_snapshots(encounter_id: int, player_names: list[str], world: str | None) -> None:
+async def _resolve_and_update_snapshots(
+    encounter_id: int, player_names: list[str], world: str | None, enc_title: str = ""
+) -> None:
     """Background: do the full (Census-backed) snapshot resolution OFF the
     response path, then write the results onto the combatant rows. Never
     raises — best-effort enrichment."""
@@ -287,7 +296,12 @@ async def _resolve_and_update_snapshots(encounter_id: int, player_names: list[st
             return
         await run_sync(_update_snapshots_sync, encounter_id, snapshots)
     except Exception as exc:
-        _log.warning("Background snapshot resolution failed for encounter %s: %s", encounter_id, exc)
+        _log.warning(
+            "Background snapshot resolution failed for encounter %s (%s): %s",
+            encounter_id,
+            enc_title or "<title-unavailable>",
+            exc,
+        )
 
 
 # Map raw ACT row dicts to our typed dataclasses — same column-name handling
@@ -598,6 +612,7 @@ async def _validate_payload_signature(
                 status_code=400,
                 detail=f"{PLUGIN_SIGNATURE_HEADER} is only valid for token-authenticated requests.",
             )
+        _log.debug("[parses-ingest] Session-auth upload (no HMAC validation) user_id=%s", user["id"])
         return
 
     # Token auth from here on — header is required.
@@ -782,7 +797,13 @@ async def ingest_parse(
     # re-resolves its players against the now-warmer cache). Skipped rows
     # already have their snapshots, and an empty name list has nothing to do.
     if status in ("inserted", "revived") and encounter_id is not None and player_names:
-        background.add_task(_resolve_and_update_snapshots, encounter_id, player_names, body.logger_server)
+        background.add_task(
+            _resolve_and_update_snapshots,
+            encounter_id,
+            player_names,
+            body.logger_server,
+            body.encounter.title or "",
+        )
 
     # If Census was transiently down during guild resolution, schedule a
     # background retry so the guild_name is back-filled once Census recovers.

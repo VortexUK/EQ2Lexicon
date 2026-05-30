@@ -5,7 +5,6 @@ Carved out of the original 933-line web/routes/character.py.
 
 from __future__ import annotations
 
-import logging
 import sqlite3
 from collections import defaultdict
 
@@ -32,8 +31,6 @@ from web.routes.recipes import RecipeResult as _RecipeResult
 from web.routes.recipes import _bench_label as _recipe_bench_label
 from web.routes.recipes import _fuel_to_craft_tier as _recipe_fuel_to_craft_tier
 from web.server_context import current_world
-
-_log = logging.getLogger(__name__)
 
 _SUB_EXPERT_TIERS = {"Apprentice", "Journeyman", "Adept"}
 

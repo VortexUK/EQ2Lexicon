@@ -375,6 +375,8 @@ async def _prewarm_for_world(world: str, sem: asyncio.Semaphore) -> None:
 
         _log.info("[startup] Pre-warming character cache for %d character(s) on %s...", len(names), world)
 
+        failures: list[tuple[str, Exception]] = []
+
         async def _fetch_one(name: str) -> None:
             cache_key = char_cache_key(name, world)
             if character_cache.get_stale(cache_key)[0] is not None:
@@ -386,12 +388,20 @@ async def _prewarm_for_world(world: str, sem: asyncio.Semaphore) -> None:
                     if char is not None:
                         character_cache.set(cache_key, _build_char_response(char))
                 except Exception as exc:
-                    _log.warning("[startup] Pre-warm failed for %s (%s): %s", name, world, exc)
+                    failures.append((name, exc))
 
         await asyncio.gather(*[_fetch_one(n) for n in names])
+        if failures:
+            _log.warning(
+                "[startup] Pre-warm failed for %d character(s) on %s (first: %s — %s)",
+                len(failures),
+                world,
+                failures[0][0],
+                failures[0][1],
+            )
 
     except Exception as exc:
-        _log.error("[startup] Character cache pre-warm error for %s: %s", world, exc)
+        _log.warning("[startup] Character cache pre-warm error for %s: %s", world, exc)
 
 
 async def prewarm_character_cache() -> None:
@@ -410,7 +420,7 @@ async def prewarm_character_cache() -> None:
     try:
         servers = await run_sync(list_servers_sync)
     except Exception as exc:
-        _log.error("[startup] Could not load server registry for pre-warm: %s", exc)
+        _log.warning("[startup] Could not load server registry for pre-warm: %s", exc)
         return
 
     sem = asyncio.Semaphore(3)  # max 3 concurrent Census fetches across ALL servers
@@ -479,7 +489,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
             finally:
                 conn2.close()
         except Exception as exc:
-            _log.debug("[character] self-heal cache write skipped: %s", exc)
+            _log.debug("[character] self-heal cache write skipped for %s: %s", name, exc)
         character_cache.set(cache_key, resp)
         return resp
 
@@ -488,6 +498,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
     from web import census_health
 
     if census_health.is_down():
+        _log.debug("[character] Skipping live fetch — census_health=down (name=%s)", name)
         raise HTTPException(
             status_code=503,
             detail=f"'{name}' not cached yet and Census is unavailable. Try again shortly.",

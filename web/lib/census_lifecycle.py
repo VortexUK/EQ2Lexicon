@@ -82,8 +82,8 @@ async def aclose_all() -> None:
     for key, client in list(_clients.items()):
         try:
             await client.close()
-        except Exception as exc:
-            _log.warning("[census-lifecycle] Error closing CensusClient for loop %d: %s", key, exc)
+        except Exception:
+            _log.exception("[census-lifecycle] Error closing CensusClient for loop %d", key)
         _clients.pop(key, None)
 
 

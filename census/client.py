@@ -201,8 +201,8 @@ class CensusClient:
             item_db.upsert_items([raw], conn)
             conn.close()
             _log.debug("[DB] Cached item %s (%s)", raw.get("id"), raw.get("displayname"))
-        except Exception as exc:
-            _log.warning("[DB] Failed to cache item %s: %s", raw.get("id"), exc)
+        except Exception:
+            _log.exception("[DB] Failed to cache item %s", raw.get("id"))
 
     async def get_raw_item(self, query: str) -> dict | None:
         """Return the raw parsed JSON — used by inspect_item.py."""
@@ -676,7 +676,7 @@ class CensusClient:
                     raise RuntimeError(f"Census HTTP {resp.status} for guild lookup of {character_name!r}")
                 data = await resp.json(content_type=None)
         except Exception as exc:
-            _log.error("[Census] API error fetching guild for %r: %s: %r", character_name, type(exc).__name__, exc)
+            _log.warning("[Census] API error fetching guild for %r: %s: %r", character_name, type(exc).__name__, exc)
             raise  # re-raise so callers can detect the failure
 
         char_list = data.get("character_list", [])
@@ -942,5 +942,5 @@ class CensusClient:
     async def _fetch(self, params: dict) -> dict | None:
         data = await self._census_get("item/", params, timeout_s=10)
         if data is not None:
-            _log.info("[Census] returned=%s items", data.get("returned"))
+            _log.debug("[Census] returned=%s items", data.get("returned"))
         return data

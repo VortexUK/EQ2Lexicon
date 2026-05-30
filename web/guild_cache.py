@@ -307,6 +307,7 @@ async def _fetch_and_cache_guild(
         )
 
         # Per-character overviews
+        fails: list[tuple[str, Exception]] = []
         for ov in overviews:
             try:
                 character_cache.set(
@@ -314,7 +315,14 @@ async def _fetch_and_cache_guild(
                     _overview_to_char_response(ov),
                 )
             except Exception as exc:
-                _log.warning("[guild_cache] Pre-warm failed for %s: %s", ov.name, exc)
+                fails.append((ov.name, exc))
+        if fails:
+            _log.warning(
+                "[guild_cache] %d pre-warm failures (first: %s — %s)",
+                len(fails),
+                fails[0][0],
+                fails[0][1],
+            )
 
         # Adorn + spell derived caches
         _prewarm_adorn_cache(
@@ -377,7 +385,7 @@ async def _fetch_and_cache_guild(
     try:
         return await task
     except Exception as exc:
-        _log.error("[Cache] Guild fetch failed for %s: %s", guild_name, exc)
+        _log.warning("[Cache] Guild fetch failed for %s: %s", guild_name, exc)
         return None
     finally:
         if _guild_fetch_tasks.get(task_key) is task:

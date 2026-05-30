@@ -189,8 +189,8 @@ class _DBCollector(Collector):
                         (status,),
                     ).fetchone()
                     g_claims.add_metric([status], row[0] if row else 0)
-            except Exception as exc:
-                _log.error("[metrics] users.db collector error: %s", exc)
+            except Exception:
+                _log.exception("[metrics] users.db collector error")
                 self._close_conn("users")
 
         # parses.db — encounters split by hidden_at (visible vs soft-deleted)
@@ -203,8 +203,8 @@ class _DBCollector(Collector):
                 g_parses.add_metric(["visible"], row[0] if row else 0)
                 row = conn.execute("SELECT COUNT(*) FROM encounters WHERE hidden_at IS NOT NULL").fetchone()
                 g_parses.add_metric(["hidden"], row[0] if row else 0)
-            except Exception as exc:
-                _log.error("[metrics] parses.db collector error: %s", exc)
+            except Exception:
+                _log.exception("[metrics] parses.db collector error")
                 self._close_conn("parses")
 
         # raids.db — strategies + the ACT trigger pack.
@@ -217,8 +217,8 @@ class _DBCollector(Collector):
                 g_triggers.add_metric([], row[0] if row else 0)
                 row = conn.execute("SELECT COUNT(*) FROM act_spell_timers").fetchone()
                 g_spell_timers.add_metric([], row[0] if row else 0)
-            except Exception as exc:
-                _log.error("[metrics] raids.db collector error: %s", exc)
+            except Exception:
+                _log.exception("[metrics] raids.db collector error")
                 self._close_conn("raids")
 
         yield g_users
@@ -268,8 +268,8 @@ class _DBFileSizeCollector(Collector):
             try:
                 if path.exists():
                     g_size.add_metric([label], path.stat().st_size)
-            except Exception as exc:
-                _log.error("[metrics] db file-size for %s: %s", label, exc)
+            except Exception:
+                _log.exception("[metrics] db file-size for %s", label)
 
         yield g_size
 

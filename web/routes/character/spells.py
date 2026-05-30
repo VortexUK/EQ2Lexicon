@@ -5,7 +5,6 @@ Carved out of the original 933-line web/routes/character.py.
 
 from __future__ import annotations
 
-import logging
 from collections import Counter
 
 from fastapi import HTTPException, Request
@@ -25,8 +24,6 @@ from web.limiter import limiter
 from web.routes.character import router
 from web.routes.character.views import _build_char_response
 from web.server_context import current_world
-
-_log = logging.getLogger(__name__)
 
 
 class SpellEntryResponse(BaseModel):

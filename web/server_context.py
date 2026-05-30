@@ -19,6 +19,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from census.config import WORLD as _DEFAULT_WORLD
 from web import db
+from web.lib.request_context import world_var as _logging_world_var
 
 
 @dataclass(frozen=True)
@@ -148,5 +149,10 @@ class ServerContextMiddleware:
         if override is None:
             qs = scope.get("query_string", b"").decode()
             override = parse_qs(qs).get("server", [None])[0]
-        with active_server(resolve_host(host, override)):
-            await self.app(scope, receive, send)
+        server = resolve_host(host, override)
+        world_token = _logging_world_var.set(server.world)
+        try:
+            with active_server(server):
+                await self.app(scope, receive, send)
+        finally:
+            _logging_world_var.reset(world_token)

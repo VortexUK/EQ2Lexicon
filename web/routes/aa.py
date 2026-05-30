@@ -226,7 +226,7 @@ async def _bg_refresh_aas(name: str, cache_key: str) -> None:
             await run_sync(_write)
             aa_cache.set(cache_key, result)
     except Exception as exc:
-        _log.error("[Cache] Background AA refresh failed for %s: %s", name, exc)
+        _log.warning("[Cache] Background AA refresh failed for %s: %s", name, exc)
 
 
 @router.get("/character/{name}/aas", response_model=CharAAsResponse)
@@ -271,6 +271,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
     from web import census_health
 
     if census_health.is_down():
+        _log.debug("[aa] Skipping live fetch — census_health=down (name=%s)", name)
         raise HTTPException(
             status_code=503,
             detail=f"'{name}' AA data not cached yet and Census is unavailable. Try again shortly.",
@@ -329,7 +330,7 @@ async def get_spell_effects(spellcrc: int, tier: int = 0) -> SpellEffectsRespons
             try:
                 effects = json.loads(row.get("effects", "[]"))
             except Exception as exc:
-                _log.warning("[aa] Failed to parse effects JSON for crc=%s: %s", spellcrc, exc)
+                _log.warning("[aa] Failed to parse effects JSON for crc=%s tier=%s: %s", spellcrc, tier, exc)
                 effects = []
 
     return SpellEffectsResponse(

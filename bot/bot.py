@@ -22,6 +22,9 @@ class EQ2Bot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self) -> None:
+        from web.lib.logging_config import configure_logging
+
+        configure_logging()
         self.census = CensusClient(service_id=SERVICE_ID)
 
         await self.add_cog(ItemsCog(self))
@@ -34,7 +37,7 @@ class EQ2Bot(commands.Bot):
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
         await self.tree.sync()
-        _log.info("Slash commands synced.")
+        _log.info("Slash commands synced to %d guild(s)", len(DISCORD_SYNC_GUILD_IDS))
 
     async def close(self) -> None:
         try:

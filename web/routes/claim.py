@@ -108,7 +108,11 @@ async def _build_claims_response(discord_id: str, world: str) -> tuple[ClaimsRes
         failed_names = [n for n, gn in census_guild.items() if isinstance(gn, BaseException)]
         if failed_names:
             any_failed = True
-            _log.warning("[Claims] Guild fetch failed for: %s — result will not be cached", failed_names)
+            _log.warning(
+                "[Claims] Guild fetch failed for %d names (first: %s) — result will not be cached",
+                len(failed_names),
+                failed_names[0],
+            )
 
     # Merge cache + Census results back in original order
     approved = []
@@ -139,12 +143,11 @@ async def _refresh_claim_cache(discord_id: str, world: str) -> None:
                 _safe_for_log(discord_id),
                 _safe_for_log(world),
             )
-    except Exception as exc:
-        _log.error(
-            "[Cache] Background claim refresh failed for %s on %s: %s",
+    except Exception:
+        _log.exception(
+            "[Cache] Background claim refresh failed for %s on %s",
             _safe_for_log(discord_id),
             _safe_for_log(world),
-            _safe_for_log(exc),
         )
 
 
@@ -222,6 +225,7 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
     from web import census_health
 
     if census_health.is_down():
+        _log.debug("[claim] Skipping live fetch — census_health=down (name=%s)", name)
         raise HTTPException(
             status_code=503,
             detail="Census is unavailable. Cannot verify character existence — try again shortly.",
@@ -229,11 +233,12 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
     try:
         async with shared_census_client() as client:
             char = await client.get_character(name, current_world())
-    except Exception:
+    except Exception as exc:
+        _log.warning("[claim] Census fetch failed: %s", exc)
         raise HTTPException(
             status_code=503,
             detail="Census is unavailable. Cannot verify character existence — try again shortly.",
-        )
+        ) from exc
 
     if char is None:
         raise HTTPException(

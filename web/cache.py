@@ -103,7 +103,7 @@ class TTLCache:
         if self._max_age is not None and age > self._max_age:
             del self._store[key]
             self._update_size()
-            _log.info("[Cache] EXPIRED %s (%.1f min old)", key, age / 60)
+            _log.debug("[Cache] EXPIRED %s (%.1f min old)", key, age / 60)
             self._inc_miss()
             return None, False
         is_stale = age > self._ttl
@@ -148,7 +148,7 @@ class TTLCache:
 
     def delete(self, key: str) -> None:
         self._store.pop(key, None)
-        _log.info("[Cache] DEL   %s", key)
+        _log.debug("[Cache] DEL   %s", key)
         self._update_size()
 
 

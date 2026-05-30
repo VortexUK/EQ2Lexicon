@@ -175,9 +175,9 @@ def ingest_once(
                     enc.title,
                     len(combatants),
                 )
-            except Exception as exc:
+            except Exception:
                 errors += 1
-                _log.exception("Failed to ingest encounter %s: %s", encid, exc)
+                _log.exception("Failed to ingest encounter %s", encid)
     finally:
         act_conn.close()
         parses_conn.close()
@@ -211,7 +211,7 @@ def watch(
         while True:
             stats = ingest_once(act_db_path, parses_db_path, source_dsn, uploaded_by)
             if stats.encounters_new or stats.errors:
-                _log.info("Tick: %s", stats)
+                _log.info("Ingest tick: new=%d errors=%d", stats.encounters_new, stats.errors)
             time.sleep(interval_s)
     except KeyboardInterrupt:
         _log.info("Watcher stopped by user.")
