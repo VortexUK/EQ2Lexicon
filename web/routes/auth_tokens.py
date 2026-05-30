@@ -11,6 +11,8 @@ to /api/parses/ingest without going through the OAuth dance every time.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -23,7 +25,10 @@ from web.auth_deps import (
     require_user_session as _require_user,
 )
 from web.config import ALLOWED_SERVERS
+from web.lib.log_safety import scrub as _scrub
 from web.limiter import limiter
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 
@@ -76,6 +81,13 @@ async def mint_token(request: Request, body: TokenMintRequest) -> TokenMintRespo
     if not name:
         raise HTTPException(status_code=400, detail="Token name must not be empty.")
     raw, row = await users_db.mint_api_token(user["id"], name)
+    _log.info(
+        "[auth-tokens] Token minted: user_id=%s token_id=%s name=%s prefix=%s",
+        user["id"],
+        row["id"],
+        _scrub(name),
+        row["token_prefix"],
+    )
     return TokenMintResponse(token=raw, row=TokenRow(**row))
 
 
@@ -87,6 +99,11 @@ async def revoke_token(request: Request, token_id: int) -> None:
     if not ok:
         # Either the token doesn't exist, isn't ours, or was already revoked.
         raise HTTPException(status_code=404, detail="Token not found or already revoked.")
+    _log.info(
+        "[auth-tokens] Token revoked: user_id=%s token_id=%s",
+        user["id"],
+        token_id,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ from web.auth_deps import (
     require_user_session as _require_user,
 )
 from web.lib.executor import run_sync
+from web.lib.log_safety import scrub as _scrub
 from web.lib.session_user import SessionUser
 from web.limiter import limiter
 from web.routes.parses import router
@@ -133,6 +134,14 @@ async def delete_parses_batch(
             conn.close()
 
     n = await run_sync(_delete_many)
+    _log.warning(
+        "[parses-delete] Batch %s deleted=%d ids=%s by=%s",
+        "PURGE" if purge else "soft-delete",
+        n,
+        # Cap the id-list dump so a 1000-id batch doesn't produce a 10 KB log line.
+        ",".join(str(i) for i in id_list[:20]) + (" …" if len(id_list) > 20 else ""),
+        user["id"],
+    )
     return DeleteParsesResponse(deleted=n)
 
 
@@ -168,6 +177,14 @@ async def delete_parse(
             conn.close()
 
     removed = await run_sync(_delete_sync)
+    if removed:
+        _log.warning(
+            "[parses-delete] %s encounter_id=%s title=%s by=%s",
+            "PURGED" if purge else "soft-deleted",
+            encounter_id,
+            _scrub(enc["title"]) if enc else "<unknown>",
+            user["id"],
+        )
     return DeleteParsesResponse(deleted=1 if removed else 0)
 
 
@@ -225,4 +242,14 @@ async def delete_parses_bulk(
             conn.close()
 
     n = await run_sync(_delete_sync)
+    _log.warning(
+        "[parses-delete] Bulk %s deleted=%d filter=guild=%s,zone=%s,date=%s,uploader=%s by=%s",
+        "PURGE" if purge else "soft-delete",
+        n,
+        _scrub(guild),
+        _scrub(zone) if zone else "*",
+        date or "*",
+        _scrub(uploader) if uploader else "*",
+        user["id"],
+    )
     return DeleteParsesResponse(deleted=n)

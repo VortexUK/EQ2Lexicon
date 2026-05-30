@@ -33,6 +33,7 @@ from web.db import (
     upsert_server_settings_sync,
 )
 from web.lib.executor import run_sync
+from web.lib.log_safety import scrub as _scrub
 from web.routes.claim import invalidate_user_claim_cache_all_worlds
 from web.routes.role_requests import RoleRequestEntry
 from web.server_context import current_world
@@ -138,6 +139,13 @@ async def approve_claim(claim_id: int, request: Request) -> ClaimDetail:
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
     invalidate_user_claim_cache_all_worlds(result["discord_id"])
+    _log.info(
+        "[admin] Claim approved: claim_id=%s character=%s discord_id=%s by=%s",
+        claim_id,
+        _scrub(result["character_name"]),
+        result["discord_id"],
+        admin["id"],
+    )
     return ClaimDetail(**result)
 
 
@@ -165,15 +173,29 @@ async def reject_claim(
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
     invalidate_user_claim_cache_all_worlds(result["discord_id"])
+    _log.info(
+        "[admin] Claim rejected: claim_id=%s character=%s discord_id=%s by=%s note=%s",
+        claim_id,
+        _scrub(result["character_name"]),
+        result["discord_id"],
+        admin["id"],
+        _scrub((body.note or "")[:80]),
+    )
     return ClaimDetail(**result)
 
 
 @router.delete("/admin/users/{discord_id}/claims", status_code=200)
 async def remove_all_user_claims(discord_id: str, request: Request) -> dict:
     """Permanently delete every claim record for a user."""
-    _require_admin(request)
+    admin = _require_admin(request)
     count = await delete_claims_for_user(discord_id)
     invalidate_user_claim_cache_all_worlds(discord_id)
+    _log.info(
+        "[admin] Claims purged for user: discord_id=%s count=%d by=%s",
+        discord_id,
+        count,
+        admin["id"],
+    )
     return {"ok": True, "deleted": count}
 
 
@@ -207,6 +229,13 @@ async def grant_user_role(discord_id: str, role: str, request: Request) -> dict:
             detail=f"Unknown role {role!r}. Known roles: {sorted(KNOWN_ROLES)}",
         )
     inserted = await grant_role(discord_id, role, admin["id"])
+    if inserted:
+        _log.info(
+            "[admin] Role granted: role=%s to user_id=%s by=%s",
+            role,
+            discord_id,
+            admin["id"],
+        )
     # Bust the public /api/supporters cache so the new badge appears
     # without waiting for a process restart. Only fires for the
     # supporter role since the cache only tracks that one — keeps
@@ -221,7 +250,7 @@ async def grant_user_role(discord_id: str, role: str, request: Request) -> dict:
 @router.delete("/admin/users/{discord_id}/roles/{role}", status_code=200)
 async def revoke_user_role(discord_id: str, role: str, request: Request) -> dict:
     """Revoke a role from a user. 404 when the user didn't have the role."""
-    _require_admin(request)
+    admin = _require_admin(request)
     if role not in KNOWN_ROLES:
         raise HTTPException(
             status_code=400,
@@ -230,6 +259,12 @@ async def revoke_user_role(discord_id: str, role: str, request: Request) -> dict
     removed = await revoke_role(discord_id, role)
     if not removed:
         raise HTTPException(status_code=404, detail="User does not have this role")
+    _log.info(
+        "[admin] Role revoked: role=%s from user_id=%s by=%s",
+        role,
+        discord_id,
+        admin["id"],
+    )
     if role == "supporter":
         from web.routes.supporters import invalidate as _invalidate_supporters
 
@@ -294,6 +329,13 @@ async def approve_role_request(
     if reviewed is None:
         # Lost to a concurrent admin (race). Surface as 409 rather than 200.
         raise HTTPException(status_code=409, detail="Request was reviewed by someone else")
+    _log.info(
+        "[admin] Role request approved: request_id=%s role=%s user_id=%s by=%s",
+        request_id,
+        reviewed["role"],
+        reviewed["discord_id"],
+        admin["id"],
+    )
     return RoleRequestEntry(**reviewed)
 
 
@@ -313,6 +355,14 @@ async def reject_role_request(
     reviewed = await review_role_request(request_id, "rejected", admin["id"], body.note)
     if reviewed is None:
         raise HTTPException(status_code=409, detail="Request was reviewed by someone else")
+    _log.info(
+        "[admin] Role request rejected: request_id=%s role=%s user_id=%s by=%s note=%s",
+        request_id,
+        reviewed["role"],
+        reviewed["discord_id"],
+        admin["id"],
+        _scrub((body.note or "")[:80]),
+    )
     return RoleRequestEntry(**reviewed)
 
 
@@ -385,7 +435,7 @@ async def update_server_settings(
 
     After writing, reloads the in-memory server registry so the change takes
     effect immediately without a restart."""
-    _require_admin(request)
+    admin = _require_admin(request)
 
     # 404 when the world is not known
     known_worlds = {r["world"] for r in list_servers_sync()}
@@ -412,6 +462,15 @@ async def update_server_settings(
     # We never unset a default via is_default=False/None — you can only SET one.
     if body.is_default is True:
         set_default_server_sync(world)
+    _log.info(
+        "[admin] Server settings updated: world=%s max_level=%s xpac=%s launch_dt=%s is_default=%s by=%s",
+        world,
+        body.max_level,
+        body.current_xpac,
+        body.launch_dt,
+        body.is_default,
+        admin["id"],
+    )
     # Refresh the in-memory registry immediately so new requests see the change.
     server_context.load_registry()
 
@@ -447,4 +506,10 @@ async def kick_user(discord_id: str, request: Request) -> dict:
         raise HTTPException(status_code=404, detail="User not found")
     count = await delete_claims_for_user(discord_id)
     invalidate_user_claim_cache_all_worlds(discord_id)
+    _log.warning(
+        "[admin] User kicked: user_id=%s by=%s claims_deleted=%d",
+        discord_id,
+        admin["id"],
+        count,
+    )
     return {"ok": True, "claims_deleted": count}

@@ -602,6 +602,13 @@ async def _validate_payload_signature(
 
     # Token auth from here on — header is required.
     if not sig_header:
+        _log.info(
+            "[parses-ingest] Token upload missing HMAC header (likely outdated plugin): "
+            "token_id=%s user_id=%s remote_ip=%s",
+            user.get("token_id"),
+            user["id"],
+            request.client.host if request.client else None,
+        )
         raise HTTPException(
             status_code=401,
             detail=(
@@ -640,6 +647,12 @@ async def _validate_payload_signature(
     ).hexdigest()
 
     if not hmac.compare_digest(expected, sig_header.strip().lower()):
+        _log.warning(
+            "[parses-ingest] HMAC signature mismatch: token_id=%s user_id=%s remote_ip=%s",
+            user.get("token_id"),
+            user["id"],
+            request.client.host if request.client else None,
+        )
         raise HTTPException(
             status_code=401,
             detail=f"{PLUGIN_SIGNATURE_HEADER} does not match payload.",

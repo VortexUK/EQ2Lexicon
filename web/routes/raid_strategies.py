@@ -32,6 +32,7 @@ Lazy zone creation: a PUT for a zone not yet known to raids_db creates the
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 
@@ -42,9 +43,12 @@ from census import raids_db, zones_db
 from web import db as users_db
 from web.auth_deps import require_editor
 from web.lib.executor import run_sync
+from web.lib.log_safety import scrub as _scrub
 from web.lib.primary_guild import cached_primary_guild
 from web.lib.session_user import SessionUser
 from web.server_context import current_world as _current_world
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["raid_strategies"])
 
@@ -504,6 +508,14 @@ async def put_strategy(
 
     last_edited_by = row.get("last_edited_by")
     editor_name = await _resolve_editor_name(last_edited_by)
+    _log.info(
+        "[raid-strategy] Strategy edited: zone=%s encounter=%s position=%s by=%s len=%d",
+        _scrub(canonical_zone),
+        _scrub(encounter_name),
+        position,
+        user["id"],
+        len(body.markdown),
+    )
     return StrategyResponse(
         zone_name=canonical_zone,
         encounter_name=encounter_name,
@@ -640,6 +652,12 @@ async def put_zone_overview(
 
     last_edited_by = row.get("last_edited_by")
     editor_name = await _resolve_editor_name(last_edited_by)
+    _log.info(
+        "[raid-strategy] Zone overview edited: zone=%s by=%s len=%d",
+        _scrub(canonical),
+        user["id"],
+        len(body.markdown),
+    )
     return ZoneOverviewResponse(
         zone_name=canonical,
         markdown=row.get("overview_md") or body.markdown,

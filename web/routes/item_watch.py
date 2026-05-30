@@ -16,6 +16,7 @@ from web.db import (
 )
 from web.lib.cache_keys import char_cache_key, guild_roster_key
 from web.lib.census_lifecycle import shared_census_client
+from web.lib.log_safety import scrub as _scrub
 from web.lib.primary_guild import get_primary_claim
 from web.routes.guild import _officer_chars, _roster_rank_map, _validate_guild_name
 from web.server_context import current_world
@@ -192,6 +193,13 @@ async def add_item_watch_entry(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
+    _log.info(
+        "[item-watch] Added: guild=%s character=%s item=%s by=%s",
+        _scrub(guild_name),
+        _scrub(canon_name),
+        _scrub(item_name),
+        user["id"],
+    )
     # Immediately check if the character is already wearing it
     asyncio.create_task(_check_watch(row))
 
@@ -209,4 +217,10 @@ async def delete_item_watch(guild_name: str, watch_id: int, request: Request) ->
         raise HTTPException(status_code=403, detail="Officer access required")
     if not await remove_item_watch(watch_id, guild_name, world=current_world()):
         raise HTTPException(status_code=404, detail="Watch entry not found")
+    _log.info(
+        "[item-watch] Removed: guild=%s watch_id=%s by=%s",
+        _scrub(guild_name),
+        watch_id,
+        user["id"],
+    )
     return {"ok": True}

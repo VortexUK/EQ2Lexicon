@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from web.auth_deps import ADMIN_IDS as _ADMIN_IDS  # canonical source; auth_deps logs the "not set" warning once
 from web.db import get_user_access_status, list_roles_for_user, upsert_user
+from web.lib.log_safety import scrub as _scrub
 
 _log = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -115,6 +116,11 @@ async def callback(code: str, state: str | None = None, *, request: Request) -> 
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         if token_resp.status_code != 200:
+            _log.warning(
+                "[auth] OAuth token exchange failed: HTTP %s — %s",
+                token_resp.status_code,
+                _scrub(token_resp.text[:200]),
+            )
             raise HTTPException(status_code=400, detail="Failed to exchange OAuth code")
         access_token = token_resp.json()["access_token"]
 
@@ -123,6 +129,11 @@ async def callback(code: str, state: str | None = None, *, request: Request) -> 
             headers={"Authorization": f"Bearer {access_token}"},
         )
         if user_resp.status_code != 200:
+            _log.warning(
+                "[auth] OAuth user-info fetch failed: HTTP %s — %s",
+                user_resp.status_code,
+                _scrub(user_resp.text[:200]),
+            )
             raise HTTPException(status_code=400, detail="Failed to fetch Discord user")
         user = user_resp.json()
 
@@ -143,6 +154,12 @@ async def callback(code: str, state: str | None = None, *, request: Request) -> 
         admin_ids=_ADMIN_IDS,
     )
 
+    _log.info(
+        "[auth] Login: user_id=%s username=%s access_status=%s",
+        user["id"],
+        _scrub(user["username"]),
+        access_status,
+    )
     # Approved users go straight to the app; others land on an access page
     # so the frontend can show the appropriate message. Either way, send them
     # back to the subdomain they started on (if we stashed one and trust it).
@@ -173,5 +190,8 @@ async def me(request: Request) -> UserResponse:
 @router.post("/auth/logout")
 async def logout(request: Request) -> JSONResponse:
     """Clear the session cookie."""
+    user = request.session.get("user")
+    if user:
+        _log.info("[auth] Logout: user_id=%s", user["id"])
     request.session.clear()
     return JSONResponse({"ok": True})

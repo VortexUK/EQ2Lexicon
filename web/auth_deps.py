@@ -55,6 +55,7 @@ Adding a new capability is two lines: register the string in
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from typing import cast
@@ -68,10 +69,17 @@ from web.lib.session_user import SessionUser, TokenUser
 # time — a config change requires a process restart, which is fine for our
 # deploy model (Railway redeploys on push).
 ADMIN_IDS: frozenset[str] = frozenset(filter(None, os.getenv("ADMIN_DISCORD_IDS", "").split(",")))
+_log = logging.getLogger(__name__)
 if not ADMIN_IDS:
-    logging.getLogger(__name__).warning(
-        "ADMIN_DISCORD_IDS is not set — admin-only endpoints will return 403 for every caller."
-    )
+    _log.warning("ADMIN_DISCORD_IDS is not set — admin-only endpoints will return 403 for every caller.")
+
+
+def _token_hash_for_log(raw_token: str) -> str:
+    """Return the first 8 hex chars of sha256(token) — a stable identifier
+    for log lines that can't be reversed to the raw token. Used by the
+    failed-token-lookup security log so alerts can grep for repeated hashes
+    without exposing usable secrets."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()[:8]
 
 
 def require_user_session(request: Request) -> SessionUser:
@@ -107,11 +115,22 @@ async def require_user_session_or_token(request: Request) -> TokenUser:
 
     row = await users_db.lookup_api_token(raw_token)
     if row is None:
+        _log.warning(
+            "[auth-deps] Invalid token presented: token_hash=%s remote_ip=%s",
+            _token_hash_for_log(raw_token),
+            request.client.host if request.client else None,
+        )
         raise HTTPException(status_code=401, detail="Invalid or revoked token")
     if row.get("access_status") not in ("approved", None):
         # Tokens minted before the user is approved still resolve, but we
         # gate on access_status here so a token from a denied/pending user
         # can't be used for writes.
+        _log.warning(
+            "[auth-deps] Token presented for non-approved account: user_id=%s access_status=%s remote_ip=%s",
+            row.get("user_id"),
+            row.get("access_status"),
+            request.client.host if request.client else None,
+        )
         raise HTTPException(status_code=403, detail="Account not approved")
 
     return cast(
