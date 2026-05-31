@@ -392,14 +392,8 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
-def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
-    row = conn.execute("SELECT value FROM _meta WHERE key = ?", (key,)).fetchone()
-    return row[0] if row else default
-
-
-def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
+# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
+from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 
 
 def upsert_zones(zones: list[dict], conn: sqlite3.Connection) -> int:
