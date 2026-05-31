@@ -19,6 +19,9 @@ from pathlib import Path
 import aiosqlite
 
 from backend.server.db import DB_PATH
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 
 async def get_active_claims(
@@ -36,11 +39,7 @@ async def get_active_claims(
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
-            SELECT * FROM character_claims
-            WHERE discord_id = ? AND world = ? AND status IN ('approved', 'pending')
-            ORDER BY requested_at ASC, id ASC
-            """,
+            _SQL["list_active_claims"],
             (discord_id, world),
         ) as cur:
             rows = await cur.fetchall()
@@ -68,8 +67,7 @@ async def submit_claim(
         # Reject if this character name is already claimed (approved or pending)
         # by anyone *on this world* (EQ2 names are unique only within a server)
         async with db.execute(
-            "SELECT discord_id FROM character_claims "
-            "WHERE character_name = ? AND world = ? AND status IN ('approved', 'pending')",
+            _SQL["check_character_name_taken"],
             (character_name, world),
         ) as cur:
             existing = await cur.fetchone()
@@ -80,16 +78,16 @@ async def submit_claim(
                 raise ValueError(f"'{character_name}' has already been claimed by another player.")
         # Cancel any existing pending claim on this world (one pending per world at a time)
         await db.execute(
-            "UPDATE character_claims SET status = 'withdrawn' WHERE discord_id = ? AND world = ? AND status = 'pending'",
+            _SQL["withdraw_pending_claims_on_world"],
             (discord_id, world),
         )
         cur = await db.execute(
-            "INSERT INTO character_claims (discord_id, character_name, status, world) VALUES (?, ?, 'pending', ?)",
+            _SQL["submit_claim"],
             (discord_id, character_name, world),
         )
         new_id = cur.lastrowid
         await db.commit()
-        async with db.execute("SELECT * FROM character_claims WHERE id = ?", (new_id,)) as cur2:
+        async with db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
             row = await cur2.fetchone()
     assert row is not None, "INSERT succeeded but SELECT returned nothing"
     return dict(row)
@@ -111,7 +109,7 @@ async def withdraw_claim(
     async with aiosqlite.connect(path) as db:
         # Check if this claim is primary before withdrawing (and capture world from row)
         async with db.execute(
-            "SELECT is_primary, world FROM character_claims WHERE id = ? AND discord_id = ?",
+            _SQL["select_primary_and_world"],
             (claim_id, discord_id),
         ) as cur:
             row = await cur.fetchone()
@@ -119,8 +117,7 @@ async def withdraw_claim(
         claim_world = row[1] if row is not None else world
 
         cur = await db.execute(
-            "UPDATE character_claims SET status = 'withdrawn', is_primary = 0 "
-            "WHERE id = ? AND discord_id = ? AND status IN ('pending', 'approved')",
+            _SQL["withdraw_claim"],
             (claim_id, discord_id),
         )
         changed = cur.rowcount > 0
@@ -128,15 +125,7 @@ async def withdraw_claim(
         # Promote the oldest remaining approved character on the same world to primary
         if changed and was_primary:
             await db.execute(
-                """
-                UPDATE character_claims SET is_primary = 1
-                WHERE id = (
-                    SELECT id FROM character_claims
-                    WHERE discord_id = ? AND world = ? AND status = 'approved' AND id != ?
-                    ORDER BY requested_at ASC
-                    LIMIT 1
-                )
-                """,
+                _SQL["promote_oldest_to_primary"],
                 (discord_id, claim_world, claim_id),
             )
 
@@ -159,7 +148,7 @@ async def set_primary(
     async with aiosqlite.connect(path) as db:
         # Verify the claim belongs to this user, is approved, and is on the right world
         async with db.execute(
-            "SELECT id FROM character_claims WHERE id = ? AND discord_id = ? AND world = ? AND status = 'approved'",
+            _SQL["find_approved_claim_for_user_on_world"],
             (claim_id, discord_id, world),
         ) as cur:
             if not await cur.fetchone():
@@ -167,11 +156,11 @@ async def set_primary(
 
         # Clear primary on all approved claims for this user on this world, then set on target
         await db.execute(
-            "UPDATE character_claims SET is_primary = 0 WHERE discord_id = ? AND world = ? AND status = 'approved'",
+            _SQL["clear_primary_on_world"],
             (discord_id, world),
         )
         await db.execute(
-            "UPDATE character_claims SET is_primary = 1 WHERE id = ?",
+            _SQL["set_primary_by_id"],
             (claim_id,),
         )
         await db.commit()
@@ -186,12 +175,7 @@ async def get_claim_by_id(
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
-            SELECT c.*, u.discord_name, u.discord_username, u.avatar
-            FROM character_claims c
-            LEFT JOIN users u ON u.discord_id = c.discord_id
-            WHERE c.id = ?
-            """,
+            _SQL["find_claim_with_user"],
             (claim_id,),
         ) as cur:
             row = await cur.fetchone()
@@ -223,13 +207,7 @@ async def list_claims(
         where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
         order = "ASC" if status == "pending" else "DESC"
         async with db.execute(
-            f"""
-            SELECT c.*, u.discord_name, u.discord_username, u.avatar
-            FROM character_claims c
-            LEFT JOIN users u ON u.discord_id = c.discord_id
-            {where_sql}
-            ORDER BY c.requested_at {order}
-            """,
+            _SQL["list_claims"].format(where_sql=where_sql, order=order),
             params,
         ) as cur:
             rows = await cur.fetchall()
@@ -251,7 +229,7 @@ async def review_claim(
     Returns the updated claim (with user info) or None if not found.
     """
     async with aiosqlite.connect(path) as db:
-        async with db.execute("SELECT discord_id, world FROM character_claims WHERE id = ?", (claim_id,)) as cur:
+        async with db.execute(_SQL["select_claim_user_and_world"], (claim_id,)) as cur:
             row = await cur.fetchone()
         if not row:
             return None
@@ -259,27 +237,19 @@ async def review_claim(
         claim_world = row[1]
 
         await db.execute(
-            """
-            UPDATE character_claims
-            SET status = ?,
-                reviewed_at = strftime('%s','now'),
-                reviewed_by = ?,
-                note = ?
-            WHERE id = ?
-            """,
+            _SQL["review_claim"],
             (status, admin_id, note, claim_id),
         )
         # Auto-assign primary if this is the user's first approved character on this world
         if status == "approved":
             async with db.execute(
-                "SELECT id FROM character_claims "
-                "WHERE discord_id = ? AND world = ? AND status = 'approved' AND is_primary = 1 AND id != ?",
+                _SQL["check_user_has_primary_on_world"],
                 (discord_id, claim_world, claim_id),
             ) as cur:
                 has_primary = await cur.fetchone() is not None
             if not has_primary:
                 await db.execute(
-                    "UPDATE character_claims SET is_primary = 1 WHERE id = ?",
+                    _SQL["set_primary_by_id"],
                     (claim_id,),
                 )
         await db.commit()
@@ -293,7 +263,7 @@ async def delete_claim(
 ) -> bool:
     """Hard-delete a claim row. Returns True if a row was deleted."""
     async with aiosqlite.connect(path) as db:
-        cur = await db.execute("DELETE FROM character_claims WHERE id = ?", (claim_id,))
+        cur = await db.execute(_SQL["delete_claim"], (claim_id,))
         deleted = cur.rowcount > 0
         await db.commit()
     return deleted
@@ -305,7 +275,7 @@ async def delete_claims_for_user(
 ) -> int:
     """Hard-delete all claim rows for a user. Returns the number of rows deleted."""
     async with aiosqlite.connect(path) as db:
-        cur = await db.execute("DELETE FROM character_claims WHERE discord_id = ?", (discord_id,))
+        cur = await db.execute(_SQL["delete_claims_for_user"], (discord_id,))
         count = cur.rowcount
         await db.commit()
     return count
