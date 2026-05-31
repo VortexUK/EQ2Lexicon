@@ -192,6 +192,52 @@ def _build_speed_board(kills: list[dict], *, size: str, zone: str, boss: str) ->
     return sorted(best.values(), key=lambda e: e["duration_s"])
 
 
+def _build_speed_board_character(
+    kills: list[dict],
+    *,
+    zone: str,
+    boss: str,
+) -> list[dict]:
+    """Per-character fastest-clear board.
+
+    Used for dungeon Speed rankings (scope=group). Each ally combatant
+    flagged ``is_player=1`` on the kill gets one row showing the fastest
+    duration of any clear they were on. If 6 friends speedrun a dungeon
+    together in 1m23s, all 6 rows tie at 83s — the right answer for
+    mixed-guild groups where the per-guild aggregation in
+    ``_build_speed_board`` is meaningless.
+
+    Filters: zone + boss match (the canonical leaderboard predicate). The
+    scope filter is implicit — caller passes the kills already gated by
+    the dungeon scope, so we don't re-check here.
+
+    Returns rows sorted by duration ascending (fastest first), then by
+    name ASC as a stable tiebreaker."""
+    best: dict[str, dict] = {}
+    for k in kills:
+        if k["zone"] != zone or k["title"] != boss:
+            continue
+        for c in k["combatants"]:
+            if not c.get("is_player"):
+                continue
+            name = c.get("name") or ""
+            if not name:
+                continue
+            cur = best.get(name)
+            if cur is None or k["duration_s"] < cur["duration_s"]:
+                best[name] = {
+                    "kind": "character",
+                    "name": name,
+                    "cls": c.get("cls"),
+                    "duration_s": k["duration_s"],
+                    "ilvl": _avg_player_ilvl(k["combatants"]),
+                    "encounter_id": k["id"],
+                    "size": k["player_count"],
+                    "started_at": k["started_at"],
+                }
+    return sorted(best.values(), key=lambda r: (r["duration_s"], r["name"]))
+
+
 def invalidate_zones_cache() -> None:
     """Clear the _cached_zones_data lru_cache AND the parses
     classifier's leaderboard map AND mark every combatant for
@@ -592,7 +638,10 @@ async def get_rankings(
     kills = await run_sync(_cached_kills, world)
 
     if metric == "speed":
-        rows = _build_speed_board(kills, size=size, zone=zone, boss=boss)
+        if size == "group":
+            rows = _build_speed_board_character(kills, zone=zone, boss=boss)
+        else:
+            rows = _build_speed_board(kills, size=size, zone=zone, boss=boss)
         _apply_percentiles(rows, score_key="duration_s", higher_better=False)
         classes: list[str] = []
     else:

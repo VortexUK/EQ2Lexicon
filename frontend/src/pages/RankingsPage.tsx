@@ -49,10 +49,19 @@ export function normaliseBossName(s: string): string {
 }
 
 // Metric options grouped Character vs Guild (à la Warcraft Logs).
-const METRICS: DropdownOption[] = [
+const METRICS_RAID: DropdownOption[] = [
   { value: 'dps', label: 'Damage (DPS)', group: 'Character' },
   { value: 'hps', label: 'Healing (HPS)', group: 'Character' },
   { value: 'speed', label: 'Speed', group: 'Guild' },
+]
+
+// Dungeons (size=group) rank Speed per-player — most dungeons are run
+// with mixed-guild groups, so guild attribution is meaningless. The
+// dropdown collapses to a single Character group with no Guild label.
+const METRICS_GROUP: DropdownOption[] = [
+  { value: 'dps', label: 'Damage (DPS)', group: 'Character' },
+  { value: 'hps', label: 'Healing (HPS)', group: 'Character' },
+  { value: 'speed', label: 'Speed', group: 'Character' },
 ]
 
 // safeSetParams — call setSearchParams() defensively. Firefox's per-Document
@@ -217,6 +226,7 @@ export default function RankingsPage() {
   const { data: board, loading } = useFetch<RankingsResponse>(boardUrl)
 
   const isSpeed = metric === 'speed'
+  const metrics = size === 'group' ? METRICS_GROUP : METRICS_RAID
 
   return (
     <main className="page-enter mx-auto max-w-5xl px-4 py-6">
@@ -262,7 +272,7 @@ export default function RankingsPage() {
       {size && zone && (
         <div className="mb-4">
           <FilterBar>
-            <FilterDropdown value={metric} options={METRICS} onChange={v => setMetric(v)} />
+            <FilterDropdown value={metric} options={metrics} onChange={v => setMetric(v)} />
             <FilterDropdown
               value={boss}
               placeholder="Boss…"
@@ -291,7 +301,7 @@ export default function RankingsPage() {
               <tr className="text-text-muted text-left text-[0.72rem] uppercase tracking-wide border-b border-border">
                 <th className="px-3 py-2">#</th>
                 <th className="px-3 py-2">%</th>
-                <th className="px-3 py-2">{isSpeed ? 'Guild' : 'Player'}</th>
+                <th className="px-3 py-2">{isSpeed && size === 'raid' ? 'Guild' : 'Player'}</th>
                 {!isSpeed && <th className="px-3 py-2">Lvl</th>}
                 {!isSpeed && <th className="px-3 py-2">Class</th>}
                 <th className="px-3 py-2 text-right">{isSpeed ? 'Time' : metric === 'hps' ? 'HPS' : 'DPS'}</th>
@@ -310,7 +320,7 @@ export default function RankingsPage() {
                   <td className="px-3 py-2">{i + 1}</td>
                   <td className="px-3 py-2 font-bold" style={{ color: percentileColor(r.percentile) }}>{r.percentile}</td>
                   <td className="px-3 py-2">
-                    {isSpeed ? (
+                    {r.kind === 'guild' ? (
                       <Link to={`/parse/${r.encounter_id}`} className="text-text underline decoration-dotted underline-offset-2" onClick={e => e.stopPropagation()}>
                         {r.guild_name}
                       </Link>
