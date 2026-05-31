@@ -30,6 +30,9 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from backend.census._coerce import coerce_int as _int
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 
 class _RecipeRowRequired(TypedDict):
@@ -193,35 +196,7 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_spell_tier      ON recipes (base_name_lower, crafted_tier);",
 ]
 
-_UPSERT_SQL = """
-INSERT OR REPLACE INTO recipes (
-    id, crc, name, name_lower,
-    bench, version,
-    primary_comp, primary_qty,
-    secondary_comps,
-    fuel_comp, fuel_qty,
-    out_unfinished_id, out_unfinished_count,
-    out_simple_id,    out_simple_count,
-    out_worked_id,    out_worked_count,
-    out_elaborate_id, out_elaborate_count,
-    out_formed_id,    out_formed_count,
-    base_name_lower, crafted_tier,
-    last_update
-) VALUES (
-    :id, :crc, :name, :name_lower,
-    :bench, :version,
-    :primary_comp, :primary_qty,
-    :secondary_comps,
-    :fuel_comp, :fuel_qty,
-    :out_unfinished_id, :out_unfinished_count,
-    :out_simple_id,     :out_simple_count,
-    :out_worked_id,     :out_worked_count,
-    :out_elaborate_id,  :out_elaborate_count,
-    :out_formed_id,     :out_formed_count,
-    :base_name_lower, :crafted_tier,
-    :last_update
-)
-"""
+# Recipe DML lives in recipes.sql; _SQL is loaded at module import above.
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +308,7 @@ def _backfill_spell_tiers(conn: sqlite3.Connection) -> int:
     startup — it's a no-op once all rows are filled.  Returns the number of rows
     updated.
     """
-    rows = conn.execute("SELECT id, name FROM recipes WHERE crafted_tier IS NULL").fetchall()
+    rows = conn.execute(_SQL["select_unbackfilled_tiers"]).fetchall()
     if not rows:
         return 0
     updates = []
@@ -342,10 +317,7 @@ def _backfill_spell_tiers(conn: sqlite3.Connection) -> int:
         if tier is not None:
             updates.append((base, tier, rid))
     if updates:
-        conn.executemany(
-            "UPDATE recipes SET base_name_lower = ?, crafted_tier = ? WHERE id = ?",
-            updates,
-        )
+        conn.executemany(_SQL["backfill_tier"], updates)
         conn.commit()
     return len(updates)
 
@@ -382,31 +354,20 @@ def upsert_recipes(recipes: list[dict], conn: sqlite3.Connection) -> int:
     """Upsert a batch of raw Census recipe dicts. Returns rows inserted/replaced."""
     rows = [recipe_to_row(r) for r in recipes]
     rows = [r for r in rows if r is not None]
-    conn.executemany(_UPSERT_SQL, rows)
+    conn.executemany(_SQL["upsert"], rows)
     conn.commit()
     return len(rows)
 
 
 def recipe_count(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+    return conn.execute(_SQL["count"]).fetchone()[0]
 
 
 # ---------------------------------------------------------------------------
 # Lookup helpers
 # ---------------------------------------------------------------------------
 
-_SELECT_COLS = (
-    "id, crc, name, name_lower, bench, version, "
-    "primary_comp, primary_qty, secondary_comps, "
-    "fuel_comp, fuel_qty, "
-    "out_unfinished_id, out_unfinished_count, "
-    "out_simple_id, out_simple_count, "
-    "out_worked_id, out_worked_count, "
-    "out_elaborate_id, out_elaborate_count, "
-    "out_formed_id, out_formed_count, "
-    "base_name_lower, crafted_tier, "
-    "last_update"
-)
+_SELECT_COLS = _SQL["select_cols"]
 
 
 def _row_to_dict(row: sqlite3.Row) -> RecipeRow:
@@ -426,7 +387,7 @@ def find_by_id(recipe_id: int, path: Path = DB_PATH) -> RecipeRow | None:
         return None
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute(f"SELECT {_SELECT_COLS} FROM recipes WHERE id = ? LIMIT 1", (recipe_id,)).fetchone()
+        row = conn.execute(_SQL["find_by_id"].format(cols=_SELECT_COLS), (recipe_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
 
@@ -437,13 +398,13 @@ def find_by_name(name: str, path: Path = DB_PATH) -> list[RecipeRow]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM recipes WHERE name_lower = ? ORDER BY name",
+            _SQL["find_by_name_exact"].format(cols=_SELECT_COLS),
             (name.lower(),),
         ).fetchall()
         if not rows:
             # LIKE fallback — escape user wildcards (BE-006).
             rows = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM recipes WHERE name_lower LIKE ? ESCAPE '\\' ORDER BY name",
+                _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
                 (f"%{_like_escape(name.lower())}%",),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -466,12 +427,7 @@ def find_by_spell(
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM recipes
-            WHERE base_name_lower = ?
-              AND crafted_tier    = ?
-            ORDER BY name
-            """,
+            _SQL["find_by_spell"].format(cols=_SELECT_COLS),
             (spell_name.lower(), tier),
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -495,12 +451,7 @@ def find_spells_by_tier(
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM recipes
-            WHERE base_name_lower IN ({placeholders})
-              AND crafted_tier    = ?
-            ORDER BY name
-            """,
+            _SQL["find_spells_by_tier"].format(cols=_SELECT_COLS, placeholders=placeholders),
             params,
         ).fetchall()
     return {r["base_name_lower"]: _row_to_dict(r) for r in rows}
@@ -513,15 +464,7 @@ def find_by_output_id(item_id: int, path: Path = DB_PATH) -> list[RecipeRow]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM recipes
-            WHERE out_formed_id    = :id
-               OR out_elaborate_id = :id
-               OR out_worked_id    = :id
-               OR out_simple_id    = :id
-               OR out_unfinished_id = :id
-            ORDER BY name
-            """,
+            _SQL["find_by_output_id"].format(cols=_SELECT_COLS),
             {"id": item_id},
         ).fetchall()
     return [_row_to_dict(r) for r in rows]

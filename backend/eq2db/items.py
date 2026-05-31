@@ -19,6 +19,9 @@ from backend.eq2db.classes import (
 from backend.eq2db.classes import (
     SUBCLASS_GROUPS as _SUBCLASS_GROUPS_SRC,
 )
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
@@ -313,57 +316,7 @@ _MIGRATIONS = [
     ("ilvl", "REAL"),
 ]
 
-_UPSERT_SQL = """
-INSERT OR REPLACE INTO items (
-    id, displayname, displayname_lower, gamelink, description, last_update,
-    tier, tierid, type, typeid, item_level, level_to_use, planar_level, ilvl, icon_id, max_stack_size,
-    slot,
-    armor_class_min, armor_class_max,
-    damage_min, damage_max, damage_base, damage_type, damage_type_id, damage_rating, delay, wield_style,
-    weapon_range_min, weapon_range_max,
-    spell_name, spell_tier_id, spell_cast_time, spell_recast_time, spell_duration,
-    food_duration, food_satiation, food_level,
-    adornment_color,
-    container_slots, status_reduction,
-    max_charges,
-    setbonus_name,
-    unique_equip_group, unique_equip_wearable_count, unique_equip_prestige,
-    required_skill_name, required_skill_min,
-    associated_quest, autoquest, first_discovered,
-    visible, typeinfo_name, classes_json, physical_damage_absorption,
-    class_label, class_count,
-    tier_display,
-    skill_type, spell_target, spell_range, spell_power_cost, spell_resistability,
-    flag_heirloom, flag_lore, flag_lore_equip, flag_no_trade, flag_no_value,
-    flag_no_zone, flag_prestige, flag_relic, flag_attunable, flag_ornate,
-    flag_refined, flag_infusable, flag_indestructible, flag_pvp,
-    raw_json, classification_list
-) VALUES (
-    :id, :displayname, :displayname_lower, :gamelink, :description, :last_update,
-    :tier, :tierid, :type, :typeid, :item_level, :level_to_use, :planar_level, :ilvl, :icon_id, :max_stack_size,
-    :slot,
-    :armor_class_min, :armor_class_max,
-    :damage_min, :damage_max, :damage_base, :damage_type, :damage_type_id, :damage_rating, :delay, :wield_style,
-    :weapon_range_min, :weapon_range_max,
-    :spell_name, :spell_tier_id, :spell_cast_time, :spell_recast_time, :spell_duration,
-    :food_duration, :food_satiation, :food_level,
-    :adornment_color,
-    :container_slots, :status_reduction,
-    :max_charges,
-    :setbonus_name,
-    :unique_equip_group, :unique_equip_wearable_count, :unique_equip_prestige,
-    :required_skill_name, :required_skill_min,
-    :associated_quest, :autoquest, :first_discovered,
-    :visible, :typeinfo_name, :classes_json, :physical_damage_absorption,
-    :class_label, :class_count,
-    :tier_display,
-    :skill_type, :spell_target, :spell_range, :spell_power_cost, :spell_resistability,
-    :flag_heirloom, :flag_lore, :flag_lore_equip, :flag_no_trade, :flag_no_value,
-    :flag_no_zone, :flag_prestige, :flag_relic, :flag_attunable, :flag_ornate,
-    :flag_refined, :flag_infusable, :flag_indestructible, :flag_pvp,
-    :raw_json, :classification_list
-)
-"""
+# DML for items / item_stats lives in items.sql; _SQL is loaded above.
 
 
 # ---------------------------------------------------------------------------
@@ -684,12 +637,7 @@ def _backfill_classification_list(conn: sqlite3.Connection) -> None:
     Rows that already have a non-NULL value are left untouched, so this is
     a cheap no-op after the first successful run.
     """
-    conn.execute("""
-        UPDATE items
-        SET classification_list = json_extract(raw_json, '$.classification_list')
-        WHERE classification_list IS NULL
-          AND raw_json IS NOT NULL
-    """)
+    conn.execute(_SQL["backfill_classification_list"])
     conn.commit()
 
 
@@ -702,13 +650,7 @@ def _backfill_pvp_flag(conn: sqlite3.Connection) -> None:
     """
     if get_meta(conn, "pvp_backfill_version") == "1":
         return  # already done
-    conn.execute("""
-        UPDATE items
-        SET flag_pvp = 1
-        WHERE flag_pvp = 0
-          AND raw_json IS NOT NULL
-          AND LOWER(raw_json) LIKE '%pvp%'
-    """)
+    conn.execute(_SQL["backfill_pvp_flag"])
     set_meta(conn, "pvp_backfill_version", "1")
     conn.commit()
 
@@ -734,7 +676,7 @@ def _backfill_effect_stats(conn: sqlite3.Connection) -> None:
 
     conditions = " OR ".join("LOWER(raw_json) LIKE ?" for _ in keyword_hints)
     rows = conn.execute(
-        f"SELECT id, raw_json FROM items WHERE raw_json IS NOT NULL AND ({conditions})",
+        _SQL["select_raw_json_by_keyword"].format(conditions=conditions),
         [f"%{kw}%" for kw in keyword_hints],
     ).fetchall()
 
@@ -749,10 +691,7 @@ def _backfill_effect_stats(conn: sqlite3.Connection) -> None:
             stat_rows.append((item_id, stat_name, value))
 
     if stat_rows:
-        conn.executemany(
-            "INSERT OR IGNORE INTO item_stats (item_id, stat, value) VALUES (?, ?, ?)",
-            stat_rows,
-        )
+        conn.executemany(_SQL["insert_item_stat_ignore"], stat_rows)
 
     set_meta(conn, "effect_stats_version", _EFFECT_STATS_VERSION)
     conn.commit()
@@ -765,7 +704,7 @@ from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 def upsert_items(items: list[dict], conn: sqlite3.Connection) -> int:
     """Upsert a batch of raw Census item dicts. Returns number inserted/replaced."""
     rows = [item_to_row(item) for item in items]
-    conn.executemany(_UPSERT_SQL, rows)
+    conn.executemany(_SQL["upsert"], rows)
     # Maintain item_stats side-table.
     # Modifier stats (from `modifiers` dict) are inserted first with OR REPLACE.
     # Effect stats (parsed from effect_list text) are inserted second with OR IGNORE
@@ -781,21 +720,15 @@ def upsert_items(items: list[dict], conn: sqlite3.Connection) -> int:
         for stat_name, value in extract_effect_stats(item).items():
             effect_stat_rows.append((item_id, stat_name, value))
     if mod_stat_rows:
-        conn.executemany(
-            "INSERT OR REPLACE INTO item_stats (item_id, stat, value) VALUES (?, ?, ?)",
-            mod_stat_rows,
-        )
+        conn.executemany(_SQL["insert_item_stat_replace"], mod_stat_rows)
     if effect_stat_rows:
-        conn.executemany(
-            "INSERT OR IGNORE INTO item_stats (item_id, stat, value) VALUES (?, ?, ?)",
-            effect_stat_rows,
-        )
+        conn.executemany(_SQL["insert_item_stat_ignore"], effect_stat_rows)
     conn.commit()
     return len(rows)
 
 
 def item_count(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    return conn.execute(_SQL["count"]).fetchone()[0]
 
 
 class GearRow(NamedTuple):
@@ -819,7 +752,7 @@ def gear_for_ids(ids: list[int], db_path: Path = DB_PATH) -> dict[int, GearRow]:
     try:
         placeholders = ",".join("?" for _ in ids)
         rows = conn.execute(
-            f"SELECT id, ilvl, wield_style, level_to_use, tier_display FROM items WHERE id IN ({placeholders})",
+            _SQL["gear_for_ids"].format(placeholders=placeholders),
             ids,
         )
         return {row[0]: GearRow(row[1], row[2], row[3], row[4]) for row in rows}
@@ -854,9 +787,7 @@ async def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
             if SERVER_MAX_LEVEL is not None:
                 # Phase 1: valid for current expansion
                 async with db.execute(
-                    f"SELECT raw_json FROM items WHERE {where_clause}"
-                    "  AND (level_to_use IS NULL OR level_to_use <= ?)"
-                    "  ORDER BY level_to_use DESC, tierid DESC, last_update DESC LIMIT 1",
+                    _SQL["find_by_name_level_capped"].format(where=where_clause),
                     params + (SERVER_MAX_LEVEL,),
                 ) as cur:
                     row = await cur.fetchone()
@@ -864,14 +795,13 @@ async def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
                     return row
                 # Phase 2: nothing valid — return highest-level item anyway
                 async with db.execute(
-                    f"SELECT raw_json FROM items WHERE {where_clause}"
-                    "  ORDER BY level_to_use DESC, tierid DESC, last_update DESC LIMIT 1",
+                    _SQL["find_by_name_any_level"].format(where=where_clause),
                     params,
                 ) as cur:
                     return await cur.fetchone()
             else:
                 async with db.execute(
-                    f"SELECT raw_json FROM items WHERE {where_clause}  ORDER BY tierid DESC, last_update DESC LIMIT 1",
+                    _SQL["find_by_name_no_max_level"].format(where=where_clause),
                     params,
                 ) as cur:
                     return await cur.fetchone()
@@ -895,6 +825,6 @@ async def find_by_id(item_id: int, path: Path = DB_PATH) -> dict | None:
         return None
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT raw_json FROM items WHERE id = ? LIMIT 1", (item_id,)) as cur:
+        async with db.execute(_SQL["find_by_id_raw_json"], (item_id,)) as cur:
             row = await cur.fetchone()
         return json.loads(row["raw_json"]) if row else None

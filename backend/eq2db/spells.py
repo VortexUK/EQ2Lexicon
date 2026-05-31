@@ -27,6 +27,7 @@ from typing import TypedDict
 
 from backend.census._coerce import coerce_float as _float
 from backend.census._coerce import coerce_int as _int
+from backend.sql_loader import load_sql
 
 
 class SpellRow(TypedDict, total=False):
@@ -168,27 +169,10 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_base_tier        ON spells (base_name_lower, tier);",
 ]
 
-_UPSERT_SQL = """
-INSERT OR REPLACE INTO spells (
-    id, name, name_lower, base_name, base_name_lower,
-    tier, tier_name, type, typeid, level, given_by, crc, beneficial,
-    passes_spellcheck,
-    cast_secs, recast_secs, recovery_secs,
-    target_type, aoe_radius, max_targets,
-    description, icon_id, icon_backdrop,
-    effects,
-    last_update
-) VALUES (
-    :id, :name, :name_lower, :base_name, :base_name_lower,
-    :tier, :tier_name, :type, :typeid, :level, :given_by, :crc, :beneficial,
-    :passes_spellcheck,
-    :cast_secs, :recast_secs, :recovery_secs,
-    :target_type, :aoe_radius, :max_targets,
-    :description, :icon_id, :icon_backdrop,
-    :effects,
-    :last_update
-)
-"""
+# SQL queries live in spells.sql; loaded once at import. Composition for
+# the dynamic IN-list (find_by_ids) and the shared column-list fragment
+# is done in the helpers below via f-string formatting.
+_SQL = load_sql(__file__)
 
 
 # ---------------------------------------------------------------------------
@@ -330,30 +314,23 @@ from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 def upsert_spells(spells: list[dict], conn: sqlite3.Connection) -> int:
     """Upsert a batch of raw Census spell dicts. Returns the number inserted/replaced."""
     rows = [spell_to_row(s) for s in spells if s.get("id") is not None]
-    conn.executemany(_UPSERT_SQL, rows)
+    conn.executemany(_SQL["upsert"], rows)
     conn.commit()
     find_by_crc.cache_clear()  # BE-236: spell data changed; stale CRC lookups would lie
     return len(rows)
 
 
 def spell_count(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM spells").fetchone()[0]
+    return conn.execute(_SQL["count"]).fetchone()[0]
 
 
 # ---------------------------------------------------------------------------
 # Lookup helpers (async-friendly via asyncio.to_thread)
 # ---------------------------------------------------------------------------
 
-# All non-rowid columns we select for spell row dicts.
-_SELECT_COLS = (
-    "id, name, name_lower, base_name, base_name_lower, "
-    "tier, tier_name, type, typeid, level, given_by, crc, beneficial, "
-    "passes_spellcheck, "
-    "cast_secs, recast_secs, recovery_secs, "
-    "target_type, aoe_radius, max_targets, "
-    "description, icon_id, icon_backdrop, "
-    "effects, last_update"
-)
+# The column list lives in spells.sql under the `select_cols` block — fragment
+# spliced into every find_* query at format-time.
+_SELECT_COLS = _SQL["select_cols"]
 
 
 def _row_to_dict(row: sqlite3.Row) -> SpellRow:
@@ -366,7 +343,7 @@ def find_by_id(spell_id: int, path: Path = DB_PATH) -> SpellRow | None:
         return None
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute(f"SELECT {_SELECT_COLS} FROM spells WHERE id = ? LIMIT 1", (spell_id,)).fetchone()
+        row = conn.execute(_SQL["find_by_id"].format(cols=_SELECT_COLS), (spell_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
 
@@ -378,7 +355,7 @@ def find_by_ids(spell_ids: list[int], path: Path = DB_PATH) -> dict[int, SpellRo
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM spells WHERE id IN ({placeholders})",
+            _SQL["find_by_ids"].format(cols=_SELECT_COLS, placeholders=placeholders),
             spell_ids,
         ).fetchall()
     return {row["id"]: _row_to_dict(row) for row in rows}
@@ -398,14 +375,14 @@ def find_by_crc(crc: int, tier: int | None = None, path: Path = DB_PATH) -> Spel
         conn.row_factory = sqlite3.Row
         if tier is not None:
             row = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM spells WHERE crc = ? AND tier = ? LIMIT 1",
+                _SQL["find_by_crc_and_tier"].format(cols=_SELECT_COLS),
                 (crc, tier),
             ).fetchone()
             if row:
                 return _row_to_dict(row)
         # Fallback: highest available tier
         row = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM spells WHERE crc = ? ORDER BY tier DESC LIMIT 1",
+            _SQL["find_by_crc_highest_tier"].format(cols=_SELECT_COLS),
             (crc,),
         ).fetchone()
     return _row_to_dict(row) if row else None
@@ -528,13 +505,13 @@ def find_by_name(name: str, path: Path = DB_PATH) -> list[SpellRow]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM spells WHERE name_lower = ? ORDER BY level",
+            _SQL["find_by_name_exact"].format(cols=_SELECT_COLS),
             (name.lower(),),
         ).fetchall()
         if not rows:
             # LIKE fallback — escape user wildcards (BE-006).
             rows = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM spells WHERE name_lower LIKE ? ESCAPE '\\' ORDER BY level",
+                _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
                 (f"%{_like_escape(name.lower())}%",),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
