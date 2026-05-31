@@ -4,7 +4,7 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.census.constants import CLASS_GROUPS
+from backend.census.constants import ARCHETYPES, CLASS_GROUPS
 from backend.eq2db.items import DB_PATH
 from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
 from backend.eq2db.recipes import find_by_spell
@@ -13,32 +13,10 @@ from backend.server.server_context import current_server
 
 router = APIRouter(tags=["item"])
 
-# ---------------------------------------------------------------------------
-# Class-label decomposition
-# ---------------------------------------------------------------------------
-# Full archetypes first so they are preferred over their constituent parts.
-# This mirrors the ordered list in census/db.py (_ARCHETYPES) but uses the
-# display names that ItemData.classes carries (title-case, from Census API).
-_ARCHETYPE_DECOMP: list[tuple[frozenset, str]] = [
-    # ── Full archetypes ──────────────────────────────────────────────────────
-    (frozenset(["Guardian", "Berserker", "Monk", "Bruiser", "Shadowknight", "Paladin"]), "All Fighters"),
-    (frozenset(["Templar", "Inquisitor", "Fury", "Warden", "Mystic", "Defiler", "Channeler"]), "All Priests"),
-    (frozenset(["Troubador", "Dirge", "Assassin", "Ranger", "Swashbuckler", "Brigand", "Beastlord"]), "All Scouts"),
-    (frozenset(["Coercer", "Illusionist", "Conjuror", "Necromancer", "Wizard", "Warlock"]), "All Mages"),
-    # ── Sub-archetypes ───────────────────────────────────────────────────────
-    (frozenset(["Guardian", "Berserker"]), "All Warriors"),
-    (frozenset(["Shadowknight", "Paladin"]), "All Crusaders"),
-    (frozenset(["Monk", "Bruiser"]), "All Brawlers"),
-    (frozenset(["Templar", "Inquisitor"]), "All Clerics"),
-    (frozenset(["Fury", "Warden"]), "All Druids"),
-    (frozenset(["Mystic", "Defiler"]), "All Shamans"),
-    (frozenset(["Troubador", "Dirge"]), "All Bards"),
-    (frozenset(["Assassin", "Ranger"]), "All Predators"),
-    (frozenset(["Swashbuckler", "Brigand"]), "All Rogues"),
-    (frozenset(["Coercer", "Illusionist"]), "All Enchanters"),
-    (frozenset(["Conjuror", "Necromancer"]), "All Summoners"),
-    (frozenset(["Wizard", "Warlock"]), "All Sorcerers"),
-]
+# Class-group membership for _format_classes is OWNED by
+# backend.eq2db.classes (CLASS_SEED + CRAFTER_NAMES); the ordered decomposition
+# list lives in census.constants.ARCHETYPES (derived from the same seed). Don't
+# redefine archetype or subclass groups in this file — extend CLASS_SEED.
 
 
 # ---------------------------------------------------------------------------
@@ -115,11 +93,11 @@ def _format_classes(classes: list[str]) -> str:
     if match:
         return match
     # Greedy decomposition: full archetypes first, then sub-archetypes.
-    # _ARCHETYPE_DECOMP is ordered largest → smallest so larger groups are
+    # ARCHETYPES is ordered largest → smallest so larger groups are
     # consumed before their constituent sub-groups.
     remaining: set[str] = set(class_set)
     matched: list[str] = []
-    for archetype_set, archetype_name in _ARCHETYPE_DECOMP:
+    for archetype_set, archetype_name in ARCHETYPES:
         if archetype_set <= remaining:
             matched.append(archetype_name)
             remaining -= archetype_set

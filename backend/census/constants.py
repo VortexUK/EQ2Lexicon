@@ -1,6 +1,20 @@
-"""Mappings for Census API field names → display names and groupings."""
+"""Mappings for Census API field names → display names and groupings.
 
-from backend.eq2db.classes import CLASS_SEED
+Class-group membership and archetype colours are OWNED by
+backend.eq2db.classes (CLASS_SEED + SUBCLASS_GROUPS + ARCHETYPE_GROUPS +
+CRAFTER_NAMES + ARCHETYPE_COLOURS). Anything defined here that names classes
+is derived from that source. Don't redefine class groupings or colours here —
+extend CLASS_SEED instead.
+"""
+
+from backend.eq2db.classes import (
+    ARCHETYPE_COLOURS as _SEED_ARCHETYPE_COLOURS,
+)
+from backend.eq2db.classes import (
+    ARCHETYPE_GROUPS,
+    CRAFTER_NAMES,
+    SUBCLASS_GROUPS,
+)
 
 # Maps lowercase Census API stat type names to (display_name, group)
 # group is 'primary' (green) or 'secondary' (cyan)
@@ -72,64 +86,43 @@ STAT_MAP: dict[str, tuple[str, str]] = {
     "noxious": ("Resistances", "primary"),
 }
 
-# EQ2 class groups — used to collapse full class lists into group names.
-# Derived from CLASS_SEED (the single source of class→archetype membership).
-_CLASSES_BY_ARCHETYPE: dict[str, frozenset[str]] = {
-    archetype: frozenset(c.name for c in CLASS_SEED if c.archetype == archetype)
-    for archetype in ("Fighter", "Priest", "Scout", "Mage")
-}
+# EQ2 class groups — derived from CLASS_SEED (single source of truth).
+# Public surface kept stable for back-compat with image/tooltip.py,
+# server/api/item.py, scripts/build_recipe_classes.py.
+_BY_ARCHETYPE: dict[str, frozenset[str]] = dict(ARCHETYPE_GROUPS)
+_BY_SUBCLASS: dict[str, frozenset[str]] = dict(SUBCLASS_GROUPS)
 
-FIGHTERS = _CLASSES_BY_ARCHETYPE["Fighter"]
-PRIESTS = _CLASSES_BY_ARCHETYPE["Priest"]
-SCOUTS = _CLASSES_BY_ARCHETYPE["Scout"]
-MAGES = _CLASSES_BY_ARCHETYPE["Mage"]
-ARTISANS = frozenset(
-    ["Sage", "Armorer", "Weaponsmith", "Woodworker", "Jeweler", "Carpenter", "Tailor", "Alchemist", "Provisioner"]
+FIGHTERS: frozenset[str] = _BY_ARCHETYPE["Fighter"]
+PRIESTS: frozenset[str] = _BY_ARCHETYPE["Priest"]
+SCOUTS: frozenset[str] = _BY_ARCHETYPE["Scout"]
+MAGES: frozenset[str] = _BY_ARCHETYPE["Mage"]
+ARTISANS: frozenset[str] = CRAFTER_NAMES
+
+# Canonical archetype colours. Sourced from classes.ARCHETYPE_COLOURS; this is
+# just a back-compat alias for callers that historically imported
+# CLASS_ARCHETYPE_COLOURS from census.constants.
+CLASS_ARCHETYPE_COLOURS: dict[str, str] = _SEED_ARCHETYPE_COLOURS
+
+# Ordered list used for archetype decomposition (most general → most specific).
+# Full archetypes are listed first so a complete-archetype class set is
+# consumed before subclass groups are tested.
+ARCHETYPES: list[tuple[frozenset, str]] = (
+    [(_BY_ARCHETYPE[name], f"All {name}s") for name in ("Fighter", "Priest", "Scout", "Mage")]
+    + [(ARTISANS, "All Artisans")]
+    + [(_BY_SUBCLASS[sub], f"All {sub}s") for sub, _ in SUBCLASS_GROUPS]
 )
-
-# Canonical archetype colours — used by image/tooltip.py, census/classes_db.py, and any
-# future renderer that needs to tint class icons.  Both the PIL tooltip renderer and
-# classes_db mirror these values; classes_db cannot import them directly (circular: this
-# module already imports CLASS_SEED from classes_db) so the values are intentionally kept
-# in sync via this comment.  #f87171 Fighter · #4ade80 Priest · #fbbf24 Scout · #93b4ff Mage
-CLASS_ARCHETYPE_COLOURS: dict[str, str] = {
-    "Fighter": "#f87171",
-    "Priest": "#4ade80",
-    "Scout": "#fbbf24",
-    "Mage": "#93b4ff",
-}
-
-# Ordered list used for archetype decomposition (most specific → least specific)
-ARCHETYPES: list[tuple[frozenset, str]] = [
-    (FIGHTERS, "All Fighters"),
-    (PRIESTS, "All Priests"),
-    (SCOUTS, "All Scouts"),
-    (MAGES, "All Mages"),
-    (ARTISANS, "All Artisans"),
-]
 
 ALL_CLASSES: frozenset[str] = FIGHTERS | PRIESTS | SCOUTS | MAGES
 ALL_WITH_ARTISANS: frozenset[str] = ALL_CLASSES | ARTISANS
 
+# Exact-match dict used by tooltip / item-route renderers. Built from the same
+# CLASS_SEED-derived groups above so renaming a subclass in classes.py
+# propagates here without any hand-edit.
 CLASS_GROUPS: dict[frozenset, str] = {
     ALL_WITH_ARTISANS: "All Classes",
     ALL_CLASSES: "All Classes",
-    FIGHTERS: "All Fighters",
-    frozenset(["Guardian", "Berserker"]): "All Warriors",
-    frozenset(["Monk", "Bruiser"]): "All Brawlers",
-    frozenset(["Shadowknight", "Paladin"]): "All Crusaders",
-    PRIESTS: "All Priests",
-    frozenset(["Templar", "Inquisitor"]): "All Clerics",
-    frozenset(["Fury", "Warden"]): "All Druids",
-    frozenset(["Mystic", "Defiler"]): "All Shamans",
-    SCOUTS: "All Scouts",
-    frozenset(["Troubador", "Dirge"]): "All Bards",
-    frozenset(["Assassin", "Ranger"]): "All Predators",
-    frozenset(["Swashbuckler", "Brigand"]): "All Rogues",
-    MAGES: "All Mages",
-    frozenset(["Coercer", "Illusionist"]): "All Enchanters",
-    frozenset(["Conjuror", "Necromancer"]): "All Summoners",
-    frozenset(["Wizard", "Warlock"]): "All Sorcerers",
+    **{members: f"All {arch}s" for arch, members in ARCHETYPE_GROUPS},
+    **{members: f"All {sub}s" for sub, members in SUBCLASS_GROUPS},
     ARTISANS: "All Artisans",
 }
 

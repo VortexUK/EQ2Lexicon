@@ -10,6 +10,15 @@ from typing import Any, NamedTuple
 import aiosqlite
 
 from backend.census.item_level import compute_ilvl
+from backend.eq2db.classes import (
+    ARCHETYPE_GROUPS as _ARCHETYPE_GROUPS_SRC,
+)
+from backend.eq2db.classes import (
+    CRAFTER_NAMES as _CRAFTER_NAMES_TITLE,
+)
+from backend.eq2db.classes import (
+    SUBCLASS_GROUPS as _SUBCLASS_GROUPS_SRC,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -46,66 +55,25 @@ def _resolve_max_level() -> int | None:
 SERVER_MAX_LEVEL: int | None = _resolve_max_level()
 
 # ---------------------------------------------------------------------------
-# EQ2 class-group constants and label helper
+# EQ2 class-group label helper
 # ---------------------------------------------------------------------------
+# Class-group membership is OWNED by backend.eq2db.classes (CLASS_SEED supplies
+# archetype + subclass fields; CRAFTER_NAMES supplies the artisans). Census API
+# item rows use lowercase class-name keys ({"guardian": {...}}), so the tables
+# below lowercase the canonical TitleCase names from classes.py.
+#
+# DO NOT redefine class groupings here — extend CLASS_SEED instead.
 
-# ── Subclasses (pairs within each archetype) ────────────────────────────────
-_WARRIORS = frozenset(["guardian", "berserker"])
-_CRUSADERS = frozenset(["paladin", "shadowknight"])
-_BRAWLERS = frozenset(["monk", "bruiser"])
-_CLERICS = frozenset(["templar", "inquisitor"])
-_SHAMANS = frozenset(["mystic", "defiler"])
-_DRUIDS = frozenset(["warden", "fury"])
-_SORCERERS = frozenset(["wizard", "warlock"])
-_ENCHANTERS = frozenset(["illusionist", "coercer"])
-_SUMMONERS = frozenset(["necromancer", "conjuror"])
-_ROGUES = frozenset(["swashbuckler", "brigand"])
-_PREDATORS = frozenset(["ranger", "assassin"])
-_BARDS = frozenset(["troubador", "dirge"])
+_CRAFTERS: frozenset[str] = frozenset(name.lower() for name in _CRAFTER_NAMES_TITLE)
+_ALL_ADVENTURERS: frozenset[str] = frozenset(n.lower() for _, members in _ARCHETYPE_GROUPS_SRC for n in members)
 
-# ── Full archetypes ──────────────────────────────────────────────────────────
-_FIGHTERS = _WARRIORS | _CRUSADERS | _BRAWLERS
-_PRIESTS = _CLERICS | _SHAMANS | _DRUIDS | frozenset(["channeler"])
-_MAGES = _SORCERERS | _ENCHANTERS | _SUMMONERS
-_SCOUTS = _ROGUES | _PREDATORS | _BARDS | frozenset(["beastlord"])
-
-_CRAFTERS = frozenset(
-    [
-        "sage",
-        "armorer",
-        "weaponsmith",
-        "woodworker",
-        "jeweler",
-        "carpenter",
-        "tailor",
-        "alchemist",
-        "provisioner",
-    ]
-)
-_ALL_ADVENTURERS = _FIGHTERS | _PRIESTS | _MAGES | _SCOUTS
-
-# Groups checked in priority order: full archetypes first, then subclasses.
-# The algorithm removes matched classes from `remaining` as it goes, so
-# full archetypes are consumed before subclasses are tested.
-_ARCHETYPES = [
-    ("All Fighters", _FIGHTERS),
-    ("All Priests", _PRIESTS),
-    ("All Mages", _MAGES),
-    ("All Scouts", _SCOUTS),
-    # subclasses
-    ("All Warriors", _WARRIORS),
-    ("All Crusaders", _CRUSADERS),
-    ("All Brawlers", _BRAWLERS),
-    ("All Clerics", _CLERICS),
-    ("All Shamans", _SHAMANS),
-    ("All Druids", _DRUIDS),
-    ("All Sorcerers", _SORCERERS),
-    ("All Enchanters", _ENCHANTERS),
-    ("All Summoners", _SUMMONERS),
-    ("All Rogues", _ROGUES),
-    ("All Predators", _PREDATORS),
-    ("All Bards", _BARDS),
-]
+# Groups checked in priority order: full archetypes first ("All Fighters"…),
+# then subclasses ("All Warriors"…). The algorithm in compute_class_label
+# removes matched classes from `remaining` as it goes, so a complete archetype
+# is consumed before its constituent subclasses are tested.
+_ARCHETYPES: list[tuple[str, frozenset[str]]] = [
+    (f"All {archetype}s", frozenset(n.lower() for n in members)) for archetype, members in _ARCHETYPE_GROUPS_SRC
+] + [(f"All {subclass}s", frozenset(n.lower() for n in members)) for subclass, members in _SUBCLASS_GROUPS_SRC]
 
 
 def compute_class_label(classes: dict | None) -> str | None:
