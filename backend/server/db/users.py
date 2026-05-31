@@ -13,6 +13,9 @@ import aiosqlite
 
 from backend.server.core.sql_helpers import build_where
 from backend.server.db import DB_PATH
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 
 async def upsert_user(
@@ -35,19 +38,7 @@ async def upsert_user(
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         await db.execute(
-            """
-            INSERT INTO users (discord_id, discord_name, discord_username, avatar, access_status)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(discord_id) DO UPDATE SET
-                discord_name     = excluded.discord_name,
-                discord_username = excluded.discord_username,
-                avatar           = excluded.avatar,
-                last_seen        = strftime('%s','now'),
-                access_status    = CASE
-                    WHEN ? = 1 THEN 'approved'
-                    ELSE access_status
-                END
-            """,
+            _SQL["upsert_user"],
             (
                 discord_id,
                 discord_name,
@@ -58,7 +49,7 @@ async def upsert_user(
             ),
         )
         await db.commit()
-        async with db.execute("SELECT access_status FROM users WHERE discord_id = ?", (discord_id,)) as cur:
+        async with db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
             row = await cur.fetchone()
     return row["access_status"] if row else "pending"
 
@@ -67,7 +58,7 @@ async def get_user_access_status(discord_id: str, path: Path = DB_PATH) -> str:
     """Return the access_status for a user, or 'pending' if not found."""
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT access_status FROM users WHERE discord_id = ?", (discord_id,)) as cur:
+        async with db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
             row = await cur.fetchone()
     return row["access_status"] if row else "pending"
 
@@ -84,7 +75,7 @@ async def get_display_names_for_discord_ids(ids: list[str], path: Path = DB_PATH
         db.row_factory = aiosqlite.Row
         placeholders = ",".join("?" for _ in ids)
         async with db.execute(
-            f"SELECT discord_id, discord_name FROM users WHERE discord_id IN ({placeholders})",
+            _SQL["select_display_names_by_ids"].format(placeholders=placeholders),
             ids,
         ) as cur:
             rows = await cur.fetchall()
@@ -95,10 +86,7 @@ async def list_pending_users(path: Path = DB_PATH) -> list[dict]:
     """Return all users with access_status = 'pending', newest first."""
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT discord_id, discord_name, discord_username, avatar, first_seen "
-            "FROM users WHERE access_status = 'pending' ORDER BY first_seen DESC"
-        ) as cur:
+        async with db.execute(_SQL["list_pending_users"]) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -107,17 +95,7 @@ async def list_all_users(path: Path = DB_PATH) -> list[dict]:
     """Return all users with access_status and total claim count, newest first."""
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """
-            SELECT u.discord_id, u.discord_name, u.discord_username, u.avatar,
-                   u.first_seen, u.last_seen, u.access_status,
-                   COUNT(c.id) AS claim_count
-            FROM users u
-            LEFT JOIN character_claims c ON c.discord_id = u.discord_id
-            GROUP BY u.discord_id
-            ORDER BY u.first_seen DESC
-            """
-        ) as cur:
+        async with db.execute(_SQL["list_all_users_with_claim_count"]) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -126,7 +104,7 @@ async def set_user_access(discord_id: str, status: str, path: Path = DB_PATH) ->
     """Set access_status for a user. Returns True if a row was updated."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            "UPDATE users SET access_status = ? WHERE discord_id = ?",
+            _SQL["update_user_access_status"],
             (status, discord_id),
         )
         await db.commit()
@@ -153,7 +131,7 @@ async def grant_role(
     actually inserted."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            "INSERT OR IGNORE INTO user_roles (discord_id, role, granted_by) VALUES (?, ?, ?)",
+            _SQL["grant_role"],
             (discord_id, role, granted_by),
         )
         await db.commit()
@@ -164,7 +142,7 @@ async def revoke_role(discord_id: str, role: str, path: Path = DB_PATH) -> bool:
     """Revoke a role. Returns True if a row was deleted (i.e. the user had it)."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            "DELETE FROM user_roles WHERE discord_id = ? AND role = ?",
+            _SQL["revoke_role"],
             (discord_id, role),
         )
         await db.commit()
@@ -175,7 +153,7 @@ async def list_roles_for_user(discord_id: str, path: Path = DB_PATH) -> list[str
     """All roles assigned to a single user, sorted for stable display."""
     async with aiosqlite.connect(path) as db:
         async with db.execute(
-            "SELECT role FROM user_roles WHERE discord_id = ? ORDER BY role",
+            _SQL["list_roles_for_user"],
             (discord_id,),
         ) as cur:
             rows = await cur.fetchall()
@@ -187,7 +165,7 @@ async def has_role(discord_id: str, role: str, path: Path = DB_PATH) -> bool:
     auth dep, so kept as a single-row SELECT rather than reusing list_roles."""
     async with aiosqlite.connect(path) as db:
         async with db.execute(
-            "SELECT 1 FROM user_roles WHERE discord_id = ? AND role = ? LIMIT 1",
+            _SQL["check_has_role"],
             (discord_id, role),
         ) as cur:
             return await cur.fetchone() is not None
@@ -205,7 +183,7 @@ async def create_role_request(
     request's id."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            "INSERT INTO role_requests (discord_id, role, user_note) VALUES (?, ?, ?)",
+            _SQL["create_role_request"],
             (discord_id, role, user_note),
         )
         await db.commit()
@@ -242,16 +220,7 @@ async def list_role_requests(
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            f"""
-            SELECT rr.id, rr.discord_id, rr.role, rr.status,
-                   rr.requested_at, rr.reviewed_at, rr.reviewed_by,
-                   rr.user_note, rr.admin_note,
-                   u.discord_name, u.discord_username, u.avatar
-            FROM role_requests rr
-            LEFT JOIN users u ON u.discord_id = rr.discord_id
-            {where_sql}
-            {order_sql}
-            """,
+            _SQL["list_role_requests"].format(where_sql=where_sql, order_sql=order_sql),
             params,
         ) as cur:
             rows = await cur.fetchall()
@@ -265,15 +234,7 @@ async def get_role_request(request_id: int, path: Path = DB_PATH) -> dict | None
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
-            SELECT rr.id, rr.discord_id, rr.role, rr.status,
-                   rr.requested_at, rr.reviewed_at, rr.reviewed_by,
-                   rr.user_note, rr.admin_note,
-                   u.discord_name, u.discord_username, u.avatar
-            FROM role_requests rr
-            LEFT JOIN users u ON u.discord_id = rr.discord_id
-            WHERE rr.id = ?
-            """,
+            _SQL["get_role_request"],
             (request_id,),
         ) as cur:
             row = await cur.fetchone()
@@ -291,14 +252,7 @@ async def review_role_request(
     if no pending request with that id exists (already resolved, or unknown)."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            """
-            UPDATE role_requests SET
-                status      = ?,
-                reviewed_at = strftime('%s','now'),
-                reviewed_by = ?,
-                admin_note  = ?
-            WHERE id = ? AND status = 'pending'
-            """,
+            _SQL["review_role_request"],
             (status, reviewed_by, admin_note, request_id),
         )
         await db.commit()
@@ -326,28 +280,21 @@ async def review_and_grant_role(
     """
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            """
-            UPDATE role_requests SET
-                status      = ?,
-                reviewed_at = strftime('%s','now'),
-                reviewed_by = ?,
-                admin_note  = ?
-            WHERE id = ? AND status = 'pending'
-            """,
+            _SQL["review_role_request"],
             (status, admin_id, note, request_id),
         )
         if cur.rowcount == 0:
             return None
         # Fetch the request row so we can grant the role
         async with db.execute(
-            "SELECT discord_id, role FROM role_requests WHERE id = ?",
+            _SQL["select_role_request_grant_info"],
             (request_id,),
         ) as sel:
             row = await sel.fetchone()
         if row is not None:
             discord_id, role = row
             await db.execute(
-                "INSERT OR IGNORE INTO user_roles (discord_id, role, granted_by) VALUES (?, ?, ?)",
+                _SQL["grant_role"],
                 (discord_id, role, admin_id),
             )
         await db.commit()
@@ -364,10 +311,7 @@ async def withdraw_role_request(
     historical rows stay immutable. Returns True if a row transitioned."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            """
-            UPDATE role_requests SET status = 'withdrawn'
-            WHERE id = ? AND discord_id = ? AND status = 'pending'
-            """,
+            _SQL["withdraw_role_request"],
             (request_id, discord_id),
         )
         await db.commit()
@@ -386,13 +330,7 @@ async def user_has_capability_via_db(
     top of this primitive."""
     async with aiosqlite.connect(path) as db:
         async with db.execute(
-            """
-            SELECT 1
-            FROM user_roles ur
-            JOIN role_permissions rp ON rp.role = ur.role
-            WHERE ur.discord_id = ? AND rp.capability = ?
-            LIMIT 1
-            """,
+            _SQL["check_user_has_capability"],
             (discord_id, capability),
         ) as cur:
             return await cur.fetchone() is not None
@@ -409,7 +347,7 @@ async def role_has_capability(
     officer check at all — if officers don't have the capability, no point."""
     async with aiosqlite.connect(path) as db:
         async with db.execute(
-            "SELECT 1 FROM role_permissions WHERE role = ? AND capability = ? LIMIT 1",
+            _SQL["check_role_has_capability"],
             (role, capability),
         ) as cur:
             return await cur.fetchone() is not None
@@ -421,7 +359,7 @@ async def list_role_assignments(path: Path = DB_PATH) -> dict[str, list[str]]:
     Used by the admin user-list endpoint to join roles in without N+1 queries
     against ``list_roles_for_user``."""
     async with aiosqlite.connect(path) as db:
-        async with db.execute("SELECT discord_id, role FROM user_roles ORDER BY discord_id, role") as cur:
+        async with db.execute(_SQL["list_all_role_assignments"]) as cur:
             rows = await cur.fetchall()
     out: dict[str, list[str]] = {}
     for discord_id, role in rows:

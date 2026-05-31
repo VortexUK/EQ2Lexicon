@@ -19,6 +19,9 @@ from pathlib import Path
 import aiosqlite
 
 from backend.server.db import DB_PATH
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 TOKEN_PREFIX = "eq2c_"
 
@@ -54,15 +57,12 @@ async def mint_api_token(
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            """
-            INSERT INTO api_tokens (user_id, name, token_hash, token_prefix)
-            VALUES (?, ?, ?, ?)
-            """,
+            _SQL["mint_token"],
             (user_id, name, h, prefix),
         )
         new_id = cur.lastrowid
         await db.commit()
-        async with db.execute("SELECT * FROM api_tokens WHERE id = ?", (new_id,)) as cur2:
+        async with db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
             row = await cur2.fetchone()
     assert row is not None
     return raw, dict(row)
@@ -73,12 +73,7 @@ async def list_api_tokens(user_id: str, path: Path = DB_PATH) -> list[dict]:
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
-            SELECT id, name, token_prefix, created_at, last_used_at, revoked_at
-            FROM api_tokens
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            """,
+            _SQL["list_for_user"],
             (user_id,),
         ) as cur:
             rows = await cur.fetchall()
@@ -94,11 +89,7 @@ async def revoke_api_token(
     Returns True if a row was updated."""
     async with aiosqlite.connect(path) as db:
         cur = await db.execute(
-            """
-            UPDATE api_tokens
-            SET revoked_at = strftime('%s','now')
-            WHERE id = ? AND user_id = ? AND revoked_at IS NULL
-            """,
+            _SQL["revoke_token"],
             (token_id, user_id),
         )
         await db.commit()
@@ -115,15 +106,7 @@ async def lookup_api_token(raw_token: str, path: Path = DB_PATH) -> dict | None:
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
-            SELECT t.id AS token_id, t.user_id, t.name AS token_name, t.revoked_at,
-                   t.last_used_at,
-                   u.discord_id, u.discord_name, u.discord_username, u.avatar,
-                   u.access_status
-            FROM api_tokens t
-            JOIN users u ON u.discord_id = t.user_id
-            WHERE t.token_hash = ?
-            """,
+            _SQL["lookup_by_hash"],
             (h,),
         ) as cur:
             row = await cur.fetchone()
@@ -143,7 +126,7 @@ async def lookup_api_token(raw_token: str, path: Path = DB_PATH) -> dict | None:
         did_write = last_used is None or (now - int(last_used)) >= 60
         if did_write:
             await db.execute(
-                "UPDATE api_tokens SET last_used_at = ? WHERE id = ?",
+                _SQL["update_last_used_at"],
                 (now, row["token_id"]),
             )
             await db.commit()

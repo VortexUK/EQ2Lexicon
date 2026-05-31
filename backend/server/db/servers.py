@@ -14,6 +14,9 @@ import sqlite3
 from pathlib import Path
 
 from backend.server.db import DB_PATH
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 
 def _server_row(row: sqlite3.Row) -> dict:
@@ -31,20 +34,20 @@ def _server_row(row: sqlite3.Row) -> dict:
 def list_servers_sync(path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        return [_server_row(r) for r in conn.execute("SELECT * FROM servers ORDER BY display_name")]
+        return [_server_row(r) for r in conn.execute(_SQL["list_all"])]
 
 
 def get_server_by_subdomain_sync(subdomain: str, path: Path = DB_PATH) -> dict | None:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM servers WHERE subdomain = ?", (subdomain.lower(),)).fetchone()
+        row = conn.execute(_SQL["find_by_subdomain"], (subdomain.lower(),)).fetchone()
         return _server_row(row) if row else None
 
 
 def get_server_by_world_sync(world: str, path: Path = DB_PATH) -> dict | None:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM servers WHERE world = ?", (world,)).fetchone()
+        row = conn.execute(_SQL["find_by_world"], (world,)).fetchone()
         return _server_row(row) if row else None
 
 
@@ -58,8 +61,7 @@ def upsert_server_settings_sync(
 ) -> None:
     with sqlite3.connect(path) as conn:
         conn.execute(
-            "UPDATE servers SET max_level = ?, current_xpac = ?, launch_dt = ?, "
-            "updated_at = strftime('%s','now') WHERE world = ?",
+            _SQL["upsert_server_settings"],
             (max_level, current_xpac, launch_dt, world),
         )
         conn.commit()
@@ -74,16 +76,13 @@ def set_default_server_sync(world: str, path: Path = DB_PATH) -> bool:
     """
     with sqlite3.connect(path) as conn:
         # First clear all, then set the target. Single transaction → never 0 or 2 defaults.
-        conn.execute("UPDATE servers SET is_default = 0")
-        cur = conn.execute("UPDATE servers SET is_default = 1 WHERE world = ?", (world,))
+        conn.execute(_SQL["clear_all_defaults"])
+        cur = conn.execute(_SQL["set_default_by_world"], (world,))
         if cur.rowcount == 0:
             # Unknown world: roll back by re-establishing any previous default.
             # Re-query to pick the alphabetically first row as a safe fallback so
             # we never leave all rows at is_default=0.
-            conn.execute(
-                "UPDATE servers SET is_default = 1 WHERE world = "
-                "(SELECT world FROM servers ORDER BY display_name LIMIT 1)"
-            )
+            conn.execute(_SQL["set_default_fallback"])
             conn.commit()
             return False
         conn.commit()
