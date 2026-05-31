@@ -313,14 +313,22 @@ DROP TABLE ingest_log_old;
 -- Insert helpers
 -- ---------------------------------------------------------------------------
 
+-- Named :param placeholders are matched against Encounter.as_db_params()
+-- — change column ↔ field mappings there, not by re-ordering values here.
 -- :name insert_encounter
 INSERT INTO encounters (
     world, act_encid, title, zone,
     started_at, ended_at, duration_s,
     total_damage, encdps, kills, deaths, success_level,
     source_dsn, uploaded_by, guild_name, ingested_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (
+    :world, :act_encid, :title, :zone,
+    :started_at, :ended_at, :duration_s,
+    :total_damage, :encdps, :kills, :deaths, :success_level,
+    :source_dsn, :uploaded_by, :guild_name, :ingested_at
+);
 
+-- Named :param placeholders matched against Combatant.as_db_params().
 -- :name insert_combatant
 INSERT INTO combatants (
     encounter_id, name, ally,
@@ -335,17 +343,17 @@ INSERT INTO combatants (
     threat_str, threat_delta,
     level, guild_name, cls, ilvl
 ) VALUES (
-    ?, ?, ?,
-    ?, ?, ?,
-    ?, ?, ?,
-    ?, ?, ?, ?, ?,
-    ?, ?,
-    ?, ?, ?,
-    ?, ?, ?, ?, ?,
-    ?, ?, ?,
-    ?, ?, ?, ?,
-    ?, ?,
-    ?, ?, ?, ?
+    :encounter_id, :name, :ally,
+    :started_at, :ended_at, :duration_s,
+    :damage, :damage_perc, :kills,
+    :healed, :healed_perc, :crit_heals, :heals, :cure_dispels,
+    :power_drain, :power_replenish,
+    :dps, :encdps, :enchps,
+    :hits, :crit_hits, :blocked, :misses, :swings,
+    :heals_taken, :damage_taken, :deaths,
+    :to_hit, :crit_dam_perc, :crit_heal_perc, :crit_types,
+    :threat_str, :threat_delta,
+    :level, :guild_name, :cls, :ilvl
 );
 
 -- :name update_combatant_snapshot
@@ -358,6 +366,7 @@ UPDATE combatants SET is_player = ? WHERE id = ?;
 -- :name invalidate_is_player_cache
 UPDATE combatants SET is_player = NULL;
 
+-- Named :param placeholders matched against DamageType.as_db_params().
 -- :name insert_damage_type
 INSERT INTO damage_types (
     combatant_id, grouping_label, damage_type,
@@ -366,8 +375,16 @@ INSERT INTO damage_types (
     average, median, min_hit, max_hit,
     hits, crit_hits, blocked, misses, swings,
     to_hit, average_delay, crit_perc, crit_types
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (
+    :combatant_id, :grouping_label, :damage_type,
+    :started_at, :ended_at, :duration_s,
+    :damage, :encdps, :char_dps, :dps,
+    :average, :median, :min_hit, :max_hit,
+    :hits, :crit_hits, :blocked, :misses, :swings,
+    :to_hit, :average_delay, :crit_perc, :crit_types
+);
 
+-- Named :param placeholders matched against AttackType.as_db_params().
 -- :name insert_attack_type
 INSERT INTO attack_types (
     combatant_id, victim, swing_type, attack_name,
@@ -376,7 +393,14 @@ INSERT INTO attack_types (
     average, median, min_hit, max_hit, resist,
     hits, crit_hits, blocked, misses, swings,
     to_hit, average_delay, crit_perc, crit_types
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (
+    :combatant_id, :victim, :swing_type, :attack_name,
+    :started_at, :ended_at, :duration_s,
+    :damage, :encdps, :char_dps, :dps,
+    :average, :median, :min_hit, :max_hit, :resist,
+    :hits, :crit_hits, :blocked, :misses, :swings,
+    :to_hit, :average_delay, :crit_perc, :crit_types
+);
 
 -- :name mark_ingested
 INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn)

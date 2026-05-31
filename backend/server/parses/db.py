@@ -18,7 +18,6 @@ source-of-truth for column-name mappings on the wire.
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC
 from enum import IntEnum
 from pathlib import Path
 
@@ -193,14 +192,6 @@ def _migrate_ingest_log_add_world(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _to_unix(dt) -> int:
-    if dt is None:
-        return 0
-    if dt.tzinfo is None:
-        return int(dt.replace(tzinfo=UTC).timestamp())
-    return int(dt.timestamp())
-
-
 def insert_encounter(
     conn: sqlite3.Connection,
     enc: Encounter,
@@ -211,25 +202,18 @@ def insert_encounter(
     guild_name: str | None = None,
     world: str = "Varsoon",
 ) -> int:
+    """Insert one encounter row. The column ↔ field mapping (incl. the
+    ``encid → act_encid`` rename and the datetime → unix conversion) lives
+    on :meth:`Encounter.as_db_params`; this function just threads in the
+    per-call args and runs the SQL."""
     cur = conn.execute(
         _SQL["insert_encounter"],
-        (
-            world,
-            enc.encid,
-            enc.title,
-            enc.zone,
-            _to_unix(enc.started_at),
-            _to_unix(enc.ended_at),
-            enc.duration_s,
-            enc.total_damage,
-            enc.encdps,
-            enc.kills,
-            enc.deaths,
-            enc.success_level,
-            source_dsn,
-            uploaded_by,
-            guild_name,
-            ingested_at,
+        enc.as_db_params(
+            world=world,
+            source_dsn=source_dsn,
+            ingested_at=ingested_at,
+            uploaded_by=uploaded_by,
+            guild_name=guild_name,
         ),
     )
     return int(cur.lastrowid or 0)
@@ -249,45 +233,7 @@ def insert_combatants_bulk(
         snap = snap_by_lower.get(c.name.lower(), _EMPTY_SNAPSHOT)
         cur = conn.execute(
             _SQL["insert_combatant"],
-            (
-                encounter_id,
-                c.name,
-                1 if c.ally else 0,
-                _to_unix(c.started_at),
-                _to_unix(c.ended_at),
-                c.duration_s,
-                c.damage,
-                c.damage_perc,
-                c.kills,
-                c.healed,
-                c.healed_perc,
-                c.crit_heals,
-                c.heals,
-                c.cure_dispels,
-                c.power_drain,
-                c.power_replenish,
-                c.dps,
-                c.encdps,
-                c.enchps,
-                c.hits,
-                c.crit_hits,
-                c.blocked,
-                c.misses,
-                c.swings,
-                c.heals_taken,
-                c.damage_taken,
-                c.deaths,
-                c.to_hit,
-                c.crit_dam_perc,
-                c.crit_heal_perc,
-                c.crit_types,
-                c.threat_str,
-                c.threat_delta,
-                snap.level,
-                snap.guild_name,
-                snap.cls,
-                snap.ilvl,
-            ),
+            c.as_db_params(encounter_id=encounter_id, snapshot=snap),
         )
         name_to_id[c.name] = int(cur.lastrowid or 0)
     return name_to_id
@@ -361,39 +307,15 @@ def insert_damage_types_bulk(
     combatant_name_to_id: dict[str, int],
     damage_types: list[DamageType],
 ) -> int:
+    """Bulk-insert damage_types rows. ``combatant_name_to_id`` resolves the
+    natural-key reference in :class:`DamageType` to the FK we store; rows
+    referencing an unknown combatant name are silently dropped."""
     rows = [
-        (
-            combatant_name_to_id[dt.combatant_name],
-            dt.grouping_label,
-            dt.damage_type,
-            _to_unix(dt.started_at),
-            _to_unix(dt.ended_at),
-            dt.duration_s,
-            dt.damage,
-            dt.encdps,
-            dt.char_dps,
-            dt.dps,
-            dt.average,
-            dt.median,
-            dt.min_hit,
-            dt.max_hit,
-            dt.hits,
-            dt.crit_hits,
-            dt.blocked,
-            dt.misses,
-            dt.swings,
-            dt.to_hit,
-            dt.average_delay,
-            dt.crit_perc,
-            dt.crit_types,
-        )
+        dt.as_db_params(combatant_id=combatant_name_to_id[dt.combatant_name])
         for dt in damage_types
         if dt.combatant_name in combatant_name_to_id
     ]
-    conn.executemany(
-        _SQL["insert_damage_type"],
-        rows,
-    )
+    conn.executemany(_SQL["insert_damage_type"], rows)
     return len(rows)
 
 
@@ -402,41 +324,15 @@ def insert_attack_types_bulk(
     combatant_name_to_id: dict[str, int],
     attack_types: list[AttackType],
 ) -> int:
+    """Bulk-insert attack_types rows. Same shape as
+    :func:`insert_damage_types_bulk` — rows whose combatant_name can't be
+    resolved against the encounter's combatants are silently dropped."""
     rows = [
-        (
-            combatant_name_to_id[at.combatant_name],
-            at.victim,
-            at.swing_type,
-            at.attack_name,
-            _to_unix(at.started_at),
-            _to_unix(at.ended_at),
-            at.duration_s,
-            at.damage,
-            at.encdps,
-            at.char_dps,
-            at.dps,
-            at.average,
-            at.median,
-            at.min_hit,
-            at.max_hit,
-            at.resist,
-            at.hits,
-            at.crit_hits,
-            at.blocked,
-            at.misses,
-            at.swings,
-            at.to_hit,
-            at.average_delay,
-            at.crit_perc,
-            at.crit_types,
-        )
+        at.as_db_params(combatant_id=combatant_name_to_id[at.combatant_name])
         for at in attack_types
         if at.combatant_name in combatant_name_to_id
     ]
-    conn.executemany(
-        _SQL["insert_attack_type"],
-        rows,
-    )
+    conn.executemany(_SQL["insert_attack_type"], rows)
     return len(rows)
 
 
