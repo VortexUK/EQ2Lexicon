@@ -35,6 +35,7 @@ from fastapi import HTTPException, Request
 from parses import db as parses_db
 from web.auth_deps import require_user_session_or_token
 from web.lib.executor import run_sync
+from web.lib.log_safety import scrub as _safe_for_log
 from web.lib.session_user import TokenUser
 from web.lib.validation import sanitize_world as _sanitize_world
 from web.lib.validation import validate_character_name as _validate_character_name
@@ -195,10 +196,16 @@ async def report_tamper(
         # Accept unknown codes for forward-compat with future plugin
         # versions, but log so the maintainer notices a new heuristic
         # they may want to wire admin-UI styling for.
+        #
+        # Every user-controlled value goes through _safe_for_log to
+        # strip CR/LF before logging. Same pattern as web/routes/claim.py
+        # — keeps CodeQL's py/log-injection + py/clear-text-logging
+        # rules quiet (it treats values from session/token context as
+        # sensitive even though discord_id is a public identifier).
         _log.info(
-            "[tamper-report] unknown reason code: %r (token user=%s)",
-            reason,
-            user.get("id"),
+            "[tamper-report] unknown reason code: %s (token user=%s)",
+            _safe_for_log(reason),
+            _safe_for_log(user.get("id")),
         )
 
     # Logger_name: validate to the same EQ2 character-name shape ingest
@@ -243,9 +250,9 @@ async def report_tamper(
     except sqlite3.Error:
         _log.exception(
             "[tamper-report] DB error persisting report: user=%s reason=%s encid=%s",
-            discord_id,
-            reason,
-            body.encounter.encid,
+            _safe_for_log(discord_id),
+            _safe_for_log(reason),
+            _safe_for_log(body.encounter.encid),
         )
         # Don't surface DB details to the client.
         raise HTTPException(status_code=500, detail="Could not persist tamper report.") from None
@@ -253,10 +260,10 @@ async def report_tamper(
     _log.info(
         "[tamper-report] stored: id=%d reason=%s user=%s logger=%s world=%s encid=%s",
         report_id,
-        reason,
-        discord_id,
-        uploader,
-        world_for_report,
-        body.encounter.encid,
+        _safe_for_log(reason),
+        _safe_for_log(discord_id),
+        _safe_for_log(uploader),
+        _safe_for_log(world_for_report),
+        _safe_for_log(body.encounter.encid),
     )
     return TamperReportResponse(id=report_id, reason=reason)
