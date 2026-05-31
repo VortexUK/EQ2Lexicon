@@ -276,6 +276,10 @@ SELECT expansion_short, COUNT(*) FROM zones GROUP BY expansion_short ORDER BY 2 
 -- :name check_zone_exists_for_expansion
 SELECT 1 FROM zones WHERE expansion_short = ? LIMIT 1;
 
+-- :name select_expansion_name_year
+SELECT expansion_name AS name, expansion_year AS year FROM zones
+WHERE expansion_short = ? LIMIT 1;
+
 -- ---------------------------------------------------------------------------
 -- zone_types CRUD
 -- ---------------------------------------------------------------------------
@@ -322,7 +326,7 @@ DELETE FROM zone_encounters WHERE zone_id = ?;
 INSERT INTO zone_encounters (zone_id, encounter_name, position, stage, wiki_url) VALUES (?, ?, ?, ?, ?);
 
 -- :name list_encounters_for_zone
-SELECT id, encounter_name, position, stage, wiki_url
+SELECT id, zone_id, encounter_name, position, stage, wiki_url
 FROM zone_encounters WHERE zone_id = ? ORDER BY position;
 
 -- :name select_encounter_by_id
@@ -371,9 +375,6 @@ SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? OR
 
 -- :name list_mobs_for_encounter_asc
 SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position ASC;
-
--- :name list_mobs_for_encounter_names
-SELECT mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position ASC;
 
 -- :name select_primary_mob_name
 SELECT mob_name FROM zone_encounter_mobs WHERE encounter_id = ? AND position = 0;
