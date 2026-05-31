@@ -15,6 +15,7 @@ both, so the migration is mechanical.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import functools
 from collections.abc import Callable
 from typing import ParamSpec, TypeVar
@@ -24,19 +25,37 @@ _T = TypeVar("_T")
 
 
 async def run_sync(fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:  # noqa: UP047
-    """Run a synchronous function in the default executor.
+    """Run a synchronous function in the default executor, with the caller's
+    contextvars propagated to the worker thread.
 
     Replaces the ``loop = asyncio.get_running_loop(); await
     loop.run_in_executor(None, fn, *args)`` boilerplate. Both positional and
     keyword arguments are forwarded — kwargs via ``functools.partial`` since
     ``run_in_executor`` only accepts positional args.
 
+    The function executes inside a copy of the caller's
+    ``contextvars.Context``. This matches ``asyncio.to_thread``'s
+    documented behaviour (Python 3.9+) and is REQUIRED because the
+    per-request middleware in ``web/server_context.py`` populates an
+    ``_active_server`` ContextVar that ``current_world()`` reads. Without
+    propagation, any DB helper dispatched via ``run_sync`` would see
+    ``default_server()`` instead of the request's actual server — a
+    silent data-leak-flavoured bug (the wrong world's encounters get
+    queried). Production hit: 2026-05-31, /api/parses returning empty
+    for Varsoon users because the thread-pool worker saw the registry's
+    default server, not Varsoon.
+
     Example:
         result = await run_sync(parses_db.init_db)
         rows = await run_sync(parses_db.list_encounters, world="Varsoon")
     """
     loop = asyncio.get_running_loop()
-    # run_in_executor only accepts positional args; functools.partial handles
-    # both positional and keyword arguments cleanly.  pyright can't verify the
-    # _P.args unpack into run_in_executor's *args, so we always go via partial.
-    return await loop.run_in_executor(None, functools.partial(fn, *args, **kwargs))  # type: ignore[arg-type]
+    # Copy the caller's contextvars context so the worker thread sees
+    # whatever was set on the asyncio task (per-server ContextVar etc.).
+    # ``ctx.run`` is what asyncio.to_thread uses internally.
+    ctx = contextvars.copy_context()
+    # ``run_in_executor`` only accepts positional args; ``functools.partial``
+    # carries our kwargs through, then ``ctx.run`` enters the captured
+    # context before calling fn.
+    call = functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(None, lambda: ctx.run(call))  # type: ignore[arg-type]

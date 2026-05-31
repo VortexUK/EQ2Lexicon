@@ -467,6 +467,13 @@ async def list_parses(
     # 24-mirror worst case, or 15000 unique fights at one-upload-per-fight.
     inner_cap = max(limit * PARSE_INNER_CAP_MULTIPLIER, PARSE_INNER_CAP_FLOOR)
 
+    # Capture the request's active world OUTSIDE the threadpool closure
+    # below. Even with run_sync's contextvar propagation (fixed
+    # 2026-05-31), capturing here explicitly is clearer and protects
+    # against future runtime/executor changes that might not propagate
+    # context — defence in depth.
+    active_world = current_world()
+
     def _list_and_group_sync() -> tuple[list[dict], list[dict], int]:
         """Run the inner-list SQL, then group into fights.
 
@@ -490,7 +497,7 @@ async def list_parses(
         sees the correct flag. Also re-query player_count for each
         backfilled encounter so the response carries the correct
         number on the same request (no stale-on-first-load glitch)."""
-        rows = _list_encounters_sync(inner_cap, zone, size, current_world())
+        rows = _list_encounters_sync(inner_cap, zone, size, active_world)
         if not rows:
             return rows, [], 0
         conn = parses_db.init_db(parses_db.DB_PATH)
