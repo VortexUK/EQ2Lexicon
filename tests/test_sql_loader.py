@@ -41,6 +41,39 @@ WHERE id = ?;
     assert "-- this is a comment inside the query" in parsed["complex"]
 
 
+def test_section_divider_comments_between_blocks_not_appended():
+    """Section dividers between blocks must NOT bleed into the previous
+    block's body — otherwise a fragment composed via str.format ends up
+    with comment text spliced into the middle of the SELECT."""
+    text = """-- :name col_list_fragment
+id, name, value
+
+-- ---------------------------------------------------------------------------
+-- Section divider between blocks
+-- ---------------------------------------------------------------------------
+
+-- :name find_by_id
+SELECT {cols} FROM items WHERE id = ?;
+"""
+    parsed = parse_sql(text)
+    assert parsed["col_list_fragment"] == "id, name, value"
+    assert "Section divider" not in parsed["col_list_fragment"]
+
+
+def test_inline_comments_inside_sql_still_preserved():
+    """Trimming trailing comments must not strip legitimate inline
+    comments that sit between SQL lines."""
+    text = """-- :name complex
+SELECT *
+-- this comment is in the middle
+FROM users
+WHERE id = ?;
+"""
+    parsed = parse_sql(text)
+    assert "-- this comment is in the middle" in parsed["complex"]
+    assert parsed["complex"].endswith("WHERE id = ?;")
+
+
 def test_blank_lines_around_blocks_stripped():
     text = """
 
