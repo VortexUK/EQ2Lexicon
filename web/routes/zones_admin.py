@@ -15,6 +15,12 @@ from web.routes.rankings import invalidate_zones_cache
 
 router = APIRouter(tags=["zones-admin"])
 
+# Allow-list for the type-tag mutation endpoints. v1 only permits the
+# 'dungeon' tag — extending to other tokens (e.g. 'raid_x2', 'event') is a
+# future cleanup. The narrow list stops a contributor from mistagging a
+# zone as 'raid_x4' (which auto-promotes it onto the raids index page).
+ALLOWED_TYPE_TOKENS: frozenset[str] = frozenset({"dungeon"})
+
 
 def _resolve_zone_id_sync(zone_name: str) -> int | None:
     z = zones_db.find_by_name(zone_name)
@@ -55,6 +61,10 @@ class MobCreateBody(BaseModel):
 
 class MobUpdateBody(BaseModel):
     mob_name: str = Field(..., min_length=1)
+
+
+class ZoneTypeBody(BaseModel):
+    type: str = Field(..., min_length=1)
 
 
 # --- endpoints ---------------------------------------------------------------
@@ -196,3 +206,43 @@ async def remove_mob(zone_name: str, encounter_id: int, mob_id: int) -> None:
     if not ok:
         raise HTTPException(status_code=404, detail="Mob not found")
     invalidate_zones_cache()
+
+
+# --- zone-type tag endpoints (dungeon curation) -----------------------------
+# Used by the Dungeons card on /raids (contributors-only on the frontend).
+# The backend still gates by require_editor so direct API access stays
+# consistent with the encounter editor.
+
+
+@router.post(
+    "/zones/{zone_name}/types",
+    dependencies=[Depends(require_editor)],
+)
+async def add_zone_type_route(zone_name: str, body: ZoneTypeBody) -> dict:
+    if body.type not in ALLOWED_TYPE_TOKENS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"type must be one of {sorted(ALLOWED_TYPE_TOKENS)}",
+        )
+    result = await run_sync(zones_db.add_zone_type, zone_name, body.type)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Zone {zone_name!r} not found")
+    invalidate_zones_cache()
+    return result
+
+
+@router.delete(
+    "/zones/{zone_name}/types/{type_token}",
+    dependencies=[Depends(require_editor)],
+)
+async def remove_zone_type_route(zone_name: str, type_token: str) -> dict:
+    if type_token not in ALLOWED_TYPE_TOKENS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"type must be one of {sorted(ALLOWED_TYPE_TOKENS)}",
+        )
+    result = await run_sync(zones_db.remove_zone_type, zone_name, type_token)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Zone {zone_name!r} not found")
+    invalidate_zones_cache()
+    return result

@@ -7,6 +7,7 @@ import { fmtRelative } from '../formatters'
 import { useFetch } from '../hooks/useFetch'
 import { useRaidProgress, type KilledEncounter } from '../hooks/useRaidProgress'
 import { useServer } from '../hooks/useServer'
+import { DungeonsCard } from './raids/DungeonsCard'
 import type { Zone, ZoneListResponse } from './raids/types'
 
 // Data fetch uses useFetch (hooks/useFetch.ts) — canonical pattern.
@@ -144,16 +145,21 @@ export default function RaidZonesPage() {
                 </span>
               </button>
               {isOpen && (
-                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                  {zones.map(zone => (
-                    <ZoneCard
-                      key={zone.name}
-                      zone={zone}
-                      killed={progress.killed_encounters[zone.name] ?? []}
-                      hasGuild={!!progress.guild_name}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                    {zones.map(zone => (
+                      <ZoneCard
+                        key={zone.name}
+                        zone={zone}
+                        killed={progress.killed_encounters[zone.name] ?? []}
+                        hasGuild={!!progress.guild_name}
+                      />
+                    ))}
+                  </div>
+                  {/* Contributor-only dungeon curation. Hidden entirely for
+                      regular users (the card's first hook returns null). */}
+                  <DungeonsCard expansion={exp.short} />
+                </>
               )}
             </section>
           )

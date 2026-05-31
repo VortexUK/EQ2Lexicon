@@ -1184,3 +1184,79 @@ def delete_encounter(encounter_id: int, path: Path = DB_PATH) -> bool:
             _raids_db.delete_raid_encounter_by_zone_mob(rconn, zone_name=zone_name, mob_name=row["encounter_name"])
             rconn.commit()
     return True
+
+
+# ---------------------------------------------------------------------------
+# Zone-type tag helpers (used by the dungeon-curation UI on /raids)
+# ---------------------------------------------------------------------------
+
+
+def add_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict | None:
+    """Add a type tag (e.g. 'dungeon') to a zone. Idempotent — adding the
+    same tag twice is a no-op (INSERT OR IGNORE against the PK).
+
+    Returns the hydrated zone dict (same shape as find_by_name) after the
+    mutation, or None if the zone_name doesn't resolve. Route layer is
+    responsible for turning None into a 404."""
+    if not path.exists() or not zone_name:
+        return None
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        row = conn.execute(
+            f"SELECT {_SELECT_COLS} FROM zones WHERE name_lower = ? LIMIT 1",
+            (zone_name.lower(),),
+        ).fetchone()
+        if row is None:
+            alias_row = conn.execute(
+                "SELECT zone_id FROM zone_aliases WHERE alias_lower = ? LIMIT 1",
+                (zone_name.lower(),),
+            ).fetchone()
+            if alias_row is None:
+                return None
+            row = conn.execute(
+                f"SELECT {_SELECT_COLS} FROM zones WHERE id = ?",
+                (alias_row[0],),
+            ).fetchone()
+            if row is None:
+                return None
+        conn.execute(
+            "INSERT OR IGNORE INTO zone_types (zone_id, type) VALUES (?, ?)",
+            (row["id"], type_token),
+        )
+        conn.commit()
+        return _hydrate_zone(conn, row)
+
+
+def remove_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict | None:
+    """Remove a type tag from a zone. Idempotent — a no-op when the tag
+    isn't present. Returns the hydrated zone dict after the mutation, or
+    None if the zone_name doesn't resolve (route layer maps to 404)."""
+    if not path.exists() or not zone_name:
+        return None
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        row = conn.execute(
+            f"SELECT {_SELECT_COLS} FROM zones WHERE name_lower = ? LIMIT 1",
+            (zone_name.lower(),),
+        ).fetchone()
+        if row is None:
+            alias_row = conn.execute(
+                "SELECT zone_id FROM zone_aliases WHERE alias_lower = ? LIMIT 1",
+                (zone_name.lower(),),
+            ).fetchone()
+            if alias_row is None:
+                return None
+            row = conn.execute(
+                f"SELECT {_SELECT_COLS} FROM zones WHERE id = ?",
+                (alias_row[0],),
+            ).fetchone()
+            if row is None:
+                return None
+        conn.execute(
+            "DELETE FROM zone_types WHERE zone_id = ? AND type = ?",
+            (row["id"], type_token),
+        )
+        conn.commit()
+        return _hydrate_zone(conn, row)
