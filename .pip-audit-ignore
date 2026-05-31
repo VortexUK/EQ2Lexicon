@@ -1,0 +1,11 @@
+# pip-audit ignore list for the CI security job (.github/workflows/ci.yml).
+#
+# Format: one CVE/GHSA ID per line, with an optional rationale comment after
+# the ID. Blank lines and lines starting with `#` are ignored.
+#
+# Example:
+# GHSA-1234-abcd-5678  # vendored fix landed in our pinned commit; safe to ignore
+#
+# Prefer fixing the underlying CVE by bumping the dep. Use this file only for
+# accepted-risk items or for false positives where you're waiting on an
+# upstream fix.

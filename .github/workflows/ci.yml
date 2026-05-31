@@ -68,3 +68,67 @@ jobs:
 
       - name: Vite build
         run: npm run build
+
+  security:
+    name: Security (dep CVE scan)
+    runs-on: ubuntu-latest
+    # Mirrors python + frontend jobs' triggers (push to main + PRs to main),
+    # inherited from the file-level `on:` block. Gates on HIGH+CRITICAL only —
+    # moderate/low CVEs are handled by Dependabot's weekly PRs without blocking
+    # the build. Add accepted-risk CVE IDs to .pip-audit-ignore (Python) or pass
+    # `--audit-level=critical` if a noisy ecosystem briefly needs relief.
+    steps:
+      - uses: actions/checkout@v6
+
+      # ── Python deps via pip-audit ────────────────────────────────────────
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          version: "0.11.16"
+
+      - name: Set up Python from .python-version
+        run: uv python install
+
+      - name: Export production requirements from uv.lock
+        # pip-audit doesn't natively understand uv.lock yet, but uv exports a
+        # PEP 508 requirements file that pip-audit reads directly. --no-dev
+        # excludes pytest / ruff / pyright etc. — devDep CVEs don't matter at
+        # runtime and would just create noise.
+        run: uv export --frozen --no-dev --format requirements-txt > /tmp/requirements-prod.txt
+
+      - name: pip-audit (Python production deps)
+        # Strict mode fails the build on any unresolved vulnerability at the
+        # configured severity. The ignore-file path is checked into the repo;
+        # add a CVE ID there with a rationale comment if it's an accepted risk
+        # or a false positive we're waiting on a fix for.
+        run: |
+          IGNORES=""
+          if [ -f .pip-audit-ignore ]; then
+            while IFS= read -r line; do
+              # Skip blank lines and comment-only lines.
+              case "$line" in
+                ''|\#*) continue ;;
+              esac
+              # Take the first whitespace-delimited token (the CVE / GHSA ID)
+              # so the rest of the line is free for a rationale comment.
+              id=$(echo "$line" | awk '{print $1}')
+              IGNORES="$IGNORES --ignore-vuln $id"
+            done < .pip-audit-ignore
+          fi
+          uv tool run pip-audit --strict $IGNORES -r /tmp/requirements-prod.txt
+
+      # ── Frontend deps via npm audit ──────────────────────────────────────
+      - name: Set up Node 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm audit (frontend production deps)
+        working-directory: frontend
+        # --audit-level=high → exit 1 only on high or critical; moderate/low
+        # are reported but don't fail the build. --omit=dev skips devDeps
+        # (vitest, ESLint, etc.) — same rationale as pip-audit's --no-dev.
+        run: npm audit --audit-level=high --omit=dev
