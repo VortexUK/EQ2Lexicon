@@ -61,12 +61,13 @@ SERVER_MAX_LEVEL: int | None = _resolve_max_level()
 # ---------------------------------------------------------------------------
 # EQ2 class-group label helper
 # ---------------------------------------------------------------------------
-# Class-group membership is OWNED by backend.eq2db.classes (CLASS_SEED supplies
-# archetype + subclass fields; CRAFTER_NAMES supplies the artisans). Census API
-# item rows use lowercase class-name keys ({"guardian": {...}}), so the tables
-# below lowercase the canonical TitleCase names from classes.py.
+# Class-group membership is OWNED by the committed classes.db, accessed via
+# the derived constants exported by backend.eq2db.classes (ARCHETYPE_GROUPS +
+# SUBCLASS_GROUPS + CRAFTER_NAMES). Census API item rows use lowercase
+# class-name keys ({"guardian": {...}}), so the tables below lowercase the
+# canonical TitleCase names from the DB rows.
 #
-# DO NOT redefine class groupings here — extend CLASS_SEED instead.
+# DO NOT redefine class groupings here — edit the row in classes.db.
 
 _CRAFTERS: frozenset[str] = frozenset(name.lower() for name in _CRAFTER_NAMES_TITLE)
 _ALL_ADVENTURERS: frozenset[str] = frozenset(n.lower() for _, members in _ARCHETYPE_GROUPS_SRC for n in members)

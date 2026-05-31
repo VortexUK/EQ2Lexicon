@@ -1,11 +1,27 @@
-"""EQ2 adventure-class catalogue.
+"""EQ2 class catalogue — read-only DB-backed accessor.
 
-The 26 classes are static, so the canonical data lives here as CLASS_SEED and
-the SQLite catalogue (data/classes/classes.db) is built from it by
-scripts/build_classes_db.py (there's no Census download — unlike recipes/spells).
-Keyed by class NAME: EQ2 has several unrelated class-id schemes (our icon_id is
+The canonical class catalogue is the committed SQLite file at
+``data/classes/classes.db``. It holds:
+  - 26 adventure classes (archetype ∈ {Fighter, Priest, Scout, Mage})
+  - 9 crafters (archetype = "Crafter")
+
+This module reads it ONCE at import time and exposes the derived view used
+across the codebase (ARCHETYPE_COLOURS, CRAFTER_NAMES, SUBCLASS_GROUPS,
+ARCHETYPE_GROUPS). It does NOT define class data inline anywhere — to
+change a class's role, colour, icon_id, or subclass, edit the row in
+classes.db and commit the new file.
+
+Keyed by class NAME: EQ2 has several unrelated class-id schemes (icon_id is
 the EQ2wire icon id; AA trees and Census type.classid use different ids), so
 name is the only stable cross-reference.
+
+Why DB-backed instead of a Python literal:
+  - One source of truth at runtime. Code never disagrees with the DB.
+  - Maintainers (and admin tooling) can update class metadata by editing
+    the committed .db file — no code redeploy needed for cosmetic
+    changes like archetype colours.
+  - The DB is small (~20 KB) and committed, so CI works without a build
+    step. Module-import-time read cost is one SQLite open + 35-row scan.
 """
 
 from __future__ import annotations
@@ -19,107 +35,11 @@ from pathlib import Path
 @dataclass(frozen=True)
 class ClassInfo:
     name: str
-    archetype: str  # Fighter | Priest | Scout | Mage
-    subclass: str | None  # middle tier; None for Beastlord & Channeler
-    role: str  # Tank | Healer | Melee DPS | Ranged DPS | Support
+    archetype: str  # Fighter | Priest | Scout | Mage | Crafter
+    subclass: str | None  # middle tier; None for Beastlord, Channeler, crafters
+    role: str  # Tank | Healer | Melee DPS | Ranged DPS | Support | Crafter
     colour: str  # hex (archetype colour)
-    icon_id: int  # EQ2wire class_medium icon id
-
-
-# Archetype colours. Public, canonical, ordered Fighter / Priest / Scout / Mage.
-# Consumed via classes.ARCHETYPE_COLOURS by census/constants.py (re-exported as
-# CLASS_ARCHETYPE_COLOURS for back-compat with older callers) and by any renderer
-# that needs to tint class icons. Don't redefine these anywhere else.
-ARCHETYPE_COLOURS: dict[str, str] = {
-    "Fighter": "#f87171",
-    "Priest": "#4ade80",
-    "Scout": "#fbbf24",
-    "Mage": "#93b4ff",
-}
-_F, _P, _S, _M = (
-    ARCHETYPE_COLOURS["Fighter"],
-    ARCHETYPE_COLOURS["Priest"],
-    ARCHETYPE_COLOURS["Scout"],
-    ARCHETYPE_COLOURS["Mage"],
-)
-
-# Ordered: archetype [Fighter, Priest, Scout, Mage], icon_id ascending within
-# each archetype. display_order is assigned from this order at seed time.
-CLASS_SEED: tuple[ClassInfo, ...] = (
-    ClassInfo("Guardian", "Fighter", "Warrior", "Tank", _F, 3),
-    ClassInfo("Berserker", "Fighter", "Warrior", "Tank", _F, 4),
-    ClassInfo("Monk", "Fighter", "Brawler", "Tank", _F, 6),
-    ClassInfo("Bruiser", "Fighter", "Brawler", "Tank", _F, 7),
-    ClassInfo("Shadowknight", "Fighter", "Crusader", "Tank", _F, 9),
-    ClassInfo("Paladin", "Fighter", "Crusader", "Tank", _F, 10),
-    ClassInfo("Templar", "Priest", "Cleric", "Healer", _P, 13),
-    ClassInfo("Inquisitor", "Priest", "Cleric", "Healer", _P, 14),
-    ClassInfo("Warden", "Priest", "Druid", "Healer", _P, 16),
-    ClassInfo("Fury", "Priest", "Druid", "Healer", _P, 17),
-    ClassInfo("Mystic", "Priest", "Shaman", "Healer", _P, 19),
-    ClassInfo("Defiler", "Priest", "Shaman", "Healer", _P, 20),
-    ClassInfo("Channeler", "Priest", None, "Healer", _P, 44),
-    ClassInfo("Swashbuckler", "Scout", "Rogue", "Melee DPS", _S, 33),
-    ClassInfo("Brigand", "Scout", "Rogue", "Melee DPS", _S, 34),
-    ClassInfo("Troubador", "Scout", "Bard", "Support", _S, 36),
-    ClassInfo("Dirge", "Scout", "Bard", "Support", _S, 37),
-    ClassInfo("Ranger", "Scout", "Predator", "Ranged DPS", _S, 39),
-    ClassInfo("Assassin", "Scout", "Predator", "Melee DPS", _S, 40),
-    ClassInfo("Beastlord", "Scout", None, "Melee DPS", _S, 42),
-    ClassInfo("Wizard", "Mage", "Sorcerer", "Ranged DPS", _M, 23),
-    ClassInfo("Warlock", "Mage", "Sorcerer", "Ranged DPS", _M, 24),
-    ClassInfo("Coercer", "Mage", "Enchanter", "Support", _M, 26),
-    ClassInfo("Illusionist", "Mage", "Enchanter", "Support", _M, 27),
-    ClassInfo("Conjuror", "Mage", "Summoner", "Ranged DPS", _M, 29),
-    ClassInfo("Necromancer", "Mage", "Summoner", "Ranged DPS", _M, 30),
-)
-
-# Tradeskill (artisan) class names. Not part of CLASS_SEED because they're not
-# adventure classes — no archetype/subclass/role/icon_id semantics — but Census
-# item rows can list them when an item is restricted to crafters. Single source
-# of truth: anywhere else that needed an "artisans" frozenset (items.py,
-# census/constants.py) now derives from here.
-CRAFTER_NAMES: frozenset[str] = frozenset(
-    [
-        "Sage",
-        "Armorer",
-        "Weaponsmith",
-        "Woodworker",
-        "Jeweler",
-        "Carpenter",
-        "Tailor",
-        "Alchemist",
-        "Provisioner",
-    ]
-)
-
-
-# Ordered list of (subclass_name, frozenset[class_name]) for the 12 subclass
-# groups (Warriors, Crusaders, …). Channeler and Beastlord have subclass=None
-# so they're correctly excluded. Order: stable by first-occurrence in CLASS_SEED
-# so display ordering matches archetype ordering (Fighter subclasses first,
-# then Priest, Scout, Mage).
-def _build_subclass_groups() -> tuple[tuple[str, frozenset[str]], ...]:
-    seen: dict[str, list[str]] = {}
-    for c in CLASS_SEED:
-        if c.subclass is None:
-            continue
-        seen.setdefault(c.subclass, []).append(c.name)
-    return tuple((sub, frozenset(names)) for sub, names in seen.items())
-
-
-SUBCLASS_GROUPS: tuple[tuple[str, frozenset[str]], ...] = _build_subclass_groups()
-
-
-# Ordered list of (archetype_name, frozenset[class_name]) — Fighter/Priest/Scout/Mage.
-def _build_archetype_groups() -> tuple[tuple[str, frozenset[str]], ...]:
-    seen: dict[str, list[str]] = {}
-    for c in CLASS_SEED:
-        seen.setdefault(c.archetype, []).append(c.name)
-    return tuple((arc, frozenset(names)) for arc, names in seen.items())
-
-
-ARCHETYPE_GROUPS: tuple[tuple[str, frozenset[str]], ...] = _build_archetype_groups()
+    icon_id: int  # EQ2wire class_medium icon id (crafters get 100+ placeholders)
 
 
 def _db_path() -> Path:
@@ -130,6 +50,10 @@ def _db_path() -> Path:
 
 
 DB_PATH: Path = _db_path()
+
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
 
 _CREATE_CLASSES = """
 CREATE TABLE IF NOT EXISTS classes (
@@ -150,7 +74,12 @@ _CREATE_INDEXES = [
 
 
 def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
-    """Create the classes table/indexes if missing. Returns an open connection."""
+    """Create the classes table/indexes if missing. Returns an open connection.
+
+    Used by tests that want an in-memory DB (`:memory:`), and as a safety net
+    when the file at `path` exists but is missing the table. Production never
+    needs this — classes.db is committed pre-populated.
+    """
     if str(path) == ":memory:":
         conn = sqlite3.connect(":memory:")
     else:
@@ -165,27 +94,9 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
-def seed(conn: sqlite3.Connection) -> int:
-    """(Re)populate the classes table from CLASS_SEED. display_order = the
-    index of each record in CLASS_SEED. Returns the row count."""
-    rows = [(c.name, c.archetype, c.subclass, c.role, c.colour, i, c.icon_id) for i, c in enumerate(CLASS_SEED)]
-    with conn:
-        conn.execute("DELETE FROM classes")
-        conn.executemany(
-            "INSERT INTO classes (name, archetype, subclass, role, colour, display_order, icon_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            rows,
-        )
-    return len(rows)
-
-
-def iter_adventure_class_names() -> list[str]:
-    """Return all adventure-class names in display_order (sorted alphabetically within CLASS_SEED).
-
-    Sourced directly from CLASS_SEED so this works without an initialised DB.
-    Used by web routes that need the class name list without a DB round-trip.
-    """
-    return [c.name for c in CLASS_SEED]
+# ---------------------------------------------------------------------------
+# DB-backed accessors (used at runtime by routes)
+# ---------------------------------------------------------------------------
 
 
 def list_all(path: Path = DB_PATH) -> list[dict]:
@@ -214,3 +125,86 @@ def by_role(role: str, path: Path = DB_PATH) -> list[dict]:
 
 def by_archetype(archetype: str, path: Path = DB_PATH) -> list[dict]:
     return [c for c in list_all(path) if c["archetype"] == archetype]
+
+
+# ---------------------------------------------------------------------------
+# Derived module-level constants
+# ---------------------------------------------------------------------------
+# Loaded ONCE at import time from the committed classes.db. Anything that needs
+# a snapshot of class groupings (compute_class_label, CLASS_GROUPS in
+# census/constants.py, the archetype decomposition in server/api/item.py) reads
+# these constants instead of redefining the data inline. Changing class
+# metadata is a matter of editing the .db row and committing the file.
+
+_ADVENTURE_ARCHETYPES: tuple[str, ...] = ("Fighter", "Priest", "Scout", "Mage")
+_CRAFTER_ARCHETYPE: str = "Crafter"
+
+
+def _load_rows() -> list[dict]:
+    """Read the entire catalogue at module import. ~35 rows, one SQLite open."""
+    try:
+        rows = list_all(DB_PATH)
+    except sqlite3.DatabaseError:
+        rows = []
+    if not rows:
+        raise RuntimeError(
+            f"classes.db at {DB_PATH} is empty or unreadable. The DB is committed at "
+            "data/classes/classes.db — if it's missing on a fresh clone, fetch the "
+            "file from origin or restore from the Railway volume."
+        )
+    return rows
+
+
+_ROWS: list[dict] = _load_rows()
+_ADV_ROWS: list[dict] = [r for r in _ROWS if r["archetype"] in _ADVENTURE_ARCHETYPES]
+_CRAFTER_ROWS: list[dict] = [r for r in _ROWS if r["archetype"] == _CRAFTER_ARCHETYPE]
+
+
+def _build_archetype_colours() -> dict[str, str]:
+    """{ archetype: colour } from DB. Adventure archetypes only — crafters
+    share a neutral colour that callers don't usually care about."""
+    seen: dict[str, str] = {}
+    for r in _ADV_ROWS:
+        arc = r["archetype"]
+        if arc not in seen:
+            seen[arc] = r["colour"]
+    return seen
+
+
+ARCHETYPE_COLOURS: dict[str, str] = _build_archetype_colours()
+
+CRAFTER_NAMES: frozenset[str] = frozenset(r["name"] for r in _CRAFTER_ROWS)
+
+
+def _build_subclass_groups() -> tuple[tuple[str, frozenset[str]], ...]:
+    """Ordered (subclass_name, frozenset[class_name]) for the 12 subclass
+    pairs. Channeler / Beastlord have subclass=None so they're excluded.
+    Order: first-occurrence by display_order so Fighter subclasses come
+    before Priest, Scout, Mage."""
+    seen: dict[str, list[str]] = {}
+    for r in _ADV_ROWS:
+        sub = r["subclass"]
+        if sub is None:
+            continue
+        seen.setdefault(sub, []).append(r["name"])
+    return tuple((sub, frozenset(names)) for sub, names in seen.items())
+
+
+SUBCLASS_GROUPS: tuple[tuple[str, frozenset[str]], ...] = _build_subclass_groups()
+
+
+def _build_archetype_groups() -> tuple[tuple[str, frozenset[str]], ...]:
+    """Ordered (archetype_name, frozenset[class_name]) — Fighter/Priest/Scout/Mage."""
+    seen: dict[str, list[str]] = {}
+    for r in _ADV_ROWS:
+        seen.setdefault(r["archetype"], []).append(r["name"])
+    return tuple((arc, frozenset(names)) for arc, names in seen.items())
+
+
+ARCHETYPE_GROUPS: tuple[tuple[str, frozenset[str]], ...] = _build_archetype_groups()
+
+
+def iter_adventure_class_names() -> list[str]:
+    """All adventure-class names in display_order. Used by routes that need
+    the class list without a per-request DB round-trip."""
+    return [r["name"] for r in _ADV_ROWS]

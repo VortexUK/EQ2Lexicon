@@ -1,9 +1,8 @@
 """
 GET /api/classes — the static class catalogue (archetype, subclass, role,
 colour, display order, icon URL). Public (non-sensitive reference data used by
-pre-login pages). Served from classes.db with an in-code CLASS_SEED fallback so
-it works before the DB is built/copied to a fresh environment. Cached in-memory
-(the data never changes at runtime).
+pre-login pages). Served from classes.db (committed at data/classes/classes.db).
+Cached in-memory (the data never changes at runtime).
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from backend.eq2db import classes as classes_db
-from backend.eq2db.classes import CLASS_SEED
 from backend.server.core.executor import run_sync
 
 router = APIRouter(tags=["classes"])
@@ -32,22 +30,10 @@ _cache: list[ClassResponse] | None = None
 
 
 def _rows() -> list[dict]:
-    rows = classes_db.list_all()
-    if rows:
-        return rows
-    # DB not built/copied yet — fall back to the in-code seed.
-    return [
-        {
-            "name": c.name,
-            "archetype": c.archetype,
-            "subclass": c.subclass,
-            "role": c.role,
-            "colour": c.colour,
-            "display_order": i,
-            "icon_id": c.icon_id,
-        }
-        for i, c in enumerate(CLASS_SEED)
-    ]
+    # Adventure classes only — crafter rows exist in classes.db for the
+    # item-restriction lookup but aren't characters you create as in the
+    # claim/character-picker UIs this endpoint feeds.
+    return [r for r in classes_db.list_all() if r["archetype"] != "Crafter"]
 
 
 @router.get("/classes", response_model=list[ClassResponse])
