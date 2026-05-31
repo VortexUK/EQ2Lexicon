@@ -19,6 +19,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+
+class _HashedAssetsStaticFiles(StaticFiles):
+    """StaticFiles wrapper that stamps long-lived cache headers on every
+    response. ONLY safe for content-addressed file trees (like Vite's
+    hashed /assets/*) — the hash in the filename IS the cache key, so
+    'immutable' is correct: any content change produces a new filename,
+    busting the cache automatically.
+
+    NEVER use this for non-hashed files — root-level index.html, favicon
+    etc. need short or no caching so deploys propagate. The serve_spa
+    catch-all handles those separately with no-cache headers."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -477,7 +497,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     if _FRONTEND_DIST.exists():
         app.mount(
             "/assets",
-            StaticFiles(directory=_FRONTEND_DIST / "assets"),
+            _HashedAssetsStaticFiles(directory=_FRONTEND_DIST / "assets"),
             name="assets",
         )
 
@@ -485,11 +505,20 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         async def serve_spa(full_path: str) -> FileResponse:
             """Catch-all: serve real files from the build root if they exist
             (favicon.svg, favicon.ico, robots.txt, og-image.png, etc.) and fall
-            back to index.html so React Router can handle in-app navigation."""
+            back to index.html so React Router can handle in-app navigation.
+
+            Cache-Control: no-cache, must-revalidate on everything served here.
+            Hashed chunks live under /assets and are handled by the
+            _HashedAssetsStaticFiles mount above (cache-forever via the hash).
+            Index.html and root-level non-hashed files MUST re-validate so a
+            deploy's new chunk hash references are picked up — otherwise the
+            browser's cached index.html points at chunks that no longer exist
+            and the SPA breaks until hard-refresh (the 2026-05-31 incident)."""
             # Don't swallow unmatched /api/* paths — let FastAPI return a real
             # 404 JSON response so typos surface as errors instead of HTML.
             if full_path == "api" or full_path.startswith("api/"):
                 raise HTTPException(status_code=404, detail="Not Found")
+            target: Path = _FRONTEND_DIST / "index.html"
             if full_path:
                 candidate = _FRONTEND_DIST / full_path
                 # Resolve to defeat path-traversal (../../etc/passwd) and ensure
@@ -500,8 +529,11 @@ def create_app(session_secret: str | None = None) -> FastAPI:
                 except (ValueError, OSError):
                     resolved = None
                 if resolved is not None and resolved.is_file():
-                    return FileResponse(resolved)
-            return FileResponse(_FRONTEND_DIST / "index.html")
+                    target = resolved
+            return FileResponse(
+                target,
+                headers={"Cache-Control": "no-cache, must-revalidate"},
+            )
 
     return app
 
