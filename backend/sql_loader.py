@@ -67,7 +67,17 @@ def parse_sql(text: str) -> dict[str, str]:
                 raise ValueError(f"line {lineno}: SQL text before first ':name' marker — every block must be named")
             continue
         blocks[current].append(raw)
-    return {name: "\n".join(lines).strip() for name, lines in blocks.items()}
+    # Trim trailing blank lines and trailing pure-comment lines from each block.
+    # Section-divider comments between blocks (e.g. `-- Zone CRUD --`) would
+    # otherwise leak into the previous block's body and break interpolation
+    # (a column-list fragment composed via str.format would end up with
+    # comment text spliced into the middle of the SELECT).
+    out: dict[str, str] = {}
+    for name, lines in blocks.items():
+        while lines and (not lines[-1].strip() or lines[-1].lstrip().startswith("--")):
+            lines.pop()
+        out[name] = "\n".join(lines).strip()
+    return out
 
 
 def load_sql(module_file: str) -> dict[str, str]:

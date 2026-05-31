@@ -35,6 +35,11 @@ import os
 import sqlite3
 from pathlib import Path
 
+from backend.eq2db import _meta as _meta_db
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -50,214 +55,9 @@ def _db_path() -> Path:
 DB_PATH: Path = _db_path()
 
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_META = """
-CREATE TABLE IF NOT EXISTS _meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
-
-_CREATE_ZONES = """
-CREATE TABLE IF NOT EXISTS zones (
-    -- Identity
-    id                      INTEGER PRIMARY KEY,
-    name                    TEXT    NOT NULL UNIQUE,
-    name_lower              TEXT    NOT NULL,
-
-    -- Expansion attribution
-    expansion_short         TEXT    NOT NULL,    -- 'DoF', 'AoM', 'CoE', ...
-    expansion_name          TEXT    NOT NULL,    -- 'Desert of Flames', ...
-    expansion_year          INTEGER,
-    expansion_confidence    TEXT    NOT NULL,    -- 'category', 'live_update', ...
-    expansion_source        TEXT,                -- audit trail / reason
-
-    -- Flags
-    is_persistent_instance  INTEGER NOT NULL DEFAULT 0,
-    is_endless_persistent   INTEGER NOT NULL DEFAULT 0,
-    is_tradeskill           INTEGER NOT NULL DEFAULT 0,
-    is_pvp                  INTEGER NOT NULL DEFAULT 0,
-    is_openworld            INTEGER NOT NULL DEFAULT 0,
-    is_instance             INTEGER NOT NULL DEFAULT 0,
-    is_live_event           INTEGER NOT NULL DEFAULT 0,
-    is_city                 INTEGER NOT NULL DEFAULT 0,
-    is_contested            INTEGER NOT NULL DEFAULT 0,
-    is_deprecated           INTEGER NOT NULL DEFAULT 0,
-
-    -- Optional metadata
-    event_name              TEXT,                -- when is_live_event=1
-    wiki_url                TEXT
-);
-"""
-
-# Many-to-many zone ↔ type. Same pattern as recipe_classes — a zone
-# with both Solo and Group variants gets two rows here so a "all group
-# zones in RoK" query is one indexed JOIN.
-_CREATE_ZONE_TYPES = """
-CREATE TABLE IF NOT EXISTS zone_types (
-    zone_id  INTEGER NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
-    type     TEXT    NOT NULL,    -- 'solo', 'group', 'raid_x4', etc.
-    PRIMARY KEY (zone_id, type)
-);
-"""
-
-# Alias name → canonical zone. ACT logs may emit either form
-# ("The Fabled Deathtoll" vs "Fabled Deathtoll"); the find_by_name
-# lookup checks aliases before failing.
-_CREATE_ZONE_ALIASES = """
-CREATE TABLE IF NOT EXISTS zone_aliases (
-    alias        TEXT    NOT NULL PRIMARY KEY,
-    alias_lower  TEXT    NOT NULL,
-    zone_id      INTEGER NOT NULL REFERENCES zones(id) ON DELETE CASCADE
-);
-"""
-
-# Raid encounters per zone — hand-curated from EQ2i (see
-# scripts/dev/eq2_raid_bosses.review.txt). Each row is a single named
-# *encounter*: usually one mob, but EQ2 has plenty of group encounters
-# where 2-4 mobs spawn together (e.g. The Protector's Realm's "Ludmila
-# Kystov + Jracol Binari + Blorgok the Brutal + Meldrath Kloktik" all
-# at once). The individual mob names live in the zone_encounter_mobs
-# join table below so reverse-lookup ("what zone is mob X in?") stays
-# an indexed query.
-#
-# `encounter_name` is the display label as written by the curator —
-# joined names for groups, single name for solo bosses. `stage` is an
-# optional grouping label ("Wing 1", "First Floor", etc.) for the
-# multi-stage raids like Veeshan's Peak and The Emerald Halls. Position
-# preserves the curator's intended order (which is typically the order
-# you encounter them in the zone).
-_CREATE_ZONE_ENCOUNTERS = """
-CREATE TABLE IF NOT EXISTS zone_encounters (
-    id              INTEGER PRIMARY KEY,
-    zone_id         INTEGER NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
-    encounter_name  TEXT    NOT NULL,             -- display: "Adkar Vyx" or
-                                                  -- "Ludmila Kystov, Jracol Binari, ..."
-    position        INTEGER NOT NULL,             -- order within the zone
-    stage           TEXT,                         -- "Wing 1", "First Floor", etc.
-    wiki_url        TEXT,
-    UNIQUE (zone_id, position)
-);
-"""
-
-# Per-encounter individual mob names. A solo-boss encounter has one
-# row; a 4-mob group has four. Lower-cased column is what reverse
-# lookups (find_zones_by_boss) hit.
-_CREATE_ZONE_ENCOUNTER_MOBS = """
-CREATE TABLE IF NOT EXISTS zone_encounter_mobs (
-    id              INTEGER PRIMARY KEY,
-    encounter_id    INTEGER NOT NULL REFERENCES zone_encounters(id) ON DELETE CASCADE,
-    mob_name        TEXT    NOT NULL,
-    mob_name_lower  TEXT    NOT NULL,
-    position        INTEGER NOT NULL DEFAULT 0    -- position within the encounter
-);
-"""
-
-# Admin-curated featured raid expansions for the /raids page. An expansion
-# only appears on /raids if either (a) it has a row here, or (b) it has at
-# least one row in featured_raid_zones (implicit). Decoupled from
-# featured_raid_zones because an admin may want to add an empty expansion
-# placeholder before they pick which raid zones go in it.
-_CREATE_FEATURED_RAID_EXPANSIONS = """
-CREATE TABLE IF NOT EXISTS featured_raid_expansions (
-    expansion_short TEXT PRIMARY KEY,
-    added_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
-);
-"""
-
-# Admin-curated featured raid zones — explicit per-zone allowlist of which
-# raid_x4 / raid_x2 zones appear under each expansion on /raids. The raid_x4
-# seed in zones.db is polluted with obscure content; this table lets the
-# admin pick exactly which raid zones to feature. Removing a row hides the
-# zone from /raids but preserves its zone_encounters boss data — re-adding
-# the zone restores everything.
-_CREATE_FEATURED_RAID_ZONES = """
-CREATE TABLE IF NOT EXISTS featured_raid_zones (
-    zone_id INTEGER PRIMARY KEY REFERENCES zones(id) ON DELETE CASCADE,
-    added_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
-);
-"""
-
-# Admin-controlled category ordering per expansion. A row exists when an
-# admin has used a category name at least once for a zone in this expansion;
-# position determines the lane order on /raids. The implicit "Uncategorised"
-# lane (zones whose featured_raid_zones.category IS NULL) is NEVER stored
-# here — it's always pinned at the top by the frontend.
-_CREATE_FEATURED_RAID_CATEGORIES = """
-CREATE TABLE IF NOT EXISTS featured_raid_categories (
-    expansion_short TEXT NOT NULL,
-    name            TEXT NOT NULL,
-    position        INTEGER NOT NULL,
-    PRIMARY KEY (expansion_short, name)
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_zones_name_lower    ON zones (name_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_zones_expansion     ON zones (expansion_short);",
-    "CREATE INDEX IF NOT EXISTS idx_zones_event         ON zones (is_live_event, event_name);",
-    "CREATE INDEX IF NOT EXISTS idx_zones_tradeskill    ON zones (is_tradeskill);",
-    "CREATE INDEX IF NOT EXISTS idx_zone_types_type     ON zone_types (type);",
-    "CREATE INDEX IF NOT EXISTS idx_zone_types_zone     ON zone_types (zone_id);",
-    "CREATE INDEX IF NOT EXISTS idx_zone_aliases_lower  ON zone_aliases (alias_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_zone_aliases_zone   ON zone_aliases (zone_id);",
-    "CREATE INDEX IF NOT EXISTS idx_zone_enc_zone       ON zone_encounters (zone_id, position);",
-    "CREATE INDEX IF NOT EXISTS idx_zone_enc_mobs_enc   ON zone_encounter_mobs (encounter_id, position);",
-    "CREATE INDEX IF NOT EXISTS idx_zone_enc_mobs_lower ON zone_encounter_mobs (mob_name_lower);",
-]
-
-
-_UPSERT_ZONE_SQL = """
-INSERT INTO zones (
-    name, name_lower,
-    expansion_short, expansion_name, expansion_year,
-    expansion_confidence, expansion_source,
-    is_persistent_instance, is_endless_persistent,
-    is_tradeskill, is_pvp, is_openworld, is_instance,
-    is_live_event, is_city, is_contested, is_deprecated,
-    event_name, wiki_url
-) VALUES (
-    :name, :name_lower,
-    :expansion_short, :expansion_name, :expansion_year,
-    :expansion_confidence, :expansion_source,
-    :is_persistent_instance, :is_endless_persistent,
-    :is_tradeskill, :is_pvp, :is_openworld, :is_instance,
-    :is_live_event, :is_city, :is_contested, :is_deprecated,
-    :event_name, :wiki_url
-)
-ON CONFLICT(name) DO UPDATE SET
-    name_lower             = excluded.name_lower,
-    expansion_short        = excluded.expansion_short,
-    expansion_name         = excluded.expansion_name,
-    expansion_year         = excluded.expansion_year,
-    expansion_confidence   = excluded.expansion_confidence,
-    expansion_source       = excluded.expansion_source,
-    is_persistent_instance = excluded.is_persistent_instance,
-    is_endless_persistent  = excluded.is_endless_persistent,
-    is_tradeskill          = excluded.is_tradeskill,
-    is_pvp                 = excluded.is_pvp,
-    is_openworld           = excluded.is_openworld,
-    is_instance            = excluded.is_instance,
-    is_live_event          = excluded.is_live_event,
-    is_city                = excluded.is_city,
-    is_contested           = excluded.is_contested,
-    is_deprecated          = excluded.is_deprecated,
-    event_name             = excluded.event_name,
-    wiki_url               = excluded.wiki_url
-"""
-
-_SELECT_COLS = (
-    "id, name, name_lower, "
-    "expansion_short, expansion_name, expansion_year, "
-    "expansion_confidence, expansion_source, "
-    "is_persistent_instance, is_endless_persistent, "
-    "is_tradeskill, is_pvp, is_openworld, is_instance, "
-    "is_live_event, is_city, is_contested, is_deprecated, "
-    "event_name, wiki_url"
-)
+# Schema (CREATE TABLE / INDEX) lives in zones.sql; init_db runs each block.
+# Column-list fragment for find_* queries is loaded from zones.sql at module import.
+_SELECT_COLS = _SQL["select_zone_cols"]
 
 
 # ---------------------------------------------------------------------------
@@ -312,22 +112,19 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous  = NORMAL;")
     conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute(_CREATE_META)
-    conn.execute(_CREATE_ZONES)
-    conn.execute(_CREATE_ZONE_TYPES)
-    conn.execute(_CREATE_ZONE_ALIASES)
-    conn.execute(_CREATE_ZONE_ENCOUNTERS)
-    conn.execute(_CREATE_ZONE_ENCOUNTER_MOBS)
-    conn.execute(_CREATE_FEATURED_RAID_EXPANSIONS)
-    conn.execute(_CREATE_FEATURED_RAID_ZONES)
-    conn.execute(_CREATE_FEATURED_RAID_CATEGORIES)
+    _meta_db.create_table(conn)
+    conn.execute(_SQL["schema_zones"])
+    conn.execute(_SQL["schema_zone_types"])
+    conn.execute(_SQL["schema_zone_aliases"])
+    conn.execute(_SQL["schema_zone_encounters"])
+    conn.execute(_SQL["schema_zone_encounter_mobs"])
+    conn.execute(_SQL["schema_featured_raid_expansions"])
+    conn.execute(_SQL["schema_featured_raid_zones"])
+    conn.execute(_SQL["schema_featured_raid_categories"])
     # Migration: zone categories + position for drag-reorder.
     # Idempotent — already-applied schemas raise OperationalError on the
     # duplicate-column attempt, which we swallow.
-    for stmt in (
-        "ALTER TABLE featured_raid_zones ADD COLUMN position INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE featured_raid_zones ADD COLUMN category TEXT",
-    ):
+    for stmt in (_SQL["migrate_add_featured_position"], _SQL["migrate_add_featured_category"]):
         try:
             conn.execute(stmt)
         except sqlite3.OperationalError:
@@ -335,9 +132,8 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     # Migration: drop the pre-v2 zone_bosses table if it lingers from
     # an older DB build. No need to preserve data — bosses are always
     # rebuilt from the curated source file.
-    conn.execute("DROP TABLE IF EXISTS zone_bosses;")
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+    conn.execute(_SQL["drop_legacy_zone_bosses"])
+    conn.executescript(_SQL["indexes_all"])
     # One-time data normalization (idempotent): legacy `encounter_name`
     # values were the comma-joined display of every mob in the encounter
     # ("Ire, Malevolence"). The web roster editor treats encounter_name
@@ -347,22 +143,7 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     # NOTE: Not version-gated — this UPDATE is cheap (only touches rows
     # with commas in the name) and must remain idempotent across multiple
     # init_db calls (see test_init_db_normalizes_comma_joined_encounter_name).
-    conn.execute(
-        """
-        UPDATE zone_encounters
-           SET encounter_name = (
-                   SELECT mob_name FROM zone_encounter_mobs m
-                    WHERE m.encounter_id = zone_encounters.id
-                    ORDER BY position ASC
-                    LIMIT 1
-               )
-         WHERE encounter_name LIKE '%,%'
-           AND EXISTS (
-                   SELECT 1 FROM zone_encounter_mobs m
-                    WHERE m.encounter_id = zone_encounters.id
-               )
-        """
-    )
+    conn.execute(_SQL["normalise_comma_joined_encounter_names"])
     # One-time data normalization (idempotent): strip the wiki-import
     # " (Zone)" disambiguator suffix from zone names (e.g. "Kurn's Tower
     # (Zone)" → "Kurn's Tower"). EQ2i uses the parenthetical to
@@ -372,22 +153,8 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     # the parenthesised form still resolves via find_by_name. Idempotent:
     # subsequent runs match zero rows (LIKE filter no longer hits the
     # already-cleaned names).
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO zone_aliases (alias, alias_lower, zone_id)
-        SELECT name, name_lower, id
-          FROM zones
-         WHERE name LIKE '% (Zone)%'
-        """
-    )
-    conn.execute(
-        """
-        UPDATE zones
-           SET name       = REPLACE(name,       ' (Zone)', ''),
-               name_lower = REPLACE(name_lower, ' (zone)', '')
-         WHERE name LIKE '% (Zone)%'
-        """
-    )
+    conn.execute(_SQL["normalise_paren_zone_to_alias"])
+    conn.execute(_SQL["normalise_strip_paren_zone"])
     conn.commit()
     return conn
 
@@ -410,24 +177,24 @@ def upsert_zones(zones: list[dict], conn: sqlite3.Connection) -> int:
     with conn:  # single transaction for the whole batch
         for z in zones:
             row = zone_to_row(z)
-            conn.execute(_UPSERT_ZONE_SQL, row)
-            zone_id = conn.execute("SELECT id FROM zones WHERE name = ?", (z["name"],)).fetchone()[0]
+            conn.execute(_SQL["upsert_zone"], row)
+            zone_id = conn.execute(_SQL["select_zone_id_by_name"], (z["name"],)).fetchone()[0]
 
             # Reset and repopulate types + aliases for this zone. Cheaper
             # than diffing on every rebuild.
-            conn.execute("DELETE FROM zone_types WHERE zone_id = ?", (zone_id,))
+            conn.execute(_SQL["delete_zone_types_for_zone"], (zone_id,))
             types = z["classification"].get("types") or []
             if types:
                 conn.executemany(
-                    "INSERT INTO zone_types (zone_id, type) VALUES (?, ?)",
+                    _SQL["insert_zone_type"],
                     [(zone_id, t) for t in types],
                 )
 
-            conn.execute("DELETE FROM zone_aliases WHERE zone_id = ?", (zone_id,))
+            conn.execute(_SQL["delete_zone_aliases_for_zone"], (zone_id,))
             aliases = z.get("aliases") or []
             if aliases:
                 conn.executemany(
-                    "INSERT INTO zone_aliases (alias, alias_lower, zone_id) VALUES (?, ?, ?)",
+                    _SQL["insert_zone_alias"],
                     [(a, a.lower(), zone_id) for a in aliases],
                 )
             n += 1
@@ -435,7 +202,7 @@ def upsert_zones(zones: list[dict], conn: sqlite3.Connection) -> int:
 
 
 def zone_count(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM zones").fetchone()[0]
+    return conn.execute(_SQL["count_zones"]).fetchone()[0]
 
 
 # ---------------------------------------------------------------------------
@@ -460,15 +227,13 @@ def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "is_deprecated",
     ):
         d[k] = bool(d.get(k))
-    d["types"] = [r[0] for r in conn.execute("SELECT type FROM zone_types WHERE zone_id = ? ORDER BY type", (d["id"],))]
-    d["aliases"] = [
-        r[0] for r in conn.execute("SELECT alias FROM zone_aliases WHERE zone_id = ? ORDER BY alias", (d["id"],))
-    ]
+    d["types"] = [r[0] for r in conn.execute(_SQL["list_types_for_zone"], (d["id"],))]
+    d["aliases"] = [r[0] for r in conn.execute(_SQL["list_aliases_for_zone"], (d["id"],))]
     # Encounters: ordered list of named bosses with optional stage
     # label. Each carries a `mobs` array — single-mob encounters get
     # one entry, group encounters carry all the individual mob names.
     encounter_rows = conn.execute(
-        "SELECT id, encounter_name, position, stage, wiki_url FROM zone_encounters WHERE zone_id = ? ORDER BY position",
+        _SQL["list_encounters_for_zone"],
         (d["id"],),
     ).fetchall()
     d["bosses"] = []
@@ -476,7 +241,7 @@ def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         mobs = [
             {"id": r["id"], "mob_name": r["mob_name"], "position": r["position"]}
             for r in conn.execute(
-                "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position",
+                _SQL["list_mobs_for_encounter"],
                 (er["id"],),
             )
         ]
@@ -508,18 +273,18 @@ def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM zones WHERE name_lower = ? LIMIT 1",
+            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
             (name.lower(),),
         ).fetchone()
         if row is None:
             alias_row = conn.execute(
-                "SELECT zone_id FROM zone_aliases WHERE alias_lower = ? LIMIT 1",
+                _SQL["find_zone_id_by_alias"],
                 (name.lower(),),
             ).fetchone()
             if alias_row is None:
                 return None
             row = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM zones WHERE id = ?",
+                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
                 (alias_row[0],),
             ).fetchone()
             if row is None:
@@ -540,17 +305,12 @@ def list_by_expansion(
         conn.row_factory = sqlite3.Row
         if type_filter:
             rows = conn.execute(
-                f"""
-                SELECT {_SELECT_COLS} FROM zones
-                WHERE expansion_short = ?
-                  AND id IN (SELECT zone_id FROM zone_types WHERE type = ?)
-                ORDER BY name
-                """,
+                _SQL["list_zones_by_expansion_typed"].format(cols=_SELECT_COLS),
                 (short, type_filter),
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM zones WHERE expansion_short = ? ORDER BY name",
+                _SQL["list_zones_by_expansion"].format(cols=_SELECT_COLS),
                 (short,),
             ).fetchall()
         return [_hydrate_zone(conn, r) for r in rows]
@@ -563,7 +323,7 @@ def list_by_event(event_name: str, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM zones WHERE is_live_event = 1 AND event_name = ? ORDER BY name",
+            _SQL["list_zones_by_event"].format(cols=_SELECT_COLS),
             (event_name,),
         ).fetchall()
         return [_hydrate_zone(conn, r) for r in rows]
@@ -576,11 +336,7 @@ def list_by_type(type_token: str, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM zones
-            WHERE id IN (SELECT zone_id FROM zone_types WHERE type = ?)
-            ORDER BY name
-            """,
+            _SQL["list_zones_by_type"].format(cols=_SELECT_COLS),
             (type_token,),
         ).fetchall()
         return [_hydrate_zone(conn, r) for r in rows]
@@ -614,12 +370,12 @@ def replace_bosses_for_zone(
     encounters and removed group mobs both disappear cleanly. Returns
     the number of *encounters* written (not individual mobs).
     """
-    conn.execute("DELETE FROM zone_encounters WHERE zone_id = ?", (zone_id,))
+    conn.execute(_SQL["delete_encounters_for_zone"], (zone_id,))
     if not encounters:
         return 0
     for enc in encounters:
         cur = conn.execute(
-            "INSERT INTO zone_encounters (zone_id, encounter_name, position, stage, wiki_url) VALUES (?, ?, ?, ?, ?)",
+            _SQL["insert_encounter"],
             (
                 zone_id,
                 enc["encounter_name"],
@@ -636,7 +392,7 @@ def replace_bosses_for_zone(
             # works. Curator-curated data shouldn't hit this branch.
             mobs = [{"mob_name": enc["encounter_name"], "position": 0}]
         conn.executemany(
-            "INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) VALUES (?, ?, ?, ?)",
+            _SQL["insert_encounter_mob"],
             [
                 (
                     encounter_id,
@@ -663,18 +419,17 @@ def list_bosses_for_zone(zone_name: str, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         # Resolve via canonical, fall back to alias
-        row = conn.execute("SELECT id FROM zones WHERE name_lower = ?", (zone_name.lower(),)).fetchone()
+        row = conn.execute(_SQL["select_zone_id_by_name_lower"], (zone_name.lower(),)).fetchone()
         if row is None:
             row = conn.execute(
-                "SELECT zone_id AS id FROM zone_aliases WHERE alias_lower = ?",
+                _SQL["find_zone_id_by_alias_aliased"],
                 (zone_name.lower(),),
             ).fetchone()
         if row is None:
             return []
         zone_id = row["id"]
         encounter_rows = conn.execute(
-            "SELECT id, encounter_name, position, stage, wiki_url "
-            "FROM zone_encounters WHERE zone_id = ? ORDER BY position",
+            _SQL["list_encounters_for_zone"],
             (zone_id,),
         ).fetchall()
         out: list[dict] = []
@@ -682,7 +437,7 @@ def list_bosses_for_zone(zone_name: str, path: Path = DB_PATH) -> list[dict]:
             mobs = [
                 {"id": r["id"], "mob_name": r["mob_name"], "position": r["position"]}
                 for r in conn.execute(
-                    "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position",
+                    _SQL["list_mobs_for_encounter"],
                     (er["id"],),
                 )
             ]
@@ -714,15 +469,7 @@ def find_zones_by_boss(mob_name: str, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM zones
-            WHERE id IN (
-                SELECT e.zone_id FROM zone_encounters e
-                INNER JOIN zone_encounter_mobs m ON m.encounter_id = e.id
-                WHERE m.mob_name_lower = ?
-            )
-            ORDER BY name
-            """,
+            _SQL["list_zones_by_boss"].format(cols=_SELECT_COLS),
             (mob_name.lower(),),
         ).fetchall()
         return [_hydrate_zone(conn, r) for r in rows]
@@ -739,12 +486,7 @@ def list_expansions(path: Path = DB_PATH) -> list[dict]:
         return []
     try:
         with sqlite3.connect(path) as conn:
-            rows = conn.execute(
-                "SELECT DISTINCT expansion_short, expansion_name, expansion_year "
-                "FROM zones "
-                "WHERE expansion_short IS NOT NULL "
-                "ORDER BY expansion_year DESC"
-            ).fetchall()
+            rows = conn.execute(_SQL["list_distinct_expansions"]).fetchall()
         # De-duplicate by short (same short can have multiple rows with the same year).
         seen: set[str] = set()
         result: list[dict] = []
@@ -763,9 +505,7 @@ def expansion_counts(path: Path = DB_PATH) -> dict[str, int]:
     if not path.exists():
         return {}
     with sqlite3.connect(path) as conn:
-        return dict(
-            conn.execute("SELECT expansion_short, COUNT(*) FROM zones GROUP BY expansion_short ORDER BY 2 DESC")
-        )
+        return dict(conn.execute(_SQL["expansion_counts"]))
 
 
 # ---------------------------------------------------------------------------
@@ -778,7 +518,7 @@ def _row_to_encounter(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     mobs = [
         {"mob_name": r["mob_name"], "position": r["position"]}
         for r in conn.execute(
-            "SELECT mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position ASC",
+            _SQL["list_mobs_for_encounter_names"],
             (row["id"],),
         )
     ]
@@ -796,7 +536,7 @@ def _row_to_encounter(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
 def _zone_name_and_expansion(zone_id: int, path: Path) -> tuple[str | None, str | None]:
     """Canonical zone name + expansion for the raids_db mirror."""
     with sqlite3.connect(path) as conn:
-        r = conn.execute("SELECT name, expansion_short FROM zones WHERE id = ?", (zone_id,)).fetchone()
+        r = conn.execute(_SQL["select_zone_name_and_expansion"], (zone_id,)).fetchone()
         return (r[0], r[1]) if r else (None, None)
 
 
@@ -819,22 +559,22 @@ def add_encounter(
         conn.execute("PRAGMA foreign_keys = ON;")
         if position is None:
             row = conn.execute(
-                "SELECT COALESCE(MAX(position), 0) + 1 AS p FROM zone_encounters WHERE zone_id = ?",
+                _SQL["max_encounter_position_for_zone"],
                 (zone_id,),
             ).fetchone()
             position = int(row["p"])
         cur = conn.execute(
-            "INSERT INTO zone_encounters (zone_id, encounter_name, position, stage, wiki_url) VALUES (?, ?, ?, ?, ?)",
+            _SQL["insert_encounter"],
             (zone_id, primary_mob, position, stage, wiki_url),
         )
         enc_id = cur.lastrowid
         conn.execute(
-            "INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) VALUES (?, ?, ?, 0)",
+            _SQL["insert_encounter_mob_primary"],
             (enc_id, primary_mob, primary_mob.lower()),
         )
         conn.commit()
         encounter_row = conn.execute(
-            "SELECT id, zone_id, encounter_name, position, stage, wiki_url FROM zone_encounters WHERE id = ?",
+            _SQL["select_encounter_by_id"],
             (enc_id,),
         ).fetchone()
         return _row_to_encounter(conn, encounter_row)
@@ -861,7 +601,7 @@ def update_encounter(
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         row = conn.execute(
-            "SELECT id, zone_id, encounter_name, position, stage, wiki_url FROM zone_encounters WHERE id = ?",
+            _SQL["select_encounter_by_id"],
             (encounter_id,),
         ).fetchone()
         if row is None:
@@ -870,18 +610,17 @@ def update_encounter(
         new_stage = row["stage"] if stage is _UNSET else stage
         new_wiki = row["wiki_url"] if wiki_url is _UNSET else wiki_url
         conn.execute(
-            "UPDATE zone_encounters SET encounter_name = ?, stage = ?, wiki_url = ? WHERE id = ?",
+            _SQL["update_encounter_meta"],
             (new_name, new_stage, new_wiki, encounter_id),
         )
         if primary_mob is not None:
             conn.execute(
-                "UPDATE zone_encounter_mobs SET mob_name = ?, mob_name_lower = ? "
-                "WHERE encounter_id = ? AND position = 0",
+                _SQL["update_encounter_mob_primary_rename"],
                 (primary_mob, primary_mob.lower(), encounter_id),
             )
         conn.commit()
         updated = conn.execute(
-            "SELECT id, zone_id, encounter_name, position, stage, wiki_url FROM zone_encounters WHERE id = ?",
+            _SQL["select_encounter_by_id"],
             (encounter_id,),
         ).fetchone()
         result = _row_to_encounter(conn, updated)
@@ -926,7 +665,7 @@ def reorder_encounters(
         current = {
             r["id"]: (r["encounter_name"], r["position"])
             for r in conn.execute(
-                "SELECT id, encounter_name, position FROM zone_encounters WHERE zone_id = ?",
+                _SQL["list_zone_encounter_positions"],
                 (zone_id,),
             )
         }
@@ -937,19 +676,19 @@ def reorder_encounters(
                 f"reorder_encounters: not a permutation of zone {zone_id}'s "
                 f"encounters (missing={sorted(missing)}, extra={sorted(extra)})"
             )
-        zone_row = conn.execute("SELECT name FROM zones WHERE id = ?", (zone_id,)).fetchone()
+        zone_row = conn.execute(_SQL["select_zone_name_by_id"], (zone_id,)).fetchone()
         zone_name = zone_row["name"] if zone_row else None
         with conn:  # single transaction
             # Two-phase write to dodge the UNIQUE(zone_id, position) collision
             # on mid-update overlap: negative sentinels first, then 1..N.
             for tmp_neg, enc_id in enumerate(ordered_encounter_ids, start=1):
                 conn.execute(
-                    "UPDATE zone_encounters SET position = ? WHERE id = ?",
+                    _SQL["update_encounter_position"],
                     (-tmp_neg, enc_id),
                 )
             for new_pos, enc_id in enumerate(ordered_encounter_ids, start=1):
                 conn.execute(
-                    "UPDATE zone_encounters SET position = ? WHERE id = ?",
+                    _SQL["update_encounter_position"],
                     (new_pos, enc_id),
                 )
     # Mirror onto raids_db: for each encounter whose primary mob has a
@@ -985,7 +724,7 @@ def list_mobs(encounter_id: int, path: Path = DB_PATH) -> list[dict]:
         return [
             {"id": r["id"], "mob_name": r["mob_name"], "position": r["position"]}
             for r in conn.execute(
-                "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position ASC",
+                _SQL["list_mobs_for_encounter_asc"],
                 (encounter_id,),
             )
         ]
@@ -999,7 +738,7 @@ def _mirror_primary_rename(encounter_id: int, old_name: str, new_name: str, path
         return
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT zone_id FROM zone_encounters WHERE id = ?", (encounter_id,)).fetchone()
+        row = conn.execute(_SQL["select_encounter_zone_id"], (encounter_id,)).fetchone()
         if row is None:
             return
         zone_name, _exp = _zone_name_and_expansion(row["zone_id"], path)
@@ -1038,7 +777,7 @@ def add_mob(
                 # Capture the current primary's name BEFORE the shift, so
                 # we know what to rename in raids_db.
                 primary = conn.execute(
-                    "SELECT mob_name FROM zone_encounter_mobs WHERE encounter_id = ? AND position = 0",
+                    _SQL["select_primary_mob_name"],
                     (encounter_id,),
                 ).fetchone()
                 if primary is not None:
@@ -1047,38 +786,34 @@ def add_mob(
                 # sentinels avoid the would-be UNIQUE collision if we ever
                 # add one on (encounter_id, position); harmless either way).
                 conn.execute(
-                    "UPDATE zone_encounter_mobs SET position = -position - 1 WHERE encounter_id = ?",
+                    _SQL["shift_mobs_negative"],
                     (encounter_id,),
                 )
                 conn.execute(
-                    "UPDATE zone_encounter_mobs SET position = -position WHERE encounter_id = ?",
+                    _SQL["shift_mobs_back_positive"],
                     (encounter_id,),
                 )
                 cur = conn.execute(
-                    "INSERT INTO zone_encounter_mobs "
-                    "(encounter_id, mob_name, mob_name_lower, position) "
-                    "VALUES (?, ?, ?, 0)",
+                    _SQL["insert_encounter_mob_primary"],
                     (encounter_id, mob_name, mob_name.lower()),
                 )
                 new_id = cur.lastrowid
                 conn.execute(
-                    "UPDATE zone_encounters SET encounter_name = ? WHERE id = ?",
+                    _SQL["update_encounter_name"],
                     (mob_name, encounter_id),
                 )
             else:
                 next_pos = conn.execute(
-                    "SELECT COALESCE(MAX(position), -1) + 1 FROM zone_encounter_mobs WHERE encounter_id = ?",
+                    _SQL["max_mob_position_for_encounter"],
                     (encounter_id,),
                 ).fetchone()[0]
                 cur = conn.execute(
-                    "INSERT INTO zone_encounter_mobs "
-                    "(encounter_id, mob_name, mob_name_lower, position) "
-                    "VALUES (?, ?, ?, ?)",
+                    _SQL["insert_encounter_mob"],
                     (encounter_id, mob_name, mob_name.lower(), next_pos),
                 )
                 new_id = cur.lastrowid
         row = conn.execute(
-            "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE id = ?",
+            _SQL["select_mob_by_id"],
             (new_id,),
         ).fetchone()
         result = {
@@ -1101,7 +836,7 @@ def update_mob(mob_id: int, *, mob_name: str, path: Path = DB_PATH) -> dict:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         row = conn.execute(
-            "SELECT encounter_id, mob_name, position FROM zone_encounter_mobs WHERE id = ?",
+            _SQL["select_mob_for_update"],
             (mob_id,),
         ).fetchone()
         if row is None:
@@ -1111,16 +846,16 @@ def update_mob(mob_id: int, *, mob_name: str, path: Path = DB_PATH) -> dict:
             old_name = row["mob_name"]
         with conn:
             conn.execute(
-                "UPDATE zone_encounter_mobs SET mob_name = ?, mob_name_lower = ? WHERE id = ?",
+                _SQL["update_mob_name"],
                 (mob_name, mob_name.lower(), mob_id),
             )
             if row["position"] == 0:
                 conn.execute(
-                    "UPDATE zone_encounters SET encounter_name = ? WHERE id = ?",
+                    _SQL["update_encounter_name"],
                     (mob_name, row["encounter_id"]),
                 )
         out = conn.execute(
-            "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE id = ?",
+            _SQL["select_mob_by_id"],
             (mob_id,),
         ).fetchone()
         result = {
@@ -1144,7 +879,7 @@ def promote_mob(mob_id: int, path: Path = DB_PATH) -> dict:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         row = conn.execute(
-            "SELECT id, encounter_id, mob_name, position FROM zone_encounter_mobs WHERE id = ?",
+            _SQL["select_mob_for_promote"],
             (mob_id,),
         ).fetchone()
         if row is None:
@@ -1152,7 +887,7 @@ def promote_mob(mob_id: int, path: Path = DB_PATH) -> dict:
         if row["position"] == 0:
             return {"id": row["id"], "mob_name": row["mob_name"], "position": 0}
         primary = conn.execute(
-            "SELECT id, mob_name FROM zone_encounter_mobs WHERE encounter_id = ? AND position = 0",
+            _SQL["select_primary_mob_id_and_name"],
             (row["encounter_id"],),
         ).fetchone()
         if primary is None:
@@ -1160,11 +895,11 @@ def promote_mob(mob_id: int, path: Path = DB_PATH) -> dict:
             # this mob to position 0 with no swap.
             with conn:
                 conn.execute(
-                    "UPDATE zone_encounter_mobs SET position = 0 WHERE id = ?",
+                    _SQL["update_mob_position_to_zero"],
                     (mob_id,),
                 )
                 conn.execute(
-                    "UPDATE zone_encounters SET encounter_name = ? WHERE id = ?",
+                    _SQL["update_encounter_name"],
                     (row["mob_name"], row["encounter_id"]),
                 )
             return {"id": row["id"], "mob_name": row["mob_name"], "position": 0}
@@ -1175,23 +910,23 @@ def promote_mob(mob_id: int, path: Path = DB_PATH) -> dict:
             # Park the old primary at -1 (sentinel), promote the sibling
             # to 0, then move the old primary into the sibling's old slot.
             conn.execute(
-                "UPDATE zone_encounter_mobs SET position = -1 WHERE id = ?",
+                _SQL["update_mob_position_to_neg_one"],
                 (primary["id"],),
             )
             conn.execute(
-                "UPDATE zone_encounter_mobs SET position = 0 WHERE id = ?",
+                _SQL["update_mob_position_to_zero"],
                 (mob_id,),
             )
             conn.execute(
-                "UPDATE zone_encounter_mobs SET position = ? WHERE id = ?",
+                _SQL["update_mob_position"],
                 (row["position"], primary["id"]),
             )
             conn.execute(
-                "UPDATE zone_encounters SET encounter_name = ? WHERE id = ?",
+                _SQL["update_encounter_name"],
                 (row["mob_name"], row["encounter_id"]),
             )
         out = conn.execute(
-            "SELECT id, mob_name, position FROM zone_encounter_mobs WHERE id = ?",
+            _SQL["select_mob_by_id"],
             (mob_id,),
         ).fetchone()
         result = {
@@ -1214,20 +949,20 @@ def delete_mob(mob_id: int, path: Path = DB_PATH) -> bool:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         row = conn.execute(
-            "SELECT id, encounter_id, position FROM zone_encounter_mobs WHERE id = ?",
+            _SQL["select_mob_encounter_position"],
             (mob_id,),
         ).fetchone()
         if row is None:
             return False
         total = conn.execute(
-            "SELECT COUNT(*) FROM zone_encounter_mobs WHERE encounter_id = ?",
+            _SQL["count_mobs_for_encounter"],
             (row["encounter_id"],),
         ).fetchone()[0]
         if total <= 1:
             raise ValueError("cannot delete the last mob of an encounter")
         if row["position"] == 0:
             raise ValueError("cannot delete the primary mob while siblings exist; promote a sibling to primary first")
-        conn.execute("DELETE FROM zone_encounter_mobs WHERE id = ?", (mob_id,))
+        conn.execute(_SQL["delete_mob_by_id"], (mob_id,))
         conn.commit()
         return True
 
@@ -1240,13 +975,13 @@ def delete_encounter(encounter_id: int, path: Path = DB_PATH) -> bool:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         row = conn.execute(
-            "SELECT id, zone_id, encounter_name FROM zone_encounters WHERE id = ?",
+            _SQL["select_encounter_zone_and_name"],
             (encounter_id,),
         ).fetchone()
         if row is None:
             return False
         zone_name, _exp = _zone_name_and_expansion(row["zone_id"], path)
-        conn.execute("DELETE FROM zone_encounters WHERE id = ?", (encounter_id,))
+        conn.execute(_SQL["delete_encounter_by_id"], (encounter_id,))
         conn.commit()
     if zone_name is not None:
         from backend.eq2db import raids as _raids_db
@@ -1276,24 +1011,24 @@ def add_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         row = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM zones WHERE name_lower = ? LIMIT 1",
+            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
             (zone_name.lower(),),
         ).fetchone()
         if row is None:
             alias_row = conn.execute(
-                "SELECT zone_id FROM zone_aliases WHERE alias_lower = ? LIMIT 1",
+                _SQL["find_zone_id_by_alias"],
                 (zone_name.lower(),),
             ).fetchone()
             if alias_row is None:
                 return None
             row = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM zones WHERE id = ?",
+                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
                 (alias_row[0],),
             ).fetchone()
             if row is None:
                 return None
         conn.execute(
-            "INSERT OR IGNORE INTO zone_types (zone_id, type) VALUES (?, ?)",
+            _SQL["insert_zone_type_or_ignore"],
             (row["id"], type_token),
         )
         conn.commit()
@@ -1313,25 +1048,7 @@ def list_featured_raid_expansions(path: Path = DB_PATH) -> list[dict]:
         return []
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """
-            WITH all_shorts AS (
-                SELECT expansion_short AS short FROM featured_raid_expansions
-                UNION
-                SELECT DISTINCT z.expansion_short AS short
-                FROM featured_raid_zones f
-                JOIN zones z ON z.id = f.zone_id
-                WHERE z.expansion_short IS NOT NULL
-            )
-            SELECT DISTINCT z.expansion_short AS short,
-                            z.expansion_name  AS name,
-                            z.expansion_year  AS year
-            FROM zones z
-            JOIN all_shorts s ON s.short = z.expansion_short
-            WHERE z.expansion_short IS NOT NULL
-            ORDER BY z.expansion_year DESC, z.expansion_short
-            """
-        ).fetchall()
+        rows = conn.execute(_SQL["list_featured_raid_expansions"]).fetchall()
         # SELECT DISTINCT on (short, name, year) can return duplicates if the
         # same expansion has rows with different name/year combos. Collapse
         # by short, keeping the first hit (newest year first thanks to ORDER BY).
@@ -1355,23 +1072,7 @@ def list_available_raid_expansions(path: Path = DB_PATH) -> list[dict]:
         return []
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """
-            SELECT DISTINCT z.expansion_short AS short,
-                            z.expansion_name  AS name,
-                            z.expansion_year  AS year
-            FROM zones z
-            WHERE z.expansion_short IS NOT NULL
-              AND z.expansion_short NOT IN (SELECT expansion_short FROM featured_raid_expansions)
-              AND z.expansion_short NOT IN (
-                  SELECT DISTINCT z2.expansion_short
-                  FROM featured_raid_zones f
-                  JOIN zones z2 ON z2.id = f.zone_id
-                  WHERE z2.expansion_short IS NOT NULL
-              )
-            ORDER BY z.expansion_year DESC, z.expansion_short
-            """
-        ).fetchall()
+        rows = conn.execute(_SQL["list_available_raid_expansions"]).fetchall()
         seen: set[str] = set()
         result: list[dict] = []
         for r in rows:
@@ -1391,13 +1092,13 @@ def add_featured_raid_expansion(expansion_short: str, path: Path = DB_PATH) -> b
         return False
     with sqlite3.connect(path) as conn:
         exists = conn.execute(
-            "SELECT 1 FROM zones WHERE expansion_short = ? LIMIT 1",
+            _SQL["check_zone_exists_for_expansion"],
             (expansion_short,),
         ).fetchone()
         if not exists:
             return False
         conn.execute(
-            "INSERT OR IGNORE INTO featured_raid_expansions (expansion_short) VALUES (?)",
+            _SQL["insert_featured_raid_expansion"],
             (expansion_short,),
         )
         conn.commit()
@@ -1421,16 +1122,11 @@ def remove_featured_raid_expansion(expansion_short: str, path: Path = DB_PATH) -
         with conn:
             # Cascade-remove featured zones in this expansion first.
             conn.execute(
-                """
-                DELETE FROM featured_raid_zones
-                 WHERE zone_id IN (
-                     SELECT id FROM zones WHERE expansion_short = ?
-                 )
-                """,
+                _SQL["remove_featured_raid_zones_in_expansion"],
                 (expansion_short,),
             )
             cur = conn.execute(
-                "DELETE FROM featured_raid_expansions WHERE expansion_short = ?",
+                _SQL["delete_featured_raid_expansion"],
                 (expansion_short,),
             )
             return cur.rowcount > 0
@@ -1452,15 +1148,7 @@ def list_featured_raid_zones(expansion_short: str, path: Path = DB_PATH) -> list
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS},
-                   f.position AS featured_position,
-                   f.category AS featured_category
-            FROM zones z
-            JOIN featured_raid_zones f ON f.zone_id = z.id
-            WHERE z.expansion_short = ?
-            ORDER BY f.category, f.position
-            """,
+            _SQL["list_featured_raid_zones"].format(cols=_SELECT_COLS),
             (expansion_short,),
         ).fetchall()
         result: list[dict] = []
@@ -1481,15 +1169,7 @@ def list_available_raid_zones(expansion_short: str, path: Path = DB_PATH) -> lis
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT DISTINCT {_SELECT_COLS}
-            FROM zones z
-            JOIN zone_types t ON t.zone_id = z.id
-            WHERE z.expansion_short = ?
-              AND t.type IN ('raid_x4', 'raid_x2')
-              AND z.id NOT IN (SELECT zone_id FROM featured_raid_zones)
-            ORDER BY z.name
-            """,
+            _SQL["list_available_raid_zones"].format(cols=_SELECT_COLS),
             (expansion_short,),
         ).fetchall()
         return [_hydrate_zone(conn, r) for r in rows]
@@ -1509,13 +1189,13 @@ def add_featured_raid_zone(zone_name: str, path: Path = DB_PATH) -> dict | None:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         zone = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM zones WHERE name_lower = ? LIMIT 1",
+            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
             (zone_name.lower(),),
         ).fetchone()
         if zone is None:
             return None
         is_raid = conn.execute(
-            "SELECT 1 FROM zone_types WHERE zone_id = ? AND type IN ('raid_x4', 'raid_x2') LIMIT 1",
+            _SQL["check_zone_is_raid"],
             (zone["id"],),
         ).fetchone()
         if not is_raid:
@@ -1523,17 +1203,12 @@ def add_featured_raid_zone(zone_name: str, path: Path = DB_PATH) -> dict | None:
         # Position = MAX position currently in this expansion's NULL-category
         # lane + 1, so newly-added zones land at the bottom of Uncategorised.
         max_pos_row = conn.execute(
-            """
-            SELECT COALESCE(MAX(f.position), -1)
-            FROM featured_raid_zones f
-            JOIN zones z2 ON z2.id = f.zone_id
-            WHERE z2.expansion_short = ? AND f.category IS NULL
-            """,
+            _SQL["max_featured_position_uncategorised"],
             (zone["expansion_short"],),
         ).fetchone()
         new_position = (max_pos_row[0] if max_pos_row else -1) + 1
         conn.execute(
-            "INSERT OR IGNORE INTO featured_raid_zones (zone_id, position, category) VALUES (?, ?, NULL)",
+            _SQL["insert_featured_raid_zone_uncategorised"],
             (zone["id"], new_position),
         )
         conn.commit()
@@ -1548,10 +1223,7 @@ def remove_featured_raid_zone(zone_name: str, path: Path = DB_PATH) -> bool:
         return False
     with sqlite3.connect(path) as conn:
         cur = conn.execute(
-            """
-            DELETE FROM featured_raid_zones
-             WHERE zone_id = (SELECT id FROM zones WHERE name_lower = ? LIMIT 1)
-            """,
+            _SQL["delete_featured_raid_zone_by_name"],
             (zone_name.lower(),),
         )
         conn.commit()
@@ -1593,11 +1265,7 @@ def reorder_featured_raid_zones(
             zone_ids: dict[str, int] = {}
             for entry in ordering:
                 row = conn.execute(
-                    """
-                    SELECT z.id FROM zones z
-                    JOIN featured_raid_zones f ON f.zone_id = z.id
-                    WHERE z.name_lower = ? AND z.expansion_short = ?
-                    """,
+                    _SQL["find_featured_zone_id_in_expansion"],
                     (entry["name"].lower(), expansion_short),
                 ).fetchone()
                 if not row:
@@ -1608,14 +1276,13 @@ def reorder_featured_raid_zones(
             seen_categories = {e["category"] for e in ordering if e.get("category")}
             if seen_categories:
                 max_pos_row = conn.execute(
-                    "SELECT COALESCE(MAX(position), -1) FROM featured_raid_categories WHERE expansion_short = ?",
+                    _SQL["max_category_position"],
                     (expansion_short,),
                 ).fetchone()
                 next_pos = (max_pos_row[0] if max_pos_row else -1) + 1
                 for cat in seen_categories:
                     cur = conn.execute(
-                        "INSERT OR IGNORE INTO featured_raid_categories "
-                        "(expansion_short, name, position) VALUES (?, ?, ?)",
+                        _SQL["insert_featured_raid_category_or_ignore"],
                         (expansion_short, cat, next_pos),
                     )
                     if cur.rowcount:
@@ -1626,12 +1293,12 @@ def reorder_featured_raid_zones(
             # category column is freely overwritten in both phases.
             for i, entry in enumerate(ordering):
                 conn.execute(
-                    "UPDATE featured_raid_zones SET position = ?, category = ? WHERE zone_id = ?",
+                    _SQL["update_featured_raid_zone_position_and_category"],
                     (-(i + 1), entry.get("category"), zone_ids[entry["name"]]),
                 )
             for entry in ordering:
                 conn.execute(
-                    "UPDATE featured_raid_zones SET position = ? WHERE zone_id = ?",
+                    _SQL["update_featured_raid_zone_position"],
                     (entry["position"], zone_ids[entry["name"]]),
                 )
             return True
@@ -1654,7 +1321,7 @@ def reorder_featured_raid_categories(
             # Validate all categories exist for this expansion.
             for entry in ordering:
                 row = conn.execute(
-                    "SELECT 1 FROM featured_raid_categories WHERE expansion_short = ? AND name = ?",
+                    _SQL["check_featured_raid_category_exists"],
                     (expansion_short, entry["name"]),
                 ).fetchone()
                 if not row:
@@ -1662,12 +1329,12 @@ def reorder_featured_raid_categories(
             # Two-phase write: temp negatives then final positions.
             for i, entry in enumerate(ordering):
                 conn.execute(
-                    "UPDATE featured_raid_categories SET position = ? WHERE expansion_short = ? AND name = ?",
+                    _SQL["update_featured_raid_category_position"],
                     (-(i + 1), expansion_short, entry["name"]),
                 )
             for entry in ordering:
                 conn.execute(
-                    "UPDATE featured_raid_categories SET position = ? WHERE expansion_short = ? AND name = ?",
+                    _SQL["update_featured_raid_category_position"],
                     (entry["position"], expansion_short, entry["name"]),
                 )
             return True
@@ -1685,7 +1352,7 @@ def list_featured_raid_categories(expansion_short: str, path: Path = DB_PATH) ->
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT name, position FROM featured_raid_categories WHERE expansion_short = ? ORDER BY position",
+            _SQL["list_featured_raid_categories"],
             (expansion_short,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -1698,18 +1365,18 @@ def create_featured_raid_category(expansion_short: str, name: str, path: Path = 
         return False
     with sqlite3.connect(path) as conn:
         existing = conn.execute(
-            "SELECT 1 FROM featured_raid_categories WHERE expansion_short = ? AND name = ?",
+            _SQL["check_featured_raid_category_exists"],
             (expansion_short, name),
         ).fetchone()
         if existing:
             return False
         max_pos = conn.execute(
-            "SELECT COALESCE(MAX(position), -1) FROM featured_raid_categories WHERE expansion_short = ?",
+            _SQL["max_category_position"],
             (expansion_short,),
         ).fetchone()
         new_pos = (max_pos[0] if max_pos else -1) + 1
         conn.execute(
-            "INSERT INTO featured_raid_categories (expansion_short, name, position) VALUES (?, ?, ?)",
+            _SQL["insert_featured_raid_category"],
             (expansion_short, name, new_pos),
         )
         conn.commit()
@@ -1726,15 +1393,11 @@ def delete_featured_raid_category(expansion_short: str, name: str, path: Path = 
         with conn:
             # Move zones in this category to NULL.
             conn.execute(
-                """
-                UPDATE featured_raid_zones SET category = NULL
-                WHERE category = ?
-                  AND zone_id IN (SELECT id FROM zones WHERE expansion_short = ?)
-                """,
+                _SQL["move_featured_zones_to_null_category"],
                 (name, expansion_short),
             )
             cur = conn.execute(
-                "DELETE FROM featured_raid_categories WHERE expansion_short = ? AND name = ?",
+                _SQL["delete_featured_raid_category"],
                 (expansion_short, name),
             )
             return cur.rowcount > 0
@@ -1750,24 +1413,24 @@ def remove_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> d
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         row = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM zones WHERE name_lower = ? LIMIT 1",
+            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
             (zone_name.lower(),),
         ).fetchone()
         if row is None:
             alias_row = conn.execute(
-                "SELECT zone_id FROM zone_aliases WHERE alias_lower = ? LIMIT 1",
+                _SQL["find_zone_id_by_alias"],
                 (zone_name.lower(),),
             ).fetchone()
             if alias_row is None:
                 return None
             row = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM zones WHERE id = ?",
+                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
                 (alias_row[0],),
             ).fetchone()
             if row is None:
                 return None
         conn.execute(
-            "DELETE FROM zone_types WHERE zone_id = ? AND type = ?",
+            _SQL["delete_zone_type"],
             (row["id"], type_token),
         )
         conn.commit()

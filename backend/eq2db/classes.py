@@ -31,6 +31,10 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
+
 
 @dataclass(frozen=True)
 class ClassInfo:
@@ -51,26 +55,7 @@ def _db_path() -> Path:
 
 DB_PATH: Path = _db_path()
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_CLASSES = """
-CREATE TABLE IF NOT EXISTS classes (
-    name           TEXT PRIMARY KEY,
-    archetype      TEXT    NOT NULL,
-    subclass       TEXT,
-    role           TEXT    NOT NULL,
-    colour         TEXT    NOT NULL,
-    display_order  INTEGER NOT NULL,
-    icon_id        INTEGER NOT NULL
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_classes_archetype ON classes (archetype);",
-    "CREATE INDEX IF NOT EXISTS idx_classes_role ON classes (role);",
-]
+# Schema (CREATE TABLE / INDEX) lives in classes.sql; init_db runs each block.
 
 
 def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
@@ -87,9 +72,8 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
         conn = sqlite3.connect(path)
         conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute(_CREATE_CLASSES)
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+    conn.execute(_SQL["schema_classes"])
+    conn.executescript(_SQL["indexes_classes"])
     conn.commit()
     return conn
 
@@ -104,7 +88,7 @@ def list_all(path: Path = DB_PATH) -> list[dict]:
     conn = init_db(path)
     try:
         conn.row_factory = sqlite3.Row
-        return [dict(r) for r in conn.execute("SELECT * FROM classes ORDER BY display_order").fetchall()]
+        return [dict(r) for r in conn.execute(_SQL["list_all"]).fetchall()]
     finally:
         conn.close()
 
@@ -113,7 +97,7 @@ def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
     conn = init_db(path)
     try:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM classes WHERE name = ?", (name,)).fetchone()
+        row = conn.execute(_SQL["find_by_name"], (name,)).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
