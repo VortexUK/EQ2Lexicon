@@ -329,3 +329,11 @@ data/classes/classes.db-shm
 data/census/census.db
 data/census/census.db-wal
 data/census/census.db-shm
+
+# Defense in depth: nothing under backend/ should resolve to a runtime DB
+# path. The repo's data layer lives at top-level data/ via DB_*_PATH env
+# vars or `Path(__file__).resolve().parents[N] / "data"` chains. If a
+# misnumbered .parent chain ever creates a stray DB at backend/.../data/
+# again (this happened during the backend/ reorg pre-fix-up window —
+# see commit history), gitignore catches it before the next `git add -A`.
+backend/**/data/
