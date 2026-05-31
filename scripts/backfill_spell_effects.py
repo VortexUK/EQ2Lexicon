@@ -23,11 +23,11 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from census.config import SERVICE_ID, WORLD
+from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from census.spells_db import DB_PATH, init_db, spell_to_row
+from backend.eq2db.spells import DB_PATH, init_db, spell_to_row
 
 BASE_URL = "https://census.daybreakgames.com"
 BATCH_SIZE = 50  # IDs per Census request (well within URL limits)

@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from census.db import DB_PATH, compute_class_label, init_db
+from backend.eq2db.items import DB_PATH, compute_class_label, init_db
 
 BATCH_SIZE = 5_000
 

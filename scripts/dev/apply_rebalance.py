@@ -35,7 +35,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO))
 
-from census import raids_db  # noqa: E402
+from backend.eq2db import raids as raids_db  # noqa: E402
 
 _OUTBOX = _REPO / "data" / "raids" / "rebalance_outbox"
 

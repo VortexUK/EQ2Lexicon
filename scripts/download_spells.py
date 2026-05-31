@@ -26,11 +26,11 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from census.config import SERVICE_ID, WORLD
+from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from census.spells_db import DB_PATH, get_meta, init_db, set_meta, spell_count, upsert_spells
+from backend.eq2db.spells import DB_PATH, get_meta, init_db, set_meta, spell_count, upsert_spells
 
 BASE_URL = "https://census.daybreakgames.com"
 PAGE_SIZE = 100  # Census silently caps responses at 100 regardless of c:limit

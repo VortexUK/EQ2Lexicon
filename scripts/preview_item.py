@@ -17,12 +17,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 
-from census.config import SERVICE_ID, WORLD
+from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv()
 
-from census.client import CensusClient
-from image.tooltip import render_tooltip
+from backend.census.client import CensusClient
+from backend.image.tooltip import render_tooltip
 
 
 async def main() -> None:

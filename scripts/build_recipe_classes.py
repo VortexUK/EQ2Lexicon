@@ -41,10 +41,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from census.constants import FIGHTERS, MAGES, PRIESTS, SCOUTS  # noqa: E402
-from census.db import DB_PATH as ITEMS_DB  # noqa: E402
-from census.recipes_db import DB_PATH as RECIPES_DB  # noqa: E402
-from census.recipes_db import init_db  # noqa: E402
+from backend.census.constants import FIGHTERS, MAGES, PRIESTS, SCOUTS  # noqa: E402
+from backend.eq2db.items import DB_PATH as ITEMS_DB  # noqa: E402
+from backend.eq2db.recipes import DB_PATH as RECIPES_DB  # noqa: E402
+from backend.eq2db.recipes import init_db  # noqa: E402
 
 PRIMARY_CLASSES = frozenset(
     {"Armorer", "Weaponsmith", "Tailor", "Carpenter", "Provisioner", "Woodworker", "Sage", "Alchemist", "Jeweler"}

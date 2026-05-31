@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import json
 import sqlite3
 
-from census.db import DB_PATH, extract_item_stats, init_db
+from backend.eq2db.items import DB_PATH, extract_item_stats, init_db
 
 
 def run(rebuild: bool = False) -> None:

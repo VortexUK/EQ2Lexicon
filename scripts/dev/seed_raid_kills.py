@@ -33,10 +33,10 @@ sys.path.insert(0, str(_REPO))
 
 from dotenv import load_dotenv  # noqa: E402
 
-from census import zones_db  # noqa: E402
-from census.client import CensusClient  # noqa: E402
-from parses.db import DB_PATH as PARSES_DB_PATH  # noqa: E402
-from web.db import DB_PATH as USERS_DB_PATH  # noqa: E402
+from backend.census.client import CensusClient  # noqa: E402
+from backend.eq2db import zones as zones_db  # noqa: E402
+from backend.server.db import DB_PATH as USERS_DB_PATH  # noqa: E402
+from backend.server.parses.db import DB_PATH as PARSES_DB_PATH  # noqa: E402
 
 load_dotenv(_REPO / ".env")
 

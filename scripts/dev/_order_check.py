@@ -3,7 +3,7 @@ import sys
 import urllib.request
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
-from census.config import SERVICE_ID  # noqa: E402
+from backend.census.config import SERVICE_ID  # noqa: E402
 
 # Test c:sort=id:ASC - does it give stable, sequential ordering?
 for start in [0, 100, 1000, 10000]:

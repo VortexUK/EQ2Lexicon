@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from census.classes_db import CLASS_SEED  # noqa: E402
+from backend.eq2db.classes import CLASS_SEED  # noqa: E402
 
 _BASE = "https://u.eq2wire.com/images/class_medium/{id}.png"
 _DEST = Path(__file__).resolve().parent.parent / "data" / "classes" / "icons"
