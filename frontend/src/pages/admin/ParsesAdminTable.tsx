@@ -207,6 +207,21 @@ export function ParsesAdminTable() {
                         Hidden
                       </span>
                     )}
+                    {p.client_warnings && p.client_warnings.length > 0 && (
+                      // Soft-warning chip for parses the plugin flagged at
+                      // upload time (e.g. folder_hint_mismatch). The hard
+                      // tamper signals are NOT here — those landed in the
+                      // tamper-reports table and never reached encounters.
+                      // Title tooltip shows the codes for admins who want
+                      // the detail; the chip itself stays compact.
+                      <span
+                        className="ml-2 bg-warning/15 text-warning border border-warning/40 rounded px-1.5 py-0.5 text-[0.7rem] uppercase tracking-[0.05em] align-middle"
+                        title={`Client warnings: ${p.client_warnings.join(', ')}`}
+                        aria-label={`Client warnings: ${p.client_warnings.join(', ')}`}
+                      >
+                        ⚠ {p.client_warnings.length}
+                      </span>
+                    )}
                   </td>
                   <td className={`${TD_CLS} text-text-muted`}>{p.zone ?? '—'}</td>
                   <td className={`${TD_CLS} text-text-muted`}>{p.guild_name ?? '—'}</td>

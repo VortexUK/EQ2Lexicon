@@ -55,6 +55,70 @@ export interface AdminParse {
   success_level: number   // 1=win, 2=loss, 3=mixed, 0=unknown
   player_count:  number
   hidden:        boolean
+  /** Soft warnings the plugin (v0.1.15+) attached at upload time —
+   *  currently just `"folder_hint_mismatch"`. null when no warnings
+   *  on this parse; the admin row renders a ⚠ chip when non-empty.
+   *  The hard tamper signals (rename, import) DON'T appear here —
+   *  those land in /admin/tamper-reports instead because they
+   *  blocked the leaderboard upload entirely. */
+  client_warnings: string[] | null
+}
+
+// ── Tamper-report audit channel ─────────────────────────────────────────────
+
+/** Reason codes the plugin emits today. Stored as free-form strings
+ *  server-side so a future plugin version can add a code without a
+ *  server bump — the UI falls back to "unknown" styling in that case.
+ *  See web/routes/parses/tamper_report.py:KNOWN_TAMPER_REASONS. */
+export type TamperReason =
+  | 'title_enemy_mismatch'      // ACT right-click → Rename Encounter
+  | 'stale_encounter'           // EndTime > 1 hour ago (almost certainly imported)
+  | 'recent_import_activity'    // ACT's ActiveControl was the Import UI within 30s
+
+export interface TamperReport {
+  id:                     number
+  world:                  string
+  act_encid:              string
+  title:                  string
+  zone:                   string | null
+  started_at:             number
+  ended_at:               number
+  duration_s:             number
+  total_damage:           number
+  encdps:                 number
+  reason:                 string  // intentionally not narrowed — future codes pass through
+  reported_at:            number
+  uploader_logger_name:   string
+  uploader_discord_id:    string
+  uploader_discord_name:  string
+  guild_name:             string | null
+  acknowledged_at:        number | null
+  acknowledged_by:        string | null
+}
+
+export interface TamperReportListResponse {
+  results:       TamperReport[]
+  pending_count: number
+}
+
+export type TamperReportFilter = 'pending' | 'ack' | 'all'
+
+/** Map a reason code → Badge variant for visual prioritisation.
+ *  rename = danger (deliberate misrepresentation, highest signal),
+ *  stale / import = warning (suspect, but could be sloppiness),
+ *  unknown = muted (future plugin code we don't recognise). */
+export const TAMPER_REASON_VARIANT: Record<string, 'danger' | 'warning' | 'muted'> = {
+  title_enemy_mismatch:    'danger',
+  stale_encounter:         'warning',
+  recent_import_activity:  'warning',
+}
+
+/** Human-readable label for the admin UI. The server stores the wire
+ *  code; the UI presents this. Unknown codes fall back to the raw code. */
+export const TAMPER_REASON_LABEL: Record<string, string> = {
+  title_enemy_mismatch:    'Rename detected',
+  stale_encounter:         'Stale (imported)',
+  recent_import_activity:  'Import UI active',
 }
 
 export interface RoleRequest {

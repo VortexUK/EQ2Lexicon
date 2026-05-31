@@ -371,6 +371,17 @@ class IngestRequest(BaseModel):
     combatants: list[IngestCombatant] = []
     damage_types: list[IngestDamageType] = []
     attack_types: list[IngestAttackType] = []
+    # Soft warnings the plugin (v0.1.15+) attaches when something looked
+    # off but not bad enough to block the upload. Currently just
+    # ``"folder_hint_mismatch"`` — ACT's per-encounter HistoryRecord.FolderHint
+    # disagreed with the detected logger_server. Hard tamper signals
+    # (rename, import) go via the separate /parses/tamper-report channel
+    # and never reach here.
+    #
+    # Caps mirror the plugin-side defensive limits (32 entries × 64 chars)
+    # so a hostile/buggy client can't fill the column with megabytes of
+    # garbage. Old plugins never send the field; the column stays NULL.
+    client_warnings: list[str] | None = Field(default=None, max_length=32)
 
 
 class IngestResponse(BaseModel):
@@ -381,6 +392,20 @@ class IngestResponse(BaseModel):
     damage_types: int
     attack_types: int
     guild_name: str | None
+
+
+# ---------------------------------------------------------------------------
+# Tamper-report models — POST /parses/tamper-report
+# ---------------------------------------------------------------------------
+
+
+class TamperReportResponse(BaseModel):
+    """Acknowledgement the audit POST landed. The plugin is fire-and-forget
+    here — it never surfaces this to the user — so the response is minimal.
+    ``id`` is returned for log correlation only."""
+
+    id: int
+    reason: str
 
 
 # ---------------------------------------------------------------------------

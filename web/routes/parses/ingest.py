@@ -506,9 +506,18 @@ def _insert_encounter_rows_sync(
     guild_name: str | None,
     source_dsn: str,
     world: str,
+    client_warnings: list[str] | None = None,
 ) -> tuple[int, int, int]:
     """Insert encounter + all sub-rows in a single transaction.
-    Returns (encounter_id, n_damage_types, n_attack_types)."""
+    Returns (encounter_id, n_damage_types, n_attack_types).
+
+    ``client_warnings`` (plugin v0.1.15+) is the optional soft-warning
+    list — currently just ``["folder_hint_mismatch"]`` when ACT's
+    per-encounter FolderHint doesn't match the detected logger_server.
+    When non-empty, the deduplicated + sanitised list is stored as a
+    JSON-encoded string on the encounters row. Empty / None leaves the
+    column NULL — the resting state for non-tampered uploads.
+    """
     ingested_at = int(time.time())
     with conn:
         encounter_id = parses_db.insert_encounter(
@@ -520,6 +529,29 @@ def _insert_encounter_rows_sync(
             guild_name=guild_name,
             world=world,
         )
+        # Persist client_warnings as JSON on the new row. Sanitise
+        # defensively: drop empty entries, truncate each at 64 chars
+        # (matches the plugin's own MaxEntryLength), dedupe. List-length
+        # is already capped at 32 by IngestRequest's Pydantic validator,
+        # so a hostile payload doesn't reach us.
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in client_warnings or []:
+            if not isinstance(raw, str):
+                continue
+            w = raw.strip()
+            if not w:
+                continue
+            if len(w) > 64:
+                w = w[:64]
+            if w in seen:
+                continue
+            seen.add(w)
+            cleaned.append(w)
+        if cleaned:
+            import json
+
+            parses_db.set_encounter_client_warnings(conn, encounter_id, json.dumps(cleaned))
         name_to_id = parses_db.insert_combatants_bulk(conn, encounter_id, combatants, snapshots)
         n_dt = parses_db.insert_damage_types_bulk(conn, name_to_id, damage_types)
         n_at = parses_db.insert_attack_types_bulk(conn, name_to_id, attack_types)
@@ -590,6 +622,7 @@ def _ingest_payload_sync(
             guild_name=guild_name,
             source_dsn=source_dsn,
             world=world,
+            client_warnings=payload.client_warnings,
         )
         return ("inserted", encounter_id, len(combatants), n_dt, n_at)
     finally:

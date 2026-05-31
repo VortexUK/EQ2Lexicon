@@ -198,6 +198,59 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 );
 """
 
+# Audit table for parses the plugin refused to send to the leaderboard
+# because a tamper heuristic tripped. Populated by POST /api/parses/tamper-report
+# (see web/routes/parses/tamper_report.py). Deliberately NOT joined to the
+# encounters table — these rows MUST NEVER appear on public leaderboards;
+# admins read them via /api/admin/tamper-reports to see what users were
+# attempting to upload.
+#
+# Reason codes emitted by the plugin today:
+#   * "title_enemy_mismatch"     — heuristic for ACT's right-click rename
+#   * "stale_encounter"          — EndTime > 1h ago (almost certainly an import)
+#   * "recent_import_activity"   — user was in ACT's import UI within 30s
+# Stored as free-form TEXT so a plugin update can add new codes without a
+# server schema bump — old admins still see the report, the reason text is
+# just an opaque token until the admin UI is updated to recognise it.
+#
+# `payload_json` keeps the full body so a heuristic that fires today can be
+# re-examined later (false-positive review, threshold tuning). Capped server-
+# side at the same 10 MB ceiling as /ingest to keep a hostile plugin from
+# filling the DB.
+_CREATE_TAMPER_REPORTS = """
+CREATE TABLE IF NOT EXISTS tamper_reports (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    world                   TEXT    NOT NULL DEFAULT 'Varsoon',
+    act_encid               TEXT    NOT NULL,
+    title                   TEXT    NOT NULL,
+    zone                    TEXT,
+    started_at              INTEGER NOT NULL,   -- unix seconds, UTC
+    ended_at                INTEGER NOT NULL,
+    duration_s              INTEGER NOT NULL,
+    total_damage            INTEGER NOT NULL DEFAULT 0,
+    encdps                  REAL    NOT NULL DEFAULT 0,
+    -- One of "title_enemy_mismatch" / "stale_encounter" /
+    -- "recent_import_activity" (plus any future codes the plugin adds).
+    -- Stored verbatim from the X-Lexicon-Tamper-Reason header.
+    reason                  TEXT    NOT NULL,
+    reported_at             INTEGER NOT NULL,
+    -- Uploader identity. logger_name is the EQ2 character name from the
+    -- payload; discord_id/name come from resolving the Bearer token.
+    -- These default to "" when the token resolution couldn't surface a
+    -- friendly name (kept distinct from NULL so a missing column never
+    -- silently maps to None).
+    uploader_logger_name    TEXT    NOT NULL DEFAULT '',
+    uploader_discord_id     TEXT    NOT NULL DEFAULT '',
+    uploader_discord_name   TEXT    NOT NULL DEFAULT '',
+    guild_name              TEXT,
+    payload_json            TEXT    NOT NULL,
+    -- NULL = unacknowledged (pending admin review). Set when an admin
+    -- clicks the "Acknowledge" button in the panel.
+    acknowledged_at         INTEGER,
+    acknowledged_by         TEXT
+);
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_encounters_started_desc  ON encounters (started_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_encounters_zone          ON encounters (zone);",
@@ -210,6 +263,13 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_attack_types_combatant   ON attack_types (combatant_id);",
     "CREATE INDEX IF NOT EXISTS idx_attack_types_damage_desc ON attack_types (combatant_id, damage DESC);",
     "CREATE INDEX IF NOT EXISTS idx_combatants_encounter_is_player ON combatants (encounter_id, is_player);",
+    # Tamper reports: admin view defaults to pending-only, so an unack
+    # partial index is the hot path. The reporter index supports the
+    # /api/admin/users → "this user has N tamper reports" lookup we'll
+    # likely want when the audit panel grows.
+    "CREATE INDEX IF NOT EXISTS idx_tamper_reports_unack ON tamper_reports (reported_at DESC) WHERE acknowledged_at IS NULL;",
+    "CREATE INDEX IF NOT EXISTS idx_tamper_reports_reporter ON tamper_reports (uploader_discord_id, reported_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_tamper_reports_world_reported ON tamper_reports (world, reported_at DESC);",
 ]
 
 # Append idempotent ALTER TABLE statements here when the schema evolves —
@@ -241,6 +301,15 @@ _MIGRATIONS: list[str] = [
     # sentinel; pre-existing rows get classified on first read of their
     # parent encounter (see web/routes/parses/list.py:_ensure_classified).
     "ALTER TABLE combatants ADD COLUMN is_player INTEGER DEFAULT NULL",
+    # Soft warnings the plugin attaches to an otherwise-successful upload —
+    # currently just "folder_hint_mismatch" (ACT's per-encounter
+    # HistoryRecord.FolderHint disagreed with the detected logger_server).
+    # Stored as a JSON-encoded list of strings; NULL = no warnings on this
+    # parse (the plugin omits the key entirely when there's nothing to flag,
+    # so NULL is the resting state for non-tampered uploads).
+    # Surfaced via /api/admin/parses so the admin table can show a ⚠ chip;
+    # NOT shown on the public /parses list — it's audit signal, not user-facing.
+    "ALTER TABLE encounters ADD COLUMN client_warnings TEXT",
 ]
 
 
@@ -264,6 +333,7 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn.execute(_CREATE_DAMAGE_TYPES)
     conn.execute(_CREATE_ATTACK_TYPES)
     conn.execute(_CREATE_INGEST_LOG)
+    conn.execute(_CREATE_TAMPER_REPORTS)
     for stmt in _MIGRATIONS:
         try:
             conn.execute(stmt)
@@ -781,7 +851,7 @@ def list_encounters_for_admin(
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
         SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by, e.started_at,
-               e.duration_s, e.success_level, e.hidden_at,
+               e.duration_s, e.success_level, e.hidden_at, e.client_warnings,
                (SELECT COUNT(*) FROM combatants c
                   WHERE c.encounter_id = e.id AND c.ally = 1
                     AND c.name != '' AND c.name != 'Unknown'
@@ -1013,3 +1083,200 @@ def get_damage_types_for_combatant(
         (combatant_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# client_warnings (soft warnings on otherwise-successful uploads)
+# ---------------------------------------------------------------------------
+
+
+def set_encounter_client_warnings(
+    conn: sqlite3.Connection,
+    encounter_id: int,
+    warnings_json: str | None,
+) -> None:
+    """Set (or clear) the client_warnings JSON blob on an encounter.
+
+    Pass ``None`` (or an empty string) when the plugin didn't send any
+    warnings — the column stays NULL, which is the "no warnings" sentinel
+    the admin table uses to decide whether to render the ⚠ chip.
+
+    Caller is responsible for serialising the list of warning strings to
+    JSON BEFORE calling this (we keep the storage layer string-typed so a
+    test can drop arbitrary text in and we don't ship a JSON dependency
+    at the schema layer).
+    """
+    payload = warnings_json if warnings_json else None
+    conn.execute(
+        "UPDATE encounters SET client_warnings = ? WHERE id = ?",
+        (payload, encounter_id),
+    )
+
+
+# ---------------------------------------------------------------------------
+# tamper_reports (audit channel for blocked-from-leaderboard uploads)
+# ---------------------------------------------------------------------------
+
+
+def insert_tamper_report(
+    conn: sqlite3.Connection,
+    *,
+    world: str,
+    act_encid: str,
+    title: str,
+    zone: str | None,
+    started_at: int,
+    ended_at: int,
+    duration_s: int,
+    total_damage: int,
+    encdps: float,
+    reason: str,
+    reported_at: int,
+    uploader_logger_name: str,
+    uploader_discord_id: str,
+    uploader_discord_name: str,
+    guild_name: str | None,
+    payload_json: str,
+) -> int:
+    """Insert a tamper report. Returns the new row id.
+
+    No idempotency — the plugin fires one tamper report per blocked
+    encounter, and a user retrying (e.g. via right-click → Upload after
+    an auto-skip) deserves a second row showing the second attempt. The
+    encid is preserved in the column so admins can correlate retries by
+    (world, act_encid) at query time.
+    """
+    cur = conn.execute(
+        """
+        INSERT INTO tamper_reports (
+            world, act_encid, title, zone,
+            started_at, ended_at, duration_s,
+            total_damage, encdps,
+            reason, reported_at,
+            uploader_logger_name, uploader_discord_id, uploader_discord_name,
+            guild_name, payload_json
+        ) VALUES (
+            ?, ?, ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?, ?
+        )
+        """,
+        (
+            world,
+            act_encid,
+            title,
+            zone,
+            started_at,
+            ended_at,
+            duration_s,
+            total_damage,
+            encdps,
+            reason,
+            reported_at,
+            uploader_logger_name,
+            uploader_discord_id,
+            uploader_discord_name,
+            guild_name,
+            payload_json,
+        ),
+    )
+    return int(cur.lastrowid or 0)
+
+
+def list_tamper_reports(
+    conn: sqlite3.Connection,
+    *,
+    world: str | None = None,
+    reason: str | None = None,
+    status: str = "pending",
+    limit: int = 200,
+) -> list[dict]:
+    """Read tamper reports for the admin panel.
+
+    ``status`` is one of:
+      * "pending"  — acknowledged_at IS NULL (default — the admin's working set)
+      * "ack"      — acknowledged_at IS NOT NULL
+      * "all"      — both
+
+    Returns rows newest-first. ``payload_json`` is included verbatim so the
+    admin UI can drill in if they want the full evidence; the listing
+    callers typically render a summary row and let an admin click in for
+    detail.
+    """
+    clauses: list[str] = []
+    params: list = []
+    if world is not None:
+        clauses.append("world = ?")
+        params.append(world)
+    if reason is not None:
+        clauses.append("reason = ?")
+        params.append(reason)
+    if status == "pending":
+        clauses.append("acknowledged_at IS NULL")
+    elif status == "ack":
+        clauses.append("acknowledged_at IS NOT NULL")
+    elif status == "all":
+        pass  # no extra filter
+    else:
+        raise ValueError(f"unknown status {status!r}")
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    conn.row_factory = sqlite3.Row
+    sql = f"""
+        SELECT id, world, act_encid, title, zone,
+               started_at, ended_at, duration_s,
+               total_damage, encdps,
+               reason, reported_at,
+               uploader_logger_name, uploader_discord_id, uploader_discord_name,
+               guild_name, payload_json,
+               acknowledged_at, acknowledged_by
+        FROM tamper_reports
+        {where}
+        ORDER BY reported_at DESC
+        LIMIT ?
+    """
+    return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
+
+
+def acknowledge_tamper_report(
+    conn: sqlite3.Connection,
+    report_id: int,
+    *,
+    acknowledged_at: int,
+    acknowledged_by: str,
+) -> bool:
+    """Mark a tamper report as reviewed. Returns True if a pending row was
+    flipped; False if the id doesn't exist OR was already acknowledged.
+
+    Acknowledge is one-way — there's no "unacknowledge". If an admin
+    wants to revisit, they can read the row via the ``status="ack"`` or
+    ``status="all"`` listing.
+    """
+    with conn:
+        cur = conn.execute(
+            """
+            UPDATE tamper_reports
+               SET acknowledged_at = ?, acknowledged_by = ?
+             WHERE id = ? AND acknowledged_at IS NULL
+            """,
+            (acknowledged_at, acknowledged_by, report_id),
+        )
+    return cur.rowcount > 0
+
+
+def count_pending_tamper_reports(
+    conn: sqlite3.Connection,
+    world: str | None = None,
+) -> int:
+    """Cheap count of unack'd reports — used by the admin panel badge so
+    the maintainer can see at a glance whether anything new needs review."""
+    if world is None:
+        row = conn.execute("SELECT COUNT(*) FROM tamper_reports WHERE acknowledged_at IS NULL").fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM tamper_reports WHERE world = ? AND acknowledged_at IS NULL",
+            (world,),
+        ).fetchone()
+    return int(row[0]) if row else 0

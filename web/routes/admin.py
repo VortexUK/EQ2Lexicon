@@ -92,6 +92,48 @@ class AdminParseItem(BaseModel):
     success_level: int
     player_count: int
     hidden: bool
+    # Soft warnings the plugin (v0.1.15+) attached at upload time —
+    # currently just "folder_hint_mismatch". None when the parse had no
+    # warnings; admin UI renders a ⚠ chip when non-empty.
+    client_warnings: list[str] | None = None
+
+
+class TamperReportItem(BaseModel):
+    """One row from the audit channel. Returned by GET /admin/tamper-reports
+    so the admin UI can render the working set with reason chip + encounter
+    summary + uploader info."""
+
+    id: int
+    world: str
+    act_encid: str
+    title: str
+    zone: str | None = None
+    started_at: int
+    ended_at: int
+    duration_s: int
+    total_damage: int
+    encdps: float
+    # Reason code from the plugin's X-Lexicon-Tamper-Reason header. Stored
+    # verbatim — future plugin versions can emit codes we don't yet
+    # recognise and they still surface here as an opaque string.
+    reason: str
+    reported_at: int
+    uploader_logger_name: str
+    uploader_discord_id: str
+    uploader_discord_name: str
+    guild_name: str | None = None
+    # NULL when pending review (the working-set state).
+    acknowledged_at: int | None = None
+    acknowledged_by: str | None = None
+
+
+class TamperReportListResponse(BaseModel):
+    results: list[TamperReportItem]
+    pending_count: int  # always the count of unacknowledged (regardless of filter)
+
+
+class AcknowledgeResponse(BaseModel):
+    acknowledged: bool
 
 
 class ServerItem(BaseModel):
@@ -402,9 +444,154 @@ async def list_parses_admin(
             success_level=r["success_level"],
             player_count=r["player_count"],
             hidden=bool(r["hidden_at"]),
+            client_warnings=_decode_client_warnings(r.get("client_warnings")),
         )
         for r in rows
     ]
+
+
+def _decode_client_warnings(raw: str | None) -> list[str] | None:
+    """Decode the JSON-encoded ``encounters.client_warnings`` column for
+    response shaping. Returns None for NULL / empty / unparseable values
+    so the frontend can use a single ``warnings?.length`` check to decide
+    whether to render the chip.
+
+    Storage-side sanitisation (see ``_insert_encounter_rows_sync``) keeps
+    the values to a known list-of-strings shape, so decode failures here
+    really do mean "the column is corrupt" — fail closed by returning
+    None rather than surfacing garbage to the admin UI.
+    """
+    if not raw:
+        return None
+    import json
+
+    try:
+        decoded = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(decoded, list):
+        return None
+    result = [str(x) for x in decoded if isinstance(x, str) and x]
+    return result or None
+
+
+# ---------------------------------------------------------------------------
+# Tamper-report audit panel
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/tamper-reports", response_model=TamperReportListResponse)
+async def list_tamper_reports_admin(
+    request: Request,
+    status: Literal["pending", "ack", "all"] = "pending",
+    reason: str | None = None,
+    limit: int = 200,
+) -> TamperReportListResponse:
+    """Audit channel for plugin-detected tamper attempts (see
+    web/routes/parses/tamper_report.py).
+
+    Defaults to ``status="pending"`` — the admin's working set of
+    unreviewed reports. ``reason`` filters to one specific code
+    (``title_enemy_mismatch`` / ``stale_encounter`` /
+    ``recent_import_activity``). The ``pending_count`` field on the
+    response is ALWAYS the count of unacknowledged reports regardless
+    of which filter the admin is currently viewing, so the panel can
+    show "N pending" in its header without a second request.
+
+    Scoped to the active server via ``current_world()``; pass
+    ``status="all"`` + ``reason=None`` to see everything for this world.
+    """
+    _require_admin(request)
+    limit = max(1, min(limit, ADMIN_PARSE_LIST_MAX_LIMIT))
+    world = current_world()
+
+    def _query() -> tuple[list[dict], int]:
+        if not parses_db.DB_PATH.exists():
+            return [], 0
+        conn = parses_db.init_db(parses_db.DB_PATH)
+        try:
+            rows = parses_db.list_tamper_reports(
+                conn,
+                world=world,
+                reason=reason,
+                status=status,
+                limit=limit,
+            )
+            pending = parses_db.count_pending_tamper_reports(conn, world=world)
+            return rows, pending
+        finally:
+            conn.close()
+
+    rows, pending_count = await run_sync(_query)
+    return TamperReportListResponse(
+        results=[
+            TamperReportItem(
+                id=r["id"],
+                world=r["world"],
+                act_encid=r["act_encid"],
+                title=r["title"],
+                zone=r["zone"],
+                started_at=r["started_at"],
+                ended_at=r["ended_at"],
+                duration_s=r["duration_s"],
+                total_damage=r["total_damage"],
+                encdps=r["encdps"],
+                reason=r["reason"],
+                reported_at=r["reported_at"],
+                uploader_logger_name=r["uploader_logger_name"] or "",
+                uploader_discord_id=r["uploader_discord_id"] or "",
+                uploader_discord_name=r["uploader_discord_name"] or "",
+                guild_name=r["guild_name"],
+                acknowledged_at=r["acknowledged_at"],
+                acknowledged_by=r["acknowledged_by"],
+            )
+            for r in rows
+        ],
+        pending_count=pending_count,
+    )
+
+
+@router.post(
+    "/admin/tamper-reports/{report_id}/acknowledge",
+    response_model=AcknowledgeResponse,
+)
+async def acknowledge_tamper_report(
+    report_id: int,
+    request: Request,
+) -> AcknowledgeResponse:
+    """Mark a tamper report as reviewed. One-way — no unacknowledge.
+    Returns ``acknowledged=True`` if a pending row was flipped, False if
+    the report didn't exist OR was already acknowledged.
+
+    Acknowledge stamps the admin's Discord id, mirroring how role-grant
+    audit rows record the actor.
+    """
+    user = _require_admin(request)
+    actor_id = str(user.get("id") or "")
+    now_unix = int(datetime.now().timestamp())
+
+    def _ack() -> bool:
+        if not parses_db.DB_PATH.exists():
+            return False
+        conn = parses_db.init_db(parses_db.DB_PATH)
+        try:
+            return parses_db.acknowledge_tamper_report(
+                conn,
+                report_id,
+                acknowledged_at=now_unix,
+                acknowledged_by=actor_id,
+            )
+        finally:
+            conn.close()
+
+    flipped = await run_sync(_ack)
+    if flipped:
+        audit_log(
+            "tamper_report.acknowledge",
+            actor=actor_id,
+            report_id=report_id,
+        )
+    return AcknowledgeResponse(acknowledged=flipped)
 
 
 # ---------------------------------------------------------------------------
