@@ -195,6 +195,72 @@ CREATE INDEX IF NOT EXISTS idx_tamper_reports_reporter ON tamper_reports (upload
 CREATE INDEX IF NOT EXISTS idx_tamper_reports_world_reported ON tamper_reports (world, reported_at DESC);
 
 -- ---------------------------------------------------------------------------
+-- PRAGMAs (connection setup + introspection + migration toggles)
+-- ---------------------------------------------------------------------------
+
+-- :name pragma_journal_mode_wal
+PRAGMA journal_mode = WAL;
+
+-- :name pragma_synchronous_normal
+PRAGMA synchronous = NORMAL;
+
+-- :name pragma_foreign_keys_on
+PRAGMA foreign_keys = ON;
+
+-- :name pragma_foreign_keys_off
+PRAGMA foreign_keys = OFF;
+
+-- :name pragma_legacy_alter_table_on
+PRAGMA legacy_alter_table = ON;
+
+-- :name pragma_legacy_alter_table_off
+PRAGMA legacy_alter_table = OFF;
+
+-- :name pragma_table_info_encounters
+PRAGMA table_info(encounters);
+
+-- :name pragma_table_info_ingest_log
+PRAGMA table_info(ingest_log);
+
+-- {idx_name} is interpolated by Python (no parameter binding for PRAGMA args).
+-- :name pragma_index_info
+PRAGMA index_info({idx_name});
+
+-- ---------------------------------------------------------------------------
+-- Idempotent ALTER migrations (looped by init_db; each may already be applied)
+-- ---------------------------------------------------------------------------
+
+-- :name alter_encounters_add_uploaded_by
+ALTER TABLE encounters ADD COLUMN uploaded_by TEXT NOT NULL DEFAULT 'local';
+
+-- :name alter_encounters_add_guild_name
+ALTER TABLE encounters ADD COLUMN guild_name TEXT;
+
+-- :name alter_encounters_add_success_level
+ALTER TABLE encounters ADD COLUMN success_level INTEGER NOT NULL DEFAULT 0;
+
+-- :name alter_combatants_add_level
+ALTER TABLE combatants ADD COLUMN level INTEGER;
+
+-- :name alter_combatants_add_guild_name
+ALTER TABLE combatants ADD COLUMN guild_name TEXT;
+
+-- :name alter_combatants_add_cls
+ALTER TABLE combatants ADD COLUMN cls TEXT;
+
+-- :name alter_combatants_add_ilvl
+ALTER TABLE combatants ADD COLUMN ilvl REAL;
+
+-- :name alter_encounters_add_hidden_at
+ALTER TABLE encounters ADD COLUMN hidden_at INTEGER;
+
+-- :name alter_combatants_add_is_player
+ALTER TABLE combatants ADD COLUMN is_player INTEGER DEFAULT NULL;
+
+-- :name alter_encounters_add_client_warnings
+ALTER TABLE encounters ADD COLUMN client_warnings TEXT;
+
+-- ---------------------------------------------------------------------------
 -- Migration helpers (table rebuilds — used by _migrate_* functions)
 -- ---------------------------------------------------------------------------
 

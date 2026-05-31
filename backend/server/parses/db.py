@@ -59,18 +59,21 @@ _CREATE_TAMPER_REPORTS = _SQL["schema_tamper_reports"]
 # legacy list shape that test fixtures iterate.
 _CREATE_INDEXES = [s.strip() + ";" for s in _SQL["indexes_all"].split(";") if s.strip()]
 
-# The idempotent ALTER migrations list stays Python data — init_db loops it.
+# Idempotent ALTER migrations — each statement loaded from db.sql. init_db
+# loops the list, swallowing OperationalError so re-runs on an up-to-date DB
+# are no-ops. Order is significant: column-dependent migrations (e.g. an
+# index on a new column) MUST come after the ADD COLUMN they depend on.
 _MIGRATIONS: list[str] = [
-    "ALTER TABLE encounters ADD COLUMN uploaded_by TEXT NOT NULL DEFAULT 'local'",
-    "ALTER TABLE encounters ADD COLUMN guild_name TEXT",
-    "ALTER TABLE encounters ADD COLUMN success_level INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE combatants ADD COLUMN level INTEGER",
-    "ALTER TABLE combatants ADD COLUMN guild_name TEXT",
-    "ALTER TABLE combatants ADD COLUMN cls TEXT",
-    "ALTER TABLE combatants ADD COLUMN ilvl REAL",
-    "ALTER TABLE encounters ADD COLUMN hidden_at INTEGER",
-    "ALTER TABLE combatants ADD COLUMN is_player INTEGER DEFAULT NULL",
-    "ALTER TABLE encounters ADD COLUMN client_warnings TEXT",
+    _SQL["alter_encounters_add_uploaded_by"],
+    _SQL["alter_encounters_add_guild_name"],
+    _SQL["alter_encounters_add_success_level"],
+    _SQL["alter_combatants_add_level"],
+    _SQL["alter_combatants_add_guild_name"],
+    _SQL["alter_combatants_add_cls"],
+    _SQL["alter_combatants_add_ilvl"],
+    _SQL["alter_encounters_add_hidden_at"],
+    _SQL["alter_combatants_add_is_player"],
+    _SQL["alter_encounters_add_client_warnings"],
 ]
 
 
@@ -86,9 +89,9 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path)
-        conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute(_SQL["pragma_journal_mode_wal"])
+    conn.execute(_SQL["pragma_synchronous_normal"])
+    conn.execute(_SQL["pragma_foreign_keys_on"])
     conn.execute(_SQL["schema_encounters"])
     conn.execute(_SQL["schema_combatants"])
     conn.execute(_SQL["schema_damage_types"])
@@ -115,7 +118,7 @@ def _migrate_attack_types_unique(conn: sqlite3.Connection) -> None:
     rows = conn.execute(_SQL["migrate_check_attack_types_indexes"]).fetchall()
     target = ["combatant_id", "swing_type", "attack_name"]
     for (idx_name,) in rows:
-        cols = [r[2] for r in conn.execute(f"PRAGMA index_info({idx_name})").fetchall()]
+        cols = [r[2] for r in conn.execute(_SQL["pragma_index_info"].format(idx_name=idx_name)).fetchall()]
         if cols == target:
             return  # already migrated
     # Commit any pending implicit transaction so `with conn:` can scope a
@@ -147,13 +150,13 @@ def _migrate_encounters_add_world(conn: sqlite3.Connection) -> None:
     valid after the swap. PRAGMA foreign_keys is turned OFF for the duration of
     the rebuild so SQLite does not object while encounters_old is the target;
     it is re-enabled immediately after."""
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(encounters)").fetchall()]
+    cols = [r[1] for r in conn.execute(_SQL["pragma_table_info_encounters"]).fetchall()]
     if "world" in cols:
         return  # already migrated
 
     conn.commit()
-    conn.execute("PRAGMA foreign_keys = OFF;")
-    conn.execute("PRAGMA legacy_alter_table = ON;")
+    conn.execute(_SQL["pragma_foreign_keys_off"])
+    conn.execute(_SQL["pragma_legacy_alter_table_on"])
     try:
         with conn:
             conn.execute(_SQL["migrate_encounters_rename_old"])
@@ -164,21 +167,21 @@ def _migrate_encounters_add_world(conn: sqlite3.Connection) -> None:
             conn.execute(_SQL["migrate_encounters_copy_from_old"])
             conn.execute(_SQL["migrate_encounters_drop_old"])
     finally:
-        conn.execute("PRAGMA legacy_alter_table = OFF;")
-        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute(_SQL["pragma_legacy_alter_table_off"])
+        conn.execute(_SQL["pragma_foreign_keys_on"])
 
 
 def _migrate_ingest_log_add_world(conn: sqlite3.Connection) -> None:
     """Add `world` to ingest_log and change PK from act_encid alone to
     (world, act_encid).  Same rebuild pattern as encounters; guard on 'world'
     column presence."""
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(ingest_log)").fetchall()]
+    cols = [r[1] for r in conn.execute(_SQL["pragma_table_info_ingest_log"]).fetchall()]
     if "world" in cols:
         return  # already migrated
 
     conn.commit()
-    conn.execute("PRAGMA foreign_keys = OFF;")
-    conn.execute("PRAGMA legacy_alter_table = ON;")
+    conn.execute(_SQL["pragma_foreign_keys_off"])
+    conn.execute(_SQL["pragma_legacy_alter_table_on"])
     try:
         with conn:
             conn.execute(_SQL["migrate_ingest_log_rename_old"])
@@ -188,8 +191,8 @@ def _migrate_ingest_log_add_world(conn: sqlite3.Connection) -> None:
             conn.execute(_SQL["migrate_ingest_log_copy_from_old"])
             conn.execute(_SQL["migrate_ingest_log_drop_old"])
     finally:
-        conn.execute("PRAGMA legacy_alter_table = OFF;")
-        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute(_SQL["pragma_legacy_alter_table_off"])
+        conn.execute(_SQL["pragma_foreign_keys_on"])
 
 
 # ---------------------------------------------------------------------------
