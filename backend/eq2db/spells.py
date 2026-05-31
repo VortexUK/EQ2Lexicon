@@ -27,6 +27,7 @@ from typing import TypedDict
 
 from backend.census._coerce import coerce_float as _float
 from backend.census._coerce import coerce_int as _int
+from backend.eq2db import _meta as _meta_db
 from backend.sql_loader import load_sql
 
 
@@ -94,80 +95,7 @@ def strip_roman(name: str) -> str:
     return _ROMAN_RE.sub("", name).strip()
 
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_META = """
-CREATE TABLE IF NOT EXISTS _meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
-
-_CREATE_TABLE = """
-CREATE TABLE IF NOT EXISTS spells (
-    -- Identity
-    id              INTEGER PRIMARY KEY,
-    name            TEXT    NOT NULL,
-    name_lower      TEXT    NOT NULL,
-
-    -- Pre-computed base name (Roman-numeral suffix stripped)
-    base_name       TEXT    NOT NULL,
-    base_name_lower TEXT    NOT NULL,
-
-    -- Classification
-    tier            INTEGER,            -- numeric tier id (1=Novice, 2=Apprentice, 5=Adept …)
-    tier_name       TEXT,               -- "Apprentice", "Adept", "Master", "Grandmaster" …
-    type            TEXT,               -- "spells", "arts", "pcinnates", "tradeskill" …
-    typeid          INTEGER,
-    level           INTEGER,            -- minimum level to use
-    given_by        TEXT,               -- "any", "class", "alternateadvancement" …
-    crc             INTEGER,            -- base-spell grouping key: all tiers of the same spell share a CRC
-    beneficial      INTEGER,            -- 1 = beneficial, 0 = hostile
-
-    -- Pre-computed spellcheck eligibility:
-    --   level > 0  AND  type IN ('spells','arts')
-    --   AND given_by NOT IN ('alternateadvancement','class')
-    passes_spellcheck INTEGER NOT NULL DEFAULT 0,
-
-    -- Timing
-    cast_secs       REAL,               -- cast_secs_hundredths / 100
-    recast_secs     REAL,
-    recovery_secs   REAL,               -- recovery_secs_tenths / 10
-
-    -- Targeting
-    target_type     TEXT,               -- "self", "single", "group", "ae" …
-    aoe_radius      REAL,
-    max_targets     INTEGER,
-
-    -- Display
-    description     TEXT,
-    icon_id         INTEGER,
-    icon_backdrop   INTEGER,
-
-    -- Spell effects: JSON array of {description, indentation} objects
-    -- Populated from effect_list[] in the Census /spell/ response.
-    effects         TEXT,
-
-    -- Metadata
-    last_update     INTEGER
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_name_lower       ON spells (name_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_base_name_lower  ON spells (base_name_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_crc              ON spells (crc);",
-    "CREATE INDEX IF NOT EXISTS idx_type             ON spells (type);",
-    "CREATE INDEX IF NOT EXISTS idx_given_by         ON spells (given_by);",
-    "CREATE INDEX IF NOT EXISTS idx_level            ON spells (level);",
-    "CREATE INDEX IF NOT EXISTS idx_tier_name        ON spells (tier_name);",
-    "CREATE INDEX IF NOT EXISTS idx_last_update      ON spells (last_update);",
-    # Composite indexes for common query patterns
-    "CREATE INDEX IF NOT EXISTS idx_sc_level         ON spells (passes_spellcheck, level);",
-    "CREATE INDEX IF NOT EXISTS idx_base_tier        ON spells (base_name_lower, tier);",
-]
+# Schema (CREATE TABLE / INDEX) lives in spells.sql; init_db runs each block.
 
 # SQL queries live in spells.sql; loaded once at import. Composition for
 # the dynamic IN-list (find_by_ids) and the shared column-list fragment
@@ -295,14 +223,13 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous  = NORMAL;")
-    conn.execute(_CREATE_META)
-    conn.execute(_CREATE_TABLE)
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+    _meta_db.create_table(conn)
+    conn.execute(_SQL["schema_spells"])
+    conn.executescript(_SQL["indexes_spells"])
     # Idempotent migration: add effects column if missing (pre-existing DBs)
     existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(spells)").fetchall()}
     if "effects" not in existing_cols:
-        conn.execute("ALTER TABLE spells ADD COLUMN effects TEXT;")
+        conn.execute(_SQL["migrate_add_effects_column"])
     conn.commit()
     return conn
 

@@ -1,14 +1,10 @@
-"""Shared ``_meta`` key/value table helpers.
+"""Shared ``_meta`` key/value table — schema + helpers.
 
 Every reference DB built/maintained under ``backend/eq2db/`` (items, raids,
 recipes, spells, zones) carries the same ``_meta`` table with the same
 schema and the same get/set helpers. This module is the single source of
-truth — the per-DB modules re-export these so callers keep using
-``items.get_meta(conn, "last_synced")`` etc. without a churn.
-
-The table itself is created in each DB's ``init_db()`` since the schema
-sits inside the migration block where it's used. Only the read/write
-queries live in :file:`_meta.sql`.
+truth: the per-DB modules re-export ``get_meta`` / ``set_meta`` and call
+``create_table(conn)`` from their own ``init_db()``.
 """
 
 from __future__ import annotations
@@ -18,6 +14,12 @@ import sqlite3
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
+
+
+def create_table(conn: sqlite3.Connection) -> None:
+    """Idempotent CREATE TABLE for the shared ``_meta`` table. Called from
+    each eq2db module's ``init_db()`` before any get/set use."""
+    conn.execute(_SQL["create_table"])
 
 
 def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:

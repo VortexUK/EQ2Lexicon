@@ -10,6 +10,7 @@ from typing import Any, NamedTuple
 import aiosqlite
 
 from backend.census.item_level import compute_ilvl
+from backend.eq2db import _meta as _meta_db
 from backend.eq2db.classes import (
     ARCHETYPE_GROUPS as _ARCHETYPE_GROUPS_SRC,
 )
@@ -123,179 +124,7 @@ def compute_class_label(classes: dict | None) -> str | None:
     return " / ".join(parts) if parts else None
 
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_META = """
-CREATE TABLE IF NOT EXISTS _meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
-
-_CREATE_TABLE = """
-CREATE TABLE IF NOT EXISTS items (
-    -- Identity
-    id                   INTEGER PRIMARY KEY,
-    displayname          TEXT NOT NULL,
-    displayname_lower    TEXT NOT NULL,
-    gamelink             TEXT,
-    description          TEXT,
-    last_update          INTEGER,
-
-    -- Quality / classification
-    tier                 TEXT,
-    tierid               INTEGER,
-    type                 TEXT,
-    typeid               INTEGER,
-    item_level           INTEGER,
-    level_to_use         INTEGER,
-    planar_level         INTEGER,
-    ilvl                 REAL,          -- WoW-style item level; NULL for non-gear
-    icon_id              INTEGER,
-    max_stack_size       INTEGER,
-
-    -- Primary slot (slot_list[0].name for quick filtering)
-    slot                 TEXT,
-
-    -- Armor
-    armor_class_min      INTEGER,
-    armor_class_max      INTEGER,
-
-    -- Weapon (from typeinfo)
-    damage_min           INTEGER,
-    damage_max           INTEGER,
-    damage_base          INTEGER,
-    damage_type          TEXT,
-    damage_type_id       INTEGER,
-    damage_rating        REAL,
-    delay                REAL,
-    wield_style          TEXT,
-
-    -- Spell scroll / ability (from typeinfo)
-    spell_name           TEXT,
-    spell_tier_id        INTEGER,
-    spell_cast_time      REAL,
-    spell_recast_time    REAL,
-    spell_duration       REAL,
-
-    -- Ranged weapon
-    weapon_range_min     REAL,
-    weapon_range_max     REAL,
-
-    -- Food / drink / consumable (from typeinfo)
-    food_duration        TEXT,
-    food_satiation       TEXT,
-    food_level           INTEGER,
-
-    -- Adornment (from typeinfo)
-    adornment_color      TEXT,
-
-    -- Container / house item (from typeinfo)
-    container_slots      INTEGER,
-    status_reduction     INTEGER,
-
-    -- Charges
-    max_charges          INTEGER,    -- -1 = unlimited
-
-    -- Requirements
-    required_skill_name  TEXT,
-    required_skill_min   INTEGER,
-
-    -- Set bonus
-    setbonus_name        TEXT,
-
-    -- Unique equipment group (prestige slot-limit sets)
-    unique_equip_group         TEXT,
-    unique_equip_wearable_count INTEGER,
-    unique_equip_prestige      INTEGER DEFAULT 0,
-
-    -- Quest links
-    associated_quest     INTEGER,
-    autoquest            INTEGER,
-
-    -- Discovery (first seen on any world)
-    first_discovered     INTEGER,
-
-    -- Visibility (0 = hidden/disabled item, 1 = normal)
-    visible              INTEGER DEFAULT 1,
-
-    -- Typeinfo summary columns (queryable without parsing typeinfo_json)
-    typeinfo_name                TEXT,       -- e.g. "Armor", "Weapon", "Spell Scroll"
-    classes_json                 TEXT,       -- JSON array/object of allowed classes
-    physical_damage_absorption   INTEGER,    -- armour mitigation value
-
-    -- Pre-computed class label and count (derived from classes_json)
-    class_label          TEXT,              -- e.g. "All Classes", "All Priests", "Guardian"
-    class_count          INTEGER,           -- number of classes that can use this item
-
-    -- Resolved tier name: tier if set, otherwise 'COMMON' for tierid 0/1/2
-    tier_display         TEXT,
-
-    -- Armor proficiency / spell scroll extras (from typeinfo)
-    skill_type           TEXT,              -- e.g. "heavyarmor", "mediumarmor", "magicaffinity"
-    spell_target         TEXT,              -- e.g. "Enemy", "Caster", "Group (AE)"
-    spell_range          TEXT,              -- e.g. "Up to 25.0 meters"
-    spell_power_cost     INTEGER,           -- power cost to cast
-    spell_resistability  TEXT,              -- e.g. "25.2% Easier", "na"
-
-    -- Common flags as fast-filter booleans
-    flag_heirloom        INTEGER DEFAULT 0,
-    flag_lore            INTEGER DEFAULT 0,
-    flag_lore_equip      INTEGER DEFAULT 0,
-    flag_no_trade        INTEGER DEFAULT 0,
-    flag_no_value        INTEGER DEFAULT 0,
-    flag_no_zone         INTEGER DEFAULT 0,
-    flag_prestige        INTEGER DEFAULT 0,
-    flag_relic           INTEGER DEFAULT 0,
-    flag_attunable       INTEGER DEFAULT 0,
-    flag_ornate          INTEGER DEFAULT 0,
-    flag_refined         INTEGER DEFAULT 0,
-    flag_infusable       INTEGER DEFAULT 0,
-    flag_indestructible  INTEGER DEFAULT 0,
-    flag_pvp             INTEGER DEFAULT 0,  -- 1 = PvP item (has pvp stats or pvp effect text)
-
-    -- Full raw Census JSON — used by _parse_item(); all nested data lives here
-    raw_json             TEXT
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_name        ON items(displayname_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_tier        ON items(tier);",
-    "CREATE INDEX IF NOT EXISTS idx_typeid      ON items(typeid);",
-    "CREATE INDEX IF NOT EXISTS idx_level       ON items(level_to_use);",
-    "CREATE INDEX IF NOT EXISTS idx_item_level  ON items(item_level);",
-    "CREATE INDEX IF NOT EXISTS idx_slot        ON items(slot);",
-    "CREATE INDEX IF NOT EXISTS idx_icon        ON items(icon_id);",
-    "CREATE INDEX IF NOT EXISTS idx_last_update ON items(last_update);",
-    "CREATE INDEX IF NOT EXISTS idx_adorn_color ON items(adornment_color);",
-    "CREATE INDEX IF NOT EXISTS idx_visible     ON items(visible);",
-    "CREATE INDEX IF NOT EXISTS idx_ti_name     ON items(typeinfo_name);",
-    "CREATE INDEX IF NOT EXISTS idx_class_label ON items(class_label);",
-    "CREATE INDEX IF NOT EXISTS idx_skill_type  ON items(skill_type);",
-    "CREATE INDEX IF NOT EXISTS idx_tier_disp   ON items(tier_display);",
-]
-
-# ---------------------------------------------------------------------------
-# item_stats table  (one row per item × canonical stat name)
-# ---------------------------------------------------------------------------
-
-_CREATE_ITEM_STATS = """
-CREATE TABLE IF NOT EXISTS item_stats (
-    item_id  INTEGER NOT NULL,
-    stat     TEXT    NOT NULL,   -- canonical display name e.g. "Ability Mod"
-    value    REAL    NOT NULL,
-    PRIMARY KEY (item_id, stat)
-);
-"""
-
-_CREATE_STAT_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_stat_name  ON item_stats(stat);",
-    "CREATE INDEX IF NOT EXISTS idx_stat_item  ON item_stats(item_id);",
-    "CREATE INDEX IF NOT EXISTS idx_stat_nv    ON item_stats(stat, value);",
-]
+# Schema (CREATE TABLE / INDEX) lives in items.sql; init_db runs each block.
 
 # Columns added after initial schema — used by init_db() to migrate existing DBs
 _MIGRATIONS = [
@@ -602,20 +431,18 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute(_CREATE_META)
-    conn.execute(_CREATE_TABLE)
-    # Migrate existing DBs: add any columns introduced after initial creation
-    # Must run BEFORE index creation so new indexes on new columns don't fail
+    _meta_db.create_table(conn)
+    conn.execute(_SQL["schema_items"])
+    # Migrate existing DBs: add any columns introduced after initial creation.
+    # Must run BEFORE index creation so new indexes on new columns don't fail.
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(items)")}
     for col_name, col_def in _MIGRATIONS:
         if col_name not in existing_cols:
-            conn.execute(f"ALTER TABLE items ADD COLUMN {col_name} {col_def}")
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+            conn.execute(_SQL["migration_add_column"].format(col=col_name, coltype=col_def))
+    conn.executescript(_SQL["indexes_items"])
     # Stats side-table
-    conn.execute(_CREATE_ITEM_STATS)
-    for idx in _CREATE_STAT_INDEXES:
-        conn.execute(idx)
+    conn.execute(_SQL["schema_item_stats"])
+    conn.executescript(_SQL["indexes_item_stats"])
     conn.commit()
     # Backfill flag_pvp for items that predate this column.
     # Uses LOWER(raw_json) LIKE '%pvp%' — catches both pvp stats and effect text.
