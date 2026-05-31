@@ -26,10 +26,22 @@ class ClassInfo:
     icon_id: int  # EQ2wire class_medium icon id
 
 
-# Archetype colours — canonical source is CLASS_ARCHETYPE_COLOURS in census/constants.py.
-# Mirrored here (not imported) to avoid a circular import: constants.py imports CLASS_SEED
-# from this module, so this module cannot import back from constants.
-_F, _P, _S, _M = "#f87171", "#4ade80", "#fbbf24", "#93b4ff"
+# Archetype colours. Public, canonical, ordered Fighter / Priest / Scout / Mage.
+# Consumed via classes.ARCHETYPE_COLOURS by census/constants.py (re-exported as
+# CLASS_ARCHETYPE_COLOURS for back-compat with older callers) and by any renderer
+# that needs to tint class icons. Don't redefine these anywhere else.
+ARCHETYPE_COLOURS: dict[str, str] = {
+    "Fighter": "#f87171",
+    "Priest": "#4ade80",
+    "Scout": "#fbbf24",
+    "Mage": "#93b4ff",
+}
+_F, _P, _S, _M = (
+    ARCHETYPE_COLOURS["Fighter"],
+    ARCHETYPE_COLOURS["Priest"],
+    ARCHETYPE_COLOURS["Scout"],
+    ARCHETYPE_COLOURS["Mage"],
+)
 
 # Ordered: archetype [Fighter, Priest, Scout, Mage], icon_id ascending within
 # each archetype. display_order is assigned from this order at seed time.
@@ -61,6 +73,53 @@ CLASS_SEED: tuple[ClassInfo, ...] = (
     ClassInfo("Conjuror", "Mage", "Summoner", "Ranged DPS", _M, 29),
     ClassInfo("Necromancer", "Mage", "Summoner", "Ranged DPS", _M, 30),
 )
+
+# Tradeskill (artisan) class names. Not part of CLASS_SEED because they're not
+# adventure classes — no archetype/subclass/role/icon_id semantics — but Census
+# item rows can list them when an item is restricted to crafters. Single source
+# of truth: anywhere else that needed an "artisans" frozenset (items.py,
+# census/constants.py) now derives from here.
+CRAFTER_NAMES: frozenset[str] = frozenset(
+    [
+        "Sage",
+        "Armorer",
+        "Weaponsmith",
+        "Woodworker",
+        "Jeweler",
+        "Carpenter",
+        "Tailor",
+        "Alchemist",
+        "Provisioner",
+    ]
+)
+
+
+# Ordered list of (subclass_name, frozenset[class_name]) for the 12 subclass
+# groups (Warriors, Crusaders, …). Channeler and Beastlord have subclass=None
+# so they're correctly excluded. Order: stable by first-occurrence in CLASS_SEED
+# so display ordering matches archetype ordering (Fighter subclasses first,
+# then Priest, Scout, Mage).
+def _build_subclass_groups() -> tuple[tuple[str, frozenset[str]], ...]:
+    seen: dict[str, list[str]] = {}
+    for c in CLASS_SEED:
+        if c.subclass is None:
+            continue
+        seen.setdefault(c.subclass, []).append(c.name)
+    return tuple((sub, frozenset(names)) for sub, names in seen.items())
+
+
+SUBCLASS_GROUPS: tuple[tuple[str, frozenset[str]], ...] = _build_subclass_groups()
+
+
+# Ordered list of (archetype_name, frozenset[class_name]) — Fighter/Priest/Scout/Mage.
+def _build_archetype_groups() -> tuple[tuple[str, frozenset[str]], ...]:
+    seen: dict[str, list[str]] = {}
+    for c in CLASS_SEED:
+        seen.setdefault(c.archetype, []).append(c.name)
+    return tuple((arc, frozenset(names)) for arc, names in seen.items())
+
+
+ARCHETYPE_GROUPS: tuple[tuple[str, frozenset[str]], ...] = _build_archetype_groups()
 
 
 def _db_path() -> Path:
