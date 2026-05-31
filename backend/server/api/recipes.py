@@ -80,7 +80,8 @@ _LABEL_TO_BENCH: dict[str, str] = {v.lower(): k for k, v in BENCH_DISPLAY.items(
 # Adventure classes
 # ---------------------------------------------------------------------------
 
-# Sourced from census.classes_db.CLASS_SEED — single source of truth.
+# Sourced from the committed classes.db (read at import time via
+# backend.eq2db.classes.iter_adventure_class_names) — single source of truth.
 # BE-230: prevents the list drifting out of sync with the canonical class data.
 _ADVENTURE_CLASSES = iter_adventure_class_names()
 

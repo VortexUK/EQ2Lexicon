@@ -70,7 +70,11 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     os.environ["DB_SPELLS_PATH"] = str(_TEST_DB_DIR / "spells.db")
     os.environ["DB_RECIPES_PATH"] = str(_TEST_DB_DIR / "recipes.db")
     os.environ["DB_RAIDS_PATH"] = str(_TEST_DB_DIR / "raids.db")
-    os.environ["DB_CLASSES_PATH"] = str(_TEST_DB_DIR / "classes.db")
+    # DB_CLASSES_PATH intentionally NOT overridden — classes.db is the
+    # committed source-of-truth (data/classes/classes.db) and is read-only
+    # at runtime. Tests read it directly; nothing writes to it. Pointing
+    # it at an empty tmpdir would make backend.eq2db.classes' import-time
+    # row load fail with "classes.db is empty or unreadable".
 
     # web.app reads SESSION_SECRET at module-import time and raises if it's
     # unset or shorter than 32 chars. CI and fresh contributor checkouts have

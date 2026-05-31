@@ -13,10 +13,10 @@ from backend.server.server_context import current_server
 
 router = APIRouter(tags=["item"])
 
-# Class-group membership for _format_classes is OWNED by
-# backend.eq2db.classes (CLASS_SEED + CRAFTER_NAMES); the ordered decomposition
-# list lives in census.constants.ARCHETYPES (derived from the same seed). Don't
-# redefine archetype or subclass groups in this file — extend CLASS_SEED.
+# Class-group membership for _format_classes is OWNED by the committed
+# classes.db (accessed via backend.eq2db.classes); the ordered decomposition
+# list lives in census.constants.ARCHETYPES (derived from the same DB rows).
+# Don't redefine archetype or subclass groups in this file — edit classes.db.
 
 
 # ---------------------------------------------------------------------------
