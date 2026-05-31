@@ -200,71 +200,297 @@ def zone_count(conn: sqlite3.Connection) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Lookup helpers
+# Zone active-record model
 # ---------------------------------------------------------------------------
+# The Zone dataclass owns every column from the `zones` table plus the
+# eagerly-loaded child collections (types, aliases, bosses). Classmethods
+# replace the old free-function lookups; instance methods cover the
+# `zone_types` side-table mutations. Free-function shims below preserve
+# the historical dict-returning contract so routes + tests work unchanged.
+
+
+@dataclass(frozen=True)
+class Zone:
+    """A canonical EverQuest 2 zone with its classification flags +
+    expansion metadata + the curated child collections (type tokens,
+    name aliases, raid encounters).
+
+    Hydration is eager: every Zone instance carries the full types /
+    aliases / bosses lists — the same shape the routes have always
+    consumed. Eager fetch costs three extra SELECTs per row, which is
+    fine because the historical free-function callers all rendered the
+    full hydrated zone anyway.
+    """
+
+    id: int
+    name: str
+    name_lower: str
+    expansion_short: str
+    expansion_name: str
+    expansion_year: int | None
+    expansion_confidence: str
+    expansion_source: str
+    is_persistent_instance: bool
+    is_endless_persistent: bool
+    is_tradeskill: bool
+    is_pvp: bool
+    is_openworld: bool
+    is_instance: bool
+    is_live_event: bool
+    is_city: bool
+    is_contested: bool
+    is_deprecated: bool
+    event_name: str | None
+    wiki_url: str | None
+    types: list[str]
+    aliases: list[str]
+    bosses: list[ZoneEncounter]
+
+    @classmethod
+    def _from_row(cls, conn: sqlite3.Connection, row: sqlite3.Row) -> Zone:
+        """Build a Zone from a `zones`-table row plus child fetches.
+        Caller must have set ``conn.row_factory = sqlite3.Row`` and the
+        row must carry every column in `_SELECT_COLS` (the canonical
+        column list at the top of zones.sql)."""
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            name_lower=row["name_lower"],
+            expansion_short=row["expansion_short"],
+            expansion_name=row["expansion_name"],
+            expansion_year=row["expansion_year"],
+            expansion_confidence=row["expansion_confidence"],
+            expansion_source=row["expansion_source"],
+            is_persistent_instance=bool(row["is_persistent_instance"]),
+            is_endless_persistent=bool(row["is_endless_persistent"]),
+            is_tradeskill=bool(row["is_tradeskill"]),
+            is_pvp=bool(row["is_pvp"]),
+            is_openworld=bool(row["is_openworld"]),
+            is_instance=bool(row["is_instance"]),
+            is_live_event=bool(row["is_live_event"]),
+            is_city=bool(row["is_city"]),
+            is_contested=bool(row["is_contested"]),
+            is_deprecated=bool(row["is_deprecated"]),
+            event_name=row["event_name"],
+            wiki_url=row["wiki_url"],
+            types=[r[0] for r in conn.execute(_SQL["list_types_for_zone"], (row["id"],))],
+            aliases=[r[0] for r in conn.execute(_SQL["list_aliases_for_zone"], (row["id"],))],
+            bosses=ZoneEncounter._list_for_zone_id(conn, row["id"]),
+        )
+
+    def to_dict(self) -> dict:
+        """Legacy hydrated-zone dict shape — drop-in for the result of the
+        former ``_hydrate_zone()`` helper. Bools come back as Python
+        bools; bosses are flattened to dicts with mob ids (the editor
+        frontend targets individual mob rows for rename/promote/delete)."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "name_lower": self.name_lower,
+            "expansion_short": self.expansion_short,
+            "expansion_name": self.expansion_name,
+            "expansion_year": self.expansion_year,
+            "expansion_confidence": self.expansion_confidence,
+            "expansion_source": self.expansion_source,
+            "is_persistent_instance": self.is_persistent_instance,
+            "is_endless_persistent": self.is_endless_persistent,
+            "is_tradeskill": self.is_tradeskill,
+            "is_pvp": self.is_pvp,
+            "is_openworld": self.is_openworld,
+            "is_instance": self.is_instance,
+            "is_live_event": self.is_live_event,
+            "is_city": self.is_city,
+            "is_contested": self.is_contested,
+            "is_deprecated": self.is_deprecated,
+            "event_name": self.event_name,
+            "wiki_url": self.wiki_url,
+            "types": list(self.types),
+            "aliases": list(self.aliases),
+            "bosses": [enc.to_dict(with_mob_ids=True) for enc in self.bosses],
+        }
+
+    # -----------------------------------------------------------------
+    # Lookups
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def find_by_id(cls, zone_id: int, path: Path = DB_PATH) -> Zone | None:
+        """Single-zone fetch by primary key. None if not found."""
+        if not path.exists():
+            return None
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
+                (zone_id,),
+            ).fetchone()
+            return cls._from_row(conn, row) if row else None
+
+    @classmethod
+    def find_by_name(cls, name: str, path: Path = DB_PATH) -> Zone | None:
+        """Resolve a zone by name, falling back to the alias table.
+
+        Lookup order:
+          1. Exact canonical match (case-insensitive).
+          2. Exact alias match (case-insensitive) → returns the canonical zone.
+
+        ACT log lookups should use this — the alias table covers the
+        "with-The vs without-The" wiki dup pairs."""
+        if not path.exists() or not name:
+            return None
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
+                (name.lower(),),
+            ).fetchone()
+            if row is None:
+                alias_row = conn.execute(_SQL["find_zone_id_by_alias"], (name.lower(),)).fetchone()
+                if alias_row is None:
+                    return None
+                row = conn.execute(
+                    _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
+                    (alias_row[0],),
+                ).fetchone()
+                if row is None:
+                    return None  # orphaned alias — shouldn't happen with FKs
+            return cls._from_row(conn, row)
+
+    @classmethod
+    def list_by_expansion(
+        cls,
+        expansion_short: str,
+        *,
+        type_filter: str | None = None,
+        path: Path = DB_PATH,
+    ) -> list[Zone]:
+        """All zones in an expansion, ordered by name. Optionally filter
+        to a single type token (e.g. 'raid_x4', 'group', 'tradeskill')."""
+        if not path.exists():
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            if type_filter:
+                rows = conn.execute(
+                    _SQL["list_zones_by_expansion_typed"].format(cols=_SELECT_COLS),
+                    (expansion_short, type_filter),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    _SQL["list_zones_by_expansion"].format(cols=_SELECT_COLS),
+                    (expansion_short,),
+                ).fetchall()
+            return [cls._from_row(conn, r) for r in rows]
+
+    @classmethod
+    def list_by_event(cls, event_name: str, path: Path = DB_PATH) -> list[Zone]:
+        """All zones for a recurring in-game event (Tinkerfest, Frostfell)."""
+        if not path.exists():
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                _SQL["list_zones_by_event"].format(cols=_SELECT_COLS),
+                (event_name,),
+            ).fetchall()
+            return [cls._from_row(conn, r) for r in rows]
+
+    @classmethod
+    def list_by_type(cls, type_token: str, path: Path = DB_PATH) -> list[Zone]:
+        """All zones tagged with a given type token across all expansions."""
+        if not path.exists():
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                _SQL["list_zones_by_type"].format(cols=_SELECT_COLS),
+                (type_token,),
+            ).fetchall()
+            return [cls._from_row(conn, r) for r in rows]
+
+    @classmethod
+    def find_by_boss(cls, mob_name: str, path: Path = DB_PATH) -> list[Zone]:
+        """Reverse lookup: which zone(s) host a given raid boss?
+
+        Joins through zone_encounter_mobs so individual mob names inside
+        a group encounter all resolve (querying for any one of the four
+        mobs in a 4-mob group finds the encounter and its zone).
+
+        Returns a list because the same mob name can appear in multiple
+        zones (Fabled variants, multi-instance bosses)."""
+        if not path.exists() or not mob_name:
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                _SQL["list_zones_by_boss"].format(cols=_SELECT_COLS),
+                (mob_name.lower(),),
+            ).fetchall()
+            return [cls._from_row(conn, r) for r in rows]
+
+    # -----------------------------------------------------------------
+    # zone_types mutations
+    # -----------------------------------------------------------------
+
+    def add_type(self, type_token: str, path: Path = DB_PATH) -> Zone:
+        """Add a type tag (e.g. 'dungeon') to this zone. Idempotent —
+        adding the same tag twice is a no-op (INSERT OR IGNORE against
+        the PK). Returns a freshly-loaded Zone reflecting the new tag
+        list (the frozen dataclass is immutable, so the in-memory ``self``
+        is left untouched)."""
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute(_SQL["insert_zone_type_or_ignore"], (self.id, type_token))
+            conn.commit()
+            row = conn.execute(
+                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
+                (self.id,),
+            ).fetchone()
+            # The row will exist — this zone was loaded from a SELECT and
+            # we just held it in memory; nothing deletes it concurrently.
+            return Zone._from_row(conn, row)
+
+    def remove_type(self, type_token: str, path: Path = DB_PATH) -> Zone:
+        """Remove a type tag from this zone. Idempotent — a no-op when
+        the tag isn't present. Returns a freshly-loaded Zone reflecting
+        the updated tag list."""
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute(_SQL["delete_zone_type"], (self.id, type_token))
+            conn.commit()
+            row = conn.execute(
+                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
+                (self.id,),
+            ).fetchone()
+            return Zone._from_row(conn, row)
+
+
+# ---------------------------------------------------------------------------
+# Back-compat free-function shims (Zone lookups + type mutations)
+# ---------------------------------------------------------------------------
+# Routes + tests + featured-raid hydration paths call these directly with
+# the legacy dict / list[dict] contracts. They delegate to the Zone model
+# above and convert to the historical hydrated-dict shape. Once callers
+# migrate to the Zone instance API, these can be deleted.
 
 
 def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
-    """Convert a zones row + sub-queries for types/aliases/bosses into a dict.
-
-    The ``bosses`` array is now built via ``ZoneEncounter._list_for_zone_id``
-    + ``.to_dict(with_mob_ids=True)``: same SQL, same shape, but the build
-    sequence lives in one place. (Pre-refactor the encounter-and-mob
-    hydration was inlined here AND in ``list_bosses_for_zone``, which made
-    drift inevitable.)"""
-    d = dict(row)
-    # Booleans as Python bools for ergonomics
-    for k in (
-        "is_persistent_instance",
-        "is_endless_persistent",
-        "is_tradeskill",
-        "is_pvp",
-        "is_openworld",
-        "is_instance",
-        "is_live_event",
-        "is_city",
-        "is_contested",
-        "is_deprecated",
-    ):
-        d[k] = bool(d.get(k))
-    d["types"] = [r[0] for r in conn.execute(_SQL["list_types_for_zone"], (d["id"],))]
-    d["aliases"] = [r[0] for r in conn.execute(_SQL["list_aliases_for_zone"], (d["id"],))]
-    d["bosses"] = [enc.to_dict(with_mob_ids=True) for enc in ZoneEncounter._list_for_zone_id(conn, d["id"])]
-    return d
+    """Build the legacy hydrated-zone dict from a `zones`-table row +
+    side queries for types/aliases/bosses. Now a thin wrapper around
+    ``Zone._from_row(conn, row).to_dict()`` — same SQL, same shape, no
+    drift risk. Still callable with an externally-managed connection
+    (used by the featured-raid shims to share the same DB conn across
+    multiple zones)."""
+    return Zone._from_row(conn, row).to_dict()
 
 
 def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
-    """Resolve a zone by name.
-
-    Lookup order:
-      1. Exact canonical match (case-insensitive).
-      2. Exact alias match (case-insensitive) → returns the canonical zone.
-
-    Returns None on miss. ACT log lookups should call this — the alias
-    table covers the "with-The vs without-The" wiki dup pairs.
-    """
-    if not path.exists() or not name:
-        return None
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
-            (name.lower(),),
-        ).fetchone()
-        if row is None:
-            alias_row = conn.execute(
-                _SQL["find_zone_id_by_alias"],
-                (name.lower(),),
-            ).fetchone()
-            if alias_row is None:
-                return None
-            row = conn.execute(
-                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
-                (alias_row[0],),
-            ).fetchone()
-            if row is None:
-                return None  # orphaned alias — shouldn't happen with FKs
-        return _hydrate_zone(conn, row)
+    """Resolve a zone by name (canonical → alias fallback). Returns the
+    legacy hydrated dict, or None on miss."""
+    z = Zone.find_by_name(name, path=path)
+    return z.to_dict() if z is not None else None
 
 
 def list_by_expansion(
@@ -272,49 +498,18 @@ def list_by_expansion(
     type_filter: str | None = None,
     path: Path = DB_PATH,
 ) -> list[dict]:
-    """All zones in an expansion. Optionally filter to a single type
-    token (e.g. 'raid_x4', 'group', 'tradeskill'). Ordered by name."""
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        if type_filter:
-            rows = conn.execute(
-                _SQL["list_zones_by_expansion_typed"].format(cols=_SELECT_COLS),
-                (short, type_filter),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                _SQL["list_zones_by_expansion"].format(cols=_SELECT_COLS),
-                (short,),
-            ).fetchall()
-        return [_hydrate_zone(conn, r) for r in rows]
+    """All zones in an expansion as legacy hydrated dicts. ``type_filter``
+    stays positional for the existing call sites; the model exposes it as
+    a keyword-only argument."""
+    return [z.to_dict() for z in Zone.list_by_expansion(short, type_filter=type_filter, path=path)]
 
 
 def list_by_event(event_name: str, path: Path = DB_PATH) -> list[dict]:
-    """All zones for a recurring event (e.g. 'Tinkerfest', 'Frostfell')."""
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            _SQL["list_zones_by_event"].format(cols=_SELECT_COLS),
-            (event_name,),
-        ).fetchall()
-        return [_hydrate_zone(conn, r) for r in rows]
+    return [z.to_dict() for z in Zone.list_by_event(event_name, path=path)]
 
 
 def list_by_type(type_token: str, path: Path = DB_PATH) -> list[dict]:
-    """All zones tagged with a given type token across all expansions."""
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            _SQL["list_zones_by_type"].format(cols=_SELECT_COLS),
-            (type_token,),
-        ).fetchall()
-        return [_hydrate_zone(conn, r) for r in rows]
+    return [z.to_dict() for z in Zone.list_by_type(type_token, path=path)]
 
 
 # ---------------------------------------------------------------------------
@@ -344,23 +539,8 @@ def list_bosses_for_zone(zone_name: str, path: Path = DB_PATH) -> list[dict]:
 
 def find_zones_by_boss(mob_name: str, path: Path = DB_PATH) -> list[dict]:
     """Reverse lookup: which zone(s) host a given raid boss?
-
-    Joins through zone_encounter_mobs so individual mob names inside a
-    group encounter all resolve (querying for any one of the four mobs
-    in a 4-mob group finds the encounter and its zone).
-
-    Returns a list because the same mob name can appear in multiple
-    zones (Fabled variants, multi-instance bosses).
-    """
-    if not path.exists() or not mob_name:
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            _SQL["list_zones_by_boss"].format(cols=_SELECT_COLS),
-            (mob_name.lower(),),
-        ).fetchall()
-        return [_hydrate_zone(conn, r) for r in rows]
+    Back-compat shim — see ``Zone.find_by_boss``."""
+    return [z.to_dict() for z in Zone.find_by_boss(mob_name, path=path)]
 
 
 def list_expansions(path: Path = DB_PATH) -> list[dict]:
@@ -980,40 +1160,13 @@ def delete_encounter(encounter_id: int, path: Path = DB_PATH) -> bool:
 
 
 def add_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict | None:
-    """Add a type tag (e.g. 'dungeon') to a zone. Idempotent — adding the
-    same tag twice is a no-op (INSERT OR IGNORE against the PK).
-
-    Returns the hydrated zone dict (same shape as find_by_name) after the
-    mutation, or None if the zone_name doesn't resolve. Route layer is
-    responsible for turning None into a 404."""
-    if not path.exists() or not zone_name:
+    """Add a type tag (e.g. 'dungeon') to a zone. Back-compat shim —
+    see ``Zone.add_type``. Returns None if the zone_name doesn't resolve;
+    route layer is responsible for turning that into a 404."""
+    z = Zone.find_by_name(zone_name, path=path)
+    if z is None:
         return None
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        row = conn.execute(
-            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
-            (zone_name.lower(),),
-        ).fetchone()
-        if row is None:
-            alias_row = conn.execute(
-                _SQL["find_zone_id_by_alias"],
-                (zone_name.lower(),),
-            ).fetchone()
-            if alias_row is None:
-                return None
-            row = conn.execute(
-                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
-                (alias_row[0],),
-            ).fetchone()
-            if row is None:
-                return None
-        conn.execute(
-            _SQL["insert_zone_type_or_ignore"],
-            (row["id"], type_token),
-        )
-        conn.commit()
-        return _hydrate_zone(conn, row)
+    return z.add_type(type_token, path=path).to_dict()
 
 
 # ---------------------------------------------------------------------------
@@ -1484,34 +1637,9 @@ def reorder_featured_raid_categories(expansion_short: str, ordering: list[dict],
 
 
 def remove_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict | None:
-    """Remove a type tag from a zone. Idempotent — a no-op when the tag
-    isn't present. Returns the hydrated zone dict after the mutation, or
-    None if the zone_name doesn't resolve (route layer maps to 404)."""
-    if not path.exists() or not zone_name:
+    """Remove a type tag from a zone. Back-compat shim — see
+    ``Zone.remove_type``."""
+    z = Zone.find_by_name(zone_name, path=path)
+    if z is None:
         return None
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        row = conn.execute(
-            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
-            (zone_name.lower(),),
-        ).fetchone()
-        if row is None:
-            alias_row = conn.execute(
-                _SQL["find_zone_id_by_alias"],
-                (zone_name.lower(),),
-            ).fetchone()
-            if alias_row is None:
-                return None
-            row = conn.execute(
-                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
-                (alias_row[0],),
-            ).fetchone()
-            if row is None:
-                return None
-        conn.execute(
-            _SQL["delete_zone_type"],
-            (row["id"], type_token),
-        )
-        conn.commit()
-        return _hydrate_zone(conn, row)
+    return z.remove_type(type_token, path=path).to_dict()
