@@ -10,6 +10,7 @@ from typing import Any, NamedTuple
 import aiosqlite
 
 from backend.census.item_level import compute_ilvl
+from backend.eq2db import _meta as _meta_db
 from backend.eq2db.classes import (
     ARCHETYPE_GROUPS as _ARCHETYPE_GROUPS_SRC,
 )
@@ -19,6 +20,9 @@ from backend.eq2db.classes import (
 from backend.eq2db.classes import (
     SUBCLASS_GROUPS as _SUBCLASS_GROUPS_SRC,
 )
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
@@ -120,179 +124,7 @@ def compute_class_label(classes: dict | None) -> str | None:
     return " / ".join(parts) if parts else None
 
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_META = """
-CREATE TABLE IF NOT EXISTS _meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
-
-_CREATE_TABLE = """
-CREATE TABLE IF NOT EXISTS items (
-    -- Identity
-    id                   INTEGER PRIMARY KEY,
-    displayname          TEXT NOT NULL,
-    displayname_lower    TEXT NOT NULL,
-    gamelink             TEXT,
-    description          TEXT,
-    last_update          INTEGER,
-
-    -- Quality / classification
-    tier                 TEXT,
-    tierid               INTEGER,
-    type                 TEXT,
-    typeid               INTEGER,
-    item_level           INTEGER,
-    level_to_use         INTEGER,
-    planar_level         INTEGER,
-    ilvl                 REAL,          -- WoW-style item level; NULL for non-gear
-    icon_id              INTEGER,
-    max_stack_size       INTEGER,
-
-    -- Primary slot (slot_list[0].name for quick filtering)
-    slot                 TEXT,
-
-    -- Armor
-    armor_class_min      INTEGER,
-    armor_class_max      INTEGER,
-
-    -- Weapon (from typeinfo)
-    damage_min           INTEGER,
-    damage_max           INTEGER,
-    damage_base          INTEGER,
-    damage_type          TEXT,
-    damage_type_id       INTEGER,
-    damage_rating        REAL,
-    delay                REAL,
-    wield_style          TEXT,
-
-    -- Spell scroll / ability (from typeinfo)
-    spell_name           TEXT,
-    spell_tier_id        INTEGER,
-    spell_cast_time      REAL,
-    spell_recast_time    REAL,
-    spell_duration       REAL,
-
-    -- Ranged weapon
-    weapon_range_min     REAL,
-    weapon_range_max     REAL,
-
-    -- Food / drink / consumable (from typeinfo)
-    food_duration        TEXT,
-    food_satiation       TEXT,
-    food_level           INTEGER,
-
-    -- Adornment (from typeinfo)
-    adornment_color      TEXT,
-
-    -- Container / house item (from typeinfo)
-    container_slots      INTEGER,
-    status_reduction     INTEGER,
-
-    -- Charges
-    max_charges          INTEGER,    -- -1 = unlimited
-
-    -- Requirements
-    required_skill_name  TEXT,
-    required_skill_min   INTEGER,
-
-    -- Set bonus
-    setbonus_name        TEXT,
-
-    -- Unique equipment group (prestige slot-limit sets)
-    unique_equip_group         TEXT,
-    unique_equip_wearable_count INTEGER,
-    unique_equip_prestige      INTEGER DEFAULT 0,
-
-    -- Quest links
-    associated_quest     INTEGER,
-    autoquest            INTEGER,
-
-    -- Discovery (first seen on any world)
-    first_discovered     INTEGER,
-
-    -- Visibility (0 = hidden/disabled item, 1 = normal)
-    visible              INTEGER DEFAULT 1,
-
-    -- Typeinfo summary columns (queryable without parsing typeinfo_json)
-    typeinfo_name                TEXT,       -- e.g. "Armor", "Weapon", "Spell Scroll"
-    classes_json                 TEXT,       -- JSON array/object of allowed classes
-    physical_damage_absorption   INTEGER,    -- armour mitigation value
-
-    -- Pre-computed class label and count (derived from classes_json)
-    class_label          TEXT,              -- e.g. "All Classes", "All Priests", "Guardian"
-    class_count          INTEGER,           -- number of classes that can use this item
-
-    -- Resolved tier name: tier if set, otherwise 'COMMON' for tierid 0/1/2
-    tier_display         TEXT,
-
-    -- Armor proficiency / spell scroll extras (from typeinfo)
-    skill_type           TEXT,              -- e.g. "heavyarmor", "mediumarmor", "magicaffinity"
-    spell_target         TEXT,              -- e.g. "Enemy", "Caster", "Group (AE)"
-    spell_range          TEXT,              -- e.g. "Up to 25.0 meters"
-    spell_power_cost     INTEGER,           -- power cost to cast
-    spell_resistability  TEXT,              -- e.g. "25.2% Easier", "na"
-
-    -- Common flags as fast-filter booleans
-    flag_heirloom        INTEGER DEFAULT 0,
-    flag_lore            INTEGER DEFAULT 0,
-    flag_lore_equip      INTEGER DEFAULT 0,
-    flag_no_trade        INTEGER DEFAULT 0,
-    flag_no_value        INTEGER DEFAULT 0,
-    flag_no_zone         INTEGER DEFAULT 0,
-    flag_prestige        INTEGER DEFAULT 0,
-    flag_relic           INTEGER DEFAULT 0,
-    flag_attunable       INTEGER DEFAULT 0,
-    flag_ornate          INTEGER DEFAULT 0,
-    flag_refined         INTEGER DEFAULT 0,
-    flag_infusable       INTEGER DEFAULT 0,
-    flag_indestructible  INTEGER DEFAULT 0,
-    flag_pvp             INTEGER DEFAULT 0,  -- 1 = PvP item (has pvp stats or pvp effect text)
-
-    -- Full raw Census JSON — used by _parse_item(); all nested data lives here
-    raw_json             TEXT
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_name        ON items(displayname_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_tier        ON items(tier);",
-    "CREATE INDEX IF NOT EXISTS idx_typeid      ON items(typeid);",
-    "CREATE INDEX IF NOT EXISTS idx_level       ON items(level_to_use);",
-    "CREATE INDEX IF NOT EXISTS idx_item_level  ON items(item_level);",
-    "CREATE INDEX IF NOT EXISTS idx_slot        ON items(slot);",
-    "CREATE INDEX IF NOT EXISTS idx_icon        ON items(icon_id);",
-    "CREATE INDEX IF NOT EXISTS idx_last_update ON items(last_update);",
-    "CREATE INDEX IF NOT EXISTS idx_adorn_color ON items(adornment_color);",
-    "CREATE INDEX IF NOT EXISTS idx_visible     ON items(visible);",
-    "CREATE INDEX IF NOT EXISTS idx_ti_name     ON items(typeinfo_name);",
-    "CREATE INDEX IF NOT EXISTS idx_class_label ON items(class_label);",
-    "CREATE INDEX IF NOT EXISTS idx_skill_type  ON items(skill_type);",
-    "CREATE INDEX IF NOT EXISTS idx_tier_disp   ON items(tier_display);",
-]
-
-# ---------------------------------------------------------------------------
-# item_stats table  (one row per item × canonical stat name)
-# ---------------------------------------------------------------------------
-
-_CREATE_ITEM_STATS = """
-CREATE TABLE IF NOT EXISTS item_stats (
-    item_id  INTEGER NOT NULL,
-    stat     TEXT    NOT NULL,   -- canonical display name e.g. "Ability Mod"
-    value    REAL    NOT NULL,
-    PRIMARY KEY (item_id, stat)
-);
-"""
-
-_CREATE_STAT_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_stat_name  ON item_stats(stat);",
-    "CREATE INDEX IF NOT EXISTS idx_stat_item  ON item_stats(item_id);",
-    "CREATE INDEX IF NOT EXISTS idx_stat_nv    ON item_stats(stat, value);",
-]
+# Schema (CREATE TABLE / INDEX) lives in items.sql; init_db runs each block.
 
 # Columns added after initial schema — used by init_db() to migrate existing DBs
 _MIGRATIONS = [
@@ -313,57 +145,7 @@ _MIGRATIONS = [
     ("ilvl", "REAL"),
 ]
 
-_UPSERT_SQL = """
-INSERT OR REPLACE INTO items (
-    id, displayname, displayname_lower, gamelink, description, last_update,
-    tier, tierid, type, typeid, item_level, level_to_use, planar_level, ilvl, icon_id, max_stack_size,
-    slot,
-    armor_class_min, armor_class_max,
-    damage_min, damage_max, damage_base, damage_type, damage_type_id, damage_rating, delay, wield_style,
-    weapon_range_min, weapon_range_max,
-    spell_name, spell_tier_id, spell_cast_time, spell_recast_time, spell_duration,
-    food_duration, food_satiation, food_level,
-    adornment_color,
-    container_slots, status_reduction,
-    max_charges,
-    setbonus_name,
-    unique_equip_group, unique_equip_wearable_count, unique_equip_prestige,
-    required_skill_name, required_skill_min,
-    associated_quest, autoquest, first_discovered,
-    visible, typeinfo_name, classes_json, physical_damage_absorption,
-    class_label, class_count,
-    tier_display,
-    skill_type, spell_target, spell_range, spell_power_cost, spell_resistability,
-    flag_heirloom, flag_lore, flag_lore_equip, flag_no_trade, flag_no_value,
-    flag_no_zone, flag_prestige, flag_relic, flag_attunable, flag_ornate,
-    flag_refined, flag_infusable, flag_indestructible, flag_pvp,
-    raw_json, classification_list
-) VALUES (
-    :id, :displayname, :displayname_lower, :gamelink, :description, :last_update,
-    :tier, :tierid, :type, :typeid, :item_level, :level_to_use, :planar_level, :ilvl, :icon_id, :max_stack_size,
-    :slot,
-    :armor_class_min, :armor_class_max,
-    :damage_min, :damage_max, :damage_base, :damage_type, :damage_type_id, :damage_rating, :delay, :wield_style,
-    :weapon_range_min, :weapon_range_max,
-    :spell_name, :spell_tier_id, :spell_cast_time, :spell_recast_time, :spell_duration,
-    :food_duration, :food_satiation, :food_level,
-    :adornment_color,
-    :container_slots, :status_reduction,
-    :max_charges,
-    :setbonus_name,
-    :unique_equip_group, :unique_equip_wearable_count, :unique_equip_prestige,
-    :required_skill_name, :required_skill_min,
-    :associated_quest, :autoquest, :first_discovered,
-    :visible, :typeinfo_name, :classes_json, :physical_damage_absorption,
-    :class_label, :class_count,
-    :tier_display,
-    :skill_type, :spell_target, :spell_range, :spell_power_cost, :spell_resistability,
-    :flag_heirloom, :flag_lore, :flag_lore_equip, :flag_no_trade, :flag_no_value,
-    :flag_no_zone, :flag_prestige, :flag_relic, :flag_attunable, :flag_ornate,
-    :flag_refined, :flag_infusable, :flag_indestructible, :flag_pvp,
-    :raw_json, :classification_list
-)
-"""
+# DML for items / item_stats lives in items.sql; _SQL is loaded above.
 
 
 # ---------------------------------------------------------------------------
@@ -649,20 +431,18 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute(_CREATE_META)
-    conn.execute(_CREATE_TABLE)
-    # Migrate existing DBs: add any columns introduced after initial creation
-    # Must run BEFORE index creation so new indexes on new columns don't fail
+    _meta_db.create_table(conn)
+    conn.execute(_SQL["schema_items"])
+    # Migrate existing DBs: add any columns introduced after initial creation.
+    # Must run BEFORE index creation so new indexes on new columns don't fail.
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(items)")}
     for col_name, col_def in _MIGRATIONS:
         if col_name not in existing_cols:
-            conn.execute(f"ALTER TABLE items ADD COLUMN {col_name} {col_def}")
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+            conn.execute(_SQL["migration_add_column"].format(col=col_name, coltype=col_def))
+    conn.executescript(_SQL["indexes_items"])
     # Stats side-table
-    conn.execute(_CREATE_ITEM_STATS)
-    for idx in _CREATE_STAT_INDEXES:
-        conn.execute(idx)
+    conn.execute(_SQL["schema_item_stats"])
+    conn.executescript(_SQL["indexes_item_stats"])
     conn.commit()
     # Backfill flag_pvp for items that predate this column.
     # Uses LOWER(raw_json) LIKE '%pvp%' — catches both pvp stats and effect text.
@@ -684,12 +464,7 @@ def _backfill_classification_list(conn: sqlite3.Connection) -> None:
     Rows that already have a non-NULL value are left untouched, so this is
     a cheap no-op after the first successful run.
     """
-    conn.execute("""
-        UPDATE items
-        SET classification_list = json_extract(raw_json, '$.classification_list')
-        WHERE classification_list IS NULL
-          AND raw_json IS NOT NULL
-    """)
+    conn.execute(_SQL["backfill_classification_list"])
     conn.commit()
 
 
@@ -702,13 +477,7 @@ def _backfill_pvp_flag(conn: sqlite3.Connection) -> None:
     """
     if get_meta(conn, "pvp_backfill_version") == "1":
         return  # already done
-    conn.execute("""
-        UPDATE items
-        SET flag_pvp = 1
-        WHERE flag_pvp = 0
-          AND raw_json IS NOT NULL
-          AND LOWER(raw_json) LIKE '%pvp%'
-    """)
+    conn.execute(_SQL["backfill_pvp_flag"])
     set_meta(conn, "pvp_backfill_version", "1")
     conn.commit()
 
@@ -734,7 +503,7 @@ def _backfill_effect_stats(conn: sqlite3.Connection) -> None:
 
     conditions = " OR ".join("LOWER(raw_json) LIKE ?" for _ in keyword_hints)
     rows = conn.execute(
-        f"SELECT id, raw_json FROM items WHERE raw_json IS NOT NULL AND ({conditions})",
+        _SQL["select_raw_json_by_keyword"].format(conditions=conditions),
         [f"%{kw}%" for kw in keyword_hints],
     ).fetchall()
 
@@ -749,29 +518,20 @@ def _backfill_effect_stats(conn: sqlite3.Connection) -> None:
             stat_rows.append((item_id, stat_name, value))
 
     if stat_rows:
-        conn.executemany(
-            "INSERT OR IGNORE INTO item_stats (item_id, stat, value) VALUES (?, ?, ?)",
-            stat_rows,
-        )
+        conn.executemany(_SQL["insert_item_stat_ignore"], stat_rows)
 
     set_meta(conn, "effect_stats_version", _EFFECT_STATS_VERSION)
     conn.commit()
 
 
-def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
-    row = conn.execute("SELECT value FROM _meta WHERE key = ?", (key,)).fetchone()
-    return row[0] if row else default
-
-
-def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
+# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
+from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 
 
 def upsert_items(items: list[dict], conn: sqlite3.Connection) -> int:
     """Upsert a batch of raw Census item dicts. Returns number inserted/replaced."""
     rows = [item_to_row(item) for item in items]
-    conn.executemany(_UPSERT_SQL, rows)
+    conn.executemany(_SQL["upsert"], rows)
     # Maintain item_stats side-table.
     # Modifier stats (from `modifiers` dict) are inserted first with OR REPLACE.
     # Effect stats (parsed from effect_list text) are inserted second with OR IGNORE
@@ -787,21 +547,15 @@ def upsert_items(items: list[dict], conn: sqlite3.Connection) -> int:
         for stat_name, value in extract_effect_stats(item).items():
             effect_stat_rows.append((item_id, stat_name, value))
     if mod_stat_rows:
-        conn.executemany(
-            "INSERT OR REPLACE INTO item_stats (item_id, stat, value) VALUES (?, ?, ?)",
-            mod_stat_rows,
-        )
+        conn.executemany(_SQL["insert_item_stat_replace"], mod_stat_rows)
     if effect_stat_rows:
-        conn.executemany(
-            "INSERT OR IGNORE INTO item_stats (item_id, stat, value) VALUES (?, ?, ?)",
-            effect_stat_rows,
-        )
+        conn.executemany(_SQL["insert_item_stat_ignore"], effect_stat_rows)
     conn.commit()
     return len(rows)
 
 
 def item_count(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    return conn.execute(_SQL["count"]).fetchone()[0]
 
 
 class GearRow(NamedTuple):
@@ -825,7 +579,7 @@ def gear_for_ids(ids: list[int], db_path: Path = DB_PATH) -> dict[int, GearRow]:
     try:
         placeholders = ",".join("?" for _ in ids)
         rows = conn.execute(
-            f"SELECT id, ilvl, wield_style, level_to_use, tier_display FROM items WHERE id IN ({placeholders})",
+            _SQL["gear_for_ids"].format(placeholders=placeholders),
             ids,
         )
         return {row[0]: GearRow(row[1], row[2], row[3], row[4]) for row in rows}
@@ -860,9 +614,7 @@ async def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
             if SERVER_MAX_LEVEL is not None:
                 # Phase 1: valid for current expansion
                 async with db.execute(
-                    f"SELECT raw_json FROM items WHERE {where_clause}"
-                    "  AND (level_to_use IS NULL OR level_to_use <= ?)"
-                    "  ORDER BY level_to_use DESC, tierid DESC, last_update DESC LIMIT 1",
+                    _SQL["find_by_name_level_capped"].format(where=where_clause),
                     params + (SERVER_MAX_LEVEL,),
                 ) as cur:
                     row = await cur.fetchone()
@@ -870,14 +622,13 @@ async def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
                     return row
                 # Phase 2: nothing valid — return highest-level item anyway
                 async with db.execute(
-                    f"SELECT raw_json FROM items WHERE {where_clause}"
-                    "  ORDER BY level_to_use DESC, tierid DESC, last_update DESC LIMIT 1",
+                    _SQL["find_by_name_any_level"].format(where=where_clause),
                     params,
                 ) as cur:
                     return await cur.fetchone()
             else:
                 async with db.execute(
-                    f"SELECT raw_json FROM items WHERE {where_clause}  ORDER BY tierid DESC, last_update DESC LIMIT 1",
+                    _SQL["find_by_name_no_max_level"].format(where=where_clause),
                     params,
                 ) as cur:
                     return await cur.fetchone()
@@ -901,6 +652,6 @@ async def find_by_id(item_id: int, path: Path = DB_PATH) -> dict | None:
         return None
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT raw_json FROM items WHERE id = ? LIMIT 1", (item_id,)) as cur:
+        async with db.execute(_SQL["find_by_id_raw_json"], (item_id,)) as cur:
             row = await cur.fetchone()
         return json.loads(row["raw_json"]) if row else None

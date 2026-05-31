@@ -46,6 +46,11 @@ import sqlite3
 import time
 from pathlib import Path
 
+from backend.eq2db import _meta as _meta_db
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -71,185 +76,7 @@ VALID_SOURCES: frozenset[str] = frozenset({SOURCE_SCRAPE, SOURCE_MANUAL, SOURCE_
 
 
 # ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_META = """
-CREATE TABLE IF NOT EXISTS _meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
-
-_CREATE_RAID_ZONES = """
-CREATE TABLE IF NOT EXISTS raid_zones (
-    -- Identity
-    id              INTEGER PRIMARY KEY,
-    zone_name       TEXT    NOT NULL UNIQUE,   -- matches zones.db zones.name
-    zone_name_lower TEXT    NOT NULL,
-
-    -- Denormalised from zones.db (intentional duplication so this DB
-    -- is queryable standalone; if the canonical changes, re-run the
-    -- scraper / sync job to refresh).
-    expansion_short TEXT    NOT NULL,          -- 'Vanilla' / 'DoF' / 'KoS' / 'EoF' / 'RoK'
-    wiki_url        TEXT,
-
-    -- Zone-level metadata extracted from the IZoneInformation template
-    -- on the wiki. All optional — missing fields just stay NULL.
-    access_md       TEXT,                      -- how to get into the zone
-    background_md   TEXT,                      -- lore / "Background" wiki section
-    overview_md     TEXT,                      -- general zone-level tactics
-    level_range     TEXT,                      -- e.g. '72-75'
-    zdiff           TEXT,                      -- 'x4' / 'x2' / 'x3'
-    lockout_min     TEXT,                      -- e.g. '2 days 20 hours'
-    lockout_max     TEXT,                      -- e.g. '7 days'
-
-    -- Audit trail
-    source          TEXT    NOT NULL,          -- SOURCE_SCRAPE / SOURCE_MANUAL
-    last_synced_at  INTEGER,                   -- unix ts of last wiki re-scrape
-    last_edited_at  INTEGER,
-    last_edited_by  TEXT                       -- discord_id or 'eq2i_scrape'
-);
-"""
-
-_CREATE_RAID_ENCOUNTERS = """
-CREATE TABLE IF NOT EXISTS raid_encounters (
-    id              INTEGER PRIMARY KEY,
-    raid_zone_id    INTEGER NOT NULL REFERENCES raid_zones(id) ON DELETE CASCADE,
-    mob_name        TEXT    NOT NULL,
-    mob_name_lower  TEXT    NOT NULL,
-    position        INTEGER NOT NULL DEFAULT 0,   -- order within the zone
-
-    -- Free-form markdown strategy. Single blob deliberately — PoC
-    -- simplicity. If a structured pattern emerges (cures, dispels,
-    -- phases) we can split later without breaking callers.
-    strategy_md     TEXT,
-
-    wiki_url        TEXT,
-    source          TEXT    NOT NULL,
-    last_synced_at  INTEGER,
-    last_edited_at  INTEGER,
-    last_edited_by  TEXT,
-
-    UNIQUE (raid_zone_id, mob_name_lower)
-);
-"""
-
-_CREATE_REVISIONS = """
-CREATE TABLE IF NOT EXISTS raid_encounter_revisions (
-    id            INTEGER PRIMARY KEY,
-    encounter_id  INTEGER NOT NULL REFERENCES raid_encounters(id) ON DELETE CASCADE,
-    edited_at     INTEGER NOT NULL,
-    edited_by     TEXT    NOT NULL,              -- discord_id or scrape token
-    before_md     TEXT,                          -- previous strategy_md (NULL on create)
-    after_md      TEXT NOT NULL,                 -- new strategy_md
-    edit_note     TEXT                           -- optional commit-message style note
-);
-"""
-
-_CREATE_RAID_ZONE_REVISIONS = """
-CREATE TABLE IF NOT EXISTS raid_zone_revisions (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    raid_zone_id  INTEGER NOT NULL,
-    edited_at     INTEGER NOT NULL,
-    edited_by     TEXT    NOT NULL,              -- discord_id or scrape token
-    before_md     TEXT,                          -- NULL on the very first row (seed)
-    after_md      TEXT    NOT NULL,
-    edit_note     TEXT,                          -- optional commit-style note
-    FOREIGN KEY (raid_zone_id) REFERENCES raid_zones (id) ON DELETE CASCADE
-);
-"""
-
-# ACT Triggers — regex-driven matchers a player imports into Advanced Combat
-# Tracker to react to in-game log lines (boss callouts, debuffs, mechanic
-# triggers). One row maps 1:1 to a <Trigger> element in ACT's
-# `spell_timers.xml` export format (column names mirror XML attributes via
-# snake_case).
-#
-# A trigger with `timer=1` references an entry in `act_spell_timers` by
-# `timer_name`; on XML export both rows are emitted so the dropped file
-# round-trips in ACT without manual fix-up.
-_CREATE_ACT_TRIGGERS = """
-CREATE TABLE IF NOT EXISTS act_triggers (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    raid_encounter_id   INTEGER NOT NULL REFERENCES raid_encounters(id) ON DELETE CASCADE,
-
-    -- Display / curation (web-only — no XML counterpart)
-    position            INTEGER NOT NULL DEFAULT 0,    -- ordering within encounter
-    label               TEXT,                          -- human-readable summary line; falls back to sound_data/regex preview
-    notes               TEXT,                          -- contributor explanation, never exported
-
-    -- ACT <Trigger> attributes (9 fields)
-    active              INTEGER NOT NULL DEFAULT 1,
-    regex               TEXT    NOT NULL,
-    sound_data          TEXT    NOT NULL DEFAULT '',
-    sound_type          INTEGER NOT NULL DEFAULT 3,    -- 3 = TTS, 0 = silent / file
-    category_restrict   INTEGER NOT NULL DEFAULT 0,
-    category            TEXT,                          -- defaults to mob_name at write time
-    timer               INTEGER NOT NULL DEFAULT 0,
-    timer_name          TEXT,                          -- loose name-FK into act_spell_timers (same encounter)
-    tabbed              INTEGER NOT NULL DEFAULT 0,
-
-    -- Audit
-    last_edited_at      INTEGER,
-    last_edited_by      TEXT,
-    created_at          INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-);
-"""
-
-# ACT Spell Timers — named timer definitions referenced by `act_triggers`
-# via `timer_name`. One row maps 1:1 to a <Spell> element in ACT's
-# spell_timers.xml. Multiple triggers MAY reference the same timer name
-# within an encounter (DRY); export deduplicates by name.
-_CREATE_ACT_SPELL_TIMERS = """
-CREATE TABLE IF NOT EXISTS act_spell_timers (
-    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-    raid_encounter_id    INTEGER NOT NULL REFERENCES raid_encounters(id) ON DELETE CASCADE,
-
-    -- Identity (Name is what triggers reference via TimerName)
-    name                 TEXT NOT NULL,
-    name_lower           TEXT NOT NULL,
-
-    -- ACT <Spell> attributes (17 fields)
-    checked              INTEGER NOT NULL DEFAULT 0,
-    timer_duration_s     INTEGER NOT NULL,             -- "Timer" attribute in XML
-    only_master_ticks    INTEGER NOT NULL DEFAULT 0,
-    restrict             INTEGER NOT NULL DEFAULT 0,
-    absolute_            INTEGER NOT NULL DEFAULT 0,   -- "Absolute" — column name disambiguated from SQL keyword
-    start_wav            TEXT    NOT NULL DEFAULT '',
-    warning_wav          TEXT    NOT NULL DEFAULT '',
-    warning_value        INTEGER NOT NULL DEFAULT 10,
-    radial_display       INTEGER NOT NULL DEFAULT 0,
-    modable              INTEGER NOT NULL DEFAULT 0,
-    tooltip              TEXT    NOT NULL DEFAULT '',
-    fill_color           INTEGER NOT NULL DEFAULT -16776961,  -- ACT default blue (.NET ARGB packed int)
-    panel1               INTEGER NOT NULL DEFAULT 1,
-    panel2               INTEGER NOT NULL DEFAULT 0,
-    remove_value         INTEGER NOT NULL DEFAULT -15,
-    category             TEXT,                          -- defaults to mob_name at write time
-    restrict_category    INTEGER NOT NULL DEFAULT 0,
-
-    -- Audit
-    last_edited_at       INTEGER,
-    last_edited_by       TEXT,
-    created_at           INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-
-    UNIQUE (raid_encounter_id, name_lower)
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_raid_zones_name_lower  ON raid_zones (zone_name_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_raid_zones_expansion   ON raid_zones (expansion_short);",
-    "CREATE INDEX IF NOT EXISTS idx_raid_enc_zone          ON raid_encounters (raid_zone_id, position);",
-    "CREATE INDEX IF NOT EXISTS idx_raid_enc_mob_lower     ON raid_encounters (mob_name_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_raid_rev_encounter     ON raid_encounter_revisions (encounter_id, edited_at);",
-    "CREATE INDEX IF NOT EXISTS idx_raid_zone_rev_zone     ON raid_zone_revisions (raid_zone_id, edited_at);",
-    "CREATE INDEX IF NOT EXISTS idx_act_triggers_enc       ON act_triggers (raid_encounter_id, position);",
-    "CREATE INDEX IF NOT EXISTS idx_act_triggers_timer     ON act_triggers (raid_encounter_id, timer_name);",
-    "CREATE INDEX IF NOT EXISTS idx_act_spell_timers_enc   ON act_spell_timers (raid_encounter_id);",
-]
-
+# Schema (CREATE TABLE / INDEX) lives in raids.sql; init_db runs each block.
 
 # ---------------------------------------------------------------------------
 # DB management
@@ -265,28 +92,20 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous  = NORMAL;")
     conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute(_CREATE_META)
-    conn.execute(_CREATE_RAID_ZONES)
-    conn.execute(_CREATE_RAID_ZONE_REVISIONS)
-    conn.execute(_CREATE_RAID_ENCOUNTERS)
-    conn.execute(_CREATE_REVISIONS)
-    conn.execute(_CREATE_ACT_TRIGGERS)
-    conn.execute(_CREATE_ACT_SPELL_TIMERS)
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+    _meta_db.create_table(conn)
+    conn.execute(_SQL["schema_raid_zones"])
+    conn.execute(_SQL["schema_raid_zone_revisions"])
+    conn.execute(_SQL["schema_raid_encounters"])
+    conn.execute(_SQL["schema_raid_encounter_revisions"])
+    conn.execute(_SQL["schema_act_triggers"])
+    conn.execute(_SQL["schema_act_spell_timers"])
+    conn.executescript(_SQL["indexes_all"])
     conn.commit()
     return conn
 
 
-def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
-    row = conn.execute("SELECT value FROM _meta WHERE key = ?", (key,)).fetchone()
-    return row[0] if row else default
-
-
-def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
-
+# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
+from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 
 # ---------------------------------------------------------------------------
 # Write helpers
@@ -336,7 +155,7 @@ def upsert_raid_zone(
     now = int(time.time())
     last_synced = now if source == SOURCE_SCRAPE else None
 
-    existing = conn.execute("SELECT id, source FROM raid_zones WHERE zone_name = ?", (zone_name,)).fetchone()
+    existing = conn.execute(_SQL["select_zone_by_name"], (zone_name,)).fetchone()
 
     if existing and source == SOURCE_SCRAPE and existing[1] == SOURCE_MANUAL:
         # Re-scrape against a human-edited row: refresh the wiki-owned
@@ -345,17 +164,7 @@ def upsert_raid_zone(
         # level for now; future raid_zone_revisions table is the right
         # home for tracking these.
         conn.execute(
-            """
-            UPDATE raid_zones SET
-                expansion_short = ?,
-                wiki_url        = ?,
-                level_range     = ?,
-                zdiff           = ?,
-                lockout_min     = ?,
-                lockout_max     = ?,
-                last_synced_at  = ?
-            WHERE id = ?
-            """,
+            _SQL["update_zone_wiki_fields"],
             (
                 expansion_short,
                 wiki_url,
@@ -382,27 +191,7 @@ def upsert_raid_zone(
     # targeted UPDATE (see _update_overview_sync) — that's the right code
     # path for destructive writes.
     conn.execute(
-        """
-        INSERT INTO raid_zones (
-            zone_name, zone_name_lower,
-            expansion_short, wiki_url,
-            access_md, background_md, overview_md,
-            level_range, zdiff, lockout_min, lockout_max,
-            source, last_synced_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(zone_name) DO UPDATE SET
-            expansion_short = COALESCE(excluded.expansion_short, raid_zones.expansion_short),
-            wiki_url        = COALESCE(excluded.wiki_url,        raid_zones.wiki_url),
-            access_md       = COALESCE(excluded.access_md,       raid_zones.access_md),
-            background_md   = COALESCE(excluded.background_md,   raid_zones.background_md),
-            overview_md     = COALESCE(excluded.overview_md,     raid_zones.overview_md),
-            level_range     = COALESCE(excluded.level_range,     raid_zones.level_range),
-            zdiff           = COALESCE(excluded.zdiff,           raid_zones.zdiff),
-            lockout_min     = COALESCE(excluded.lockout_min,     raid_zones.lockout_min),
-            lockout_max     = COALESCE(excluded.lockout_max,     raid_zones.lockout_max),
-            source          = excluded.source,
-            last_synced_at  = COALESCE(excluded.last_synced_at,  raid_zones.last_synced_at)
-        """,
+        _SQL["upsert_zone"],
         (
             zone_name,
             zone_name.lower(),
@@ -420,7 +209,7 @@ def upsert_raid_zone(
         ),
     )
     conn.commit()
-    row = conn.execute("SELECT id FROM raid_zones WHERE zone_name = ?", (zone_name,)).fetchone()
+    row = conn.execute(_SQL["select_zone_id_by_name"], (zone_name,)).fetchone()
     return int(row[0])
 
 
@@ -449,19 +238,13 @@ def upsert_raid_encounter(
     actor = edited_by or ("eq2i_scrape" if source == SOURCE_SCRAPE else "unknown")
 
     existing = conn.execute(
-        "SELECT id, strategy_md FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+        _SQL["select_encounter_by_zone_mob"],
         (raid_zone_id, mob_name.lower()),
     ).fetchone()
 
     if existing is None:
         cur = conn.execute(
-            """
-            INSERT INTO raid_encounters (
-                raid_zone_id, mob_name, mob_name_lower, position,
-                strategy_md, wiki_url, source,
-                last_synced_at, last_edited_at, last_edited_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            _SQL["insert_encounter"],
             (
                 raid_zone_id,
                 mob_name,
@@ -479,10 +262,8 @@ def upsert_raid_encounter(
         # First-ever revision row: before is NULL, after is the seeded content.
         if strategy_md is not None:
             conn.execute(
-                "INSERT INTO raid_encounter_revisions "
-                "(encounter_id, edited_at, edited_by, before_md, after_md, edit_note) "
-                "VALUES (?, ?, ?, NULL, ?, ?)",
-                (new_id, now, actor, strategy_md, edit_note or "initial scrape"),
+                _SQL["insert_encounter_revision"],
+                (new_id, now, actor, None, strategy_md, edit_note or "initial scrape"),
             )
         conn.commit()
         return new_id
@@ -493,11 +274,11 @@ def upsert_raid_encounter(
     # human-edited strategy_md with a fresh scrape — that's what
     # SOURCE_MANUAL exists to protect.
     if source == SOURCE_SCRAPE:
-        current_source = conn.execute("SELECT source FROM raid_encounters WHERE id = ?", (enc_id,)).fetchone()[0]
+        current_source = conn.execute(_SQL["select_encounter_source"], (enc_id,)).fetchone()[0]
         if current_source == SOURCE_MANUAL:
             # Refresh sync timestamp + url/position only, leave strategy alone.
             conn.execute(
-                "UPDATE raid_encounters SET wiki_url = ?, position = ?, last_synced_at = ? WHERE id = ?",
+                _SQL["update_encounter_url_position_synced"],
                 (wiki_url, position, now, enc_id),
             )
             conn.commit()
@@ -506,25 +287,12 @@ def upsert_raid_encounter(
     # Strategy actually changing? Record a revision before the update.
     if strategy_md is not None and strategy_md != prev_md:
         conn.execute(
-            "INSERT INTO raid_encounter_revisions "
-            "(encounter_id, edited_at, edited_by, before_md, after_md, edit_note) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            _SQL["insert_encounter_revision"],
             (enc_id, now, actor, prev_md, strategy_md, edit_note),
         )
 
     conn.execute(
-        """
-        UPDATE raid_encounters SET
-            mob_name        = ?,
-            position        = ?,
-            strategy_md     = COALESCE(?, strategy_md),
-            wiki_url        = ?,
-            source          = ?,
-            last_synced_at  = CASE WHEN ?=? THEN ? ELSE last_synced_at END,
-            last_edited_at  = CASE WHEN ?<>? THEN ? ELSE last_edited_at END,
-            last_edited_by  = CASE WHEN ?<>? THEN ? ELSE last_edited_by END
-        WHERE id = ?
-        """,
+        _SQL["update_encounter"],
         (
             mob_name,
             position,
@@ -565,18 +333,7 @@ def rename_raid_encounter_if_exists(
     rename its mob_name + mob_name_lower and bump last_edited_at. No-op
     otherwise. Returns True if a row was updated."""
     cur = conn.execute(
-        """
-        UPDATE raid_encounters
-           SET mob_name = ?,
-               mob_name_lower = ?,
-               last_edited_at = strftime('%s','now')
-         WHERE id IN (
-             SELECT re.id FROM raid_encounters re
-             JOIN raid_zones rz ON rz.id = re.raid_zone_id
-             WHERE rz.zone_name_lower = ?
-               AND re.mob_name_lower = ?
-         )
-        """,
+        _SQL["rename_encounter_by_zone_mob"],
         (new_mob_name, new_mob_name.lower(), zone_name.lower(), old_mob_name.lower()),
     )
     return cur.rowcount > 0
@@ -596,17 +353,7 @@ def update_raid_encounter_if_exists(
     (Renames are a separate operation; this helper deliberately takes only
     `position` so the rename and reorder mirrors stay distinct call sites.)"""
     cur = conn.execute(
-        """
-        UPDATE raid_encounters
-           SET position = ?,
-               last_edited_at = strftime('%s','now')
-         WHERE id IN (
-             SELECT re.id FROM raid_encounters re
-             JOIN raid_zones rz ON rz.id = re.raid_zone_id
-             WHERE rz.zone_name_lower = ?
-               AND re.mob_name_lower = ?
-         )
-        """,
+        _SQL["update_encounter_position_by_zone_mob"],
         (position, zone_name.lower(), mob_name.lower()),
     )
     return cur.rowcount > 0
@@ -617,15 +364,7 @@ def delete_raid_encounter_by_zone_mob(conn: sqlite3.Connection, *, zone_name: st
     CASCADEs to triggers, spell timers, strategy revisions via the FK.
     Returns True if a row was deleted."""
     cur = conn.execute(
-        """
-        DELETE FROM raid_encounters
-         WHERE id IN (
-             SELECT re.id FROM raid_encounters re
-             JOIN raid_zones rz ON rz.id = re.raid_zone_id
-             WHERE rz.zone_name_lower = ?
-               AND re.mob_name_lower = ?
-         )
-        """,
+        _SQL["delete_encounter_by_zone_mob"],
         (zone_name.lower(), mob_name.lower()),
     )
     return cur.rowcount > 0
@@ -636,17 +375,8 @@ def delete_raid_encounter_by_zone_mob(conn: sqlite3.Connection, *, zone_name: st
 # ---------------------------------------------------------------------------
 
 
-_ZONE_SELECT_COLS = (
-    "id, zone_name, zone_name_lower, expansion_short, wiki_url, "
-    "access_md, background_md, overview_md, "
-    "level_range, zdiff, lockout_min, lockout_max, "
-    "source, last_synced_at, last_edited_at, last_edited_by"
-)
-
-_ENC_SELECT_COLS = (
-    "id, raid_zone_id, mob_name, mob_name_lower, position, "
-    "strategy_md, wiki_url, source, last_synced_at, last_edited_at, last_edited_by"
-)
+_ZONE_SELECT_COLS = _SQL["select_zone_cols"]
+_ENC_SELECT_COLS = _SQL["select_encounter_cols"]
 
 
 def find_zone_by_name(name: str, path: Path = DB_PATH) -> dict | None:
@@ -656,7 +386,7 @@ def find_zone_by_name(name: str, path: Path = DB_PATH) -> dict | None:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            f"SELECT {_ZONE_SELECT_COLS} FROM raid_zones WHERE zone_name_lower = ?",
+            _SQL["find_zone_by_name_ci"].format(cols=_ZONE_SELECT_COLS),
             (name.lower(),),
         ).fetchone()
         return dict(row) if row else None
@@ -669,7 +399,7 @@ def list_encounters_for_zone(zone_id: int, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_ENC_SELECT_COLS} FROM raid_encounters WHERE raid_zone_id = ? ORDER BY position, mob_name",
+            _SQL["list_encounters_for_zone"].format(cols=_ENC_SELECT_COLS),
             (zone_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -682,7 +412,7 @@ def list_zones_by_expansion(short: str, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_ZONE_SELECT_COLS} FROM raid_zones WHERE expansion_short = ? ORDER BY zone_name",
+            _SQL["list_zones_by_expansion"].format(cols=_ZONE_SELECT_COLS),
             (short,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -695,10 +425,7 @@ def encounter_revisions(encounter_id: int, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, encounter_id, edited_at, edited_by, "
-            "before_md, after_md, edit_note "
-            "FROM raid_encounter_revisions "
-            "WHERE encounter_id = ? ORDER BY edited_at DESC, id DESC",
+            _SQL["list_encounter_revisions"],
             (encounter_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -712,9 +439,7 @@ def list_zone_revisions(zone_id: int, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, edited_at, edited_by, before_md, after_md, edit_note "
-            "FROM raid_zone_revisions WHERE raid_zone_id = ? "
-            "ORDER BY edited_at DESC, id DESC",
+            _SQL["list_zone_revisions"],
             (zone_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -726,15 +451,11 @@ def stats(path: Path = DB_PATH) -> dict:
         return {}
     with sqlite3.connect(path) as conn:
         out = {
-            "zones": conn.execute("SELECT COUNT(*) FROM raid_zones").fetchone()[0],
-            "encounters": conn.execute("SELECT COUNT(*) FROM raid_encounters").fetchone()[0],
-            "revisions": conn.execute("SELECT COUNT(*) FROM raid_encounter_revisions").fetchone()[0],
-            "encounters_by_source": dict(conn.execute("SELECT source, COUNT(*) FROM raid_encounters GROUP BY source")),
-            "zones_by_expansion": dict(
-                conn.execute(
-                    "SELECT expansion_short, COUNT(*) FROM raid_zones GROUP BY expansion_short ORDER BY 2 DESC"
-                )
-            ),
+            "zones": conn.execute(_SQL["stats_zones_count"]).fetchone()[0],
+            "encounters": conn.execute(_SQL["stats_encounters_count"]).fetchone()[0],
+            "revisions": conn.execute(_SQL["stats_revisions_count"]).fetchone()[0],
+            "encounters_by_source": dict(conn.execute(_SQL["stats_encounters_by_source"])),
+            "zones_by_expansion": dict(conn.execute(_SQL["stats_zones_by_expansion"])),
         }
         return out
 

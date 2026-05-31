@@ -30,6 +30,10 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from backend.census._coerce import coerce_int as _int
+from backend.eq2db import _meta as _meta_db
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 
 class _RecipeRowRequired(TypedDict):
@@ -111,117 +115,9 @@ DB_PATH: Path = _db_path()
 # Schema
 # ---------------------------------------------------------------------------
 
-_CREATE_META = """
-CREATE TABLE IF NOT EXISTS _meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
+# Schema (CREATE TABLE / INDEX) lives in recipes.sql; init_db runs each block.
 
-_CREATE_TABLE = """
-CREATE TABLE IF NOT EXISTS recipes (
-    -- Identity
-    id              INTEGER PRIMARY KEY,
-    crc             INTEGER,
-    name            TEXT    NOT NULL,
-    name_lower      TEXT    NOT NULL,
-
-    -- Classification
-    bench           TEXT,       -- crafting station, e.g. "chemistry_table", "forge"
-    version         INTEGER,
-
-    -- Primary component (always exactly one)
-    primary_comp    TEXT,       -- ingredient display name
-    primary_qty     INTEGER,
-
-    -- Secondary components (0 – N) stored as JSON array
-    -- [{"description": "Raw Lead", "quantity": 1}, …]
-    secondary_comps TEXT    NOT NULL DEFAULT '[]',
-
-    -- Fuel component
-    fuel_comp       TEXT,
-    fuel_qty        INTEGER,
-
-    -- Output per quality tier: item ID + quantity produced
-    out_unfinished_id       INTEGER,
-    out_unfinished_count    INTEGER,
-    out_simple_id           INTEGER,
-    out_simple_count        INTEGER,
-    out_worked_id           INTEGER,
-    out_worked_count        INTEGER,
-    out_elaborate_id        INTEGER,
-    out_elaborate_count     INTEGER,
-    out_formed_id           INTEGER,
-    out_formed_count        INTEGER,
-
-    -- Spell-scroll helpers (NULL for non-spell recipes)
-    base_name_lower TEXT,   -- spell name without tier suffix, e.g. "lightning palm iii"
-    crafted_tier    TEXT,   -- tier suffix as stored in recipe name, e.g. "Expert"
-
-    -- Metadata
-    last_update     INTEGER
-);
-"""
-
-# Recipe → tradeskill-class mapping. The recipe JSON has no class (only a
-# shared crafting station), so the class is derived from recipe-book items
-# (typeinfo.classes + typeinfo.recipe_list) by scripts/build_recipe_classes.py.
-# Many-to-many: a recipe taught by both an Armorer and a Weaponsmith book gets
-# a row for each, so it shows under either class filter.
-_CREATE_RECIPE_CLASSES = """
-CREATE TABLE IF NOT EXISTS recipe_classes (
-    recipe_id  INTEGER NOT NULL,
-    class      TEXT    NOT NULL,   -- tradeskill class display name, e.g. "Armorer"
-    PRIMARY KEY (recipe_id, class)
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_name_lower      ON recipes (name_lower);",
-    "CREATE INDEX IF NOT EXISTS idx_bench           ON recipes (bench);",
-    # recipe_classes: filter by class, and join back to recipes by id
-    "CREATE INDEX IF NOT EXISTS idx_rc_class        ON recipe_classes (class);",
-    "CREATE INDEX IF NOT EXISTS idx_rc_recipe       ON recipe_classes (recipe_id);",
-    "CREATE INDEX IF NOT EXISTS idx_crc             ON recipes (crc);",
-    # Reverse-lookup: which recipe produces a given item?
-    "CREATE INDEX IF NOT EXISTS idx_out_formed      ON recipes (out_formed_id);",
-    "CREATE INDEX IF NOT EXISTS idx_out_elaborate   ON recipes (out_elaborate_id);",
-    "CREATE INDEX IF NOT EXISTS idx_out_simple      ON recipes (out_simple_id);",
-    # Composite for station + name searches
-    "CREATE INDEX IF NOT EXISTS idx_bench_name      ON recipes (bench, name_lower);",
-    # Spell-scroll lookup: base name + tier (primary use-case for spellcheck feature)
-    "CREATE INDEX IF NOT EXISTS idx_spell_tier      ON recipes (base_name_lower, crafted_tier);",
-]
-
-_UPSERT_SQL = """
-INSERT OR REPLACE INTO recipes (
-    id, crc, name, name_lower,
-    bench, version,
-    primary_comp, primary_qty,
-    secondary_comps,
-    fuel_comp, fuel_qty,
-    out_unfinished_id, out_unfinished_count,
-    out_simple_id,    out_simple_count,
-    out_worked_id,    out_worked_count,
-    out_elaborate_id, out_elaborate_count,
-    out_formed_id,    out_formed_count,
-    base_name_lower, crafted_tier,
-    last_update
-) VALUES (
-    :id, :crc, :name, :name_lower,
-    :bench, :version,
-    :primary_comp, :primary_qty,
-    :secondary_comps,
-    :fuel_comp, :fuel_qty,
-    :out_unfinished_id, :out_unfinished_count,
-    :out_simple_id,     :out_simple_count,
-    :out_worked_id,     :out_worked_count,
-    :out_elaborate_id,  :out_elaborate_count,
-    :out_formed_id,     :out_formed_count,
-    :base_name_lower, :crafted_tier,
-    :last_update
-)
-"""
+# Recipe DML lives in recipes.sql; _SQL is loaded at module import above.
 
 
 # ---------------------------------------------------------------------------
@@ -321,8 +217,8 @@ def recipe_to_row(r: dict) -> dict | None:
 # ---------------------------------------------------------------------------
 
 _MIGRATIONS = [
-    "ALTER TABLE recipes ADD COLUMN base_name_lower TEXT;",
-    "ALTER TABLE recipes ADD COLUMN crafted_tier    TEXT;",
+    _SQL["migrate_add_base_name_lower"],
+    _SQL["migrate_add_crafted_tier"],
 ]
 
 
@@ -333,7 +229,7 @@ def _backfill_spell_tiers(conn: sqlite3.Connection) -> int:
     startup — it's a no-op once all rows are filled.  Returns the number of rows
     updated.
     """
-    rows = conn.execute("SELECT id, name FROM recipes WHERE crafted_tier IS NULL").fetchall()
+    rows = conn.execute(_SQL["select_unbackfilled_tiers"]).fetchall()
     if not rows:
         return 0
     updates = []
@@ -342,10 +238,7 @@ def _backfill_spell_tiers(conn: sqlite3.Connection) -> int:
         if tier is not None:
             updates.append((base, tier, rid))
     if updates:
-        conn.executemany(
-            "UPDATE recipes SET base_name_lower = ?, crafted_tier = ? WHERE id = ?",
-            updates,
-        )
+        conn.executemany(_SQL["backfill_tier"], updates)
         conn.commit()
     return len(updates)
 
@@ -356,17 +249,16 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous  = NORMAL;")
-    conn.execute(_CREATE_META)
-    conn.execute(_CREATE_TABLE)
-    conn.execute(_CREATE_RECIPE_CLASSES)
+    _meta_db.create_table(conn)
+    conn.execute(_SQL["schema_recipes"])
+    conn.execute(_SQL["schema_recipe_classes"])
     # Migrate existing DBs that predate the spell-tier columns
     for stmt in _MIGRATIONS:
         try:
             conn.execute(stmt)
         except sqlite3.OperationalError:
             pass  # column already exists
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+    conn.executescript(_SQL["indexes_recipes"])
     conn.commit()
     # Backfill spell-tier columns for any rows that have NULL (covers both
     # freshly-migrated DBs and rows upserted before this version).
@@ -374,45 +266,28 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
-def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
-    row = conn.execute("SELECT value FROM _meta WHERE key = ?", (key,)).fetchone()
-    return row[0] if row else default
-
-
-def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
+# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
+from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 
 
 def upsert_recipes(recipes: list[dict], conn: sqlite3.Connection) -> int:
     """Upsert a batch of raw Census recipe dicts. Returns rows inserted/replaced."""
     rows = [recipe_to_row(r) for r in recipes]
     rows = [r for r in rows if r is not None]
-    conn.executemany(_UPSERT_SQL, rows)
+    conn.executemany(_SQL["upsert"], rows)
     conn.commit()
     return len(rows)
 
 
 def recipe_count(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+    return conn.execute(_SQL["count"]).fetchone()[0]
 
 
 # ---------------------------------------------------------------------------
 # Lookup helpers
 # ---------------------------------------------------------------------------
 
-_SELECT_COLS = (
-    "id, crc, name, name_lower, bench, version, "
-    "primary_comp, primary_qty, secondary_comps, "
-    "fuel_comp, fuel_qty, "
-    "out_unfinished_id, out_unfinished_count, "
-    "out_simple_id, out_simple_count, "
-    "out_worked_id, out_worked_count, "
-    "out_elaborate_id, out_elaborate_count, "
-    "out_formed_id, out_formed_count, "
-    "base_name_lower, crafted_tier, "
-    "last_update"
-)
+_SELECT_COLS = _SQL["select_cols"]
 
 
 def _row_to_dict(row: sqlite3.Row) -> RecipeRow:
@@ -432,7 +307,7 @@ def find_by_id(recipe_id: int, path: Path = DB_PATH) -> RecipeRow | None:
         return None
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute(f"SELECT {_SELECT_COLS} FROM recipes WHERE id = ? LIMIT 1", (recipe_id,)).fetchone()
+        row = conn.execute(_SQL["find_by_id"].format(cols=_SELECT_COLS), (recipe_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
 
@@ -443,13 +318,13 @@ def find_by_name(name: str, path: Path = DB_PATH) -> list[RecipeRow]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_SELECT_COLS} FROM recipes WHERE name_lower = ? ORDER BY name",
+            _SQL["find_by_name_exact"].format(cols=_SELECT_COLS),
             (name.lower(),),
         ).fetchall()
         if not rows:
             # LIKE fallback — escape user wildcards (BE-006).
             rows = conn.execute(
-                f"SELECT {_SELECT_COLS} FROM recipes WHERE name_lower LIKE ? ESCAPE '\\' ORDER BY name",
+                _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
                 (f"%{_like_escape(name.lower())}%",),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -472,12 +347,7 @@ def find_by_spell(
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM recipes
-            WHERE base_name_lower = ?
-              AND crafted_tier    = ?
-            ORDER BY name
-            """,
+            _SQL["find_by_spell"].format(cols=_SELECT_COLS),
             (spell_name.lower(), tier),
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -501,12 +371,7 @@ def find_spells_by_tier(
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM recipes
-            WHERE base_name_lower IN ({placeholders})
-              AND crafted_tier    = ?
-            ORDER BY name
-            """,
+            _SQL["find_spells_by_tier"].format(cols=_SELECT_COLS, placeholders=placeholders),
             params,
         ).fetchall()
     return {r["base_name_lower"]: _row_to_dict(r) for r in rows}
@@ -519,15 +384,7 @@ def find_by_output_id(item_id: int, path: Path = DB_PATH) -> list[RecipeRow]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT {_SELECT_COLS} FROM recipes
-            WHERE out_formed_id    = :id
-               OR out_elaborate_id = :id
-               OR out_worked_id    = :id
-               OR out_simple_id    = :id
-               OR out_unfinished_id = :id
-            ORDER BY name
-            """,
+            _SQL["find_by_output_id"].format(cols=_SELECT_COLS),
             {"id": item_id},
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
