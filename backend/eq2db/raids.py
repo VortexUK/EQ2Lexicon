@@ -46,6 +46,10 @@ import sqlite3
 import time
 from pathlib import Path
 
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -329,7 +333,7 @@ def upsert_raid_zone(
     now = int(time.time())
     last_synced = now if source == SOURCE_SCRAPE else None
 
-    existing = conn.execute("SELECT id, source FROM raid_zones WHERE zone_name = ?", (zone_name,)).fetchone()
+    existing = conn.execute(_SQL["select_zone_by_name"], (zone_name,)).fetchone()
 
     if existing and source == SOURCE_SCRAPE and existing[1] == SOURCE_MANUAL:
         # Re-scrape against a human-edited row: refresh the wiki-owned
@@ -338,17 +342,7 @@ def upsert_raid_zone(
         # level for now; future raid_zone_revisions table is the right
         # home for tracking these.
         conn.execute(
-            """
-            UPDATE raid_zones SET
-                expansion_short = ?,
-                wiki_url        = ?,
-                level_range     = ?,
-                zdiff           = ?,
-                lockout_min     = ?,
-                lockout_max     = ?,
-                last_synced_at  = ?
-            WHERE id = ?
-            """,
+            _SQL["update_zone_wiki_fields"],
             (
                 expansion_short,
                 wiki_url,
@@ -375,27 +369,7 @@ def upsert_raid_zone(
     # targeted UPDATE (see _update_overview_sync) — that's the right code
     # path for destructive writes.
     conn.execute(
-        """
-        INSERT INTO raid_zones (
-            zone_name, zone_name_lower,
-            expansion_short, wiki_url,
-            access_md, background_md, overview_md,
-            level_range, zdiff, lockout_min, lockout_max,
-            source, last_synced_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(zone_name) DO UPDATE SET
-            expansion_short = COALESCE(excluded.expansion_short, raid_zones.expansion_short),
-            wiki_url        = COALESCE(excluded.wiki_url,        raid_zones.wiki_url),
-            access_md       = COALESCE(excluded.access_md,       raid_zones.access_md),
-            background_md   = COALESCE(excluded.background_md,   raid_zones.background_md),
-            overview_md     = COALESCE(excluded.overview_md,     raid_zones.overview_md),
-            level_range     = COALESCE(excluded.level_range,     raid_zones.level_range),
-            zdiff           = COALESCE(excluded.zdiff,           raid_zones.zdiff),
-            lockout_min     = COALESCE(excluded.lockout_min,     raid_zones.lockout_min),
-            lockout_max     = COALESCE(excluded.lockout_max,     raid_zones.lockout_max),
-            source          = excluded.source,
-            last_synced_at  = COALESCE(excluded.last_synced_at,  raid_zones.last_synced_at)
-        """,
+        _SQL["upsert_zone"],
         (
             zone_name,
             zone_name.lower(),
@@ -413,7 +387,7 @@ def upsert_raid_zone(
         ),
     )
     conn.commit()
-    row = conn.execute("SELECT id FROM raid_zones WHERE zone_name = ?", (zone_name,)).fetchone()
+    row = conn.execute(_SQL["select_zone_id_by_name"], (zone_name,)).fetchone()
     return int(row[0])
 
 
@@ -442,19 +416,13 @@ def upsert_raid_encounter(
     actor = edited_by or ("eq2i_scrape" if source == SOURCE_SCRAPE else "unknown")
 
     existing = conn.execute(
-        "SELECT id, strategy_md FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+        _SQL["select_encounter_by_zone_mob"],
         (raid_zone_id, mob_name.lower()),
     ).fetchone()
 
     if existing is None:
         cur = conn.execute(
-            """
-            INSERT INTO raid_encounters (
-                raid_zone_id, mob_name, mob_name_lower, position,
-                strategy_md, wiki_url, source,
-                last_synced_at, last_edited_at, last_edited_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            _SQL["insert_encounter"],
             (
                 raid_zone_id,
                 mob_name,
@@ -472,10 +440,8 @@ def upsert_raid_encounter(
         # First-ever revision row: before is NULL, after is the seeded content.
         if strategy_md is not None:
             conn.execute(
-                "INSERT INTO raid_encounter_revisions "
-                "(encounter_id, edited_at, edited_by, before_md, after_md, edit_note) "
-                "VALUES (?, ?, ?, NULL, ?, ?)",
-                (new_id, now, actor, strategy_md, edit_note or "initial scrape"),
+                _SQL["insert_encounter_revision"],
+                (new_id, now, actor, None, strategy_md, edit_note or "initial scrape"),
             )
         conn.commit()
         return new_id
@@ -486,11 +452,11 @@ def upsert_raid_encounter(
     # human-edited strategy_md with a fresh scrape — that's what
     # SOURCE_MANUAL exists to protect.
     if source == SOURCE_SCRAPE:
-        current_source = conn.execute("SELECT source FROM raid_encounters WHERE id = ?", (enc_id,)).fetchone()[0]
+        current_source = conn.execute(_SQL["select_encounter_source"], (enc_id,)).fetchone()[0]
         if current_source == SOURCE_MANUAL:
             # Refresh sync timestamp + url/position only, leave strategy alone.
             conn.execute(
-                "UPDATE raid_encounters SET wiki_url = ?, position = ?, last_synced_at = ? WHERE id = ?",
+                _SQL["update_encounter_url_position_synced"],
                 (wiki_url, position, now, enc_id),
             )
             conn.commit()
@@ -499,25 +465,12 @@ def upsert_raid_encounter(
     # Strategy actually changing? Record a revision before the update.
     if strategy_md is not None and strategy_md != prev_md:
         conn.execute(
-            "INSERT INTO raid_encounter_revisions "
-            "(encounter_id, edited_at, edited_by, before_md, after_md, edit_note) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            _SQL["insert_encounter_revision"],
             (enc_id, now, actor, prev_md, strategy_md, edit_note),
         )
 
     conn.execute(
-        """
-        UPDATE raid_encounters SET
-            mob_name        = ?,
-            position        = ?,
-            strategy_md     = COALESCE(?, strategy_md),
-            wiki_url        = ?,
-            source          = ?,
-            last_synced_at  = CASE WHEN ?=? THEN ? ELSE last_synced_at END,
-            last_edited_at  = CASE WHEN ?<>? THEN ? ELSE last_edited_at END,
-            last_edited_by  = CASE WHEN ?<>? THEN ? ELSE last_edited_by END
-        WHERE id = ?
-        """,
+        _SQL["update_encounter"],
         (
             mob_name,
             position,
@@ -558,18 +511,7 @@ def rename_raid_encounter_if_exists(
     rename its mob_name + mob_name_lower and bump last_edited_at. No-op
     otherwise. Returns True if a row was updated."""
     cur = conn.execute(
-        """
-        UPDATE raid_encounters
-           SET mob_name = ?,
-               mob_name_lower = ?,
-               last_edited_at = strftime('%s','now')
-         WHERE id IN (
-             SELECT re.id FROM raid_encounters re
-             JOIN raid_zones rz ON rz.id = re.raid_zone_id
-             WHERE rz.zone_name_lower = ?
-               AND re.mob_name_lower = ?
-         )
-        """,
+        _SQL["rename_encounter_by_zone_mob"],
         (new_mob_name, new_mob_name.lower(), zone_name.lower(), old_mob_name.lower()),
     )
     return cur.rowcount > 0
@@ -589,17 +531,7 @@ def update_raid_encounter_if_exists(
     (Renames are a separate operation; this helper deliberately takes only
     `position` so the rename and reorder mirrors stay distinct call sites.)"""
     cur = conn.execute(
-        """
-        UPDATE raid_encounters
-           SET position = ?,
-               last_edited_at = strftime('%s','now')
-         WHERE id IN (
-             SELECT re.id FROM raid_encounters re
-             JOIN raid_zones rz ON rz.id = re.raid_zone_id
-             WHERE rz.zone_name_lower = ?
-               AND re.mob_name_lower = ?
-         )
-        """,
+        _SQL["update_encounter_position_by_zone_mob"],
         (position, zone_name.lower(), mob_name.lower()),
     )
     return cur.rowcount > 0
@@ -610,15 +542,7 @@ def delete_raid_encounter_by_zone_mob(conn: sqlite3.Connection, *, zone_name: st
     CASCADEs to triggers, spell timers, strategy revisions via the FK.
     Returns True if a row was deleted."""
     cur = conn.execute(
-        """
-        DELETE FROM raid_encounters
-         WHERE id IN (
-             SELECT re.id FROM raid_encounters re
-             JOIN raid_zones rz ON rz.id = re.raid_zone_id
-             WHERE rz.zone_name_lower = ?
-               AND re.mob_name_lower = ?
-         )
-        """,
+        _SQL["delete_encounter_by_zone_mob"],
         (zone_name.lower(), mob_name.lower()),
     )
     return cur.rowcount > 0
@@ -629,17 +553,8 @@ def delete_raid_encounter_by_zone_mob(conn: sqlite3.Connection, *, zone_name: st
 # ---------------------------------------------------------------------------
 
 
-_ZONE_SELECT_COLS = (
-    "id, zone_name, zone_name_lower, expansion_short, wiki_url, "
-    "access_md, background_md, overview_md, "
-    "level_range, zdiff, lockout_min, lockout_max, "
-    "source, last_synced_at, last_edited_at, last_edited_by"
-)
-
-_ENC_SELECT_COLS = (
-    "id, raid_zone_id, mob_name, mob_name_lower, position, "
-    "strategy_md, wiki_url, source, last_synced_at, last_edited_at, last_edited_by"
-)
+_ZONE_SELECT_COLS = _SQL["select_zone_cols"]
+_ENC_SELECT_COLS = _SQL["select_encounter_cols"]
 
 
 def find_zone_by_name(name: str, path: Path = DB_PATH) -> dict | None:
@@ -649,7 +564,7 @@ def find_zone_by_name(name: str, path: Path = DB_PATH) -> dict | None:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            f"SELECT {_ZONE_SELECT_COLS} FROM raid_zones WHERE zone_name_lower = ?",
+            _SQL["find_zone_by_name_ci"].format(cols=_ZONE_SELECT_COLS),
             (name.lower(),),
         ).fetchone()
         return dict(row) if row else None
@@ -662,7 +577,7 @@ def list_encounters_for_zone(zone_id: int, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_ENC_SELECT_COLS} FROM raid_encounters WHERE raid_zone_id = ? ORDER BY position, mob_name",
+            _SQL["list_encounters_for_zone"].format(cols=_ENC_SELECT_COLS),
             (zone_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -675,7 +590,7 @@ def list_zones_by_expansion(short: str, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT {_ZONE_SELECT_COLS} FROM raid_zones WHERE expansion_short = ? ORDER BY zone_name",
+            _SQL["list_zones_by_expansion"].format(cols=_ZONE_SELECT_COLS),
             (short,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -688,10 +603,7 @@ def encounter_revisions(encounter_id: int, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, encounter_id, edited_at, edited_by, "
-            "before_md, after_md, edit_note "
-            "FROM raid_encounter_revisions "
-            "WHERE encounter_id = ? ORDER BY edited_at DESC, id DESC",
+            _SQL["list_encounter_revisions"],
             (encounter_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -705,9 +617,7 @@ def list_zone_revisions(zone_id: int, path: Path = DB_PATH) -> list[dict]:
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, edited_at, edited_by, before_md, after_md, edit_note "
-            "FROM raid_zone_revisions WHERE raid_zone_id = ? "
-            "ORDER BY edited_at DESC, id DESC",
+            _SQL["list_zone_revisions"],
             (zone_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -719,15 +629,11 @@ def stats(path: Path = DB_PATH) -> dict:
         return {}
     with sqlite3.connect(path) as conn:
         out = {
-            "zones": conn.execute("SELECT COUNT(*) FROM raid_zones").fetchone()[0],
-            "encounters": conn.execute("SELECT COUNT(*) FROM raid_encounters").fetchone()[0],
-            "revisions": conn.execute("SELECT COUNT(*) FROM raid_encounter_revisions").fetchone()[0],
-            "encounters_by_source": dict(conn.execute("SELECT source, COUNT(*) FROM raid_encounters GROUP BY source")),
-            "zones_by_expansion": dict(
-                conn.execute(
-                    "SELECT expansion_short, COUNT(*) FROM raid_zones GROUP BY expansion_short ORDER BY 2 DESC"
-                )
-            ),
+            "zones": conn.execute(_SQL["stats_zones_count"]).fetchone()[0],
+            "encounters": conn.execute(_SQL["stats_encounters_count"]).fetchone()[0],
+            "revisions": conn.execute(_SQL["stats_revisions_count"]).fetchone()[0],
+            "encounters_by_source": dict(conn.execute(_SQL["stats_encounters_by_source"])),
+            "zones_by_expansion": dict(conn.execute(_SQL["stats_zones_by_expansion"])),
         }
         return out
 
