@@ -205,7 +205,13 @@ def zone_count(conn: sqlite3.Connection) -> int:
 
 
 def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
-    """Convert a zones row + sub-queries for types/aliases/bosses into a dict."""
+    """Convert a zones row + sub-queries for types/aliases/bosses into a dict.
+
+    The ``bosses`` array is now built via ``ZoneEncounter._list_for_zone_id``
+    + ``.to_dict(with_mob_ids=True)``: same SQL, same shape, but the build
+    sequence lives in one place. (Pre-refactor the encounter-and-mob
+    hydration was inlined here AND in ``list_bosses_for_zone``, which made
+    drift inevitable.)"""
     d = dict(row)
     # Booleans as Python bools for ergonomics
     for k in (
@@ -223,32 +229,7 @@ def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         d[k] = bool(d.get(k))
     d["types"] = [r[0] for r in conn.execute(_SQL["list_types_for_zone"], (d["id"],))]
     d["aliases"] = [r[0] for r in conn.execute(_SQL["list_aliases_for_zone"], (d["id"],))]
-    # Encounters: ordered list of named bosses with optional stage
-    # label. Each carries a `mobs` array — single-mob encounters get
-    # one entry, group encounters carry all the individual mob names.
-    encounter_rows = conn.execute(
-        _SQL["list_encounters_for_zone"],
-        (d["id"],),
-    ).fetchall()
-    d["bosses"] = []
-    for er in encounter_rows:
-        mobs = [
-            {"id": r["id"], "mob_name": r["mob_name"], "position": r["position"]}
-            for r in conn.execute(
-                _SQL["list_mobs_for_encounter"],
-                (er["id"],),
-            )
-        ]
-        d["bosses"].append(
-            {
-                "id": er["id"],
-                "encounter_name": er["encounter_name"],
-                "position": er["position"],
-                "stage": er["stage"],
-                "wiki_url": er["wiki_url"],
-                "mobs": mobs,
-            }
-        )
+    d["bosses"] = [enc.to_dict(with_mob_ids=True) for enc in ZoneEncounter._list_for_zone_id(conn, d["id"])]
     return d
 
 
@@ -348,104 +329,17 @@ def replace_bosses_for_zone(
 ) -> int:
     """Replace the encounters list for a zone. Atomic per-zone.
 
-    Each input dict shape:
-        {
-            "encounter_name": "Adkar Vyx" or "Ludmila Kystov, Jracol ...",
-            "position": int,                  # order within the zone
-            "stage": str | None,              # "Wing 1", "First Floor", ...
-            "wiki_url": str | None,
-            "mobs": [                         # one entry per individual mob
-                {"mob_name": "Adkar Vyx", "position": 0},
-                ...
-            ],
-        }
-
-    Re-runnable: wipes and rewrites both child tables so removed
-    encounters and removed group mobs both disappear cleanly. Returns
-    the number of *encounters* written (not individual mobs).
-    """
-    conn.execute(_SQL["delete_encounters_for_zone"], (zone_id,))
-    if not encounters:
-        return 0
-    for enc in encounters:
-        cur = conn.execute(
-            _SQL["insert_encounter"],
-            (
-                zone_id,
-                enc["encounter_name"],
-                int(enc["position"]),
-                enc.get("stage"),
-                enc.get("wiki_url"),
-            ),
-        )
-        encounter_id = int(cur.lastrowid or 0)
-        mobs = enc.get("mobs") or []
-        if not mobs:
-            # Defensive: an encounter with no listed mobs gets one mob
-            # synthesised from the display name so reverse lookup still
-            # works. Curator-curated data shouldn't hit this branch.
-            mobs = [{"mob_name": enc["encounter_name"], "position": 0}]
-        conn.executemany(
-            _SQL["insert_encounter_mob"],
-            [
-                (
-                    encounter_id,
-                    m["mob_name"],
-                    m["mob_name"].lower(),
-                    int(m.get("position", 0)),
-                )
-                for m in mobs
-            ],
-        )
-    return len(encounters)
+    Back-compat shim: delegates to ``ZoneEncounter.replace_all_for_zone``."""
+    return ZoneEncounter.replace_all_for_zone(conn, zone_id, encounters)
 
 
 def list_bosses_for_zone(zone_name: str, path: Path = DB_PATH) -> list[dict]:
     """All raid encounters in a zone (looked up by canonical name OR alias).
 
-    Returns a list of dicts in curator order. Each entry has
-    ``encounter_name``, ``position``, ``stage`` (or None), ``wiki_url``
-    (or None), and a ``mobs`` array of ``{"mob_name", "position"}``.
-    Empty list if zone unknown or has no bosses.
-    """
-    if not path.exists() or not zone_name:
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        # Resolve via canonical, fall back to alias
-        row = conn.execute(_SQL["select_zone_id_by_name_lower"], (zone_name.lower(),)).fetchone()
-        if row is None:
-            row = conn.execute(
-                _SQL["find_zone_id_by_alias_aliased"],
-                (zone_name.lower(),),
-            ).fetchone()
-        if row is None:
-            return []
-        zone_id = row["id"]
-        encounter_rows = conn.execute(
-            _SQL["list_encounters_for_zone"],
-            (zone_id,),
-        ).fetchall()
-        out: list[dict] = []
-        for er in encounter_rows:
-            mobs = [
-                {"id": r["id"], "mob_name": r["mob_name"], "position": r["position"]}
-                for r in conn.execute(
-                    _SQL["list_mobs_for_encounter"],
-                    (er["id"],),
-                )
-            ]
-            out.append(
-                {
-                    "id": er["id"],
-                    "encounter_name": er["encounter_name"],
-                    "position": er["position"],
-                    "stage": er["stage"],
-                    "wiki_url": er["wiki_url"],
-                    "mobs": mobs,
-                }
-            )
-        return out
+    Back-compat shim: delegates to ``ZoneEncounter.list_for_zone_name`` and
+    converts the typed results to the legacy dict shape (mob ids included
+    — the editor frontend targets individual mobs)."""
+    return [enc.to_dict(with_mob_ids=True) for enc in ZoneEncounter.list_for_zone_name(zone_name, path=path)]
 
 
 def find_zones_by_boss(mob_name: str, path: Path = DB_PATH) -> list[dict]:
@@ -732,15 +626,17 @@ class ZoneEncounter:
 
     @classmethod
     def _from_row(cls, conn: sqlite3.Connection, row: sqlite3.Row) -> ZoneEncounter:
-        """Build from an encounter row + a fresh mob fetch."""
+        """Build from an encounter row + a fresh mob fetch using the open
+        connection. Mobs come back with their real ids so downstream code
+        can mutate them directly via ``ZoneEncounterMob`` methods."""
         mobs = [
             ZoneEncounterMob(
-                id=r["id"] if "id" in r.keys() else 0,
+                id=r["id"],
                 encounter_id=row["id"],
                 mob_name=r["mob_name"],
                 position=r["position"],
             )
-            for r in conn.execute(_SQL["list_mobs_for_encounter_names"], (row["id"],))
+            for r in conn.execute(_SQL["list_mobs_for_encounter"], (row["id"],))
         ]
         return cls(
             id=row["id"],
@@ -752,11 +648,20 @@ class ZoneEncounter:
             mobs=mobs,
         )
 
-    def to_dict(self) -> dict:
-        """Legacy ``{id, zone_id, encounter_name, position, stage, wiki_url, mobs}``
-        shape that pre-model callers (routes) expect. Mobs are flattened to
-        the ``{mob_name, position}`` shape ``list_bosses_for_zone`` returns
-        (without an id), matching the historical contract."""
+    def to_dict(self, *, with_mob_ids: bool = False) -> dict:
+        """``{id, zone_id, encounter_name, position, stage, wiki_url, mobs}``
+        shape that pre-model callers (routes) expect.
+
+        ``with_mob_ids=True`` produces the hydrate-a-whole-zone shape
+        (``mobs[]`` contains ``id``) — needed by the editor frontend so it
+        can target individual mob rows for rename/promote/delete. Encounter
+        CRUD callers leave it ``False`` because the encounter is the unit
+        being mutated and the mob ids are irrelevant to those responses."""
+        mob_shape = (
+            (lambda m: {"id": m.id, "mob_name": m.mob_name, "position": m.position})
+            if with_mob_ids
+            else (lambda m: {"mob_name": m.mob_name, "position": m.position})
+        )
         return {
             "id": self.id,
             "zone_id": self.zone_id,
@@ -764,7 +669,7 @@ class ZoneEncounter:
             "position": self.position,
             "stage": self.stage,
             "wiki_url": self.wiki_url,
-            "mobs": [{"mob_name": m.mob_name, "position": m.position} for m in self.mobs],
+            "mobs": [mob_shape(m) for m in self.mobs],
         }
 
     @classmethod
@@ -774,6 +679,91 @@ class ZoneEncounter:
             conn.row_factory = sqlite3.Row
             row = conn.execute(_SQL["select_encounter_by_id"], (encounter_id,)).fetchone()
             return cls._from_row(conn, row) if row else None
+
+    @classmethod
+    def _list_for_zone_id(cls, conn: sqlite3.Connection, zone_id: int) -> list[ZoneEncounter]:
+        """List all encounters for a zone using an open connection. Internal
+        helper for ``list_for_zone_name`` and ``_hydrate_zone`` — they both
+        already hold a connection and shouldn't open a fresh one per call.
+        ``conn.row_factory`` must be ``sqlite3.Row`` (the caller's
+        responsibility — every call site sets it)."""
+        return [cls._from_row(conn, r) for r in conn.execute(_SQL["list_encounters_for_zone"], (zone_id,)).fetchall()]
+
+    @classmethod
+    def list_for_zone_name(cls, zone_name: str, path: Path = DB_PATH) -> list[ZoneEncounter]:
+        """All raid encounters in a zone, resolving the zone by canonical
+        name OR alias. Empty list if zone unknown or has no encounters."""
+        if not path.exists() or not zone_name:
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(_SQL["select_zone_id_by_name_lower"], (zone_name.lower(),)).fetchone()
+            if row is None:
+                row = conn.execute(
+                    _SQL["find_zone_id_by_alias_aliased"],
+                    (zone_name.lower(),),
+                ).fetchone()
+            if row is None:
+                return []
+            return cls._list_for_zone_id(conn, row["id"])
+
+    @classmethod
+    def replace_all_for_zone(cls, conn: sqlite3.Connection, zone_id: int, encounters: list[dict]) -> int:
+        """Bulk-replace every encounter (and its mobs) in a zone. Atomic per
+        zone. Re-runnable: wipes both child tables so removed encounters
+        and removed group mobs disappear cleanly. Returns the number of
+        *encounters* written (not individual mobs).
+
+        Takes an open ``conn`` rather than a path because the build script
+        wraps multiple zones in a single outer transaction.
+
+        Each input dict shape::
+
+            {
+                "encounter_name": "Adkar Vyx",
+                "position": int,                  # order within the zone
+                "stage": str | None,              # "Wing 1", "First Floor"
+                "wiki_url": str | None,
+                "mobs": [                         # one entry per individual mob
+                    {"mob_name": "Adkar Vyx", "position": 0},
+                    ...
+                ],
+            }
+        """
+        conn.execute(_SQL["delete_encounters_for_zone"], (zone_id,))
+        if not encounters:
+            return 0
+        for enc in encounters:
+            cur = conn.execute(
+                _SQL["insert_encounter"],
+                (
+                    zone_id,
+                    enc["encounter_name"],
+                    int(enc["position"]),
+                    enc.get("stage"),
+                    enc.get("wiki_url"),
+                ),
+            )
+            encounter_id = int(cur.lastrowid or 0)
+            mobs = enc.get("mobs") or []
+            if not mobs:
+                # Defensive: an encounter with no listed mobs gets one mob
+                # synthesised from the display name so reverse lookup still
+                # works. Curator-curated data shouldn't hit this branch.
+                mobs = [{"mob_name": enc["encounter_name"], "position": 0}]
+            conn.executemany(
+                _SQL["insert_encounter_mob"],
+                [
+                    (
+                        encounter_id,
+                        m["mob_name"],
+                        m["mob_name"].lower(),
+                        int(m.get("position", 0)),
+                    )
+                    for m in mobs
+                ],
+            )
+        return len(encounters)
 
     @classmethod
     def add_to_zone(

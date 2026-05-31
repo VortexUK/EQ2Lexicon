@@ -372,9 +372,6 @@ SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? OR
 -- :name list_mobs_for_encounter_asc
 SELECT id, mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position ASC;
 
--- :name list_mobs_for_encounter_names
-SELECT mob_name, position FROM zone_encounter_mobs WHERE encounter_id = ? ORDER BY position ASC;
-
 -- :name select_primary_mob_name
 SELECT mob_name FROM zone_encounter_mobs WHERE encounter_id = ? AND position = 0;
 
