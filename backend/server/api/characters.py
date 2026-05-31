@@ -12,6 +12,9 @@ from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.db import DB_PATH
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
@@ -44,17 +47,7 @@ class CharSearchResponse(BaseModel):
 async def _local_search(q: str) -> list[CharNameResult]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """
-            SELECT DISTINCT character_name
-            FROM character_claims
-            WHERE LOWER(character_name) LIKE ?
-              AND status IN ('approved', 'pending')
-            ORDER BY character_name
-            LIMIT 50
-            """,
-            (f"{q.lower()}%",),
-        ) as cur:
+        async with db.execute(_SQL["local_search_by_prefix"], (f"{q.lower()}%",)) as cur:
             rows = await cur.fetchall()
     return [CharNameResult(name=r["character_name"]) for r in rows]
 
