@@ -37,7 +37,7 @@ const baseRow = {
 }
 
 function mockFetchOnce(response: object, ok = true, status = 200) {
-  global.fetch = vi.fn(() =>
+  globalThis.fetch = vi.fn(() =>
     Promise.resolve({
       ok,
       status,
@@ -48,7 +48,7 @@ function mockFetchOnce(response: object, ok = true, status = 200) {
 
 function mockFetchSequence(responses: Array<{ ok?: boolean; body: object }>) {
   let i = 0
-  global.fetch = vi.fn(() => {
+  globalThis.fetch = vi.fn(() => {
     const next = responses[i++] ?? { ok: true, body: {} }
     return Promise.resolve({
       ok: next.ok ?? true,
@@ -69,7 +69,7 @@ describe('TamperReportsTable', () => {
     render(<TamperReportsTable />)
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/admin/tamper-reports?status=pending',
         expect.any(Object),
       )
@@ -134,7 +134,7 @@ describe('TamperReportsTable', () => {
     fireEvent.click(button)
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/admin/tamper-reports/7/acknowledge',
         expect.objectContaining({
           method: 'POST',
@@ -183,7 +183,7 @@ describe('TamperReportsTable', () => {
     fireEvent.click(ackButton)
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/admin/tamper-reports?status=ack',
         expect.any(Object),
       )
