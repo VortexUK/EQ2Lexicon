@@ -24,6 +24,9 @@ from enum import IntEnum
 from pathlib import Path
 
 from backend.server.parses.models import AttackType, Combatant, CombatantSnapshot, DamageType, Encounter
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 # Reused for combatants with no resolved identity snapshot — stores NULLs.
 _EMPTY_SNAPSHOT = CombatantSnapshot()
@@ -43,274 +46,34 @@ def _db_path() -> Path:
 DB_PATH: Path = _db_path()
 
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
+# Schema (CREATE TABLE / INDEX) lives in db.sql; init_db runs each block.
+# Back-compat aliases — keep tests + any external callers that imported
+# _CREATE_* directly off this module working without an import-shape change.
+_CREATE_ENCOUNTERS = _SQL["schema_encounters"]
+_CREATE_COMBATANTS = _SQL["schema_combatants"]
+_CREATE_DAMAGE_TYPES = _SQL["schema_damage_types"]
+_CREATE_ATTACK_TYPES = _SQL["schema_attack_types"]
+_CREATE_INGEST_LOG = _SQL["schema_ingest_log"]
+_CREATE_TAMPER_REPORTS = _SQL["schema_tamper_reports"]
+# `indexes_all` is one multi-statement block; split on semicolons to keep the
+# legacy list shape that test fixtures iterate.
+_CREATE_INDEXES = [s.strip() + ";" for s in _SQL["indexes_all"].split(";") if s.strip()]
 
-_CREATE_ENCOUNTERS = """
-CREATE TABLE IF NOT EXISTS encounters (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    world           TEXT    NOT NULL DEFAULT 'Varsoon',
-    act_encid       TEXT    NOT NULL,
-    title           TEXT    NOT NULL,
-    zone            TEXT,
-    started_at      INTEGER NOT NULL,        -- unix seconds, UTC
-    ended_at        INTEGER NOT NULL,
-    duration_s      INTEGER NOT NULL,
-    total_damage    INTEGER NOT NULL DEFAULT 0,
-    encdps          REAL    NOT NULL DEFAULT 0,
-    kills           INTEGER NOT NULL DEFAULT 0,
-    deaths          INTEGER NOT NULL DEFAULT 0,
-    -- ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=loss, 3=mixed.
-    -- Used by /parses to colour the encounter title green/red.
-    success_level   INTEGER NOT NULL DEFAULT 0,
-    source_dsn      TEXT    NOT NULL,
-    uploaded_by     TEXT    NOT NULL DEFAULT 'local',
-    guild_name      TEXT,
-    ingested_at     INTEGER NOT NULL,
-    -- Soft-delete marker (unix seconds). NULL = visible. Set when a boss-kill
-    -- parse is "deleted" so the leaderboard entry + its link survive while the
-    -- row is hidden from the /parses list. Hard purge removes the row entirely.
-    hidden_at       INTEGER,
-    UNIQUE (world, act_encid)
-);
-"""
-
-_CREATE_COMBATANTS = """
-CREATE TABLE IF NOT EXISTS combatants (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    encounter_id    INTEGER NOT NULL,
-    name            TEXT    NOT NULL,
-    ally            INTEGER NOT NULL DEFAULT 0,   -- 0/1 (ACT's 'T'/'F')
-    started_at      INTEGER NOT NULL DEFAULT 0,
-    ended_at        INTEGER NOT NULL DEFAULT 0,
-    duration_s      INTEGER NOT NULL DEFAULT 0,
-    damage          INTEGER NOT NULL DEFAULT 0,
-    damage_perc     REAL    NOT NULL DEFAULT 0,
-    kills           INTEGER NOT NULL DEFAULT 0,
-    healed          INTEGER NOT NULL DEFAULT 0,
-    healed_perc     REAL    NOT NULL DEFAULT 0,
-    crit_heals      INTEGER NOT NULL DEFAULT 0,
-    heals           INTEGER NOT NULL DEFAULT 0,
-    cure_dispels    INTEGER NOT NULL DEFAULT 0,
-    power_drain     INTEGER NOT NULL DEFAULT 0,
-    power_replenish INTEGER NOT NULL DEFAULT 0,
-    dps             REAL    NOT NULL DEFAULT 0,
-    encdps          REAL    NOT NULL DEFAULT 0,
-    enchps          REAL    NOT NULL DEFAULT 0,
-    hits            INTEGER NOT NULL DEFAULT 0,
-    crit_hits       INTEGER NOT NULL DEFAULT 0,
-    blocked         INTEGER NOT NULL DEFAULT 0,
-    misses          INTEGER NOT NULL DEFAULT 0,
-    swings          INTEGER NOT NULL DEFAULT 0,
-    heals_taken     INTEGER NOT NULL DEFAULT 0,
-    damage_taken    INTEGER NOT NULL DEFAULT 0,
-    deaths          INTEGER NOT NULL DEFAULT 0,
-    to_hit          REAL    NOT NULL DEFAULT 0,
-    crit_dam_perc   REAL    NOT NULL DEFAULT 0,
-    crit_heal_perc  REAL    NOT NULL DEFAULT 0,
-    crit_types      TEXT,
-    threat_str      TEXT,
-    threat_delta    INTEGER NOT NULL DEFAULT 0,
-    -- Identity snapshot frozen at ingest (resolved via character_cache).
-    -- NULL for pets/NPCs and players we couldn't resolve at upload time.
-    level           INTEGER,
-    guild_name      TEXT,
-    cls             TEXT,
-    ilvl            REAL,
-    FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE,
-    UNIQUE (encounter_id, name)
-);
-"""
-
-_CREATE_DAMAGE_TYPES = """
-CREATE TABLE IF NOT EXISTS damage_types (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    combatant_id    INTEGER NOT NULL,
-    grouping_label  TEXT,
-    damage_type     TEXT    NOT NULL,
-    started_at      INTEGER NOT NULL DEFAULT 0,
-    ended_at        INTEGER NOT NULL DEFAULT 0,
-    duration_s      INTEGER NOT NULL DEFAULT 0,
-    damage          INTEGER NOT NULL DEFAULT 0,
-    encdps          REAL    NOT NULL DEFAULT 0,
-    char_dps        REAL    NOT NULL DEFAULT 0,
-    dps             REAL    NOT NULL DEFAULT 0,
-    average         REAL    NOT NULL DEFAULT 0,
-    median          INTEGER NOT NULL DEFAULT 0,
-    min_hit         INTEGER NOT NULL DEFAULT 0,
-    max_hit         INTEGER NOT NULL DEFAULT 0,
-    hits            INTEGER NOT NULL DEFAULT 0,
-    crit_hits       INTEGER NOT NULL DEFAULT 0,
-    blocked         INTEGER NOT NULL DEFAULT 0,
-    misses          INTEGER NOT NULL DEFAULT 0,
-    swings          INTEGER NOT NULL DEFAULT 0,
-    to_hit          REAL    NOT NULL DEFAULT 0,
-    average_delay   REAL    NOT NULL DEFAULT 0,
-    crit_perc       REAL    NOT NULL DEFAULT 0,
-    crit_types      TEXT,
-    FOREIGN KEY (combatant_id) REFERENCES combatants(id) ON DELETE CASCADE,
-    UNIQUE (combatant_id, damage_type)
-);
-"""
-
-_CREATE_ATTACK_TYPES = """
-CREATE TABLE IF NOT EXISTS attack_types (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    combatant_id    INTEGER NOT NULL,
-    victim          TEXT,
-    swing_type      INTEGER NOT NULL DEFAULT 0,
-    attack_name     TEXT    NOT NULL,
-    started_at      INTEGER NOT NULL DEFAULT 0,
-    ended_at        INTEGER NOT NULL DEFAULT 0,
-    duration_s      INTEGER NOT NULL DEFAULT 0,
-    damage          INTEGER NOT NULL DEFAULT 0,
-    encdps          REAL    NOT NULL DEFAULT 0,
-    char_dps        REAL    NOT NULL DEFAULT 0,
-    dps             REAL    NOT NULL DEFAULT 0,
-    average         REAL    NOT NULL DEFAULT 0,
-    median          INTEGER NOT NULL DEFAULT 0,
-    min_hit         INTEGER NOT NULL DEFAULT 0,
-    max_hit         INTEGER NOT NULL DEFAULT 0,
-    resist          TEXT,
-    hits            INTEGER NOT NULL DEFAULT 0,
-    crit_hits       INTEGER NOT NULL DEFAULT 0,
-    blocked         INTEGER NOT NULL DEFAULT 0,
-    misses          INTEGER NOT NULL DEFAULT 0,
-    swings          INTEGER NOT NULL DEFAULT 0,
-    to_hit          REAL    NOT NULL DEFAULT 0,
-    average_delay   REAL    NOT NULL DEFAULT 0,
-    crit_perc       REAL    NOT NULL DEFAULT 0,
-    crit_types      TEXT,
-    FOREIGN KEY (combatant_id) REFERENCES combatants(id) ON DELETE CASCADE,
-    UNIQUE (combatant_id, swing_type, attack_name)
-);
-"""
-
-_CREATE_INGEST_LOG = """
-CREATE TABLE IF NOT EXISTS ingest_log (
-    world           TEXT    NOT NULL DEFAULT 'Varsoon',
-    act_encid       TEXT    NOT NULL,
-    encounter_id    INTEGER NOT NULL,
-    ingested_at     INTEGER NOT NULL,
-    source_dsn      TEXT    NOT NULL,
-    PRIMARY KEY (world, act_encid),
-    FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE
-);
-"""
-
-# Audit table for parses the plugin refused to send to the leaderboard
-# because a tamper heuristic tripped. Populated by POST /api/parses/tamper-report
-# (see web/routes/parses/tamper_report.py). Deliberately NOT joined to the
-# encounters table — these rows MUST NEVER appear on public leaderboards;
-# admins read them via /api/admin/tamper-reports to see what users were
-# attempting to upload.
-#
-# Reason codes emitted by the plugin today:
-#   * "title_enemy_mismatch"     — heuristic for ACT's right-click rename
-#   * "stale_encounter"          — EndTime > 1h ago (almost certainly an import)
-#   * "recent_import_activity"   — user was in ACT's import UI within 30s
-# Stored as free-form TEXT so a plugin update can add new codes without a
-# server schema bump — old admins still see the report, the reason text is
-# just an opaque token until the admin UI is updated to recognise it.
-#
-# `payload_json` keeps the full body so a heuristic that fires today can be
-# re-examined later (false-positive review, threshold tuning). Capped server-
-# side at the same 10 MB ceiling as /ingest to keep a hostile plugin from
-# filling the DB.
-_CREATE_TAMPER_REPORTS = """
-CREATE TABLE IF NOT EXISTS tamper_reports (
-    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-    world                   TEXT    NOT NULL DEFAULT 'Varsoon',
-    act_encid               TEXT    NOT NULL,
-    title                   TEXT    NOT NULL,
-    zone                    TEXT,
-    started_at              INTEGER NOT NULL,   -- unix seconds, UTC
-    ended_at                INTEGER NOT NULL,
-    duration_s              INTEGER NOT NULL,
-    total_damage            INTEGER NOT NULL DEFAULT 0,
-    encdps                  REAL    NOT NULL DEFAULT 0,
-    -- One of "title_enemy_mismatch" / "stale_encounter" /
-    -- "recent_import_activity" (plus any future codes the plugin adds).
-    -- Stored verbatim from the X-Lexicon-Tamper-Reason header.
-    reason                  TEXT    NOT NULL,
-    reported_at             INTEGER NOT NULL,
-    -- Uploader identity. logger_name is the EQ2 character name from the
-    -- payload; discord_id/name come from resolving the Bearer token.
-    -- These default to "" when the token resolution couldn't surface a
-    -- friendly name (kept distinct from NULL so a missing column never
-    -- silently maps to None).
-    uploader_logger_name    TEXT    NOT NULL DEFAULT '',
-    uploader_discord_id     TEXT    NOT NULL DEFAULT '',
-    uploader_discord_name   TEXT    NOT NULL DEFAULT '',
-    guild_name              TEXT,
-    payload_json            TEXT    NOT NULL,
-    -- NULL = unacknowledged (pending admin review). Set when an admin
-    -- clicks the "Acknowledge" button in the panel.
-    acknowledged_at         INTEGER,
-    acknowledged_by         TEXT
-);
-"""
-
-_CREATE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_encounters_started_desc  ON encounters (started_at DESC);",
-    "CREATE INDEX IF NOT EXISTS idx_encounters_zone          ON encounters (zone);",
-    "CREATE INDEX IF NOT EXISTS idx_encounters_world         ON encounters (world, started_at DESC);",
-    "CREATE INDEX IF NOT EXISTS idx_encounters_uploaded_by   ON encounters (uploaded_by, started_at DESC);",
-    "CREATE INDEX IF NOT EXISTS idx_combatants_encounter     ON combatants (encounter_id);",
-    "CREATE INDEX IF NOT EXISTS idx_combatants_name          ON combatants (name);",
-    "CREATE INDEX IF NOT EXISTS idx_combatants_ally          ON combatants (encounter_id, ally);",
-    "CREATE INDEX IF NOT EXISTS idx_damage_types_combatant   ON damage_types (combatant_id);",
-    "CREATE INDEX IF NOT EXISTS idx_attack_types_combatant   ON attack_types (combatant_id);",
-    "CREATE INDEX IF NOT EXISTS idx_attack_types_damage_desc ON attack_types (combatant_id, damage DESC);",
-    "CREATE INDEX IF NOT EXISTS idx_combatants_encounter_is_player ON combatants (encounter_id, is_player);",
-    # Tamper reports: admin view defaults to pending-only, so an unack
-    # partial index is the hot path. The reporter index supports the
-    # /api/admin/users → "this user has N tamper reports" lookup we'll
-    # likely want when the audit panel grows.
-    "CREATE INDEX IF NOT EXISTS idx_tamper_reports_unack ON tamper_reports (reported_at DESC) WHERE acknowledged_at IS NULL;",
-    "CREATE INDEX IF NOT EXISTS idx_tamper_reports_reporter ON tamper_reports (uploader_discord_id, reported_at DESC);",
-    "CREATE INDEX IF NOT EXISTS idx_tamper_reports_world_reported ON tamper_reports (world, reported_at DESC);",
-]
-
-# Append idempotent ALTER TABLE statements here when the schema evolves —
-# `init_db` swallows OperationalError so re-applying on an up-to-date DB is
-# a no-op.
+# Idempotent ALTER migrations — each statement loaded from db.sql. init_db
+# loops the list, swallowing OperationalError so re-runs on an up-to-date DB
+# are no-ops. Order is significant: column-dependent migrations (e.g. an
+# index on a new column) MUST come after the ADD COLUMN they depend on.
 _MIGRATIONS: list[str] = [
-    # Added when the /parses UI started grouping by uploader. Existing rows
-    # default to 'local' (the local-only-ingest era).
-    "ALTER TABLE encounters ADD COLUMN uploaded_by TEXT NOT NULL DEFAULT 'local'",
-    # Guild attribution stamped on each encounter at ingest time. NULL means
-    # 'unresolved' (either uploader='local', Census lookup failed, or the
-    # character isn't currently in a guild). Pre-existing rows stay NULL
-    # until backfilled via `ingest.py --backfill-guilds`.
-    "ALTER TABLE encounters ADD COLUMN guild_name TEXT",
-    # Win/loss flag from ACT's GetEncounterSuccessLevel(). 0 for pre-existing
-    # rows where the uploader didn't supply it.
-    "ALTER TABLE encounters ADD COLUMN success_level INTEGER NOT NULL DEFAULT 0",
-    # Per-combatant identity snapshot frozen at ingest time (resolved from the
-    # character_cache). Pre-existing rows stay NULL — the parse page falls back
-    # to the live /api/characters/lookup for those.
-    "ALTER TABLE combatants ADD COLUMN level INTEGER",
-    "ALTER TABLE combatants ADD COLUMN guild_name TEXT",
-    "ALTER TABLE combatants ADD COLUMN cls TEXT",
-    "ALTER TABLE combatants ADD COLUMN ilvl REAL",
-    # Soft-delete marker for parses. Pre-existing rows are visible (NULL).
-    "ALTER TABLE encounters ADD COLUMN hidden_at INTEGER",
-    # Phase-1 pet-detection pipeline: is_player flag (per-combatant) is the
-    # authoritative player/pet signal. DEFAULT NULL = the lazy-backfill
-    # sentinel; pre-existing rows get classified on first read of their
-    # parent encounter (see web/routes/parses/list.py:_ensure_classified).
-    "ALTER TABLE combatants ADD COLUMN is_player INTEGER DEFAULT NULL",
-    # Soft warnings the plugin attaches to an otherwise-successful upload —
-    # currently just "folder_hint_mismatch" (ACT's per-encounter
-    # HistoryRecord.FolderHint disagreed with the detected logger_server).
-    # Stored as a JSON-encoded list of strings; NULL = no warnings on this
-    # parse (the plugin omits the key entirely when there's nothing to flag,
-    # so NULL is the resting state for non-tampered uploads).
-    # Surfaced via /api/admin/parses so the admin table can show a ⚠ chip;
-    # NOT shown on the public /parses list — it's audit signal, not user-facing.
-    "ALTER TABLE encounters ADD COLUMN client_warnings TEXT",
+    _SQL["alter_encounters_add_uploaded_by"],
+    _SQL["alter_encounters_add_guild_name"],
+    _SQL["alter_encounters_add_success_level"],
+    _SQL["alter_combatants_add_level"],
+    _SQL["alter_combatants_add_guild_name"],
+    _SQL["alter_combatants_add_cls"],
+    _SQL["alter_combatants_add_ilvl"],
+    _SQL["alter_encounters_add_hidden_at"],
+    _SQL["alter_combatants_add_is_player"],
+    _SQL["alter_encounters_add_client_warnings"],
 ]
 
 
@@ -326,15 +89,15 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path)
-        conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute(_CREATE_ENCOUNTERS)
-    conn.execute(_CREATE_COMBATANTS)
-    conn.execute(_CREATE_DAMAGE_TYPES)
-    conn.execute(_CREATE_ATTACK_TYPES)
-    conn.execute(_CREATE_INGEST_LOG)
-    conn.execute(_CREATE_TAMPER_REPORTS)
+        conn.execute(_SQL["pragma_journal_mode_wal"])
+    conn.execute(_SQL["pragma_synchronous_normal"])
+    conn.execute(_SQL["pragma_foreign_keys_on"])
+    conn.execute(_SQL["schema_encounters"])
+    conn.execute(_SQL["schema_combatants"])
+    conn.execute(_SQL["schema_damage_types"])
+    conn.execute(_SQL["schema_attack_types"])
+    conn.execute(_SQL["schema_ingest_log"])
+    conn.execute(_SQL["schema_tamper_reports"])
     for stmt in _MIGRATIONS:
         try:
             conn.execute(stmt)
@@ -343,8 +106,7 @@ def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
     _migrate_attack_types_unique(conn)
     _migrate_encounters_add_world(conn)
     _migrate_ingest_log_add_world(conn)
-    for idx in _CREATE_INDEXES:
-        conn.execute(idx)
+    conn.executescript(_SQL["indexes_all"])
     conn.commit()
     return conn
 
@@ -353,14 +115,10 @@ def _migrate_attack_types_unique(conn: sqlite3.Connection) -> None:
     """Recreate attack_types if the legacy UNIQUE(combatant_id, attack_name)
     constraint is still in place. The natural key needs swing_type too —
     spells like Cleanse legitimately appear under both damage and heal."""
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master "
-        "WHERE type='index' AND tbl_name='attack_types' "
-        "AND name LIKE 'sqlite_autoindex_%'"
-    ).fetchall()
+    rows = conn.execute(_SQL["migrate_check_attack_types_indexes"]).fetchall()
     target = ["combatant_id", "swing_type", "attack_name"]
     for (idx_name,) in rows:
-        cols = [r[2] for r in conn.execute(f"PRAGMA index_info({idx_name})").fetchall()]
+        cols = [r[2] for r in conn.execute(_SQL["pragma_index_info"].format(idx_name=idx_name)).fetchall()]
         if cols == target:
             return  # already migrated
     # Commit any pending implicit transaction so `with conn:` can scope a
@@ -368,14 +126,14 @@ def _migrate_attack_types_unique(conn: sqlite3.Connection) -> None:
     conn.commit()
     with conn:
         conn.execute(
-            _CREATE_ATTACK_TYPES.replace(
+            _SQL["schema_attack_types"].replace(
                 "CREATE TABLE IF NOT EXISTS attack_types",
                 "CREATE TABLE attack_types_new",
             )
         )
-        conn.execute("INSERT INTO attack_types_new SELECT * FROM attack_types")
-        conn.execute("DROP TABLE attack_types")
-        conn.execute("ALTER TABLE attack_types_new RENAME TO attack_types")
+        conn.execute(_SQL["migrate_attack_types_insert_into_new"])
+        conn.execute(_SQL["migrate_attack_types_drop_old"])
+        conn.execute(_SQL["migrate_attack_types_rename"])
 
 
 def _migrate_encounters_add_world(conn: sqlite3.Connection) -> None:
@@ -392,66 +150,49 @@ def _migrate_encounters_add_world(conn: sqlite3.Connection) -> None:
     valid after the swap. PRAGMA foreign_keys is turned OFF for the duration of
     the rebuild so SQLite does not object while encounters_old is the target;
     it is re-enabled immediately after."""
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(encounters)").fetchall()]
+    cols = [r[1] for r in conn.execute(_SQL["pragma_table_info_encounters"]).fetchall()]
     if "world" in cols:
         return  # already migrated
 
     conn.commit()
-    conn.execute("PRAGMA foreign_keys = OFF;")
-    conn.execute("PRAGMA legacy_alter_table = ON;")
+    conn.execute(_SQL["pragma_foreign_keys_off"])
+    conn.execute(_SQL["pragma_legacy_alter_table_on"])
     try:
         with conn:
-            conn.execute("ALTER TABLE encounters RENAME TO encounters_old")
-            conn.execute(_CREATE_ENCOUNTERS.replace("CREATE TABLE IF NOT EXISTS encounters", "CREATE TABLE encounters"))
-            # Copy all existing rows, backfilling world = 'Varsoon'.
+            conn.execute(_SQL["migrate_encounters_rename_old"])
             conn.execute(
-                """
-                INSERT INTO encounters (
-                    id, world, act_encid, title, zone,
-                    started_at, ended_at, duration_s,
-                    total_damage, encdps, kills, deaths, success_level,
-                    source_dsn, uploaded_by, guild_name, ingested_at, hidden_at
-                )
-                SELECT
-                    id, 'Varsoon', act_encid, title, zone,
-                    started_at, ended_at, duration_s,
-                    total_damage, encdps, kills, deaths, success_level,
-                    source_dsn, uploaded_by, guild_name, ingested_at, hidden_at
-                FROM encounters_old
-                """
+                _SQL["schema_encounters"].replace("CREATE TABLE IF NOT EXISTS encounters", "CREATE TABLE encounters")
             )
-            conn.execute("DROP TABLE encounters_old")
+            # Copy all existing rows, backfilling world = 'Varsoon'.
+            conn.execute(_SQL["migrate_encounters_copy_from_old"])
+            conn.execute(_SQL["migrate_encounters_drop_old"])
     finally:
-        conn.execute("PRAGMA legacy_alter_table = OFF;")
-        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute(_SQL["pragma_legacy_alter_table_off"])
+        conn.execute(_SQL["pragma_foreign_keys_on"])
 
 
 def _migrate_ingest_log_add_world(conn: sqlite3.Connection) -> None:
     """Add `world` to ingest_log and change PK from act_encid alone to
     (world, act_encid).  Same rebuild pattern as encounters; guard on 'world'
     column presence."""
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(ingest_log)").fetchall()]
+    cols = [r[1] for r in conn.execute(_SQL["pragma_table_info_ingest_log"]).fetchall()]
     if "world" in cols:
         return  # already migrated
 
     conn.commit()
-    conn.execute("PRAGMA foreign_keys = OFF;")
-    conn.execute("PRAGMA legacy_alter_table = ON;")
+    conn.execute(_SQL["pragma_foreign_keys_off"])
+    conn.execute(_SQL["pragma_legacy_alter_table_on"])
     try:
         with conn:
-            conn.execute("ALTER TABLE ingest_log RENAME TO ingest_log_old")
-            conn.execute(_CREATE_INGEST_LOG.replace("CREATE TABLE IF NOT EXISTS ingest_log", "CREATE TABLE ingest_log"))
+            conn.execute(_SQL["migrate_ingest_log_rename_old"])
             conn.execute(
-                """
-                INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn)
-                SELECT 'Varsoon', act_encid, encounter_id, ingested_at, source_dsn
-                FROM ingest_log_old
-                """
+                _SQL["schema_ingest_log"].replace("CREATE TABLE IF NOT EXISTS ingest_log", "CREATE TABLE ingest_log")
             )
-            conn.execute("DROP TABLE ingest_log_old")
+            conn.execute(_SQL["migrate_ingest_log_copy_from_old"])
+            conn.execute(_SQL["migrate_ingest_log_drop_old"])
     finally:
-        conn.execute("PRAGMA legacy_alter_table = OFF;")
-        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute(_SQL["pragma_legacy_alter_table_off"])
+        conn.execute(_SQL["pragma_foreign_keys_on"])
 
 
 # ---------------------------------------------------------------------------
@@ -478,14 +219,7 @@ def insert_encounter(
     world: str = "Varsoon",
 ) -> int:
     cur = conn.execute(
-        """
-        INSERT INTO encounters (
-            world, act_encid, title, zone,
-            started_at, ended_at, duration_s,
-            total_damage, encdps, kills, deaths, success_level,
-            source_dsn, uploaded_by, guild_name, ingested_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        _SQL["insert_encounter"],
         (
             world,
             enc.encid,
@@ -521,33 +255,7 @@ def insert_combatants_bulk(
     for c in combatants:
         snap = snap_by_lower.get(c.name.lower(), _EMPTY_SNAPSHOT)
         cur = conn.execute(
-            """
-            INSERT INTO combatants (
-                encounter_id, name, ally,
-                started_at, ended_at, duration_s,
-                damage, damage_perc, kills,
-                healed, healed_perc, crit_heals, heals, cure_dispels,
-                power_drain, power_replenish,
-                dps, encdps, enchps,
-                hits, crit_hits, blocked, misses, swings,
-                heals_taken, damage_taken, deaths,
-                to_hit, crit_dam_perc, crit_heal_perc, crit_types,
-                threat_str, threat_delta,
-                level, guild_name, cls, ilvl
-            ) VALUES (
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?, ?, ?,
-                ?, ?,
-                ?, ?, ?,
-                ?, ?, ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?, ?,
-                ?, ?,
-                ?, ?, ?, ?
-            )
-            """,
+            _SQL["insert_combatant"],
             (
                 encounter_id,
                 c.name,
@@ -606,7 +314,7 @@ def update_combatant_snapshots(
     with conn:
         for name, snap in snapshots.items():
             cur = conn.execute(
-                "UPDATE combatants SET level = ?, guild_name = ?, cls = ?, ilvl = ? WHERE encounter_id = ? AND name = ?",
+                _SQL["update_combatant_snapshot"],
                 (snap.level, snap.guild_name, snap.cls, snap.ilvl, encounter_id, name),
             )
             n += cur.rowcount
@@ -626,7 +334,7 @@ def update_combatant_is_player(conn: sqlite3.Connection, classification: dict[in
     if not classification:
         return
     conn.executemany(
-        "UPDATE combatants SET is_player = ? WHERE id = ?",
+        _SQL["update_combatant_is_player"],
         [(1 if v else 0, k) for k, v in classification.items()],
     )
 
@@ -635,7 +343,7 @@ def invalidate_is_player_cache_with_conn(conn: sqlite3.Connection) -> None:
     """Mark every combatant row for lazy re-classification on next read.
     Variant that accepts an existing connection (used by tests + by the
     rankings cache-invalidation hook to share the parses.db connection)."""
-    conn.execute("UPDATE combatants SET is_player = NULL")
+    conn.execute(_SQL["invalidate_is_player_cache"])
 
 
 def invalidate_is_player_cache(path: Path = DB_PATH) -> None:
@@ -690,16 +398,7 @@ def insert_damage_types_bulk(
         if dt.combatant_name in combatant_name_to_id
     ]
     conn.executemany(
-        """
-        INSERT INTO damage_types (
-            combatant_id, grouping_label, damage_type,
-            started_at, ended_at, duration_s,
-            damage, encdps, char_dps, dps,
-            average, median, min_hit, max_hit,
-            hits, crit_hits, blocked, misses, swings,
-            to_hit, average_delay, crit_perc, crit_types
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        _SQL["insert_damage_type"],
         rows,
     )
     return len(rows)
@@ -742,16 +441,7 @@ def insert_attack_types_bulk(
         if at.combatant_name in combatant_name_to_id
     ]
     conn.executemany(
-        """
-        INSERT INTO attack_types (
-            combatant_id, victim, swing_type, attack_name,
-            started_at, ended_at, duration_s,
-            damage, encdps, char_dps, dps,
-            average, median, min_hit, max_hit, resist,
-            hits, crit_hits, blocked, misses, swings,
-            to_hit, average_delay, crit_perc, crit_types
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        _SQL["insert_attack_type"],
         rows,
     )
     return len(rows)
@@ -767,10 +457,7 @@ def mark_ingested(
     world: str = "Varsoon",
 ) -> None:
     conn.execute(
-        """
-        INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn)
-        VALUES (?, ?, ?, ?, ?)
-        """,
+        _SQL["mark_ingested"],
         (world, act_encid, encounter_id, ingested_at, source_dsn),
     )
 
@@ -782,7 +469,7 @@ def mark_ingested(
 
 def is_ingested(conn: sqlite3.Connection, act_encid: str, world: str = "Varsoon") -> bool:
     row = conn.execute(
-        "SELECT 1 FROM ingest_log WHERE world = ? AND act_encid = ? LIMIT 1",
+        _SQL["check_is_ingested"],
         (world, act_encid),
     ).fetchone()
     return row is not None
@@ -791,7 +478,7 @@ def is_ingested(conn: sqlite3.Connection, act_encid: str, world: str = "Varsoon"
 def find_encounter_by_act_encid(conn: sqlite3.Connection, act_encid: str, world: str = "Varsoon") -> dict | None:
     conn.row_factory = sqlite3.Row
     row = conn.execute(
-        "SELECT * FROM encounters WHERE world = ? AND act_encid = ? LIMIT 1",
+        _SQL["find_encounter_by_act_encid"],
         (world, act_encid),
     ).fetchone()
     return dict(row) if row else None
@@ -806,17 +493,12 @@ def recent_encounters(
     conn.row_factory = sqlite3.Row
     if zone:
         rows = conn.execute(
-            """
-            SELECT * FROM encounters
-            WHERE world = ? AND zone = ?
-            ORDER BY started_at DESC
-            LIMIT ?
-            """,
+            _SQL["recent_encounters_by_zone"],
             (world, zone, limit),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM encounters WHERE world = ? ORDER BY started_at DESC LIMIT ?",
+            _SQL["recent_encounters_all"],
             (world, limit),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -850,18 +532,7 @@ def list_encounters_for_admin(
         )
         params += [like, like, like]
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"""
-        SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by, e.started_at,
-               e.duration_s, e.success_level, e.hidden_at, e.client_warnings,
-               (SELECT COUNT(*) FROM combatants c
-                  WHERE c.encounter_id = e.id AND c.ally = 1
-                    AND c.name != '' AND c.name != 'Unknown'
-                    AND instr(c.name, ' ') = 0) AS player_count
-        FROM encounters e
-        {where}
-        ORDER BY e.started_at DESC
-        LIMIT ?
-    """
+    sql = _SQL["list_encounters_for_admin"].format(where=where)
     return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
 
 
@@ -870,7 +541,7 @@ def delete_encounter(conn: sqlite3.Connection, encounter_id: int) -> bool:
     found. ON DELETE CASCADE handles combatants / damage_types / attack_types
     / ingest_log."""
     with conn:
-        cur = conn.execute("DELETE FROM encounters WHERE id = ?", (encounter_id,))
+        cur = conn.execute(_SQL["delete_encounter"], (encounter_id,))
     return cur.rowcount > 0
 
 
@@ -880,7 +551,7 @@ def soft_delete_encounter(conn: sqlite3.Connection, encounter_id: int, hidden_at
     Only acts on a currently-visible row; returns True if it flipped one."""
     with conn:
         cur = conn.execute(
-            "UPDATE encounters SET hidden_at = ? WHERE id = ? AND hidden_at IS NULL",
+            _SQL["soft_delete_encounter"],
             (hidden_at, encounter_id),
         )
     return cur.rowcount > 0
@@ -892,7 +563,7 @@ def unhide_encounter(conn: sqlite3.Connection, encounter_id: int) -> bool:
     row was un-hidden."""
     with conn:
         cur = conn.execute(
-            "UPDATE encounters SET hidden_at = NULL WHERE id = ? AND hidden_at IS NOT NULL",
+            _SQL["unhide_encounter"],
             (encounter_id,),
         )
     return cur.rowcount > 0
@@ -902,7 +573,7 @@ def set_encounter_guild_name(conn: sqlite3.Connection, encounter_id: int, guild_
     """Set (or clear) the guild_name on an encounter row. Returns True if the row was updated."""
     with conn:
         cur = conn.execute(
-            "UPDATE encounters SET guild_name = ? WHERE id = ?",
+            _SQL["set_encounter_guild_name"],
             (guild_name, encounter_id),
         )
     return cur.rowcount > 0
@@ -940,14 +611,14 @@ def find_encounters_by_filter(
         clauses.append("date(started_at, 'unixepoch', 'localtime') = ?")
         params.append(date)
     conn.row_factory = sqlite3.Row
-    sql = f"SELECT id, title, guild_name, source_dsn FROM encounters WHERE {' AND '.join(clauses)}"
+    sql = _SQL["find_encounters_by_filter"].format(where=("WHERE " + " AND ".join(clauses)))
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
 def get_combatants_for_encounter(conn: sqlite3.Connection, encounter_id: int) -> list[dict]:
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        "SELECT * FROM combatants WHERE encounter_id = ? ORDER BY damage DESC",
+        _SQL["get_combatants_for_encounter"],
         (encounter_id,),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -993,12 +664,7 @@ def get_top_attacks_for_combatant(
     conn.row_factory = sqlite3.Row
     placeholders = ",".join("?" * len(_DAMAGE_SWING_TYPES))
     rows = conn.execute(
-        f"""
-        SELECT * FROM attack_types
-        WHERE combatant_id = ? AND swing_type IN ({placeholders})
-        ORDER BY damage DESC
-        LIMIT ?
-        """,
+        _SQL["get_top_attacks_by_swing_type"].format(placeholders=placeholders),
         (combatant_id, *_DAMAGE_SWING_TYPES, limit),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -1015,12 +681,7 @@ def get_top_heals_for_combatant(
     conn.row_factory = sqlite3.Row
     placeholders = ",".join("?" * len(_HEAL_SWING_TYPES))
     rows = conn.execute(
-        f"""
-        SELECT * FROM attack_types
-        WHERE combatant_id = ? AND swing_type IN ({placeholders})
-        ORDER BY damage DESC
-        LIMIT ?
-        """,
+        _SQL["get_top_attacks_by_swing_type"].format(placeholders=placeholders),
         (combatant_id, *_HEAL_SWING_TYPES, limit),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -1036,12 +697,7 @@ def get_top_cures_for_combatant(
     conn.row_factory = sqlite3.Row
     placeholders = ",".join("?" * len(_CURE_SWING_TYPES))
     rows = conn.execute(
-        f"""
-        SELECT * FROM attack_types
-        WHERE combatant_id = ? AND swing_type IN ({placeholders})
-        ORDER BY hits DESC, damage DESC
-        LIMIT ?
-        """,
+        _SQL["get_top_cures"].format(placeholders=placeholders),
         (combatant_id, *_CURE_SWING_TYPES, limit),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -1058,14 +714,7 @@ def get_top_threats_for_combatant(
     conn.row_factory = sqlite3.Row
     placeholders = ",".join("?" * len(_THREAT_SWING_TYPES))
     rows = conn.execute(
-        f"""
-        SELECT * FROM attack_types
-        WHERE combatant_id = ?
-          AND swing_type IN ({placeholders})
-          AND attack_name <> 'All'
-        ORDER BY damage DESC
-        LIMIT ?
-        """,
+        _SQL["get_top_threats"].format(placeholders=placeholders),
         (combatant_id, *_THREAT_SWING_TYPES, limit),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -1078,11 +727,7 @@ def get_damage_types_for_combatant(
     """All damage_types rows for a combatant, sorted by damage DESC."""
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        """
-        SELECT * FROM damage_types
-        WHERE combatant_id = ?
-        ORDER BY damage DESC
-        """,
+        _SQL["get_damage_types_for_combatant"],
         (combatant_id,),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -1111,7 +756,7 @@ def set_encounter_client_warnings(
     """
     payload = warnings_json if warnings_json else None
     conn.execute(
-        "UPDATE encounters SET client_warnings = ? WHERE id = ?",
+        _SQL["set_encounter_client_warnings"],
         (payload, encounter_id),
     )
 
@@ -1150,23 +795,7 @@ def insert_tamper_report(
     (world, act_encid) at query time.
     """
     cur = conn.execute(
-        """
-        INSERT INTO tamper_reports (
-            world, act_encid, title, zone,
-            started_at, ended_at, duration_s,
-            total_damage, encdps,
-            reason, reported_at,
-            uploader_logger_name, uploader_discord_id, uploader_discord_name,
-            guild_name, payload_json
-        ) VALUES (
-            ?, ?, ?, ?,
-            ?, ?, ?,
-            ?, ?,
-            ?, ?,
-            ?, ?, ?,
-            ?, ?
-        )
-        """,
+        _SQL["insert_tamper_report"],
         (
             world,
             act_encid,
@@ -1227,19 +856,7 @@ def list_tamper_reports(
         raise ValueError(f"unknown status {status!r}")
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     conn.row_factory = sqlite3.Row
-    sql = f"""
-        SELECT id, world, act_encid, title, zone,
-               started_at, ended_at, duration_s,
-               total_damage, encdps,
-               reason, reported_at,
-               uploader_logger_name, uploader_discord_id, uploader_discord_name,
-               guild_name, payload_json,
-               acknowledged_at, acknowledged_by
-        FROM tamper_reports
-        {where}
-        ORDER BY reported_at DESC
-        LIMIT ?
-    """
+    sql = _SQL["list_tamper_reports"].format(where=where)
     return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
 
 
@@ -1259,11 +876,7 @@ def acknowledge_tamper_report(
     """
     with conn:
         cur = conn.execute(
-            """
-            UPDATE tamper_reports
-               SET acknowledged_at = ?, acknowledged_by = ?
-             WHERE id = ? AND acknowledged_at IS NULL
-            """,
+            _SQL["acknowledge_tamper_report"],
             (acknowledged_at, acknowledged_by, report_id),
         )
     return cur.rowcount > 0
@@ -1276,10 +889,10 @@ def count_pending_tamper_reports(
     """Cheap count of unack'd reports — used by the admin panel badge so
     the maintainer can see at a glance whether anything new needs review."""
     if world is None:
-        row = conn.execute("SELECT COUNT(*) FROM tamper_reports WHERE acknowledged_at IS NULL").fetchone()
+        row = conn.execute(_SQL["count_pending_tamper_reports"]).fetchone()
     else:
         row = conn.execute(
-            "SELECT COUNT(*) FROM tamper_reports WHERE world = ? AND acknowledged_at IS NULL",
+            _SQL["count_pending_tamper_reports_for_world"],
             (world,),
         ).fetchone()
     return int(row[0]) if row else 0
