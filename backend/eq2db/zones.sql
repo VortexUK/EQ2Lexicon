@@ -276,6 +276,10 @@ SELECT expansion_short, COUNT(*) FROM zones GROUP BY expansion_short ORDER BY 2 
 -- :name check_zone_exists_for_expansion
 SELECT 1 FROM zones WHERE expansion_short = ? LIMIT 1;
 
+-- :name select_expansion_name_year
+SELECT expansion_name AS name, expansion_year AS year FROM zones
+WHERE expansion_short = ? LIMIT 1;
+
 -- ---------------------------------------------------------------------------
 -- zone_types CRUD
 -- ---------------------------------------------------------------------------
@@ -322,7 +326,7 @@ DELETE FROM zone_encounters WHERE zone_id = ?;
 INSERT INTO zone_encounters (zone_id, encounter_name, position, stage, wiki_url) VALUES (?, ?, ?, ?, ?);
 
 -- :name list_encounters_for_zone
-SELECT id, encounter_name, position, stage, wiki_url
+SELECT id, zone_id, encounter_name, position, stage, wiki_url
 FROM zone_encounters WHERE zone_id = ? ORDER BY position;
 
 -- :name select_encounter_by_id

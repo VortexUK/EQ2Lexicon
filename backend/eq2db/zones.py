@@ -1017,113 +1017,401 @@ def add_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict
 
 
 # ---------------------------------------------------------------------------
-# Featured raid expansions (admin-curated /raids page list)
+# FeaturedRaidExpansion / FeaturedRaidZone / FeaturedRaidCategory models
 # ---------------------------------------------------------------------------
+# Active-record CRUD for the /raids page admin curation: which expansions
+# are surfaced, which raid zones within each, and which named "lane"
+# (category) each zone is dragged into. The featured-raid trio is the only
+# part of zones.db the maintainer actively edits via the admin UI; every
+# other table is rebuilt from the curated JSON source.
+#
+# `_dedup_expansion_rows` factors a quirk: the JOIN-based listing queries
+# can return multiple rows per (expansion_short) when the same expansion
+# has zone rows differing in name/year (data drift from wiki re-ingests).
+# Both list paths collapse by `short`, keeping the first (newest-year-first
+# courtesy of ORDER BY in the SQL).
+
+
+def _dedup_expansion_rows(rows: list[sqlite3.Row]) -> list[FeaturedRaidExpansion]:
+    seen: set[str] = set()
+    result: list[FeaturedRaidExpansion] = []
+    for r in rows:
+        short = r["short"]
+        if short in seen:
+            continue
+        seen.add(short)
+        result.append(FeaturedRaidExpansion(expansion_short=short, name=r["name"], year=r["year"]))
+    return result
+
+
+@dataclass(frozen=True)
+class FeaturedRaidExpansion:
+    """An expansion surfaced on the /raids page. Active-record over the
+    ``featured_raid_expansions`` table — but with an implicit-membership
+    twist: an expansion is treated as "featured" if either it has a row
+    in the table OR any of its zones appear in ``featured_raid_zones``
+    (so adding a zone alone is enough to surface the expansion)."""
+
+    expansion_short: str
+    name: str
+    year: int | None
+
+    def to_dict(self) -> dict:
+        """Legacy ``{short, name, year}`` shape that the routes return."""
+        return {"short": self.expansion_short, "name": self.name, "year": self.year}
+
+    @classmethod
+    def list_active(cls, path: Path = DB_PATH) -> list[FeaturedRaidExpansion]:
+        """Featured expansions (explicit + implicit-via-zones), newest first."""
+        if not path.exists():
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(_SQL["list_featured_raid_expansions"]).fetchall()
+        return _dedup_expansion_rows(rows)
+
+    @classmethod
+    def list_available(cls, path: Path = DB_PATH) -> list[FeaturedRaidExpansion]:
+        """Expansions in zones.db NOT yet featured (neither explicit row nor
+        any zone of theirs featured). The admin 'Add expansion' picker."""
+        if not path.exists():
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(_SQL["list_available_raid_expansions"]).fetchall()
+        return _dedup_expansion_rows(rows)
+
+    @classmethod
+    def create(cls, expansion_short: str, path: Path = DB_PATH) -> FeaturedRaidExpansion | None:
+        """Mark an expansion as featured. Validates that the expansion is
+        known to zones.db (returns None otherwise — route layer maps to
+        404). Idempotent for already-featured expansions: returns the
+        same instance both on fresh-insert and on already-featured."""
+        if not path.exists() or not expansion_short:
+            return None
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            meta = conn.execute(_SQL["select_expansion_name_year"], (expansion_short,)).fetchone()
+            if meta is None:
+                return None
+            conn.execute(_SQL["insert_featured_raid_expansion"], (expansion_short,))
+            conn.commit()
+        return cls(expansion_short=expansion_short, name=meta["name"], year=meta["year"])
+
+    def remove(self, path: Path = DB_PATH) -> bool:
+        """Remove from featured AND cascade-remove this expansion's
+        featured raid zones. Preserves the underlying zone_encounters
+        data — just hides everything from /raids until re-added.
+
+        Returns True if the featured_raid_expansions row was removed,
+        False if there was nothing to remove. Cascaded zone deletions
+        don't influence the return value."""
+        if not path.exists():
+            return False
+        with sqlite3.connect(path) as conn:
+            with conn:
+                conn.execute(
+                    _SQL["remove_featured_raid_zones_in_expansion"],
+                    (self.expansion_short,),
+                )
+                cur = conn.execute(
+                    _SQL["delete_featured_raid_expansion"],
+                    (self.expansion_short,),
+                )
+                return cur.rowcount > 0
+
+
+@dataclass(frozen=True)
+class FeaturedRaidZone:
+    """A raid zone surfaced under a featured expansion. Models the
+    ``(zone_id, position, category)`` row that lives in
+    ``featured_raid_zones`` plus enough zone-side metadata
+    (``expansion_short``, ``zone_name``) to act on it without re-fetching.
+
+    The full hydrated zone shape (types/aliases/bosses) is produced by
+    the route shims via ``_hydrate_zone`` — keeping that join out of the
+    model means a FeaturedRaidZone is cheap to construct and the
+    expensive hydration only happens at the route boundary."""
+
+    zone_id: int
+    zone_name: str
+    expansion_short: str
+    position: int
+    category: str | None
+
+    @classmethod
+    def list_for_expansion(cls, expansion_short: str, path: Path = DB_PATH) -> list[FeaturedRaidZone]:
+        """All featured raid zones for an expansion, sorted by
+        (category, position). NULL categories sort first (SQLite default),
+        which lands the implicit Uncategorised lane at the top."""
+        if not path.exists():
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                _SQL["list_featured_raid_zones"].format(cols=_SELECT_COLS),
+                (expansion_short,),
+            ).fetchall()
+            return [
+                cls(
+                    zone_id=r["id"],
+                    zone_name=r["name"],
+                    expansion_short=r["expansion_short"],
+                    position=r["featured_position"],
+                    category=r["featured_category"],
+                )
+                for r in rows
+            ]
+
+    @classmethod
+    def add(cls, zone_name: str, path: Path = DB_PATH) -> FeaturedRaidZone | None:
+        """Mark a raid zone as featured. Validates that the zone exists
+        AND is tagged raid_x4 or raid_x2 — we don't want random zones
+        surfacing on /raids just because admin typed a name. Lands in
+        the implicit Uncategorised lane (category=NULL) at MAX+1 so the
+        new entry shows at the bottom; admin drags into a named lane
+        afterwards. Returns the new instance, or None on validation
+        failure (route maps to 400)."""
+        if not path.exists() or not zone_name:
+            return None
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            zone = conn.execute(
+                _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
+                (zone_name.lower(),),
+            ).fetchone()
+            if zone is None:
+                return None
+            is_raid = conn.execute(_SQL["check_zone_is_raid"], (zone["id"],)).fetchone()
+            if not is_raid:
+                return None
+            max_pos_row = conn.execute(
+                _SQL["max_featured_position_uncategorised"],
+                (zone["expansion_short"],),
+            ).fetchone()
+            new_position = (max_pos_row[0] if max_pos_row else -1) + 1
+            conn.execute(
+                _SQL["insert_featured_raid_zone_uncategorised"],
+                (zone["id"], new_position),
+            )
+            conn.commit()
+            return cls(
+                zone_id=zone["id"],
+                zone_name=zone["name"],
+                expansion_short=zone["expansion_short"],
+                position=new_position,
+                category=None,
+            )
+
+    def remove(self, path: Path = DB_PATH) -> bool:
+        """Remove from featured. Preserves zone_encounters boss data so
+        re-adding restores the lane. Returns True if a row was removed."""
+        if not path.exists():
+            return False
+        with sqlite3.connect(path) as conn:
+            cur = conn.execute(
+                _SQL["delete_featured_raid_zone_by_name"],
+                (self.zone_name.lower(),),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    @staticmethod
+    def reorder_in_expansion(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
+        """Atomically rewrite category + position for every zone in ``ordering``.
+
+        Each entry: ``{"name": str, "category": str | None, "position": int}``.
+
+        Uses the same two-phase shift pattern as ``ZoneEncounter.reorder_in_zone``
+        (negative sentinels first, then final values) so any transient UNIQUE /
+        ordering collision is impossible mid-update.
+
+        Auto-creates missing ``featured_raid_categories`` rows at MAX+1 for
+        any category name that appears in ``ordering`` but isn't tracked
+        yet — this is how a fresh-typed lane name becomes a draggable lane
+        header on the next render.
+
+        Returns False if any zone in ``ordering`` isn't currently featured
+        in this expansion (route layer maps to 400)."""
+        if not path.exists():
+            return False
+        with sqlite3.connect(path) as conn:
+            with conn:
+                # Validate every zone — surfaces typos / stale clients early.
+                zone_ids: dict[str, int] = {}
+                for entry in ordering:
+                    row = conn.execute(
+                        _SQL["find_featured_zone_id_in_expansion"],
+                        (entry["name"].lower(), expansion_short),
+                    ).fetchone()
+                    if not row:
+                        return False
+                    zone_ids[entry["name"]] = row[0]
+                # Auto-create missing categories at end of the existing run.
+                seen_categories = {e["category"] for e in ordering if e.get("category")}
+                if seen_categories:
+                    max_pos_row = conn.execute(
+                        _SQL["max_category_position"],
+                        (expansion_short,),
+                    ).fetchone()
+                    next_pos = (max_pos_row[0] if max_pos_row else -1) + 1
+                    for cat in seen_categories:
+                        cur = conn.execute(
+                            _SQL["insert_featured_raid_category_or_ignore"],
+                            (expansion_short, cat, next_pos),
+                        )
+                        if cur.rowcount:
+                            next_pos += 1
+                # Two-phase write.
+                for i, entry in enumerate(ordering):
+                    conn.execute(
+                        _SQL["update_featured_raid_zone_position_and_category"],
+                        (-(i + 1), entry.get("category"), zone_ids[entry["name"]]),
+                    )
+                for entry in ordering:
+                    conn.execute(
+                        _SQL["update_featured_raid_zone_position"],
+                        (entry["position"], zone_ids[entry["name"]]),
+                    )
+                return True
+
+
+@dataclass(frozen=True)
+class FeaturedRaidCategory:
+    """A named lane within a featured expansion (e.g. "Tier 1", "Bonus
+    raids"). The implicit Uncategorised lane (``category IS NULL`` on
+    zones) is NOT modelled here — the frontend always pins it at the top
+    and there's no row for it."""
+
+    expansion_short: str
+    name: str
+    position: int
+
+    def to_dict(self) -> dict:
+        """Legacy ``{name, position}`` shape. ``expansion_short`` is
+        contextual (the caller already knew it to make the list call)
+        and is not surfaced."""
+        return {"name": self.name, "position": self.position}
+
+    @classmethod
+    def list_for_expansion(cls, expansion_short: str, path: Path = DB_PATH) -> list[FeaturedRaidCategory]:
+        """Admin-defined categories in saved order."""
+        if not path.exists():
+            return []
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                _SQL["list_featured_raid_categories"],
+                (expansion_short,),
+            ).fetchall()
+            return [cls(expansion_short=expansion_short, name=r["name"], position=r["position"]) for r in rows]
+
+    @classmethod
+    def create(cls, expansion_short: str, name: str, path: Path = DB_PATH) -> FeaturedRaidCategory | None:
+        """Create an empty category lane at MAX+1 position. Returns None
+        if a category by this name already exists for the expansion."""
+        if not path.exists():
+            return None
+        with sqlite3.connect(path) as conn:
+            existing = conn.execute(
+                _SQL["check_featured_raid_category_exists"],
+                (expansion_short, name),
+            ).fetchone()
+            if existing:
+                return None
+            max_pos = conn.execute(
+                _SQL["max_category_position"],
+                (expansion_short,),
+            ).fetchone()
+            new_pos = (max_pos[0] if max_pos else -1) + 1
+            conn.execute(
+                _SQL["insert_featured_raid_category"],
+                (expansion_short, name, new_pos),
+            )
+            conn.commit()
+            return cls(expansion_short=expansion_short, name=name, position=new_pos)
+
+    def delete(self, path: Path = DB_PATH) -> bool:
+        """Delete this category. Zones currently in it have their category
+        set to NULL (move to Uncategorised). Returns True if a row was
+        deleted."""
+        if not path.exists():
+            return False
+        with sqlite3.connect(path) as conn:
+            with conn:
+                conn.execute(
+                    _SQL["move_featured_zones_to_null_category"],
+                    (self.name, self.expansion_short),
+                )
+                cur = conn.execute(
+                    _SQL["delete_featured_raid_category"],
+                    (self.expansion_short, self.name),
+                )
+                return cur.rowcount > 0
+
+    @staticmethod
+    def reorder_in_expansion(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
+        """Atomic two-phase position rewrite for category lanes.
+
+        Each entry: ``{"name": str, "position": int}``. Returns False if
+        any name in ``ordering`` isn't a category in this expansion
+        (route layer maps to 400)."""
+        if not path.exists():
+            return False
+        with sqlite3.connect(path) as conn:
+            with conn:
+                for entry in ordering:
+                    row = conn.execute(
+                        _SQL["check_featured_raid_category_exists"],
+                        (expansion_short, entry["name"]),
+                    ).fetchone()
+                    if not row:
+                        return False
+                # Two-phase write: temp negatives, then final positions.
+                for i, entry in enumerate(ordering):
+                    conn.execute(
+                        _SQL["update_featured_raid_category_position"],
+                        (-(i + 1), expansion_short, entry["name"]),
+                    )
+                for entry in ordering:
+                    conn.execute(
+                        _SQL["update_featured_raid_category_position"],
+                        (entry["position"], expansion_short, entry["name"]),
+                    )
+                return True
+
+
+# ---------------------------------------------------------------------------
+# Back-compat free-function shims (featured-raid trio)
+# ---------------------------------------------------------------------------
+# Routes call these directly with the legacy dict / bool / None contracts.
+# They delegate to the model methods above. Once the route layer migrates
+# to the models, these can be deleted.
 
 
 def list_featured_raid_expansions(path: Path = DB_PATH) -> list[dict]:
-    """Return admin-featured expansions for /raids, plus any expansion that
-    has at least one featured raid zone (implicit). Sorted by expansion_year
-    DESC. Each entry: ``{"short", "name", "year"}``."""
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(_SQL["list_featured_raid_expansions"]).fetchall()
-        # SELECT DISTINCT on (short, name, year) can return duplicates if the
-        # same expansion has rows with different name/year combos. Collapse
-        # by short, keeping the first hit (newest year first thanks to ORDER BY).
-        seen: set[str] = set()
-        result: list[dict] = []
-        for r in rows:
-            short = r["short"]
-            if short in seen:
-                continue
-            seen.add(short)
-            result.append({"short": short, "name": r["name"], "year": r["year"]})
-        return result
+    return [e.to_dict() for e in FeaturedRaidExpansion.list_active(path=path)]
 
 
 def list_available_raid_expansions(path: Path = DB_PATH) -> list[dict]:
-    """Return expansions in zones.db NOT yet featured. For the admin
-    'Add expansion' picker. Sorted by expansion_year DESC. An expansion
-    counts as 'already featured' if either it has a featured_raid_expansions
-    row OR any zone of its appears in featured_raid_zones."""
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(_SQL["list_available_raid_expansions"]).fetchall()
-        seen: set[str] = set()
-        result: list[dict] = []
-        for r in rows:
-            short = r["short"]
-            if short in seen:
-                continue
-            seen.add(short)
-            result.append({"short": short, "name": r["name"], "year": r["year"]})
-        return result
+    return [e.to_dict() for e in FeaturedRaidExpansion.list_available(path=path)]
 
 
 def add_featured_raid_expansion(expansion_short: str, path: Path = DB_PATH) -> bool:
-    """Mark an expansion as featured. Returns True if newly added, False if
-    already featured OR if the expansion is unknown to zones.db. The route
-    layer treats False as a 404."""
-    if not path.exists() or not expansion_short:
-        return False
-    with sqlite3.connect(path) as conn:
-        exists = conn.execute(
-            _SQL["check_zone_exists_for_expansion"],
-            (expansion_short,),
-        ).fetchone()
-        if not exists:
-            return False
-        conn.execute(
-            _SQL["insert_featured_raid_expansion"],
-            (expansion_short,),
-        )
-        conn.commit()
-        # We return True even if the row was already present — that case is
-        # an idempotent success ("already featured"), not the 404 case which
-        # is reserved for "expansion doesn't exist in zones.db at all".
-        return True
+    return FeaturedRaidExpansion.create(expansion_short, path=path) is not None
 
 
 def remove_featured_raid_expansion(expansion_short: str, path: Path = DB_PATH) -> bool:
-    """Remove an expansion from featured AND cascade-remove its featured
-    raid zones (preserves the underlying zone_encounters boss data — just
-    hides it from /raids until re-added).
-
-    Returns True if the featured_raid_expansions row was removed, False if
-    nothing to remove. Note that cascaded featured_raid_zones deletions
-    don't influence the return value."""
-    if not path.exists():
-        return False
-    with sqlite3.connect(path) as conn:
-        with conn:
-            # Cascade-remove featured zones in this expansion first.
-            conn.execute(
-                _SQL["remove_featured_raid_zones_in_expansion"],
-                (expansion_short,),
-            )
-            cur = conn.execute(
-                _SQL["delete_featured_raid_expansion"],
-                (expansion_short,),
-            )
-            return cur.rowcount > 0
-
-
-# ---------------------------------------------------------------------------
-# Featured raid zones (per-expansion admin curation)
-# ---------------------------------------------------------------------------
+    # The legacy contract is "key-only delete"; we don't go through
+    # find_by_short because the model.remove() only needs expansion_short
+    # and the stub instance carries that.
+    return FeaturedRaidExpansion(expansion_short=expansion_short, name="", year=None).remove(path=path)
 
 
 def list_featured_raid_zones(expansion_short: str, path: Path = DB_PATH) -> list[dict]:
-    """Return admin-featured raid zones for an expansion, hydrated like
-    find_by_name (types/aliases/bosses) and additionally annotated with
-    `position` and `category`. Sorted by (category, position) — NULL
-    categories sort first per SQLite's default NULL ordering, so the
-    implicit "Uncategorised" lane appears before any named lane."""
+    # Routes need the full hydrated zone shape (types/aliases/bosses)
+    # PLUS the featuring metadata (position + category). The model only
+    # carries the featuring metadata, so the shim joins via _hydrate_zone.
     if not path.exists():
         return []
     with sqlite3.connect(path) as conn:
@@ -1142,9 +1430,10 @@ def list_featured_raid_zones(expansion_short: str, path: Path = DB_PATH) -> list
 
 
 def list_available_raid_zones(expansion_short: str, path: Path = DB_PATH) -> list[dict]:
-    """Return zones in an expansion that are tagged raid_x4 OR raid_x2 but
-    NOT yet featured. For the admin 'Add raid zone' picker. Sorted
-    alphabetically by zone name."""
+    # Returns hydrated zone dicts (the 'Add raid zone' admin picker shows
+    # full zone info). Not exposed via the FeaturedRaidZone model because
+    # the returned shape is Zone, not FeaturedRaidZone — they're not yet
+    # featured.
     if not path.exists():
         return []
     with sqlite3.connect(path) as conn:
@@ -1157,231 +1446,41 @@ def list_available_raid_zones(expansion_short: str, path: Path = DB_PATH) -> lis
 
 
 def add_featured_raid_zone(zone_name: str, path: Path = DB_PATH) -> dict | None:
-    """Mark a raid zone as featured. Validates that the zone exists AND is
-    tagged raid_x4 or raid_x2 (we don't want any old zone surfacing on the
-    /raids page just because admin typed its name). Newly-added zones land
-    in the implicit "Uncategorised" lane (category=NULL) at MAX(position)+1
-    so they appear at the end of that lane. Admin can drag them into a
-    named lane afterwards. Returns the hydrated zone dict on success, None
-    if the zone doesn't exist or isn't raid-typed (route layer turns None
-    into a 400)."""
-    if not path.exists() or not zone_name:
+    # Legacy contract: returns hydrated zone dict (NOT the FeaturedRaidZone
+    # shape). Re-hydrate by name after the model add() succeeds.
+    fz = FeaturedRaidZone.add(zone_name, path=path)
+    if fz is None:
         return None
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        zone = conn.execute(
-            _SQL["find_zone_by_name_lower"].format(cols=_SELECT_COLS),
-            (zone_name.lower(),),
-        ).fetchone()
-        if zone is None:
-            return None
-        is_raid = conn.execute(
-            _SQL["check_zone_is_raid"],
-            (zone["id"],),
-        ).fetchone()
-        if not is_raid:
-            return None
-        # Position = MAX position currently in this expansion's NULL-category
-        # lane + 1, so newly-added zones land at the bottom of Uncategorised.
-        max_pos_row = conn.execute(
-            _SQL["max_featured_position_uncategorised"],
-            (zone["expansion_short"],),
-        ).fetchone()
-        new_position = (max_pos_row[0] if max_pos_row else -1) + 1
-        conn.execute(
-            _SQL["insert_featured_raid_zone_uncategorised"],
-            (zone["id"], new_position),
-        )
-        conn.commit()
-        return _hydrate_zone(conn, zone)
+    return find_by_name(fz.zone_name, path=path)
 
 
 def remove_featured_raid_zone(zone_name: str, path: Path = DB_PATH) -> bool:
-    """Remove a raid zone from featured. Preserves zone_encounters boss
-    data (re-adding the zone restores everything). Returns True if a row
-    was removed."""
-    if not path.exists() or not zone_name:
-        return False
-    with sqlite3.connect(path) as conn:
-        cur = conn.execute(
-            _SQL["delete_featured_raid_zone_by_name"],
-            (zone_name.lower(),),
-        )
-        conn.commit()
-        return cur.rowcount > 0
+    # Stub instance with name only — remove() uses .zone_name as the
+    # delete key; other fields are unused.
+    return FeaturedRaidZone(zone_id=0, zone_name=zone_name, expansion_short="", position=0, category=None).remove(
+        path=path
+    )
 
 
-# ---------------------------------------------------------------------------
-# Drag-reorder helpers for featured raid zones + categories
-# ---------------------------------------------------------------------------
-
-
-def reorder_featured_raid_zones(
-    expansion_short: str,
-    ordering: list[dict],
-    path: Path = DB_PATH,
-) -> bool:
-    """Atomically rewrite category + position for every zone in `ordering`.
-
-    Each entry is ``{"name": str, "category": str | None, "position": int}``.
-
-    Uses the two-phase shift pattern (write all to temporary negative
-    positions first, then to their final values) so any UNIQUE or
-    ordering constraints can't transient-collide.
-
-    Auto-creates missing featured_raid_categories rows (at MAX+1 position)
-    for any category name that appears in `ordering` but isn't already
-    tracked for this expansion — this is how a fresh-typed lane name
-    becomes a draggable lane header on the next render.
-
-    Returns True on success, False if any zone in `ordering` isn't in
-    featured_raid_zones for this expansion.
-    """
-    if not path.exists():
-        return False
-    with sqlite3.connect(path) as conn:
-        with conn:
-            # Validate every zone in ordering is currently featured in this
-            # expansion. Surfaces typos / stale clients as a 400 at the route.
-            zone_ids: dict[str, int] = {}
-            for entry in ordering:
-                row = conn.execute(
-                    _SQL["find_featured_zone_id_in_expansion"],
-                    (entry["name"].lower(), expansion_short),
-                ).fetchone()
-                if not row:
-                    return False
-                zone_ids[entry["name"]] = row[0]
-
-            # Auto-create missing categories at end of existing positions.
-            seen_categories = {e["category"] for e in ordering if e.get("category")}
-            if seen_categories:
-                max_pos_row = conn.execute(
-                    _SQL["max_category_position"],
-                    (expansion_short,),
-                ).fetchone()
-                next_pos = (max_pos_row[0] if max_pos_row else -1) + 1
-                for cat in seen_categories:
-                    cur = conn.execute(
-                        _SQL["insert_featured_raid_category_or_ignore"],
-                        (expansion_short, cat, next_pos),
-                    )
-                    if cur.rowcount:
-                        next_pos += 1
-
-            # Two-phase position write: temp negatives first to dodge any
-            # ordering/UNIQUE collision risk, then the final values. The
-            # category column is freely overwritten in both phases.
-            for i, entry in enumerate(ordering):
-                conn.execute(
-                    _SQL["update_featured_raid_zone_position_and_category"],
-                    (-(i + 1), entry.get("category"), zone_ids[entry["name"]]),
-                )
-            for entry in ordering:
-                conn.execute(
-                    _SQL["update_featured_raid_zone_position"],
-                    (entry["position"], zone_ids[entry["name"]]),
-                )
-            return True
-
-
-def reorder_featured_raid_categories(
-    expansion_short: str,
-    ordering: list[dict],
-    path: Path = DB_PATH,
-) -> bool:
-    """Atomic two-phase position rewrite for category lanes in an expansion.
-
-    Each entry is ``{"name": str, "position": int}``. Returns True on
-    success, False if any category in `ordering` doesn't exist for this
-    expansion (route layer turns False into a 400)."""
-    if not path.exists():
-        return False
-    with sqlite3.connect(path) as conn:
-        with conn:
-            # Validate all categories exist for this expansion.
-            for entry in ordering:
-                row = conn.execute(
-                    _SQL["check_featured_raid_category_exists"],
-                    (expansion_short, entry["name"]),
-                ).fetchone()
-                if not row:
-                    return False
-            # Two-phase write: temp negatives then final positions.
-            for i, entry in enumerate(ordering):
-                conn.execute(
-                    _SQL["update_featured_raid_category_position"],
-                    (-(i + 1), expansion_short, entry["name"]),
-                )
-            for entry in ordering:
-                conn.execute(
-                    _SQL["update_featured_raid_category_position"],
-                    (entry["position"], expansion_short, entry["name"]),
-                )
-            return True
+def reorder_featured_raid_zones(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
+    return FeaturedRaidZone.reorder_in_expansion(expansion_short, ordering, path=path)
 
 
 def list_featured_raid_categories(expansion_short: str, path: Path = DB_PATH) -> list[dict]:
-    """Return ordered list of admin-defined categories for an expansion.
-
-    Used by the frontend to render lane headers in their saved order.
-    The implicit "Uncategorised" lane (category IS NULL on zones) is NOT
-    in this list — the frontend always pins it at the top.
-    """
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            _SQL["list_featured_raid_categories"],
-            (expansion_short,),
-        ).fetchall()
-        return [dict(r) for r in rows]
+    return [c.to_dict() for c in FeaturedRaidCategory.list_for_expansion(expansion_short, path=path)]
 
 
 def create_featured_raid_category(expansion_short: str, name: str, path: Path = DB_PATH) -> bool:
-    """Create an empty category lane at MAX+1 position. Returns True if
-    newly created, False if already exists."""
-    if not path.exists():
-        return False
-    with sqlite3.connect(path) as conn:
-        existing = conn.execute(
-            _SQL["check_featured_raid_category_exists"],
-            (expansion_short, name),
-        ).fetchone()
-        if existing:
-            return False
-        max_pos = conn.execute(
-            _SQL["max_category_position"],
-            (expansion_short,),
-        ).fetchone()
-        new_pos = (max_pos[0] if max_pos else -1) + 1
-        conn.execute(
-            _SQL["insert_featured_raid_category"],
-            (expansion_short, name, new_pos),
-        )
-        conn.commit()
-        return True
+    return FeaturedRaidCategory.create(expansion_short, name, path=path) is not None
 
 
 def delete_featured_raid_category(expansion_short: str, name: str, path: Path = DB_PATH) -> bool:
-    """Delete a category. Zones in this category have their category set
-    to NULL (move to Uncategorised). Returns True if a category was
-    deleted, False if it didn't exist."""
-    if not path.exists():
-        return False
-    with sqlite3.connect(path) as conn:
-        with conn:
-            # Move zones in this category to NULL.
-            conn.execute(
-                _SQL["move_featured_zones_to_null_category"],
-                (name, expansion_short),
-            )
-            cur = conn.execute(
-                _SQL["delete_featured_raid_category"],
-                (expansion_short, name),
-            )
-            return cur.rowcount > 0
+    # Stub instance — delete() only needs expansion_short + name as keys.
+    return FeaturedRaidCategory(expansion_short=expansion_short, name=name, position=0).delete(path=path)
+
+
+def reorder_featured_raid_categories(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
+    return FeaturedRaidCategory.reorder_in_expansion(expansion_short, ordering, path=path)
 
 
 def remove_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict | None:
