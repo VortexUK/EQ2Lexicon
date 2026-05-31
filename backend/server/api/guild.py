@@ -141,13 +141,6 @@ class GuildAdornCheckResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _int(v: object) -> int | None:
-    try:
-        return int(v)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-
-
 # ---------------------------------------------------------------------------
 # Route-level guild auth helpers (stay in guild.py — depend on current_world)
 # ---------------------------------------------------------------------------

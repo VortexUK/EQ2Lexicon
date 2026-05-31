@@ -92,6 +92,16 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     # Imports below this line read the env vars above when they evaluate their
     # module-level constants (DB_PATH, SESSION_SECRET, ...).
     from backend.census import store as census_store
+
+    # Force module-level DB_PATH constants to pick up the env vars set above.
+    # The constants are evaluated at module import time; if a pytest plugin
+    # imported these modules before pytest_configure ran (we saw it for
+    # parses_db: the merger started executing SQL against the developer's
+    # real data/parses/parses.db with real player names visible in debug
+    # output), the cached constants point at the wrong path. Re-evaluate
+    # via the shared backend.db_helpers.resolve_db_path which honours the
+    # same env-var override convention.
+    from backend.db_helpers import resolve_db_path  # noqa: PLC0415
     from backend.eq2db import classes as classes_db
     from backend.eq2db import raids as raids_db
     from backend.eq2db import recipes as recipes_db
@@ -100,29 +110,14 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     from backend.server import db as users_db
     from backend.server.parses import db as parses_db
 
-    # Force module-level DB_PATH constants to pick up the env vars set above.
-    # The constants are evaluated at module import time; if a pytest plugin
-    # imported these modules before pytest_configure ran (we saw it for
-    # parses_db: the merger started executing SQL against the developer's
-    # real data/parses/parses.db with real player names visible in debug
-    # output), the cached constants point at the wrong path. Re-evaluate
-    # via the modules' own _db_path() helpers.
-    #
-    # Every DB module is included — parses_db / users_db were the original
-    # Phase 4 fix (2026-05-30); the rest are now extended per the follow-up.
-    # Add new modules here whenever a new DB layer is introduced under the
-    # same DB_PATH = _db_path() convention.
-    #
-    # census/boss_index.py does not exist; census/db.py uses _resolve_db_path()
-    # (a different helper name) and is not part of this convention — skip both.
-    parses_db.DB_PATH = parses_db._db_path()
-    users_db.DB_PATH = users_db._db_path()
-    census_store.DB_PATH = census_store._db_path()
-    zones_db.DB_PATH = zones_db._db_path()
-    spells_db.DB_PATH = spells_db._db_path()
-    recipes_db.DB_PATH = recipes_db._db_path()
-    raids_db.DB_PATH = raids_db._db_path()
-    classes_db.DB_PATH = classes_db._db_path()
+    parses_db.DB_PATH = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
+    users_db.DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
+    census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
+    zones_db.DB_PATH = resolve_db_path("DB_ZONES_PATH", "zones", "zones.db")
+    spells_db.DB_PATH = resolve_db_path("DB_SPELLS_PATH", "spells", "spells.db")
+    recipes_db.DB_PATH = resolve_db_path("DB_RECIPES_PATH", "recipes", "recipes.db")
+    raids_db.DB_PATH = resolve_db_path("DB_RAIDS_PATH", "raids", "raids.db")
+    classes_db.DB_PATH = resolve_db_path("DB_CLASSES_PATH", "classes", "classes.db")
 
     # Create both schemas immediately. FastAPI's startup hooks (which would
     # normally call init_db) don't fire under ASGITransport, so without this

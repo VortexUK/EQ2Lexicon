@@ -10,6 +10,7 @@ from typing import Any, NamedTuple
 import aiosqlite
 
 from backend.census.item_level import compute_ilvl
+from backend.db_helpers import like_escape, resolve_db_path
 from backend.eq2db import _meta as _meta_db
 from backend.eq2db.classes import (
     ARCHETYPE_GROUPS as _ARCHETYPE_GROUPS_SRC,
@@ -27,21 +28,7 @@ _SQL = load_sql(__file__)
 _log = logging.getLogger(__name__)
 
 
-def _resolve_db_path() -> Path:
-    """
-    DB path, in priority order:
-    1. DB_ITEMS_PATH env var  (set this on Railway to point at the volume)
-    2. Default: <repo_root>/data/items/items.db
-    """
-    import os
-
-    env = os.getenv("DB_ITEMS_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "items" / "items.db"
-
-
-DB_PATH = _resolve_db_path()
+DB_PATH = resolve_db_path("DB_ITEMS_PATH", "items", "items.db")
 
 
 def _resolve_max_level() -> int | None:
@@ -152,17 +139,6 @@ _MIGRATIONS = [
 # ---------------------------------------------------------------------------
 # Row conversion
 # ---------------------------------------------------------------------------
-
-
-def _like_escape(s: str) -> str:
-    """Escape SQLite ``LIKE`` wildcards so a user-supplied search string can't
-    silently broaden the match (``%``) or force a table scan (``_``).
-
-    Matching SQL must use ``ESCAPE '\\'`` for these escapes to take effect.
-    Will move to ``web/lib/db_helpers.py`` in Phase 2a — duplicated per-module
-    in Phase 1 for the surgical fix.
-    """
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _flag(flags: dict, key: str) -> int:
@@ -642,7 +618,7 @@ async def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
         # can't silently broaden the match or force a table scan.
         row = await _best(
             "displayname_lower LIKE ? ESCAPE '\\'",
-            (f"%{_like_escape(name.lower())}%",),
+            (f"%{like_escape(name.lower())}%",),
         )
         return json.loads(row["raw_json"]) if row else None
 

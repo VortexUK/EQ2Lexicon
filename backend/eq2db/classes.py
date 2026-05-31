@@ -26,11 +26,11 @@ Why DB-backed instead of a Python literal:
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.db_helpers import resolve_db_path
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -46,14 +46,7 @@ class ClassInfo:
     icon_id: int  # EQ2wire class_medium icon id (crafters get 100+ placeholders)
 
 
-def _db_path() -> Path:
-    env = os.getenv("DB_CLASSES_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "classes" / "classes.db"
-
-
-DB_PATH: Path = _db_path()
+DB_PATH: Path = resolve_db_path("DB_CLASSES_PATH", "classes", "classes.db")
 
 # Schema (CREATE TABLE / INDEX) lives in classes.sql; init_db runs each block.
 

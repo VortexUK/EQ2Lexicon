@@ -23,13 +23,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import sqlite3
 from pathlib import Path
 from typing import TypedDict, cast
 
 from backend.census._coerce import coerce_int as _int
+from backend.db_helpers import like_escape, resolve_db_path
 from backend.eq2db import _meta as _meta_db
 from backend.sql_loader import load_sql
 
@@ -101,14 +101,7 @@ _TIER_RE = re.compile(r"^(.+?)\s*\(([^)]+)\)\s*$")
 # ---------------------------------------------------------------------------
 
 
-def _db_path() -> Path:
-    env = os.getenv("DB_RECIPES_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "recipes" / "recipes.db"
-
-
-DB_PATH: Path = _db_path()
+DB_PATH: Path = resolve_db_path("DB_RECIPES_PATH", "recipes", "recipes.db")
 
 
 # ---------------------------------------------------------------------------
@@ -123,12 +116,6 @@ DB_PATH: Path = _db_path()
 # ---------------------------------------------------------------------------
 # Row conversion
 # ---------------------------------------------------------------------------
-
-
-def _like_escape(s: str) -> str:
-    """Escape SQLite ``LIKE`` wildcards. Will move to ``web/lib/db_helpers.py``
-    in Phase 2a — duplicated per-module for the Phase 1 surgical fix."""
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _parse_spell_tier(name: str) -> tuple[str | None, str | None]:
@@ -325,7 +312,7 @@ def find_by_name(name: str, path: Path = DB_PATH) -> list[RecipeRow]:
             # LIKE fallback — escape user wildcards (BE-006).
             rows = conn.execute(
                 _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
-                (f"%{_like_escape(name.lower())}%",),
+                (f"%{like_escape(name.lower())}%",),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
 

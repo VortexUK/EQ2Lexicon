@@ -40,11 +40,12 @@ def coerce_float(value: object) -> float | None:
 
 
 def coerce_str(value: object) -> str:
-    """Coerce to ``str``, with ``None`` becoming the empty string.
+    """Coerce to ``str``, with ``None`` (and Census's ``{}`` placeholder)
+    becoming the empty string.
 
     Useful for downstream string-required fields (display names, etc.)
     where None is semantically equivalent to "missing"."""
-    if value is None:
+    if value is None or isinstance(value, dict):
         return ""
     return str(value)
 
@@ -52,8 +53,10 @@ def coerce_str(value: object) -> str:
 def coerce_str_or_none(value: object) -> str | None:
     """Coerce to ``str | None`` — keeps the missing-vs-empty distinction.
 
-    Strips whitespace and treats whitespace-only values as None too."""
-    if value is None:
+    Strips whitespace and treats whitespace-only values as None too. Census
+    returns ``{}`` (an empty dict) for some missing string fields; that
+    also maps to None."""
+    if value is None or isinstance(value, dict):
         return None
     s = str(value).strip()
     return s if s else None
