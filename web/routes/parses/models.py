@@ -358,7 +358,8 @@ class IngestRequest(BaseModel):
     """ACT-shaped upload payload. Sub-lists use typed Pydantic models so the
     keys are validated. ``model_config = {"extra": "allow"}`` on the sub-models
     keeps forward-compatibility with newer plugin versions that may add columns.
-    Column names match the ACT export keys documented in parses/act_reader.py."""
+    Column names match the ACT export keys; the plugin's PayloadBuilder (in
+    the EQ2LexiconACTPlugin repo) is the canonical wire-shape reference."""
 
     logger_name: str = Field(min_length=1, max_length=64)
     # EQ2 server the upload came from (Varsoon, Kaladim, Butcherblock,

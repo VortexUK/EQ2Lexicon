@@ -320,9 +320,11 @@ async def _resolve_and_update_snapshots(
         )
 
 
-# Map raw ACT row dicts to our typed dataclasses — same column-name handling
-# as parses/act_reader.py. Mirrors `combatant_table.class`/`damagetype_table.
-# combatant`/`attacktype_table.attacker` quirks observed against real data.
+# Map raw ACT row dicts to our typed dataclasses. The handling mirrors
+# `combatant_table.class` / `damagetype_table.combatant` /
+# `attacktype_table.attacker` quirks observed against real ACT data — kept
+# in the row coercion below because the plugin's JSON payload carries the
+# same shape forward.
 
 
 def _encounter_from_payload(p: IngestEncounter) -> Encounter | None:

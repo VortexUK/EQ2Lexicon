@@ -10,8 +10,9 @@ Mirrors the layout pattern of `census/recipes_db.py`:
 Lives at `data/parses/parses.db` by default. Override with the
 `DB_PARSES_PATH` env var.
 
-Schema reflects the real columns ACT exports at AttackType depth — see
-parses/act_reader.py for the source-side column-name mapping.
+Schema reflects the real columns ACT exports at AttackType depth — the
+plugin's PayloadBuilder (in the EQ2LexiconACTPlugin repo) is the upstream
+source-of-truth for column-name mappings on the wire.
 """
 
 from __future__ import annotations
@@ -966,7 +967,9 @@ def get_combatants_for_encounter(conn: sqlite3.Connection, encounter_id: int) ->
 
 
 class SwingType(IntEnum):
-    """ACT swingtype column values — see parses/act_reader.py for the source."""
+    """ACT swingtype column values — confirmed against ACT's attacktype_table
+    column semantics (see the comment block immediately above this class
+    for the full enumeration)."""
 
     MELEE = 1
     NONMELEE = 2

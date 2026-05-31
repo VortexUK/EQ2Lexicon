@@ -1,15 +1,23 @@
 """
-Dataclasses that mirror ACT's ODBC export schema at AttackType depth.
+Dataclasses for the server's in-memory representation of a parse.
 
-ACT writes (at depth 4) four tables we read:
-  encounter_table   – one row per fight
-  combatant_table   – one row per actor per fight (allies + enemies)
-  damagetype_table  – one row per damage type per combatant per fight
-  attacktype_table  – one row per ability per combatant per fight
+Four nested levels that mirror what the ACT plugin uploads to
+``POST /api/parses/ingest``:
+  Encounter   – one fight
+  Combatant   – one actor per fight (allies + enemies)
+  DamageType  – one damage type per combatant per fight
+  AttackType  – one ability per combatant per fight
 
-Field naming on the Python side normalises ACT's column names: snake_case
-throughout, `*_s` for second-based durations, and percentage VARCHARs
-(e.g. '93%' or '--') are parsed to floats with `_to_perc`.
+Field naming is snake_case throughout, `*_s` for second-based durations,
+and percentage strings (e.g. '93%' or '--') are parsed to floats via
+``_to_perc``. The coercion helpers handle the looseness of the wire
+shape: missing values, empty strings, ACT's 'T'/'F' bool encoding.
+
+The shape itself predates the HTTP ingest path — these dataclasses
+originally mirrored ACT's ODBC SQLite export at AttackType depth, used
+by the now-removed ``parses.act_reader`` + ``parses.ingest`` CLIs. The
+plugin's JSON payload carries the same shape forward so the dataclasses
+serve the v0.1.8+ upload path unchanged.
 """
 
 from __future__ import annotations
@@ -74,7 +82,7 @@ def _to_ts(v) -> datetime | None:
     Two input shapes:
       * Plugin v0.1.1+ → ``"YYYY-MM-DDTHH:MM:SSZ"`` — explicit UTC, returns
         a tz-aware datetime.
-      * Plugin v0.1.0 and the local ODBC ingest path → ``"YYYY-MM-DD HH:MM:SS"``
+      * Plugin v0.1.0 (now well below the version gate) → ``"YYYY-MM-DD HH:MM:SS"``
         — naive (represents the player's local clock). ``_to_unix`` later
         treats naive datetimes as UTC, which is the legacy behaviour:
         off by the local-vs-UTC offset for cross-timezone viewers, but
