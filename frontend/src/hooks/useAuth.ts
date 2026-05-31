@@ -79,3 +79,10 @@ export function isContributor(auth: AuthState): boolean {
   return auth.status === 'authenticated' &&
     (auth.user.is_admin || auth.user.static_roles.includes('contributor'))
 }
+
+/** True if the authed user is an admin (env-driven, see ADMIN_DISCORD_IDS).
+ *  Stricter than `isContributor` — used to gate admin-only affordances like
+ *  the featured raid expansion / zone curation UI on /raids. */
+export function isAdmin(auth: AuthState): boolean {
+  return auth.status === 'authenticated' && auth.user.is_admin
+}

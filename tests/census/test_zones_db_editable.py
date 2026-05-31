@@ -79,6 +79,61 @@ def test_init_db_normalizes_comma_joined_encounter_name(tmp_path):
         conn.close()
 
 
+def test_init_db_strips_zone_suffix_from_zone_names(tmp_path):
+    """A wiki-import zone name ending in ' (Zone)' is rewritten to the bare
+    name, and the parenthesised form is preserved as an alias so historic
+    references still resolve. Non-suffixed names are left alone. Idempotent."""
+    p = tmp_path / "zones.db"
+    conn = zones_db.init_db(p)
+    try:
+        conn.execute(
+            "INSERT INTO zones (name, name_lower, expansion_short, expansion_name, "
+            "expansion_confidence, expansion_source) "
+            "VALUES ('Kurn''s Tower (Zone)', 'kurn''s tower (zone)', 'TSO', 'The Shadow Odyssey', 'test', 'test')"
+        )
+        conn.execute(
+            "INSERT INTO zones (name, name_lower, expansion_short, expansion_name, "
+            "expansion_confidence, expansion_source) "
+            "VALUES ('Halls of Fate', 'halls of fate', 'EoF', 'Echoes of Faydwer', 'test', 'test')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Re-init to trigger the cleanup.
+    conn = zones_db.init_db(p)
+    try:
+        names = {r[0]: r[1] for r in conn.execute("SELECT name, name_lower FROM zones ORDER BY name")}
+        assert "Kurn's Tower" in names, "suffix should be stripped"
+        assert names["Kurn's Tower"] == "kurn's tower", "name_lower should be stripped too"
+        assert "Halls of Fate" in names, "unaffected zone should remain unchanged"
+        assert "Kurn's Tower (Zone)" not in names, "old suffixed name should be gone"
+
+        # Old name preserved as alias for backward-compat lookups.
+        alias_row = conn.execute(
+            "SELECT z.name FROM zone_aliases a JOIN zones z ON z.id = a.zone_id WHERE a.alias_lower = ?",
+            ("kurn's tower (zone)",),
+        ).fetchone()
+        assert alias_row is not None, "old name should be preserved as alias"
+        assert alias_row[0] == "Kurn's Tower", "alias should resolve to cleaned zone"
+
+        # find_by_name resolves both forms to the same canonical zone.
+        from_clean = zones_db.find_by_name("Kurn's Tower", path=p)
+        from_suffixed = zones_db.find_by_name("Kurn's Tower (Zone)", path=p)
+        assert from_clean is not None and from_suffixed is not None
+        assert from_clean["name"] == from_suffixed["name"] == "Kurn's Tower"
+    finally:
+        conn.close()
+
+    # Second run is a no-op (no rows match the LIKE filter anymore).
+    conn = zones_db.init_db(p)
+    try:
+        cleaned_name = conn.execute("SELECT name FROM zones WHERE name_lower = 'kurn''s tower'").fetchone()
+        assert cleaned_name is not None and cleaned_name[0] == "Kurn's Tower"
+    finally:
+        conn.close()
+
+
 def _bootstrap_zone(p):
     """Single zone + zero encounters. Returns zone_id."""
     conn = zones_db.init_db(p)

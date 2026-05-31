@@ -326,6 +326,14 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         from parses import db as parses_db
 
         parses_db.init_db()
+        # Initialise zones.db on startup too so admin-curation tables
+        # (featured_raid_expansions / featured_raid_zones) exist on
+        # pre-migration DBs without requiring a rebuild via the seed
+        # script. init_db is CREATE TABLE IF NOT EXISTS throughout, so
+        # this is safe on populated zones.db files.
+        from census import zones_db
+
+        zones_db.init_db().close()
         # Run the item-stats check in a background thread so it never blocks
         # startup or Railway health checks.  On a fresh deployment the backfill
         # may take ~60–90 s; stat-filter searches will return 0 results until it

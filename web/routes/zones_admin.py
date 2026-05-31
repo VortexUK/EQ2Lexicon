@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from census import zones_db
-from web.auth_deps import require_editor
+from web.auth_deps import require_admin, require_editor
 from web.lib.executor import run_sync
 from web.routes.rankings import invalidate_zones_cache
 
@@ -65,6 +65,16 @@ class MobUpdateBody(BaseModel):
 
 class ZoneTypeBody(BaseModel):
     type: str = Field(..., min_length=1)
+
+
+class ExpansionEntry(BaseModel):
+    """One expansion as returned by the featured-raid endpoints. ``name``
+    and ``year`` come straight from the zones table (may be NULL for
+    pre-launch or historically-mis-tagged rows)."""
+
+    short: str
+    name: str | None = None
+    year: int | None = None
 
 
 # --- endpoints ---------------------------------------------------------------
@@ -246,3 +256,224 @@ async def remove_zone_type_route(zone_name: str, type_token: str) -> dict:
         raise HTTPException(status_code=404, detail=f"Zone {zone_name!r} not found")
     invalidate_zones_cache()
     return result
+
+
+# --- featured raid expansions (admin-curated /raids page list) --------------
+# Stricter auth than the dungeon endpoints above: raid curation is
+# admin-only. The /raids landing page reads from the *public* list endpoint
+# (no auth) and the admin gates only the available-list + write endpoints.
+
+
+@router.get("/raids/expansions", response_model=list[ExpansionEntry])
+async def list_raid_expansions() -> list[dict]:
+    """Public read of the admin-curated raid expansion list. Used by the
+    /raids page to render its sections."""
+    return await run_sync(zones_db.list_featured_raid_expansions)
+
+
+@router.get(
+    "/raids/expansions/available",
+    response_model=list[ExpansionEntry],
+    dependencies=[Depends(require_admin)],
+)
+async def list_raid_expansions_available() -> list[dict]:
+    """Admin-only: expansions in zones.db NOT yet featured. For the
+    'Add expansion' picker."""
+    return await run_sync(zones_db.list_available_raid_expansions)
+
+
+@router.post(
+    "/raids/expansions/{expansion_short}",
+    dependencies=[Depends(require_admin)],
+)
+async def add_raid_expansion(expansion_short: str) -> dict:
+    """Admin-only: mark an expansion as featured. Empty by default — admin
+    must subsequently 'Add raid zone' to populate it."""
+    ok = await run_sync(zones_db.add_featured_raid_expansion, expansion_short)
+    if not ok:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Expansion {expansion_short!r} not found in zones.db",
+        )
+    invalidate_zones_cache()
+    return {"expansion_short": expansion_short}
+
+
+@router.delete(
+    "/raids/expansions/{expansion_short}",
+    dependencies=[Depends(require_admin)],
+)
+async def remove_raid_expansion(expansion_short: str) -> dict:
+    """Admin-only: remove an expansion from featured AND cascade-remove all
+    featured raid zones under it. The underlying zone_encounters (curated
+    bosses) are preserved — re-adding the expansion + zones restores them."""
+    removed = await run_sync(zones_db.remove_featured_raid_expansion, expansion_short)
+    invalidate_zones_cache()
+    return {"expansion_short": expansion_short, "removed": removed}
+
+
+# --- featured raid zones (admin-curated raid roster within an expansion) ----
+
+
+@router.get("/raids/zones", response_model=list[dict])
+async def list_raid_zones(expansion: str) -> list[dict]:
+    """Public read of admin-featured raid zones for an expansion."""
+    return await run_sync(zones_db.list_featured_raid_zones, expansion)
+
+
+@router.get(
+    "/raids/zones/available",
+    response_model=list[dict],
+    dependencies=[Depends(require_admin)],
+)
+async def list_raid_zones_available(expansion: str) -> list[dict]:
+    """Admin-only: zones in the expansion tagged raid_x4 or raid_x2 but
+    NOT yet featured. For the 'Add raid zone' picker."""
+    return await run_sync(zones_db.list_available_raid_zones, expansion)
+
+
+@router.post(
+    "/raids/zones/{zone_name}",
+    dependencies=[Depends(require_admin)],
+)
+async def add_raid_zone(zone_name: str) -> dict:
+    """Admin-only: mark a raid zone as featured for /raids. Requires the
+    zone to be tagged raid_x4 or raid_x2 in zones.db."""
+    zone = await run_sync(zones_db.add_featured_raid_zone, zone_name)
+    if zone is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Zone {zone_name!r} not found or not tagged raid_x4/raid_x2",
+        )
+    invalidate_zones_cache()
+    return zone
+
+
+@router.delete(
+    "/raids/zones/{zone_name}",
+    dependencies=[Depends(require_admin)],
+)
+async def remove_raid_zone(zone_name: str) -> dict:
+    """Admin-only: remove a raid zone from featured. Underlying
+    zone_encounters boss data is preserved."""
+    removed = await run_sync(zones_db.remove_featured_raid_zone, zone_name)
+    invalidate_zones_cache()
+    return {"zone_name": zone_name, "removed": removed}
+
+
+# --- drag-reorder + categories ---------------------------------------------
+# Lanes (categories) are admin-defined ordering rows; zones within an
+# expansion are positioned both within their (NULL or named) lane and across
+# lanes. The reorder endpoints rewrite the world atomically — they take the
+# full ordering, not deltas, so a stale client can't corrupt position state.
+
+
+class ZoneOrderingEntry(BaseModel):
+    """One zone in a reorder payload. `category` of None means the implicit
+    'Uncategorised' lane (always pinned at the top of the page)."""
+
+    name: str = Field(..., min_length=1)
+    category: str | None = None
+    position: int
+
+
+class ZonesReorderBody(BaseModel):
+    expansion: str = Field(..., min_length=1)
+    zones: list[ZoneOrderingEntry]
+
+
+class CategoryOrderingEntry(BaseModel):
+    name: str = Field(..., min_length=1)
+    position: int
+
+
+class CategoriesReorderBody(BaseModel):
+    expansion: str = Field(..., min_length=1)
+    categories: list[CategoryOrderingEntry]
+
+
+@router.put(
+    "/raids/zones/reorder",
+    response_model=dict,
+    dependencies=[Depends(require_admin)],
+)
+async def reorder_raid_zones(body: ZonesReorderBody) -> dict:
+    """Admin-only: atomic reorder + recategorize of featured raid zones in
+    an expansion. Auto-creates missing featured_raid_categories rows for
+    any category name not yet tracked, so an admin can drag a zone into a
+    fresh lane in a single operation."""
+    ok = await run_sync(
+        zones_db.reorder_featured_raid_zones,
+        body.expansion,
+        [e.model_dump() for e in body.zones],
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail="One or more zones not found in featured set for this expansion",
+        )
+    invalidate_zones_cache()
+    return {"expansion": body.expansion, "reordered": len(body.zones)}
+
+
+@router.put(
+    "/raids/categories/reorder",
+    response_model=dict,
+    dependencies=[Depends(require_admin)],
+)
+async def reorder_raid_categories(body: CategoriesReorderBody) -> dict:
+    """Admin-only: atomic position rewrite for category lanes in an
+    expansion. Every category in `categories` must already exist (was
+    created on first use via reorder_raid_zones)."""
+    ok = await run_sync(
+        zones_db.reorder_featured_raid_categories,
+        body.expansion,
+        [e.model_dump() for e in body.categories],
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail="One or more categories not found for this expansion",
+        )
+    invalidate_zones_cache()
+    return {"expansion": body.expansion, "reordered": len(body.categories)}
+
+
+@router.get("/raids/categories", response_model=list[dict])
+async def list_raid_categories(expansion: str) -> list[dict]:
+    """Public read of category ordering for an expansion. Used by the
+    frontend ExpansionSection to render lane headers in their saved
+    order; NULL-category zones go in an implicit 'Uncategorised' lane
+    pinned at the top of every expansion."""
+    return await run_sync(zones_db.list_featured_raid_categories, expansion)
+
+
+class CreateCategoryBody(BaseModel):
+    name: str  # 1-64 chars, will be trimmed; reject if empty after trim
+
+
+@router.post("/raids/categories", response_model=dict, dependencies=[Depends(require_admin)])
+async def create_raid_category(expansion: str, body: CreateCategoryBody) -> dict:
+    """Admin-only: create an empty category lane in an expansion. The new
+    lane appears at MAX+1 position and starts with zero zones; admin then
+    drags zones into it."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name must not be empty")
+    if len(name) > 64:
+        raise HTTPException(status_code=400, detail="Category name must be 64 chars or fewer")
+    created = await run_sync(zones_db.create_featured_raid_category, expansion, name)
+    if not created:
+        raise HTTPException(status_code=409, detail=f"Category {name!r} already exists in {expansion}")
+    invalidate_zones_cache()
+    return {"expansion": expansion, "name": name}
+
+
+@router.delete("/raids/categories", response_model=dict, dependencies=[Depends(require_admin)])
+async def delete_raid_category(expansion: str, name: str) -> dict:
+    """Admin-only: delete a category. Zones currently in this category
+    are moved to the Uncategorised lane (category=NULL) — their boss data
+    and featured status are preserved."""
+    removed = await run_sync(zones_db.delete_featured_raid_category, expansion, name)
+    invalidate_zones_cache()
+    return {"expansion": expansion, "name": name, "removed": removed}

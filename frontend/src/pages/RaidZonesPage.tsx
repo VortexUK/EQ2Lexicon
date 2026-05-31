@@ -1,85 +1,70 @@
+/**
+ * RaidZonesPage — /raids landing page.
+ *
+ * Data is fully admin-curated:
+ *   - GET /api/raids/expansions          → which expansion sections to render
+ *   - GET /api/raids/zones?expansion=X   → raid zones in each section
+ *
+ * The page itself just owns the expansion list, the open/closed state per
+ * section, and the page-level "Add expansion" admin affordance.  Per-section
+ * rendering + per-zone fetches live in <ExpansionSection> so each one calls
+ * useFetch exactly once per render (Rules of Hooks).
+ *
+ * Migrated 2026-05-31 from a hardcoded EXPANSIONS const + raid_x4 type
+ * filter to admin-curated tables (see census/zones_db.featured_raid_*).
+ */
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 
 import Breadcrumb from '../components/Breadcrumb'
-import { Card } from '../components/ui'
-import { fmtRelative } from '../formatters'
+import { Button } from '../components/ui'
 import { useFetch } from '../hooks/useFetch'
-import { useRaidProgress, type KilledEncounter } from '../hooks/useRaidProgress'
+import { type AuthState, isAdmin, useAuth } from '../hooks/useAuth'
+import { useRaidProgress } from '../hooks/useRaidProgress'
 import { useServer } from '../hooks/useServer'
-import { DungeonsCard } from './raids/DungeonsCard'
-import type { Zone, ZoneListResponse } from './raids/types'
+import { ExpansionSection } from './raids/ExpansionSection'
+import { ExpansionPickerModal } from './raids/ZonePickerModal'
 
-// Data fetch uses useFetch (hooks/useFetch.ts) — canonical pattern.
-// See P0-13 in docs/superpowers/specs/2026-05-29-frontend-cleanliness-audit.md.
+interface FeaturedExpansion {
+  short: string
+  name: string | null
+  year: number | null
+}
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-// Shared with RaidZonePage. The API returns ``id`` on every encounter / mob
-// row; this index page just doesn't read it (the detail page does, for FK
-// references in the boss-roster editor). Keeping a single source of truth
-// matches what /api/zones actually emits and stops the two pages drifting.
+interface Props {
+  /** Optional auth-state override for tests. */
+  authOverride?: AuthState
+}
 
-// ── Expansion catalogue ───────────────────────────────────────────────────────
-// Ordered newest-first so the most relevant raid content surfaces at the top of
-// the page. Only expansions with curated raid data are queried — the index
-// silently omits any expansion that returns zero zones.
+export default function RaidZonesPage({ authOverride }: Props = {}) {
+  const liveAuth = useAuth()
+  const auth = authOverride ?? liveAuth
+  const admin = isAdmin(auth)
 
-interface ExpansionDef { short: string; name: string }
-
-const EXPANSIONS: ExpansionDef[] = [
-  // Newest first — extend as raid rosters are curated.
-  // ⚠ If you add a 3rd entry, also add a 3rd useFetch + byExpansion key
-  // in the component body OR refactor to a sub-component-per-expansion
-  // (Rules of Hooks forbids a dynamic-length useFetch loop).
-  { short: 'RoK', name: 'Rise of Kunark' },
-  { short: 'EoF', name: 'Echoes of Faydwer' },
-]
-
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-export default function RaidZonesPage() {
-  // One fetch per expansion, in parallel. EXPANSIONS is a fixed-length static
-  // array so calling useFetch once per entry is safe (hook call count is
-  // constant across renders). Keyed by expansion short for cheap lookups.
-  const rokFetch = useFetch<ZoneListResponse>(`/api/zones?expansion=${encodeURIComponent(EXPANSIONS[0].short)}&type=raid_x4`)
-  const eofFetch = useFetch<ZoneListResponse>(`/api/zones?expansion=${encodeURIComponent(EXPANSIONS[1].short)}&type=raid_x4`)
-
-  const loading = rokFetch.loading || eofFetch.loading
-  const error = rokFetch.error ?? eofFetch.error ?? null
-
-  const byExpansion = useMemo<Record<string, Zone[]>>(() => ({
-    [EXPANSIONS[0].short]: rokFetch.data?.zones ?? [],
-    [EXPANSIONS[1].short]: eofFetch.data?.zones ?? [],
-  }), [rokFetch.data, eofFetch.data])
+  const expansionsFetch = useFetch<FeaturedExpansion[]>('/api/raids/expansions')
+  const expansions = useMemo<FeaturedExpansion[]>(
+    () => expansionsFetch.data ?? [],
+    [expansionsFetch.data],
+  )
 
   const progress = useRaidProgress()
   const server = useServer()
+
   // Per-section open/closed. Initialised once data + server settings are in:
   // the server's current_xpac is opened by default, everything else closed.
-  // After that, the user toggles freely — we don't re-collapse on re-render.
+  // After that the user toggles freely — we don't re-collapse on re-render.
   const [openExpansions, setOpenExpansions] = useState<Set<string> | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [mutationError, setMutationError] = useState<string | null>(null)
 
-  // Drop empty expansions so the page doesn't show a hollow "RoR" header before
-  // its roster has been curated.
-  const visible = useMemo(
-    () => EXPANSIONS.filter(e => (byExpansion[e.short]?.length ?? 0) > 0),
-    [byExpansion]
-  )
-
-  // First time both the visible list and the server settings are populated,
-  // seed the open set with the server's current expansion. If we don't have
-  // a current_xpac (or it doesn't match any visible expansion), fall back to
-  // the newest visible one (first in the list) so the page is never entirely
-  // collapsed. Only runs once — subsequent toggles are user-driven.
   useEffect(() => {
     if (openExpansions !== null) return
-    if (loading || visible.length === 0) return
+    if (expansionsFetch.loading || expansions.length === 0) return
     const current = server?.currentXpac
-    const seed = current && visible.some(e => e.short === current)
+    const seed = current && expansions.some(e => e.short === current)
       ? current
-      : visible[0].short
+      : expansions[0].short
     setOpenExpansions(new Set([seed]))
-  }, [openExpansions, loading, visible, server])
+  }, [openExpansions, expansionsFetch.loading, expansions, server])
 
   function toggleExpansion(short: string) {
     setOpenExpansions(prev => {
@@ -90,10 +75,47 @@ export default function RaidZonesPage() {
     })
   }
 
+  async function handleAddExpansion(short: string) {
+    setMutationError(null)
+    try {
+      const r = await fetch(`/api/raids/expansions/${encodeURIComponent(short)}`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        setMutationError(body?.detail ?? `Add failed: ${r.status}`)
+        return
+      }
+      setPickerOpen(false)
+      // Open the new section by default so admin sees an immediate place to
+      // add raid zones into.
+      setOpenExpansions(prev => {
+        const next = new Set(prev ?? [])
+        next.add(short)
+        return next
+      })
+      expansionsFetch.refetch()
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <main className="page-enter mx-auto max-w-5xl px-4 py-6">
       <Breadcrumb items={[{ label: 'Raids' }]} />
-      <h1 className="font-heading text-[1.7rem] text-gold mb-1">Raid Zones</h1>
+      <div className="flex items-baseline gap-3 mb-1">
+        <h1 className="font-heading text-[1.7rem] text-gold">Raid Zones</h1>
+        {admin && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => { setMutationError(null); setPickerOpen(true) }}
+          >
+            + Add expansion
+          </Button>
+        )}
+      </div>
       <p className="text-text-muted text-sm mb-5">
         Boss rosters for every curated x4 raid.
         {progress.guild_name && (
@@ -103,149 +125,45 @@ export default function RaidZonesPage() {
         )}
       </p>
 
-      {loading && <p className="text-text-muted">Loading…</p>}
-      {error && <p className="text-danger">Failed to load raid zones: {error}</p>}
+      {mutationError && <p className="text-danger text-sm mb-3">{mutationError}</p>}
+      {expansionsFetch.loading && <p className="text-text-muted">Loading…</p>}
+      {expansionsFetch.error && (
+        <p className="text-danger">Failed to load raid expansions: {expansionsFetch.error}</p>
+      )}
 
-      {!loading && !error && visible.length === 0 && (
-        <p className="text-text-muted">No raid rosters have been curated yet.</p>
+      {!expansionsFetch.loading && !expansionsFetch.error && expansions.length === 0 && (
+        <p className="text-text-muted">
+          No expansions have been added to /raids yet
+          {admin ? ' — click "Add expansion" above to start curating.' : '.'}
+        </p>
       )}
 
       <div className="flex flex-col gap-7">
-        {visible.map(exp => {
-          const zones = byExpansion[exp.short]
+        {expansions.map(exp => {
           const isOpen = openExpansions?.has(exp.short) ?? false
           const isCurrent = server?.currentXpac === exp.short
           return (
-            <section key={exp.short}>
-              <button
-                type="button"
-                onClick={() => toggleExpansion(exp.short)}
-                aria-expanded={isOpen}
-                className="
-                  group w-full flex items-baseline gap-2 mb-1 text-left cursor-pointer
-                  appearance-none border-0 bg-transparent p-0
-                  text-[0.7rem] uppercase tracking-[0.08em] text-gold font-semibold
-                  hover:text-gold-bright transition-colors
-                "
-              >
-                <span
-                  aria-hidden
-                  className="inline-block w-[0.6rem] text-text-muted group-hover:text-gold transition-colors"
-                >
-                  {isOpen ? '▾' : '▸'}
-                </span>
-                <span>{exp.name} ({exp.short})</span>
-                {isCurrent && (
-                  <span className="ml-1 normal-case tracking-normal text-[0.65rem] text-gold-dim font-normal">
-                    · current
-                  </span>
-                )}
-                <span className="ml-auto normal-case tracking-normal text-[0.7rem] text-text-muted font-normal tabular-nums">
-                  {zones.length} zone{zones.length === 1 ? '' : 's'}
-                </span>
-              </button>
-              {isOpen && (
-                <>
-                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                    {zones.map(zone => (
-                      <ZoneCard
-                        key={zone.name}
-                        zone={zone}
-                        killed={progress.killed_encounters[zone.name] ?? []}
-                        hasGuild={!!progress.guild_name}
-                      />
-                    ))}
-                  </div>
-                  {/* Contributor-only dungeon curation. Hidden entirely for
-                      regular users (the card's first hook returns null). */}
-                  <DungeonsCard expansion={exp.short} />
-                </>
-              )}
-            </section>
+            <ExpansionSection
+              key={exp.short}
+              expansion={{ short: exp.short, name: exp.name ?? exp.short }}
+              isOpen={isOpen}
+              onToggle={() => toggleExpansion(exp.short)}
+              isCurrent={isCurrent}
+              killedByZone={progress.killed_encounters}
+              hasGuild={!!progress.guild_name}
+              onExpansionRemoved={expansionsFetch.refetch}
+              authOverride={authOverride}
+            />
           )
         })}
       </div>
-    </main>
-  )
-}
 
-// ── Subcomponents ─────────────────────────────────────────────────────────────
-
-interface ZoneCardProps {
-  zone: Zone
-  killed: KilledEncounter[]
-  hasGuild: boolean
-}
-
-function ZoneCard({ zone, killed, hasGuild }: ZoneCardProps) {
-  const total = zone.bosses.length
-  const killedCount = killed.length
-  const pct = total > 0 ? Math.round((killedCount / total) * 100) : 0
-  // Most recent kill across any encounter in this zone — drives the "last kill"
-  // subtitle so a card communicates "active raid" at a glance.
-  const lastKillAt = killed.length > 0 ? Math.max(...killed.map(k => k.last_kill_at)) : null
-
-  return (
-    <Link
-      to={`/raids/${encodeURIComponent(zone.name)}`}
-      className="block no-underline group"
-    >
-      <Card className="h-full transition-colors group-hover:border-gold/60 flex flex-col gap-2">
-        <div>
-          <div className="font-heading text-gold-bright text-[1.05rem] leading-snug mb-1">
-            {zone.name}
-          </div>
-          <div className="text-text-muted text-[0.78rem]">
-            {total} encounter{total === 1 ? '' : 's'}
-            {zone.is_contested && <span className="ml-2 text-gold-dim">· Contested</span>}
-          </div>
-        </div>
-
-        {/* Progress — only render when the user has a resolved guild. Otherwise
-            we'd be showing 0/N for every zone, which reads as "your guild has
-            zero kills" rather than "we don't know your guild yet". */}
-        {hasGuild && (
-          <ProgressBar killed={killedCount} total={total} pct={pct} lastKillAt={lastKillAt} />
-        )}
-      </Card>
-    </Link>
-  )
-}
-
-interface ProgressBarProps {
-  killed: number
-  total: number
-  pct: number
-  lastKillAt: number | null
-}
-
-function ProgressBar({ killed, total, pct, lastKillAt }: ProgressBarProps) {
-  const isComplete = killed === total && total > 0
-  return (
-    <div className="mt-auto pt-1">
-      <div className="flex items-center justify-between text-[0.7rem] mb-1">
-        <span className="uppercase tracking-[0.06em] text-text-muted">Progress</span>
-        <span className={isComplete ? 'text-success font-semibold tabular-nums' : 'text-text tabular-nums'}>
-          {killed} / {total}
-        </span>
-      </div>
-      <div
-        className="h-1.5 rounded-full bg-bg/60 border border-border overflow-hidden"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={killed}
-      >
-        <div
-          className={`h-full transition-[width] duration-300 ${isComplete ? 'bg-success/70' : 'bg-gold/70'}`}
-          style={{ width: `${pct}%` }}
+      {pickerOpen && (
+        <ExpansionPickerModal
+          onPick={handleAddExpansion}
+          onClose={() => setPickerOpen(false)}
         />
-      </div>
-      {lastKillAt !== null && (
-        <div className="text-[0.68rem] text-text-muted mt-1 text-right">
-          Last kill {fmtRelative(lastKillAt)}
-        </div>
       )}
-    </div>
+    </main>
   )
 }
