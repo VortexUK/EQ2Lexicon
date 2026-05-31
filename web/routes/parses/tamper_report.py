@@ -34,6 +34,7 @@ from fastapi import HTTPException, Request
 
 from parses import db as parses_db
 from web.auth_deps import require_user_session_or_token
+from web.lib.audit_log import audit_log
 from web.lib.executor import run_sync
 from web.lib.log_safety import scrub as _safe_for_log
 from web.lib.session_user import TokenUser
@@ -195,17 +196,14 @@ async def report_tamper(
     if reason not in KNOWN_TAMPER_REASONS:
         # Accept unknown codes for forward-compat with future plugin
         # versions, but log so the maintainer notices a new heuristic
-        # they may want to wire admin-UI styling for.
-        #
-        # Every user-controlled value goes through _safe_for_log to
-        # strip CR/LF before logging. Same pattern as web/routes/claim.py
-        # — keeps CodeQL's py/log-injection + py/clear-text-logging
-        # rules quiet (it treats values from session/token context as
-        # sensitive even though discord_id is a public identifier).
+        # they may want to wire admin-UI styling for. Drop the
+        # discord_id from this line — it's the receipt-side log only;
+        # the actor's id is captured at audit-log time when the report
+        # actually lands (and in the DB row's uploader_discord_id
+        # column either way).
         _log.info(
-            "[tamper-report] unknown reason code: %s (token user=%s)",
+            "[tamper-report] unknown reason code: %s",
             _safe_for_log(reason),
-            _safe_for_log(user.get("id")),
         )
 
     # Logger_name: validate to the same EQ2 character-name shape ingest
@@ -248,22 +246,30 @@ async def report_tamper(
             payload_json=payload_json,
         )
     except sqlite3.Error:
+        # Drop discord_id from the diagnostic log — encid + reason are
+        # the actionable bits, and the actor's identity is in the DB
+        # row when the insert succeeded (and on every other call in
+        # the same session via the request_id context).
         _log.exception(
-            "[tamper-report] DB error persisting report: user=%s reason=%s encid=%s",
-            _safe_for_log(discord_id),
+            "[tamper-report] DB error persisting report: reason=%s encid=%s",
             _safe_for_log(reason),
             _safe_for_log(body.encounter.encid),
         )
         # Don't surface DB details to the client.
         raise HTTPException(status_code=500, detail="Could not persist tamper report.") from None
 
-    _log.info(
-        "[tamper-report] stored: id=%d reason=%s user=%s logger=%s world=%s encid=%s",
-        report_id,
-        _safe_for_log(reason),
-        _safe_for_log(discord_id),
-        _safe_for_log(uploader),
-        _safe_for_log(world_for_report),
-        _safe_for_log(body.encounter.encid),
+    # Successful receipt of a tamper report IS an audit event — route it
+    # via the audit_log helper rather than a free-form _log.info so the
+    # `eq2.audit` channel has the full record (action, actor, reason,
+    # encid, world). audit_log scrubs every field automatically and is
+    # the project's blessed pattern for security-relevant events.
+    audit_log(
+        "tamper_report.received",
+        actor=discord_id,
+        report_id=report_id,
+        reason=reason,
+        logger=uploader,
+        world=world_for_report,
+        encid=body.encounter.encid,
     )
     return TamperReportResponse(id=report_id, reason=reason)
