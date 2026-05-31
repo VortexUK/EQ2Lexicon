@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from census.client import CensusClient
+from backend.census.client import CensusClient
 
 
 @pytest.fixture

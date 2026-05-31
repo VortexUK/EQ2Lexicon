@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from census.client import CensusClient
+from backend.census.client import CensusClient
 
 
 @pytest.fixture
@@ -105,13 +105,13 @@ class TestGetItem:
 class TestFindInDB:
     @pytest.mark.asyncio
     async def test_numeric_id_dispatches_to_find_by_id(self, client):
-        with patch("census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
+        with patch("backend.census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
             await client._find_in_db("12345")
         mock_find.assert_called_once_with(12345)
 
     @pytest.mark.asyncio
     async def test_negative_numeric_id_dispatches_to_find_by_id(self, client):
-        with patch("census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
+        with patch("backend.census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
             await client._find_in_db("-100")
         mock_find.assert_called_once_with(-100)
 
@@ -119,19 +119,19 @@ class TestFindInDB:
     async def test_game_link_extracts_unsigned_id_from_negative(self, client):
         """Negative signed ID in game link → unsigned (add 2**32)."""
         expected_id = 2**32 - 100
-        with patch("census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
+        with patch("backend.census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
             await client._find_in_db(r"\aITEM -100 Raw Lead:Raw Lead/a")
         mock_find.assert_called_once_with(expected_id)
 
     @pytest.mark.asyncio
     async def test_game_link_positive_id_stays_positive(self, client):
-        with patch("census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
+        with patch("backend.census.client.item_db.find_by_id", new=AsyncMock(return_value=None)) as mock_find:
             await client._find_in_db(r"\aITEM 500 Raw Lead:Raw Lead/a")
         mock_find.assert_called_once_with(500)
 
     @pytest.mark.asyncio
     async def test_display_name_dispatches_to_find_by_name(self, client):
-        with patch("census.client.item_db.find_by_name", new=AsyncMock(return_value=None)) as mock_find:
+        with patch("backend.census.client.item_db.find_by_name", new=AsyncMock(return_value=None)) as mock_find:
             await client._find_in_db("Raw Lead")
         mock_find.assert_called_once_with("Raw Lead")
 
@@ -149,8 +149,8 @@ class TestCacheItem:
         init_mock.return_value = conn_mock
 
         with (
-            patch("census.client.item_db.init_db", init_mock),
-            patch("census.client.item_db.upsert_items") as upsert_mock,
+            patch("backend.census.client.item_db.init_db", init_mock),
+            patch("backend.census.client.item_db.upsert_items") as upsert_mock,
         ):
             client._cache_item(fake_raw)
 
@@ -159,7 +159,7 @@ class TestCacheItem:
 
     def test_cache_item_swallows_db_error(self, client):
         """DB errors in caching must not propagate."""
-        with patch("census.client.item_db.init_db", side_effect=Exception("DB exploded")):
+        with patch("backend.census.client.item_db.init_db", side_effect=Exception("DB exploded")):
             # Should not raise
             client._cache_item({"id": 1, "displayname": "Item"})
 

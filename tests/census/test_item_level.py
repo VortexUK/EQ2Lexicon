@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from census.item_level import (
+from backend.census.item_level import (
     CHARACTER_GEAR_SLOT_COUNT,
     GEAR_TYPES,
     ILVL_POTENCY_WEIGHT,

@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from census.client import CensusClient, _build_trace_config, _redact_url
+from backend.census.client import CensusClient, _build_trace_config, _redact_url
 
 
 class TestRedactUrl:

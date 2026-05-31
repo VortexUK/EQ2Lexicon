@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from census.client import CensusClient
+from backend.census.client import CensusClient
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ async def client() -> AsyncGenerator[CensusClient]:
 @pytest.mark.asyncio
 async def test_resolve_item_meta_returns_items_db_row_on_hit(client, monkeypatch):
     """Hot items.db → return the row directly, no Census fetch, no cache write."""
-    from census import db as item_db_module
+    from backend.eq2db import items as item_db_module
 
     expected_row = {"displayname": "Hot Item", "tier": "FABLED", "iconid": 1234}
 
@@ -59,7 +59,7 @@ async def test_resolve_item_meta_falls_back_to_census_and_caches(client, monkeyp
     """items.db miss → single Census fetch → result persisted to items.db via
     _cache_item → returned to the caller. This is the path that prevents the
     'Item #<id>' placeholder from getting baked into the persistent cache."""
-    from census import db as item_db_module
+    from backend.eq2db import items as item_db_module
 
     async def _fake_find(item_id, *args, **kwargs):
         return None  # items.db cold for this ID
@@ -88,7 +88,7 @@ async def test_resolve_item_meta_returns_none_when_census_also_misses(client, mo
     """items.db miss + Census miss → return None so the caller can render
     the 'Item #<id>' placeholder rather than crash. No cache write — we
     don't want to memoise 'unknown' against the ID."""
-    from census import db as item_db_module
+    from backend.eq2db import items as item_db_module
 
     async def _fake_find(item_id, *args, **kwargs):
         return None
@@ -108,7 +108,7 @@ async def test_resolve_item_meta_returns_none_when_census_also_misses(client, mo
 async def test_resolve_item_meta_handles_census_unreachable(client, monkeypatch):
     """Census API call returns None (network error already swallowed inside
     _fetch) → _resolve_item_meta returns None, no cache write, no crash."""
-    from census import db as item_db_module
+    from backend.eq2db import items as item_db_module
 
     async def _fake_find(item_id, *args, **kwargs):
         return None

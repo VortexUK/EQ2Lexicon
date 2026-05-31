@@ -8,39 +8,39 @@ A web companion site for EverQuest 2 (TLE), with a Discord bot for spot checks (
 
 | File | Purpose |
 |---|---|
-| `census/client.py` | All Census API HTTP calls. `CensusClient` has `get_item`, `get_guild`, `get_character_spells`, `get_character_aas`, `get_raw_item`. |
-| `census/models.py` | Dataclasses: `ItemData`, `ItemStat`, `ItemEffect`, `GuildData`, `GuildMember`, `CharacterSpells`, `SpellEntry`, `NodeAA`, `CharacterAAs` |
-| `census/constants.py` | `STAT_MAP` (stat display names/groups), class frozensets (`FIGHTERS`, `PRIESTS`, `SCOUTS`, `MAGES`, `ARTISANS`), `ARCHETYPES`, `CLASS_GROUPS`, `TYPEINFO_DISPLAY`, `ITEM_DISPLAY` |
-| `census/item_parser.py` | Item data parsing helpers (parse_item, parse_stats, parse_effects, parse_flags, etc.) extracted from client.py |
-| `census/spells_db.py` | Local SQLite spell catalogue: strip_roman, unique_highest_entries, load_blocklist, find_by_ids, find_by_crc, spell_to_row, upsert_spells |
-| `census/recipes_db.py` | Local SQLite recipe catalogue (~70k rows). Helpers: find_by_id, find_by_name, find_by_output_id. Secondary components stored as JSON array. |
-| `census/zones_db.py` | Local SQLite zone catalogue (~1124 rows). Tables: `zones`, `zone_types`, `zone_aliases`, `zone_encounters`, `zone_encounter_mobs`. Lookup helpers: `find_by_name`, `list_by_expansion`, `list_by_event`, `list_by_type`, `list_bosses_for_zone`, `find_zones_by_boss`. Zone metadata from `scripts/dev/eq2_zones.cleaned.json`; rebuild via `scripts/build_zones_db.py`. Boss data is curator-managed in-place. |
-| `census/wikitext_md.py` | MediaWiki wikitext → markdown converter (mwparserfromhell). Handles EQ2i templates, wikilinks, nested lists, headings, bold/italic. Used by the raid scraper. |
-| `census/raids_db.py` | Local SQLite raid-strategy catalogue: `raid_zones` + `raid_encounters` (markdown blob per encounter) + `raid_encounter_revisions`. `DB_RAIDS_PATH` env var. |
-| `census/census_store.py` | Persistent SQLite store (characters + guilds keyed by name_lower + world). Keep-best-known merge — sparse Census refresh never nulls good data. `DB_CENSUS_PATH` env. |
-| `image/tooltip.py` | PIL renderer for item tooltips. Renders at 2× then downsamples (SCALE=2, ZOOM=1.3). See file for colour/stat/ordering details. |
-| `image/aa_tree.py` | AA tree renderers and coordinate systems. See file for tree-type detection and coordinate arithmetic. |
-| `bot/bot.py` | Registers all cogs, syncs slash commands to three specific guild IDs (648253204760625160, 955890381847928892, 1502314690041221260) for instant propagation plus a global sync. |
-| `bot/cogs/items.py` | `/item` — accepts name, numeric ID, or game link |
-| `bot/cogs/guild.py` | `/guild` — tabular member list sorted by rank then level |
-| `bot/cogs/spellcheck.py` | `/spellcheck` — spell tier summary or full list (`details:True`) |
-| `bot/cogs/aacheck.py` | `/aacheck` — renders a character's AA tree with tier badges |
-| `web/config.py` | Single source of truth: SERVICE_ID, WORLD from env vars |
-| `web/server_context.py` | Host → active-server middleware + contextvar accessors (`current_world()`, `current_server()`) + in-memory registry loaded from the `servers` table |
-| `web/routes/server.py` | `GET /api/server` — bootstraps the frontend with the active server's world, display name, max_level, current_xpac, launch_dt, and the full public server list |
-| `web/cache.py` | TTLCache with stale-while-revalidate: character_cache, guild_cache, claim_cache. Character and guild read paths serve from `census_store` first and never block on Census. |
-| `web/routes/aa.py` | GET /api/character/{name}/aas — AA profile list with per-tree data |
-| `web/routes/characters.py` | GET /api/characters/search — character name search |
-| `web/routes/guild_officer.py` | Officer claim-review endpoints; imports _officer_chars, _roster_rank_map from guild.py |
-| `web/routes/item_watch.py` | Item watch endpoints; imports _officer_chars, _roster_rank_map from guild.py |
-| `web/census_health.py` | Site-wide Census availability signal: background poll every 5 min; `is_down()`/`get_state()` read by the read/refresh paths. |
-| `web/census_events.py` | In-process async pub/sub backing the SSE stream (single-process only). |
-| `web/census_refresh.py` | Background refresh orchestration (throttle 15 min / in-flight dedupe / skip-when-down); merges into census_store, updates cache, publishes SSE. `_merge_roster` best-known join. |
-| `web/routes/census.py` | `GET /api/census/health` (first-paint snapshot) + `GET /api/census/stream` (SSE: character/guild refresh records + health changes). |
+| `backend/census/client.py` | All Census API HTTP calls. `CensusClient` has `get_item`, `get_guild`, `get_character_spells`, `get_character_aas`, `get_raw_item`. |
+| `backend/census/models.py` | Dataclasses: `ItemData`, `ItemStat`, `ItemEffect`, `GuildData`, `GuildMember`, `CharacterSpells`, `SpellEntry`, `NodeAA`, `CharacterAAs` |
+| `backend/census/constants.py` | `STAT_MAP` (stat display names/groups), class frozensets (`FIGHTERS`, `PRIESTS`, `SCOUTS`, `MAGES`, `ARTISANS`), `ARCHETYPES`, `CLASS_GROUPS`, `TYPEINFO_DISPLAY`, `ITEM_DISPLAY` |
+| `backend/census/item_parser.py` | Item data parsing helpers (parse_item, parse_stats, parse_effects, parse_flags, etc.) extracted from client.py |
+| `backend/eq2db/spells.py` | Local SQLite spell catalogue: strip_roman, unique_highest_entries, load_blocklist, find_by_ids, find_by_crc, spell_to_row, upsert_spells |
+| `backend/eq2db/recipes.py` | Local SQLite recipe catalogue (~70k rows). Helpers: find_by_id, find_by_name, find_by_output_id. Secondary components stored as JSON array. |
+| `backend/eq2db/zones.py` | Local SQLite zone catalogue (~1124 rows). Tables: `zones`, `zone_types`, `zone_aliases`, `zone_encounters`, `zone_encounter_mobs`. Lookup helpers: `find_by_name`, `list_by_expansion`, `list_by_event`, `list_by_type`, `list_bosses_for_zone`, `find_zones_by_boss`. Zone metadata from `scripts/dev/eq2_zones.cleaned.json`; rebuild via `scripts/build_zones_db.py`. Boss data is curator-managed in-place. |
+| `backend/census/wikitext_md.py` | MediaWiki wikitext → markdown converter (mwparserfromhell). Handles EQ2i templates, wikilinks, nested lists, headings, bold/italic. Used by the raid scraper. |
+| `backend/eq2db/raids.py` | Local SQLite raid-strategy catalogue: `raid_zones` + `raid_encounters` (markdown blob per encounter) + `raid_encounter_revisions`. `DB_RAIDS_PATH` env var. |
+| `backend/census/store.py` | Persistent SQLite store (characters + guilds keyed by name_lower + world). Keep-best-known merge — sparse Census refresh never nulls good data. `DB_CENSUS_PATH` env. |
+| `backend/image/tooltip.py` | PIL renderer for item tooltips. Renders at 2× then downsamples (SCALE=2, ZOOM=1.3). See file for colour/stat/ordering details. |
+| `backend/image/aa_tree.py` | AA tree renderers and coordinate systems. See file for tree-type detection and coordinate arithmetic. |
+| `backend/bot/bot.py` | Registers all cogs, syncs slash commands to three specific guild IDs (648253204760625160, 955890381847928892, 1502314690041221260) for instant propagation plus a global sync. |
+| `backend/bot/cogs/items.py` | `/item` — accepts name, numeric ID, or game link |
+| `backend/bot/cogs/guild.py` | `/guild` — tabular member list sorted by rank then level |
+| `backend/bot/cogs/spellcheck.py` | `/spellcheck` — spell tier summary or full list (`details:True`) |
+| `backend/bot/cogs/aacheck.py` | `/aacheck` — renders a character's AA tree with tier badges |
+| `backend/server/config.py` | Single source of truth: SERVICE_ID, WORLD from env vars |
+| `backend/server/server_context.py` | Host → active-server middleware + contextvar accessors (`current_world()`, `current_server()`) + in-memory registry loaded from the `servers` table |
+| `backend/server/api/server.py` | `GET /api/server` — bootstraps the frontend with the active server's world, display name, max_level, current_xpac, launch_dt, and the full public server list |
+| `backend/server/cache.py` | TTLCache with stale-while-revalidate: character_cache, guild_cache, claim_cache. Character and guild read paths serve from `census_store` first and never block on Census. |
+| `backend/server/api/aa.py` | GET /api/character/{name}/aas — AA profile list with per-tree data |
+| `backend/server/api/characters.py` | GET /api/characters/search — character name search |
+| `backend/server/api/guild_officer.py` | Officer claim-review endpoints; imports _officer_chars, _roster_rank_map from guild.py |
+| `backend/server/api/item_watch.py` | Item watch endpoints; imports _officer_chars, _roster_rank_map from guild.py |
+| `backend/server/census_health.py` | Site-wide Census availability signal: background poll every 5 min; `is_down()`/`get_state()` read by the read/refresh paths. |
+| `backend/server/census_events.py` | In-process async pub/sub backing the SSE stream (single-process only). |
+| `backend/server/census_refresh.py` | Background refresh orchestration (throttle 15 min / in-flight dedupe / skip-when-down); merges into census_store, updates cache, publishes SSE. `_merge_roster` best-known join. |
+| `backend/server/api/census.py` | `GET /api/backend/census/health` (first-paint snapshot) + `GET /api/backend/census/stream` (SSE: character/guild refresh records + health changes). |
 
-## ACT plugin upload (`POST /api/parses/ingest`)
+## ACT plugin upload (`POST /api/backend/server/parses/ingest`)
 
-The [EQ2LexiconACTPlugin](https://github.com/VortexUK/EQ2LexiconACTPlugin) sends each finished encounter here as an ACT-shaped JSON payload (`web/routes/parses.py:ingest_parse`). Bearer-token auth via `require_user_session_or_token`.
+The [EQ2LexiconACTPlugin](https://github.com/VortexUK/EQ2LexiconACTPlugin) sends each finished encounter here as an ACT-shaped JSON payload (`backend/server/api/parses.py:ingest_parse`). Bearer-token auth via `require_user_session_or_token`.
 
 **`logger_server` field (plugin v0.1.10+ , server-side override added 2026-05-25)**:
 
@@ -60,8 +60,8 @@ Threat model: the legitimate token holder can sign anything — this doesn't sto
 
 FastAPI backend + React/TypeScript frontend. Key design decisions:
 
-- **Single env config**: `web/config.py` exports `SERVICE_ID` and `WORLD`; web routes use `current_world()` from `web/server_context.py` for the active per-request world (the bot still reads `WORLD` directly).
-- **Stale-while-revalidate cache**: `web/cache.py` TTLCache returns stale data immediately and fires a background refresh; hard-expires after 1 hr.
+- **Single env config**: `backend/server/config.py` exports `SERVICE_ID` and `WORLD`; web routes use `current_world()` from `backend/server/server_context.py` for the active per-request world (the bot still reads `WORLD` directly).
+- **Stale-while-revalidate cache**: `backend/server/cache.py` TTLCache returns stale data immediately and fires a background refresh; hard-expires after 1 hr.
 - **Circular import avoidance**: `_overview_to_char_response` in `guild.py` uses a local import of `_build_char_response` from `character.py` inside the function body.
 - **Route split**: Large guild.py split into `guild.py` (roster + spellcheck + adorn), `guild_officer.py` (officer claim review), `item_watch.py` (item watch).
 - **Frontend split**: `CharacterPage.tsx` exports `StatGroup`/`StatRow`; `CharacterAAsTab.tsx` and `CharacterSpellsTab.tsx` import them.
@@ -71,8 +71,8 @@ FastAPI backend + React/TypeScript frontend. Key design decisions:
 
 A single deployment serves multiple EQ2 servers, each on its own subdomain (e.g. `varsoon.eq2lexicon.com`, `wuoshi.eq2lexicon.com`).
 
-- **Middleware**: `web/server_context.py` adds `ServerContextMiddleware` which reads the request `Host` header, resolves it to the matching row in the `servers` registry table, and stores it on a contextvar for the lifetime of the request. Non-prod environments also accept a `X-Server` header or `?server=` query-param override for testing.
-- **Accessors**: all route code calls `current_world()` / `current_server()` (from `web/server_context.py`) rather than the old fixed `WORLD` constant. The bot still uses `WORLD` directly (single-server).
+- **Middleware**: `backend/server/server_context.py` adds `ServerContextMiddleware` which reads the request `Host` header, resolves it to the matching row in the `servers` registry table, and stores it on a contextvar for the lifetime of the request. Non-prod environments also accept a `X-Server` header or `?server=` query-param override for testing.
+- **Accessors**: all route code calls `current_world()` / `current_server()` (from `backend/server/server_context.py`) rather than the old fixed `WORLD` constant. The bot still uses `WORLD` directly (single-server).
 - **Registry**: the `servers` table in `users.db` maps subdomain → world name + per-server settings (`max_level`, `current_xpac`, `launch_dt`, `display_name`). The registry is loaded into memory at startup via `load_registry()` and re-read after admin edits.
 - **Per-server data**: character claims, item-watch rows, and parses each carry a `world` column so records are scoped to the server they belong to. Parses are additionally attributed by the `logger_server` field sent by the ACT plugin.
 - **Universal data**: users, roles, and officer approvals are shared across servers (Discord identity is not server-specific).
@@ -186,8 +186,8 @@ Shared types + className constants for a split page go in a sibling `types.ts`. 
 | `LAUNCH_DT` | Seed-only — runtime value is per-server in the `servers` table (admin-editable). Seeds the server launch datetime for the Varsoon row on first migration. |
 | `ADMIN_DISCORD_IDS` | Comma-separated Discord IDs allowed to hit `/api/admin/*` and delete arbitrary parses |
 | `DB_USERS_PATH` | Override the default `data/users.db` location (set on Railway to the persistent-volume mount) |
-| `DB_PARSES_PATH` | Override the default `data/parses/parses.db` location (set on Railway to the persistent-volume mount) |
-| `DB_CENSUS_PATH` | Override the default `data/census/census.db` location (persistent last-known character/guild lookups for resilient caching). Set on Railway to the persistent-volume mount; the `.db` is gitignored + generated at runtime. |
+| `DB_PARSES_PATH` | Override the default `data/backend/server/parses/backend.server.parses.db` location (set on Railway to the persistent-volume mount) |
+| `DB_CENSUS_PATH` | Override the default `data/backend/census/census.db` location (persistent last-known character/guild lookups for resilient caching). Set on Railway to the persistent-volume mount; the `.db` is gitignored + generated at runtime. |
 | `DB_ZONES_PATH` | Override the default `data/zones/zones.db` location. Set on Railway to the persistent-volume mount (the `.db` itself is not committed — uploaded manually; see "Manual upload: zones.db" below). |
 | `DB_RAIDS_PATH` / `DB_ITEMS_PATH` / `DB_SPELLS_PATH` / `DB_RECIPES_PATH` / `DB_CLASSES_PATH` | Same pattern: env-var override of the default `data/<name>/<name>.db` location. See `.env.example` for the grouped block. |
 | `R2_ENDPOINT` | Litestream backups → `https://<account>.r2.cloudflarestorage.com` |
@@ -205,13 +205,13 @@ Base URL: `https://census.daybreakgames.com/s:{service_id}/json/get/eq2/`
 
 ## AA tree notes
 
-Data in `data/AAs/trees/{id}.json` and `data/AAs/icons/{id}.png`. Each node has `nodeid`, `xcoord`, `ycoord`, `icon.id`, `icon.backdrop`, `maxtier`, `classification`. `bg_sprite.png` has backdrop circles (44px) and badge circles (24px) — see `image/aa_tree.py` for exact offsets.
+Data in `data/AAs/trees/{id}.json` and `data/AAs/icons/{id}.png`. Each node has `nodeid`, `xcoord`, `ycoord`, `icon.id`, `icon.backdrop`, `maxtier`, `classification`. `bg_sprite.png` has backdrop circles (44px) and badge circles (24px) — see `backend/image/aa_tree.py` for exact offsets.
 
-`detect_tree_type()` returns: `class`, `subclass`, `shadows`, `heroic`, `tradeskill`, `tradeskill_general`, `warder`, `prestige`, `dragon`, `reign_of_shadows`, `far_seas`, or `unknown`. The last six fall back to `render_subclass_tree` pending calibration. Coordinate systems are native 640×480 (SCALE=2 → 1280×960); full arithmetic is in `image/aa_tree.py`. The `/aacheck` command offers five static tree choices (Class/Subclass/Shadows/Heroic/Trade) to avoid autocomplete API calls.
+`detect_tree_type()` returns: `class`, `subclass`, `shadows`, `heroic`, `tradeskill`, `tradeskill_general`, `warder`, `prestige`, `dragon`, `reign_of_shadows`, `far_seas`, or `unknown`. The last six fall back to `render_subclass_tree` pending calibration. Coordinate systems are native 640×480 (SCALE=2 → 1280×960); full arithmetic is in `backend/image/aa_tree.py`. The `/aacheck` command offers five static tree choices (Class/Subclass/Shadows/Heroic/Trade) to avoid autocomplete API calls.
 
 ## Tooltip rendering notes
 
-Quality tier colours, primary/secondary stat colours, stat ordering, and class-list collapsing are all in `image/tooltip.py`. The config-driven `ITEM_DISPLAY` / `TYPEINFO_DISPLAY` dicts in `census/constants.py` control which extra info rows appear (Type, Slot, Mitigation, Level, Charges, Duration, etc.).
+Quality tier colours, primary/secondary stat colours, stat ordering, and class-list collapsing are all in `backend/image/tooltip.py`. The config-driven `ITEM_DISPLAY` / `TYPEINFO_DISPLAY` dicts in `backend/census/constants.py` control which extra info rows appear (Type, Slot, Mitigation, Level, Charges, Duration, etc.).
 
 ## Guild and spellcheck command notes
 
@@ -249,7 +249,7 @@ Two-stage by design — the network-dependent scrape is decoupled from the fast 
 - New slash commands may take up to 1 hour to propagate globally, but appear instantly in the registered guild IDs above
 - Do not push until the user confirms local testing passes
 
-### Backups (parses.db + users.db → Cloudflare R2)
+### Backups (backend.server.parses.db + users.db → Cloudflare R2)
 
 [litestream](https://litestream.io) replicates both SQLite DBs to R2 in near-real-time. On container start, `litestream restore -if-replica-exists` rehydrates either DB from R2 if the Railway volume is wiped. Config in `litestream.yml`; orchestration in `railway.toml`'s `startCommand`.
 
@@ -260,15 +260,15 @@ Two-stage by design — the network-dependent scrape is decoupled from the fast 
 3. **R2 → API tab → Create API Token** (NOT "Account API tokens" — that mints Cloudflare REST tokens, not R2 S3 tokens). Permissions: Object Read & Write; specify the bucket.
 4. Copy **Access Key ID** and **Secret Access Key** from the success screen.
 5. In **Railway → Variables**, add `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
-6. Verify in R2 console — `parses/` and `users/` prefixes should appear within a minute of next deploy.
+6. Verify in R2 console — `backend/server/parses/` and `users/` prefixes should appear within a minute of next deploy.
 
 If logs show `cannot fetch generations: Unauthorized` 401s, the wrong token type was minted — re-mint via the R2 API tab specifically.
 
 **Manual restore:**
 
 ```bash
-litestream restore -config /app/litestream.yml /app/data/parses/parses.db
-litestream restore -config /app/litestream.yml -timestamp 2026-05-24T18:00:00Z -o ./parses.db-snapshot /app/data/parses/parses.db
+litestream restore -config /app/litestream.yml /app/data/backend/server/parses/backend.server.parses.db
+litestream restore -config /app/litestream.yml -timestamp 2026-05-24T18:00:00Z -o ./backend.server.parses.db-snapshot /app/data/backend/server/parses/backend.server.parses.db
 ```
 
 If R2 env vars are absent, the startCommand's `|| true` makes the restore a no-op and the app still runs.
@@ -306,9 +306,9 @@ Then upload to the Railway volume and set `DB_ZONES_PATH` if your mount differs 
 - **Module-level binding**: `_log = logging.getLogger(__name__)`.
 - **Lazy `%s` formatting**: `_log.info("foo %s", x)` — never f-strings inside log calls.
 - **Bracketed prefix per module**: `[lowercase-with-hyphens]` (e.g. `[cache]`, `[census-refresh]`). Helps grep by component.
-- **For audit events**: use `audit_log("snake_case_action", actor=..., **fields)` from `web.lib.audit_log`. Don't hand-roll `_log.info("[audit] …")`.
+- **For audit events**: use `audit_log("snake_case_action", actor=..., **fields)` from `backend.server.core.audit_log`. Don't hand-roll `_log.info("[audit] …")`.
 - **Levels**: WARNING for security signals (HMAC mismatch, invalid token); INFO for audit-trail / startup config / state changes; DEBUG for per-request noise; ERROR/exception for "needs investigation". Recoverable Census flakes are WARNING, not ERROR (per the 2026-05-30 audit).
-- **Env vars**: `LOG_LEVEL` (default `INFO`) and `LOG_FORMAT` (`text` default, `json` for Railway) are read by `configure_logging()` in `web/lib/logging_config.py` at startup.
+- **Env vars**: `LOG_LEVEL` (default `INFO`) and `LOG_FORMAT` (`text` default, `json` for Railway) are read by `configure_logging()` in `backend/core/logging_config.py` at startup.
 - **Sensitive values that NEVER appear inside a log-call argument list**: bearer tokens, HMAC signature bytes, `DISCORD_CLIENT_SECRET`, OAuth `access_token`s, the `raw` token from `mint_api_token`.
 
 ## Frontend design principles

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from census.item_parser import (
+from backend.census.item_parser import (
     _armor_type,
     _fmt_duration,
     _slot_type,
@@ -292,7 +292,7 @@ class TestParseItem:
         }
 
     def test_returns_item_data(self):
-        from census.models import ItemData
+        from backend.census.models import ItemData
 
         item = parse_item(self._minimal_item())
         assert isinstance(item, ItemData)

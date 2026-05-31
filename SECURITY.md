@@ -15,7 +15,7 @@ A public FastAPI + React web app plus a Discord bot, deployed on Railway. It:
 - Authenticates users via Discord OAuth; sessions are signed cookies (`itsdangerous`).
 - Issues per-user **API tokens** (the `api_tokens` table) that the [ACT plugin](https://github.com/VortexUK/EQ2LexiconACTPlugin) uses to upload parses. These grant upload + delete on the holder's own parses — treat them as passwords.
 - Proxies the read-only [Daybreak Census API](https://census.daybreakgames.com) and caches responses.
-- Stores users + parses in SQLite (`users.db`, `parses.db`), continuously replicated to Cloudflare R2 via Litestream.
+- Stores users + parses in SQLite (`users.db`, `backend.server.parses.db`), continuously replicated to Cloudflare R2 via Litestream.
 - Gates admin endpoints (`/api/admin/*`) behind an allow-list of Discord IDs (`ADMIN_DISCORD_IDS`).
 
 ## Assets worth protecting
@@ -26,7 +26,7 @@ A public FastAPI + React web app plus a Discord bot, deployed on Railway. It:
 | `DISCORD_TOKEN` | env var | Full control of the bot account |
 | API tokens | `api_tokens` table (hashed) | Upload/delete parses as the victim |
 | R2 credentials | env vars | Read/overwrite the off-site DB backups |
-| `users.db` / `parses.db` | Railway volume + R2 | User Discord IDs, guild data, parse history |
+| `users.db` / `backend.server.parses.db` | Railway volume + R2 | User Discord IDs, guild data, parse history |
 
 ## In scope
 

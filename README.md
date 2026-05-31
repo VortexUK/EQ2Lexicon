@@ -47,10 +47,10 @@ A React + TypeScript (Tailwind v4) + FastAPI site. Each EQ2 server gets its own 
 ## Project Structure
 
 ```
-bot/            Discord bot cogs (/item, /guild, /spellcheck, /aacheck)
-census/         Census API client, dataclasses, SQLite catalogues (items, spells, recipes, zones, raids)
-image/          PIL renderers — item tooltips and AA trees
-web/            FastAPI app, routes, cache, auth, SSE refresh
+backend/bot/            Discord bot cogs (/item, /guild, /spellcheck, /aacheck)
+backend/census/         Census API client, dataclasses, SQLite catalogues (items, spells, recipes, zones, raids)
+backend/image/          PIL renderers — item tooltips and AA trees
+backend/server/            FastAPI app, routes, cache, auth, SSE refresh
 frontend/       React/TypeScript UI (Tailwind v4, src/components/ui/, src/hooks/, src/lib/)
 data/           Local SQLite DBs, AA tree JSON + icons, spell icons (gitignored / Railway volume)
 scripts/        Preview, download, and build utilities — see scripts/README.md
@@ -191,7 +191,7 @@ The file is re-read on every request — no restart required.
 
 ## Logging
 
-The app reads two env vars at startup (`configure_logging()` in `web/lib/logging_config.py`):
+The app reads two env vars at startup (`configure_logging()` in `backend/core/logging_config.py`):
 
 - `LOG_LEVEL` — `DEBUG` / `INFO` (default) / `WARNING` / `ERROR`. Setting `DEBUG` is safe for one-off debug sessions but noisy on cache + Census layers.
 - `LOG_FORMAT` — `text` (default, human-readable) or `json` (one structured record per line — recommended for Railway, where the aggregator parses JSON natively).

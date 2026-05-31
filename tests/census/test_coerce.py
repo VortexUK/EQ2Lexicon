@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from census._coerce import coerce_float, coerce_int, coerce_str, coerce_str_or_none
+from backend.census._coerce import coerce_float, coerce_int, coerce_str, coerce_str_or_none
 
 
 @pytest.mark.parametrize("v,expected", [("42", 42), (42, 42), ("0", 0), (0, 0)])

@@ -51,8 +51,8 @@ To auto-fix Python formatting: `uv run ruff format .`
 ## Code conventions
 
 - `pyproject.toml` (`[tool.ruff]`) is the source of truth for Python style — 120-col lines, `py313` target.
-- Web routes import config from `web/config.py`, never `os.getenv` directly.
-- New SQLite layers follow the `census/recipes_db.py` pattern (`_CREATE_*` SQL constants, `_MIGRATIONS` list, `init_db()` with WAL).
+- Web routes import config from `backend/server/config.py`, never `os.getenv` directly.
+- New SQLite layers follow the `backend/eq2db/recipes.py` pattern (`_CREATE_*` SQL constants, `_MIGRATIONS` list, `init_db()` with WAL).
 - **Frontend styling is Tailwind v4 (enforced).** Utility classes for all static styling; `style={{…}}` only for runtime-computed values. Use the `components/ui` primitives (`Button`/`Card`/`SectionLabel`), the theme utilities (`text-gold`, `bg-surface`, `text-rarity-*`, …), and `rarityColors.ts` for tier/rarity colours. Don't add static inline styles, per-page style-object consts, or new `TIER_COLOUR` maps. Full rules in [CLAUDE.md → Frontend styling](CLAUDE.md).
 - Frontend components keep shared bits in their parent page module; see the `CharacterPage.tsx` / tabs split in [CLAUDE.md](CLAUDE.md).
 - Comments explain *why*, not *what*.

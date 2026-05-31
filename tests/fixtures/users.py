@@ -10,7 +10,7 @@ Usage in tests:
     fake_admin = make_fake_admin()
     fake_user = make_fake_user(id="123456789")
 
-    with patch("web.routes.admin._require_admin", lambda request=None: fake_admin):
+    with patch("backend.server.api.admin._require_admin", lambda request=None: fake_admin):
         ...
 
 Or, for routes that use the `_require_user(request)` signature:
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from web.lib.session_user import SessionUser
+from backend.server.core.session_user import SessionUser
 
 
 def make_fake_admin(id: str = "admin-1", username: str = "boss") -> SessionUser:
@@ -48,7 +48,7 @@ def make_fake_require_user(user: SessionUser) -> Callable[..., SessionUser]:
     `_require_user` re-exports in route modules). Use with `patch(...)`:
 
         fake_require_user = make_fake_require_user(make_fake_user())
-        with patch("web.routes.parses.list._require_user", fake_require_user):
+        with patch("backend.server.api.parses.list._require_user", fake_require_user):
             ...
     """
 
