@@ -133,7 +133,7 @@ def _ensure_item_stats() -> None:
             # Ensure repo root is on sys.path so the scripts package is importable
             import sys
 
-            repo_root = str(Path(__file__).resolve().parent.parent)
+            repo_root = str(Path(__file__).resolve().parent.parent.parent)
             if repo_root not in sys.path:
                 sys.path.insert(0, repo_root)
             from scripts.backfill_item_stats import run as _backfill  # type: ignore[import]
@@ -221,7 +221,7 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
 # Paths / constants
 # ---------------------------------------------------------------------------
 
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 _ICONS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "items" / "icons"
 _AA_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "AAs"
 _SPELL_ICONS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "spells" / "icons"
@@ -501,8 +501,17 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         if _dir_path.exists():
             app.mount(_mount_path, StaticFiles(directory=_dir_path), name=_mount_path.lstrip("/"))
 
-    # Serve the React build in production
-    if _FRONTEND_DIST.exists():
+    # Serve the React build in production. If the path doesn't exist, log loud
+    # — silently skipping is what hid the 2026-05-31 reorg outage (the SPA
+    # mount + catch-all just never registered and every non-API URL 404'd
+    # with nothing in the logs to point at it).
+    if not _FRONTEND_DIST.exists():
+        _log.error(
+            "[startup] FRONTEND DIST NOT FOUND at %s — SPA + catch-all routes are NOT mounted, "
+            "every non-API URL will 404. This is almost always a path bug after a reorg.",
+            _FRONTEND_DIST,
+        )
+    else:
         app.mount(
             "/assets",
             _HashedAssetsStaticFiles(directory=_FRONTEND_DIST / "assets"),
