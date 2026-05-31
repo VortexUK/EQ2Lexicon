@@ -17,12 +17,12 @@ source-of-truth for column-name mappings on the wire.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from datetime import UTC
 from enum import IntEnum
 from pathlib import Path
 
+from backend.db_helpers import resolve_db_path
 from backend.server.parses.models import AttackType, Combatant, CombatantSnapshot, DamageType, Encounter
 from backend.sql_loader import load_sql
 
@@ -36,14 +36,7 @@ _EMPTY_SNAPSHOT = CombatantSnapshot()
 # ---------------------------------------------------------------------------
 
 
-def _db_path() -> Path:
-    env = os.getenv("DB_PARSES_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "parses" / "parses.db"
-
-
-DB_PATH: Path = _db_path()
+DB_PATH: Path = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
 
 
 # Schema (CREATE TABLE / INDEX) lives in db.sql; init_db runs each block.

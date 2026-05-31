@@ -18,7 +18,6 @@ from __future__ import annotations
 import fnmatch
 import json
 import logging
-import os
 import re
 import sqlite3
 from functools import lru_cache
@@ -27,6 +26,8 @@ from typing import TypedDict
 
 from backend.census._coerce import coerce_float as _float
 from backend.census._coerce import coerce_int as _int
+from backend.census._coerce import coerce_str_or_none as _str
+from backend.db_helpers import like_escape, resolve_db_path
 from backend.eq2db import _meta as _meta_db
 from backend.sql_loader import load_sql
 
@@ -73,14 +74,7 @@ _log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _db_path() -> Path:
-    env = os.getenv("DB_SPELLS_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "spells" / "spells.db"
-
-
-DB_PATH: Path = _db_path()
+DB_PATH: Path = resolve_db_path("DB_SPELLS_PATH", "spells", "spells.db")
 
 # Roman-numeral suffix pattern (I–XX) used for base_name computation.
 # Matches a space-separated Roman numeral at the end of a spell name.
@@ -106,19 +100,6 @@ _SQL = load_sql(__file__)
 # ---------------------------------------------------------------------------
 # Row conversion
 # ---------------------------------------------------------------------------
-
-
-def _like_escape(s: str) -> str:
-    """Escape SQLite ``LIKE`` wildcards. Will move to ``web/lib/db_helpers.py``
-    in Phase 2a — duplicated per-module for the Phase 1 surgical fix."""
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-def _str(v) -> str | None:
-    if v is None or isinstance(v, dict):
-        return None
-    s = str(v).strip()
-    return s or None
 
 
 def _passes_spellcheck(row: dict) -> int:
@@ -439,6 +420,6 @@ def find_by_name(name: str, path: Path = DB_PATH) -> list[SpellRow]:
             # LIKE fallback — escape user wildcards (BE-006).
             rows = conn.execute(
                 _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
-                (f"%{_like_escape(name.lower())}%",),
+                (f"%{like_escape(name.lower())}%",),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]

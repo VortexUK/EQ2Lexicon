@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.census._coerce import coerce_int as _int
+from backend.census._coerce import coerce_str as _str
 from backend.census.constants import ITEM_DISPLAY, STAT_MAP, TYPEINFO_DISPLAY
 from backend.census.item_level import compute_ilvl
 from backend.census.models import ItemData, ItemEffect, ItemStat, RecipeBookEntry, SetBonusEntry
@@ -22,18 +23,6 @@ _FLAG_LABELS: dict[str, str] = {
     "prestige": "PRESTIGE",
     "relic": "RELIC",
 }
-
-
-# ------------------------------------------------------------------
-# Low-level helpers (duplicated from client.py to avoid circular import)
-# ------------------------------------------------------------------
-
-
-def _str(value: Any) -> str:
-    """Return a string from value, treating dicts/None as empty."""
-    if value is None or isinstance(value, dict):
-        return ""
-    return str(value)
 
 
 # ------------------------------------------------------------------

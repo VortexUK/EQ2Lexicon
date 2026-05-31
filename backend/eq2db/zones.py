@@ -31,10 +31,10 @@ aliases before falling back to a fuzzy LIKE on the canonical name.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from pathlib import Path
 
+from backend.db_helpers import resolve_db_path
 from backend.eq2db import _meta as _meta_db
 from backend.sql_loader import load_sql
 
@@ -45,14 +45,7 @@ _SQL = load_sql(__file__)
 # ---------------------------------------------------------------------------
 
 
-def _db_path() -> Path:
-    env = os.getenv("DB_ZONES_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "zones" / "zones.db"
-
-
-DB_PATH: Path = _db_path()
+DB_PATH: Path = resolve_db_path("DB_ZONES_PATH", "zones", "zones.db")
 
 
 # Schema (CREATE TABLE / INDEX) lives in zones.sql; init_db runs each block.

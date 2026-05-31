@@ -17,23 +17,15 @@ shape is preserved — no consumer rewrites needed.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from pathlib import Path
 
+from backend.db_helpers import resolve_db_path
 from backend.server.db._assertions import assert_schema_complete
 from backend.server.db.migrations import apply_migrations
 from backend.server.db.schema import SCHEMA
 
-
-def _db_path() -> Path:
-    env = os.getenv("DB_USERS_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent.parent / "data" / "users.db"
-
-
-DB_PATH = _db_path()
+DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
 
 
 def init_db(path: Path = DB_PATH) -> None:

@@ -41,11 +41,11 @@ The revision history preserves the original scrape for audit.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import time
 from pathlib import Path
 
+from backend.db_helpers import resolve_db_path
 from backend.eq2db import _meta as _meta_db
 from backend.sql_loader import load_sql
 
@@ -56,14 +56,7 @@ _SQL = load_sql(__file__)
 # ---------------------------------------------------------------------------
 
 
-def _db_path() -> Path:
-    env = os.getenv("DB_RAIDS_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "raids" / "raids.db"
-
-
-DB_PATH: Path = _db_path()
+DB_PATH: Path = resolve_db_path("DB_RAIDS_PATH", "raids", "raids.db")
 
 
 # Source provenance tokens for the `source` columns. Centralised so

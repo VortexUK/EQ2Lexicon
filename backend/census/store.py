@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any, TypedDict
+
+from backend.db_helpers import resolve_db_path
 
 
 class StoreRecord(TypedDict):
@@ -32,14 +33,7 @@ class StoreRecord(TypedDict):
 _log = logging.getLogger(__name__)
 
 
-def _db_path() -> Path:
-    env = os.getenv("DB_CENSUS_PATH")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parent.parent.parent / "data" / "census" / "census.db"
-
-
-DB_PATH: Path = _db_path()
+DB_PATH: Path = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
 
 _CREATE_CHARACTERS = """
 CREATE TABLE IF NOT EXISTS characters (
