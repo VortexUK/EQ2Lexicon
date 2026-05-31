@@ -27,6 +27,10 @@ from prometheus_client import (
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.registry import Collector
 
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
+
 _log = logging.getLogger(__name__)
 
 # ── HTTP request metrics ──────────────────────────────────────────────────────
@@ -196,17 +200,11 @@ class _DBCollector(Collector):
         if conn is not None:
             try:
                 for status in ("approved", "pending", "denied"):
-                    row = conn.execute(
-                        "SELECT COUNT(*) FROM users WHERE access_status = ?",
-                        (status,),
-                    ).fetchone()
+                    row = conn.execute(_SQL["count_users_by_access_status"], (status,)).fetchone()
                     g_users.add_metric([status], row[0] if row else 0)
 
                 for status in ("pending", "approved", "rejected", "withdrawn", "superseded"):
-                    row = conn.execute(
-                        "SELECT COUNT(*) FROM character_claims WHERE status = ?",
-                        (status,),
-                    ).fetchone()
+                    row = conn.execute(_SQL["count_claims_by_status"], (status,)).fetchone()
                     g_claims.add_metric([status], row[0] if row else 0)
             except Exception:
                 _log.exception("[metrics] users.db collector error")
@@ -218,9 +216,9 @@ class _DBCollector(Collector):
         conn = self._get_conn("parses", parses_db.DB_PATH)
         if conn is not None:
             try:
-                row = conn.execute("SELECT COUNT(*) FROM encounters WHERE hidden_at IS NULL").fetchone()
+                row = conn.execute(_SQL["count_visible_encounters"]).fetchone()
                 g_parses.add_metric(["visible"], row[0] if row else 0)
-                row = conn.execute("SELECT COUNT(*) FROM encounters WHERE hidden_at IS NOT NULL").fetchone()
+                row = conn.execute(_SQL["count_hidden_encounters"]).fetchone()
                 g_parses.add_metric(["hidden"], row[0] if row else 0)
             except Exception:
                 _log.exception("[metrics] parses.db collector error")
@@ -230,11 +228,11 @@ class _DBCollector(Collector):
         conn = self._get_conn("raids", raids_db.DB_PATH)
         if conn is not None:
             try:
-                row = conn.execute("SELECT COUNT(*) FROM raid_encounters").fetchone()
+                row = conn.execute(_SQL["count_raid_encounters"]).fetchone()
                 g_raids.add_metric([], row[0] if row else 0)
-                row = conn.execute("SELECT COUNT(*) FROM act_triggers").fetchone()
+                row = conn.execute(_SQL["count_act_triggers"]).fetchone()
                 g_triggers.add_metric([], row[0] if row else 0)
-                row = conn.execute("SELECT COUNT(*) FROM act_spell_timers").fetchone()
+                row = conn.execute(_SQL["count_act_spell_timers"]).fetchone()
                 g_spell_timers.add_metric([], row[0] if row else 0)
             except Exception:
                 _log.exception("[metrics] raids.db collector error")

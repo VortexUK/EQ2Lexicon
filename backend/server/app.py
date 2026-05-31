@@ -20,6 +20,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
+
 
 class _HashedAssetsStaticFiles(StaticFiles):
     """StaticFiles wrapper that stamps long-lived cache headers on every
@@ -121,8 +125,8 @@ def _ensure_item_stats() -> None:
         items_init_db(items_db_path)  # creates tables/indexes if missing
 
         conn = sqlite3.connect(items_db_path)
-        stat_count = conn.execute("SELECT COUNT(*) FROM item_stats").fetchone()[0]
-        item_count = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        stat_count = conn.execute(_SQL["count_item_stats"]).fetchone()[0]
+        item_count = conn.execute(_SQL["count_items"]).fetchone()[0]
         conn.close()
 
         if stat_count == 0 and item_count > 0:

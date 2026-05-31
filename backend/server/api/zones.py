@@ -29,6 +29,9 @@ from backend.server.core.primary_guild import cached_primary_guild
 from backend.server.core.session_user import SessionUser
 from backend.server.parses.db import DB_PATH as PARSES_DB_PATH
 from backend.server.server_context import current_world as _current_world
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 router = APIRouter(tags=["zones"])
 
@@ -246,14 +249,7 @@ def _most_recent_parsed_guild_sync(discord_id: str) -> str | None:
         return None
     with sqlite3.connect(PARSES_DB_PATH) as conn:
         conn.execute("PRAGMA query_only = ON")
-        row = conn.execute(
-            """
-            SELECT guild_name FROM encounters
-            WHERE uploaded_by = ? AND guild_name IS NOT NULL AND hidden_at IS NULL
-            ORDER BY started_at DESC LIMIT 1
-            """,
-            (discord_id,),
-        ).fetchone()
+        row = conn.execute(_SQL["most_recent_parsed_guild"], (discord_id,)).fetchone()
     return row[0] if row else None
 
 
@@ -280,13 +276,7 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
         pconn.execute("PRAGMA query_only = ON")
         kills = [
             (row[0], row[1].lower(), row[2])
-            for row in pconn.execute(
-                """
-                SELECT id, title, started_at FROM encounters
-                WHERE guild_name = ? AND success_level = 1 AND hidden_at IS NULL
-                """,
-                (guild_name,),
-            ).fetchall()
+            for row in pconn.execute(_SQL["list_kills_for_guild"], (guild_name,)).fetchall()
             if row[1]
         ]
 
@@ -305,15 +295,7 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
             chunk = titles_list[i : i + SQLITE_VAR_CHUNK_SAFE]
             placeholders = ",".join("?" * len(chunk))
             rows = zconn.execute(
-                f"""
-                SELECT m.mob_name_lower AS mob_lower,
-                       z.name           AS zone_name,
-                       e.encounter_name AS encounter_name
-                FROM zone_encounter_mobs m
-                JOIN zone_encounters     e ON e.id = m.encounter_id
-                JOIN zones               z ON z.id = e.zone_id
-                WHERE m.mob_name_lower IN ({placeholders})
-                """,
+                _SQL["match_encounter_mobs_by_titles_chunk"].format(placeholders=placeholders),
                 chunk,
             ).fetchall()
             for r in rows:

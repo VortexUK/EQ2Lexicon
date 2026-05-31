@@ -23,6 +23,9 @@ from backend.server.guild_cache import (
 )
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
@@ -400,16 +403,7 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
     # Census failed — fall back to locally-tracked guilds in item_watch
     async with aiosqlite.connect(_USERS_DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """
-            SELECT DISTINCT guild_name
-            FROM item_watch
-            WHERE LOWER(guild_name) LIKE ?
-            ORDER BY guild_name
-            LIMIT 25
-            """,
-            (f"{q.lower()}%",),
-        ) as cur:
+        async with db.execute(_SQL["local_guild_search_by_prefix"], (f"{q.lower()}%",)) as cur:
             rows = await cur.fetchall()
 
     results = [GuildNameResult(name=r["guild_name"]) for r in rows]
