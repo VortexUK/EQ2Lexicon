@@ -341,12 +341,19 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
 def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str | None, str | None]:
     """Whether an encounter is a rankable boss, and its canonical (zone, title).
 
-    RAIDS: zones.db is authoritative — a title matching a known raid encounter
-    mob is a boss, remapped to its canonical zone + encounter name (so ACT
-    zone-name variance collapses to one board). Unpopulated raid content and all
-    group/dungeon content fall back to the is_boss heuristic, keeping the ACT
-    zone/title."""
-    if scope == "raid":
+    For both raid AND group scopes, zones.db is authoritative — a title
+    matching a known curated encounter mob is a boss, remapped to its
+    canonical zone + encounter name. This collapses:
+      * ACT zone-name variance (different log lines for the same zone)
+      * Multi-mob encounters (killing any of the mobs in a curated
+        encounter resolves to the same (zone, encounter_name), so the
+        rankings page shows one entry per encounter rather than one
+        per mob)
+
+    Unpopulated zones fall back to the is_boss heuristic, keeping the
+    ACT zone/title verbatim — this is how rankings surface kills for
+    zones the curator hasn't gotten to yet."""
+    if scope in ("raid", "group"):
         boss_index, _, _ = _cached_zones_data()
         candidates = boss_index.get(_normalise_boss_key(title))
         if candidates:

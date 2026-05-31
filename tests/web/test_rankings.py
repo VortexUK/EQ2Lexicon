@@ -363,8 +363,10 @@ class TestFilters:
             assert _resolve_boss("Tarinax", "Vetrovia", "raid") == (True, "Vetrovia", "Tarinax")
             # Heuristic correctly rejects trash ("a "/"an " prefixes).
             assert _resolve_boss("a decaying skeleton", "Vetrovia", "raid")[0] is False
-            # Group scope never consults zones.db — pure heuristic.
-            assert _resolve_boss("Phara Dar", "Crypt", "group") == (True, "Crypt", "Phara Dar")
+            # Group scope now consults zones.db too; "Phara Dar" IS in the index
+            # but its canonical zone is "Veeshan's Peak", not "Crypt" — so the
+            # index resolves it (zone mismatch means candidates[0] is used).
+            assert _resolve_boss("Phara Dar", "Crypt", "group") == (True, "Veeshan's Peak", "Phara Dar")
             # Apostrophe-variant normalisation: parse ships U+2019, index key uses ASCII ' — must match.
             assert _resolve_boss("D’Lizta Cheroon", "Poet's Palace", "raid") == (
                 True,
@@ -724,3 +726,55 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
     # The two boards must differ: before the fix, both returned Varsoon data.
     assert r_v.json()["total"] > 0, "Varsoon board is empty — Varsoon kill not loaded"
     assert r_w.json()["total"] > 0, "Wuoshi board is empty — Wuoshi kill not loaded"
+
+
+def test_resolve_boss_dungeon_multi_mob_consolidates():
+    """For dungeon scope (group), curated multi-mob encounters collapse to
+    one canonical (zone, encounter_name) — same as raids. Killing any mob
+    in the encounter resolves to the same rankings entry."""
+    from unittest.mock import patch
+
+    from web.routes.rankings import _normalise_boss_key, _resolve_boss
+
+    fake_boss_index = {
+        _normalise_boss_key("Mob Alpha"): [("Halls of Fate", "Mob Alpha + Mob Bravo")],
+        _normalise_boss_key("Mob Bravo"): [("Halls of Fate", "Mob Alpha + Mob Bravo")],
+    }
+    with patch("web.routes.rankings._cached_zones_data", return_value=(fake_boss_index, [], [])):
+        # Both mobs in the encounter resolve to the same canonical.
+        ok_a, zone_a, title_a = _resolve_boss("Mob Alpha", "Halls of Fate", "group")
+        ok_b, zone_b, title_b = _resolve_boss("Mob Bravo", "Halls of Fate", "group")
+
+    assert ok_a is True
+    assert ok_b is True
+    assert (zone_a, title_a) == (zone_b, title_b) == ("Halls of Fate", "Mob Alpha + Mob Bravo")
+
+
+def test_resolve_boss_dungeon_uncurated_falls_back_to_is_boss_heuristic():
+    """For dungeon scope, an unknown mob name still falls back to the
+    is_boss heuristic — uncurated dungeons still surface their kills."""
+    from unittest.mock import patch
+
+    from web.routes.rankings import _resolve_boss
+
+    with patch("web.routes.rankings._cached_zones_data", return_value=({}, [], [])):
+        # Capital first letter — is_boss returns True; rankings show it.
+        ok, zone, title = _resolve_boss("Random Group Mob", "Some Zone", "group")
+    assert ok is True
+    assert zone == "Some Zone"
+    assert title == "Random Group Mob"
+
+
+def test_resolve_boss_raid_still_uses_curated_lookup():
+    """Regression — raid scope continues to consult boss_index as before."""
+    from unittest.mock import patch
+
+    from web.routes.rankings import _normalise_boss_key, _resolve_boss
+
+    fake_boss_index = {
+        _normalise_boss_key("Vyemm"): [("Plane of War", "Vyemm")],
+    }
+    with patch("web.routes.rankings._cached_zones_data", return_value=(fake_boss_index, [], [])):
+        ok, zone, title = _resolve_boss("Vyemm", "Plane of War", "raid")
+    assert ok is True
+    assert (zone, title) == ("Plane of War", "Vyemm")
