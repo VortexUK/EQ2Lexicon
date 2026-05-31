@@ -48,6 +48,9 @@ from backend.server.limiter import limiter
 from backend.server.parses import db as parses_db
 from backend.server.parses.pet_detection import classify_combatants
 from backend.server.server_context import current_world
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 
 def _uploader_discord_id(source_dsn: str | None) -> str | None:
@@ -75,22 +78,13 @@ SIZE_BUCKETS: Mapping[str, tuple[int, int]] = MappingProxyType(
 # have is_player=NULL until _ensure_classified backfills them on first
 # read — until then they count as 0, which is fine because the lazy-
 # backfill runs BEFORE the SQL filter in every read path.
-_PLAYER_COUNT_SQL = """\
-    SELECT COUNT(*) FROM combatants c
-    WHERE c.encounter_id = e.id AND c.is_player = 1
-"""
-
-_TOP_N_ALLY_SQL = """\
-    SELECT name FROM combatants
-    WHERE encounter_id = ? AND is_player = 1
-    ORDER BY encdps DESC, name ASC
-    LIMIT ?
-"""
-
-_ALL_ALLY_SQL = """\
-    SELECT name FROM combatants
-    WHERE encounter_id = ? AND is_player = 1
-"""
+# Subquery fragment used by both the encounter-listing query (below) and
+# rankings.py's leaderboard loader. Defined here so the two call sites
+# share one source of truth. Re-exported under the original
+# `_PLAYER_COUNT_SQL` name for backwards compat with rankings.py's import.
+_PLAYER_COUNT_SQL = _SQL["player_count_subquery"]
+_TOP_N_ALLY_SQL = _SQL["top_n_ally_names"]
+_ALL_ALLY_SQL = _SQL["all_ally_names"]
 
 
 def _ensure_classified(conn: sqlite3.Connection, encounter_id: int, zone: str | None) -> bool:
@@ -109,10 +103,7 @@ def _ensure_classified(conn: sqlite3.Connection, encounter_id: int, zone: str | 
 
     Returns True iff backfill actually ran (so callers can decide
     whether to re-query player_count for the same response)."""
-    needs = conn.execute(
-        "SELECT 1 FROM combatants WHERE encounter_id = ? AND is_player IS NULL LIMIT 1",
-        (encounter_id,),
-    ).fetchone()
+    needs = conn.execute(_SQL["has_unclassified_combatants"], (encounter_id,)).fetchone()
     if not needs:
         return False
     rows = parses_db.get_combatants_for_encounter(conn, encounter_id)
@@ -254,17 +245,7 @@ def _list_encounters_sync(
         params.extend([lo, hi])
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
-    list_sql = f"""
-        SELECT * FROM (
-            SELECT e.*,
-                ({_PLAYER_COUNT_SQL}) AS player_count,
-                (SELECT COUNT(*) FROM combatants c2 WHERE c2.encounter_id = e.id) AS combatant_count
-            FROM encounters e
-        )
-        {where_sql}
-        ORDER BY started_at DESC
-        LIMIT ?
-    """
+    list_sql = _SQL["list_encounters_recent"].format(where_sql=where_sql, player_count_sql=_PLAYER_COUNT_SQL)
 
     conn = parses_db.init_db(parses_db.DB_PATH)
     try:
@@ -387,7 +368,7 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, wo
     conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
-        enc_row = conn.execute("SELECT * FROM encounters WHERE id = ? AND world = ?", (encounter_id, world)).fetchone()
+        enc_row = conn.execute(_SQL["select_encounter_by_id_and_world"], (encounter_id, world)).fetchone()
         if enc_row is None:
             return None
         enc = dict(enc_row)

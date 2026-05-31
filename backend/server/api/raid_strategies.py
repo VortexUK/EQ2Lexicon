@@ -48,6 +48,9 @@ from backend.server.core.executor import run_sync
 from backend.server.core.primary_guild import cached_primary_guild
 from backend.server.core.session_user import SessionUser
 from backend.server.server_context import current_world as _current_world
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
@@ -177,11 +180,11 @@ def _read_revisions_sync(zone_name: str, encounter_name: str) -> list[dict]:
         return []
     with sqlite3.connect(raids_db.DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        zrow = conn.execute("SELECT id FROM raid_zones WHERE zone_name_lower = ?", (zone_name.lower(),)).fetchone()
+        zrow = conn.execute(_SQL["select_raid_zone_id_by_name"], (zone_name.lower(),)).fetchone()
         if zrow is None:
             return []
         erow = conn.execute(
-            "SELECT id FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+            _SQL["select_encounter_id_by_zone_mob"],
             (zrow["id"], encounter_name.lower()),
         ).fetchone()
         if erow is None:
@@ -202,8 +205,7 @@ def _read_overview_sync(zone_name: str) -> dict | None:
     with sqlite3.connect(raids_db.DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT zone_name, overview_md, source, last_edited_at, last_edited_by "
-            "FROM raid_zones WHERE zone_name_lower = ?",
+            _SQL["select_raid_zone_overview"],
             (zone_name.lower(),),
         ).fetchone()
     if row is None or not row["overview_md"]:
@@ -231,18 +233,16 @@ def _create_overview_sync(
     )
     # upsert_raid_zone doesn't set last_edited_at — stamp the audit fields here.
     conn.execute(
-        "UPDATE raid_zones SET last_edited_at = ?, last_edited_by = ? WHERE zone_name_lower = ?",
+        _SQL["update_raid_zone_audit_fields"],
         (now, editor_discord_id, zone_name.lower()),
     )
     # Record first-ever revision with before_md=NULL.
     zone_id_row = conn.execute(
-        "SELECT id FROM raid_zones WHERE zone_name_lower = ?",
+        _SQL["select_raid_zone_id_by_name"],
         (zone_name.lower(),),
     ).fetchone()
     conn.execute(
-        "INSERT INTO raid_zone_revisions "
-        "(raid_zone_id, edited_at, edited_by, before_md, after_md, edit_note) "
-        "VALUES (?, ?, ?, NULL, ?, ?)",
+        _SQL["insert_raid_zone_revision_first"],
         (zone_id_row[0], now, editor_discord_id, markdown, edit_note),
     )
 
@@ -260,20 +260,13 @@ def _update_overview_sync(
 ) -> None:
     """Update an existing raid_zone overview row and conditionally write a revision entry."""
     conn.execute(
-        "UPDATE raid_zones SET "
-        "  overview_md = ?, "
-        "  source = ?, "
-        "  last_edited_at = ?, "
-        "  last_edited_by = ? "
-        "WHERE id = ?",
+        _SQL["update_raid_zone_overview"],
         (markdown, raids_db.SOURCE_MANUAL, now, editor_discord_id, zone_id),
     )
     # Only write a revision row when the markdown actually changes.
     if markdown != prev_md:
         conn.execute(
-            "INSERT INTO raid_zone_revisions "
-            "(raid_zone_id, edited_at, edited_by, before_md, after_md, edit_note) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            _SQL["insert_raid_zone_revision"],
             (zone_id, now, editor_discord_id, prev_md, markdown, edit_note),
         )
 
@@ -302,7 +295,7 @@ def _write_overview_sync(
     conn = raids_db.init_db()
     try:
         existing = conn.execute(
-            "SELECT id, overview_md FROM raid_zones WHERE zone_name_lower = ?",
+            _SQL["select_raid_zone_id_and_overview"],
             (zone_name.lower(),),
         ).fetchone()
         now = int(time.time())
@@ -330,8 +323,7 @@ def _write_overview_sync(
         conn.commit()
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT zone_name, overview_md, source, last_edited_at, last_edited_by "
-            "FROM raid_zones WHERE zone_name_lower = ?",
+            _SQL["select_raid_zone_overview"],
             (zone_name.lower(),),
         ).fetchone()
     finally:
@@ -348,16 +340,11 @@ def _read_strategy_sync(zone_name: str, encounter_name: str) -> dict | None:
         # Find the raid_zones id (loose name match — the strategy DB stores
         # the canonical zone_name verbatim, so a case-insensitive lower-match
         # is robust against any alias canonicalisation drift).
-        zrow = conn.execute("SELECT id FROM raid_zones WHERE zone_name_lower = ?", (zone_name.lower(),)).fetchone()
+        zrow = conn.execute(_SQL["select_raid_zone_id_by_name"], (zone_name.lower(),)).fetchone()
         if zrow is None:
             return None
         erow = conn.execute(
-            """
-            SELECT id, mob_name, position, strategy_md, source,
-                   last_edited_at, last_edited_by
-            FROM raid_encounters
-            WHERE raid_zone_id = ? AND mob_name_lower = ?
-            """,
+            _SQL["select_encounter_strategy"],
             (zrow["id"], encounter_name.lower()),
         ).fetchone()
     if erow is None or erow["strategy_md"] is None:
@@ -402,12 +389,7 @@ def _write_strategy_sync(
         # etc. — easier than reconstructing it client-side).
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            """
-            SELECT id, mob_name, position, strategy_md, source,
-                   last_edited_at, last_edited_by
-            FROM raid_encounters
-            WHERE raid_zone_id = ? AND mob_name_lower = ?
-            """,
+            _SQL["select_encounter_strategy"],
             (zone_id, encounter_name.lower()),
         ).fetchone()
     finally:
@@ -584,7 +566,7 @@ def _read_zone_revisions_sync(zone_name: str) -> list[dict]:
     with sqlite3.connect(raids_db.DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         zrow = conn.execute(
-            "SELECT id FROM raid_zones WHERE zone_name_lower = ?",
+            _SQL["select_raid_zone_id_by_name"],
             (zone_name.lower(),),
         ).fetchone()
         if zrow is None:
