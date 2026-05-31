@@ -33,8 +33,8 @@ sys.path.insert(0, str(ROOT))
 
 import mwparserfromhell as mwp  # noqa: E402
 
-from census import zones_db  # noqa: E402
-from census.wikitext_md import convert  # noqa: E402
+from backend.census.wikitext_md import convert  # noqa: E402
+from backend.eq2db import zones as zones_db  # noqa: E402
 
 # Expansion in-scope set for the "raids for TLE" feature. Vanilla
 # through Rise of Kunark. Live-expansion content is deferred.

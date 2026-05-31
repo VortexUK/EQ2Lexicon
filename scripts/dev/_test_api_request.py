@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from httpx import ASGITransport, AsyncClient
 
-from web.app import create_app
+from backend.server.app import create_app
 
 
 async def test():

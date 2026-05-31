@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from image.aa_tree import render_tree
+from backend.image.aa_tree import render_tree
 
 if __name__ == "__main__":
     tree_id = int(sys.argv[1]) if len(sys.argv) > 1 else 3

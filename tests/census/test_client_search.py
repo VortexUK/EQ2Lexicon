@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from census.client import CensusClient, CensusError
+from backend.census.client import CensusClient, CensusError
 
 
 @pytest.fixture

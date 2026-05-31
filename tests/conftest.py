@@ -64,8 +64,8 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     pytest plugins (e.g. pytest-asyncio) that may import web.app during
     plugin discovery."""
     os.environ["DB_USERS_PATH"] = str(_TEST_DB_DIR / "users.db")
-    os.environ["DB_PARSES_PATH"] = str(_TEST_DB_DIR / "parses.db")
-    os.environ["DB_CENSUS_PATH"] = str(_TEST_DB_DIR / "census.db")
+    os.environ["DB_PARSES_PATH"] = str(_TEST_DB_DIR / "backend.server.parses.db")
+    os.environ["DB_CENSUS_PATH"] = str(_TEST_DB_DIR / "backend.census.db")
     os.environ["DB_ZONES_PATH"] = str(_TEST_DB_DIR / "zones.db")
     os.environ["DB_SPELLS_PATH"] = str(_TEST_DB_DIR / "spells.db")
     os.environ["DB_RECIPES_PATH"] = str(_TEST_DB_DIR / "recipes.db")
@@ -87,9 +87,14 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
 
     # Imports below this line read the env vars above when they evaluate their
     # module-level constants (DB_PATH, SESSION_SECRET, ...).
-    from census import census_store, classes_db, raids_db, recipes_db, spells_db, zones_db
-    from parses import db as parses_db
-    from web import db as users_db
+    from backend.census import store as census_store
+    from backend.eq2db import classes as classes_db
+    from backend.eq2db import raids as raids_db
+    from backend.eq2db import recipes as recipes_db
+    from backend.eq2db import spells as spells_db
+    from backend.eq2db import zones as zones_db
+    from backend.server import db as users_db
+    from backend.server.parses import db as parses_db
 
     # Force module-level DB_PATH constants to pick up the env vars set above.
     # The constants are evaluated at module import time; if a pytest plugin
@@ -145,7 +150,7 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
     """
     import asyncio
 
-    from web.lib import census_lifecycle
+    from backend.server.core import census_lifecycle
 
     if not census_lifecycle._clients:
         return
@@ -161,7 +166,7 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
 @pytest.fixture
 def app():
     """FastAPI application instance with a fixed session secret."""
-    from web.app import create_app
+    from backend.server.app import create_app
 
     return create_app(session_secret="pytest-session-secret-not-real-0123456789")
 

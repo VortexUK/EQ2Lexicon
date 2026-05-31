@@ -31,7 +31,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from census import raids_db, zones_db  # noqa: E402
+from backend.eq2db import raids as raids_db  # noqa: E402
+from backend.eq2db import zones as zones_db
 
 # ---------------------------------------------------------------------------
 # Attribution: XML Category → default (zone_name, encounter_position)

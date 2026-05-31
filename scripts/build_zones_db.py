@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from census import zones_db  # noqa: E402
+from backend.eq2db import zones as zones_db  # noqa: E402
 
 DEFAULT_SOURCE = ROOT / "scripts" / "dev" / "eq2_zones.cleaned.json"
 DEFAULT_DUNGEONS = ROOT / "scripts" / "dev" / "eq2_zones.dungeons.json"

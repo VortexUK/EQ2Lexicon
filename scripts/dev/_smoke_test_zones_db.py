@@ -12,7 +12,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from census import zones_db  # noqa: E402
+from backend.eq2db import zones as zones_db  # noqa: E402
 
 DB = zones_db.DB_PATH
 failed: list[str] = []

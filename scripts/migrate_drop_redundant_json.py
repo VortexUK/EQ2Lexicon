@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from census.db import DB_PATH
+from backend.eq2db.items import DB_PATH
 
 DROP_COLS = [
     "typeinfo_json",

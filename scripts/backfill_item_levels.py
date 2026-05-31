@@ -23,8 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from census.db import DB_PATH, init_db  # noqa: E402
-from census.item_level import GEAR_TYPES, compute_ilvl  # noqa: E402
+from backend.census.item_level import GEAR_TYPES, compute_ilvl  # noqa: E402
+from backend.eq2db.items import DB_PATH, init_db  # noqa: E402
 
 BATCH = 5000
 

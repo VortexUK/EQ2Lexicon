@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from census.spells_db import (
+from backend.eq2db.spells import (
     _CREATE_INDEXES,
     _CREATE_META,
     _CREATE_TABLE,

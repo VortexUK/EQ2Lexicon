@@ -21,7 +21,7 @@ dependencies = [
     "prometheus-client>=0.20.0",
     # Reference-data pipeline: parse MediaWiki wikitext from EQ2i for the
     # raid-strategies feature. Used by scripts/dev/scrape_eq2i_raids.py
-    # and census/wikitext_md.py (the wikitext→markdown converter).
+    # and backend/census/wikitext_md.py (the wikitext→markdown converter).
     "mwparserfromhell>=0.6.0",
 ]
 
@@ -65,9 +65,9 @@ ignore = [
 # Tests use wildcard imports and fixture magic that confuse pyflakes, and
 # co-locate imports next to the helpers/classes that exercise them.
 "tests/*" = ["F401", "F811", "E402"]
-# web/app.py must call load_dotenv() before importing other project modules
-# so that env vars are available at import time.
-"web/app.py" = ["E402"]
+# backend/server/app.py must call load_dotenv() before importing other project
+# modules so that env vars are available at import time.
+"backend/server/app.py" = ["E402"]
 
 [tool.pytest.ini_options]
 log_level = "WARNING"
@@ -75,8 +75,11 @@ log_level = "WARNING"
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "basic"
-include = ["census", "web", "bot", "parses"]
-exclude = ["scripts", "data", "frontend", "image", "**/__pycache__"]
+include = ["backend"]
+# backend/image/ is excluded because pyright trips over PIL global-cache
+# patterns (loaded-once-then-reused module-level Optional[Image]); preserves
+# the prior policy where image/ was a top-level exclude.
+exclude = ["scripts", "data", "frontend", "ops", "docs", "backend/image", "**/__pycache__"]
 # Third-party stubs (aiohttp, discord.py, etc.) are often missing — suppress
 # the noise so only real type errors block the push.
 reportMissingModuleSource = false

@@ -8,7 +8,8 @@
 #
 # PATHS MUST MATCH THE APP'S DB_*_PATH RESOLUTION. The app reads
 # DB_USERS_PATH / DB_PARSES_PATH / DB_ZONES_PATH / DB_RAIDS_PATH at
-# import time (census/raids_db.py + parses/db.py + web/db.py) and uses
+# import time (backend/eq2db/raids.py + backend/server/parses/db.py +
+# backend/server/db/) and uses
 # those for every read and write. This file MUST reference the same
 # files via the same env vars — otherwise litestream watches one path
 # while the app writes to another, the configured-but-nonexistent file

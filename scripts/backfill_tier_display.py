@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from census.db import DB_PATH, init_db
+from backend.eq2db.items import DB_PATH, init_db
 
 conn = init_db(DB_PATH)
 conn.execute("""

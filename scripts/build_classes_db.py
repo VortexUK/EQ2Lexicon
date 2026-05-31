@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from census import classes_db  # noqa: E402
+from backend.eq2db import classes as classes_db  # noqa: E402
 
 
 def main() -> None:

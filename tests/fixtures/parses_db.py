@@ -6,7 +6,7 @@ monkeypatch + init_db setup inline.
 
 Two fixtures are exposed:
 
-  - parses_db_path: yields a tmp_path / "parses.db" with the schema
+  - parses_db_path: yields a tmp_path / "backend.server.parses.db" with the schema
     pre-initialised, AND monkeypatches parses_db.DB_PATH to point at it
     for the duration of the test. This is what the web tests need.
 
@@ -23,13 +23,13 @@ from pathlib import Path
 
 import pytest
 
-from parses import db as parses_db
+from backend.server.parses import db as parses_db
 
 
 @pytest.fixture
 def parses_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Tmp-path-backed parses.db with schema initialised + DB_PATH patched."""
-    db_file = tmp_path / "parses.db"
+    db_file = tmp_path / "backend.server.parses.db"
     monkeypatch.setattr(parses_db, "DB_PATH", db_file)
     parses_db.init_db(db_file).close()
     return db_file

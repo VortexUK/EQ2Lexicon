@@ -12,7 +12,7 @@ os.environ["SERVER_MAX_LEVEL"] = "70"
 
 import importlib
 
-import census.db as db
+import backend.eq2db.items as db
 
 importlib.reload(db)  # pick up the env var we just set
 

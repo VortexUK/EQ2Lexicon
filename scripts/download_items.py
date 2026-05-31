@@ -24,12 +24,12 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from census.config import SERVICE_ID, WORLD
+from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from census.client import BASE_URL
-from census.db import DB_PATH, get_meta, init_db, item_count, set_meta, upsert_items
+from backend.census.client import BASE_URL
+from backend.eq2db.items import DB_PATH, get_meta, init_db, item_count, set_meta, upsert_items
 
 PAGE_SIZE = 100  # items per request
 CONCURRENCY = 1  # parallel requests (sequential — most reliable against Census timeouts)
