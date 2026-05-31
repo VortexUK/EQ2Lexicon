@@ -28,6 +28,9 @@ from backend.server.limiter import limiter
 from backend.server.parses import db as parses_db
 from backend.server.parses.boss import is_boss
 from backend.server.server_context import current_server, current_world
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 router = APIRouter(tags=["rankings"])
 
@@ -297,14 +300,7 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         boss_index: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for mob_lower, zname, ename in conn.execute(
-            """
-            SELECT m.mob_name_lower, z.name, e.encounter_name
-            FROM zone_encounter_mobs m
-            JOIN zone_encounters e ON e.id = m.encounter_id
-            JOIN zones z ON z.id = e.zone_id
-            """
-        ):
+        for mob_lower, zname, ename in conn.execute(_SQL["list_all_zone_encounter_mobs"]):
             boss_index[_normalise_boss_key(mob_lower)].append((zname, ename))
 
         def _tree_for_type(type_token: str) -> list[dict]:
@@ -313,23 +309,10 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
             powers both the raid and dungeon trees with no duplication."""
             out: list[dict] = []
             for zid, zname, exp, exp_name in conn.execute(
-                """
-                SELECT z.id, z.name, z.expansion_short, z.expansion_name
-                FROM zones z
-                JOIN zone_types t ON t.zone_id = z.id
-                WHERE t.type = ?
-                  AND z.id IN (SELECT DISTINCT zone_id FROM zone_encounters)
-                ORDER BY z.expansion_year DESC, z.name
-                """,
+                _SQL["list_zones_by_type_with_encounters"],
                 (type_token,),
             ):
-                bosses = [
-                    r[0]
-                    for r in conn.execute(
-                        "SELECT encounter_name FROM zone_encounters WHERE zone_id = ? ORDER BY position",
-                        (zid,),
-                    )
-                ]
+                bosses = [r[0] for r in conn.execute(_SQL["list_encounter_names_for_zone"], (zid,))]
                 out.append({"zone": zname, "expansion": exp, "expansion_name": exp_name, "bosses": bosses})
             return out
 
@@ -481,14 +464,7 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
     try:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"""
-            SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by,
-                   e.started_at, e.duration_s, e.success_level,
-                   ({_PLAYER_COUNT_SQL}) AS player_count
-            FROM encounters e
-            WHERE e.success_level = 1 AND e.world = ?
-            ORDER BY e.started_at DESC
-            """,
+            _SQL["list_winning_encounters_with_player_count"].format(player_count_sql=_PLAYER_COUNT_SQL),
             (world,),
         ).fetchall()
         # Phase 4 lazy backfill: classify combatants for any encounter
@@ -502,7 +478,7 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
         for r in rows:
             if _ensure_classified(conn, r["id"], r["zone"]):
                 refreshed = conn.execute(
-                    "SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1",
+                    _SQL["count_player_combatants_for_encounter"],
                     (r["id"],),
                 ).fetchone()
                 r["player_count"] = int(refreshed[0])

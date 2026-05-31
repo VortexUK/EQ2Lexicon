@@ -29,6 +29,9 @@ from backend.eq2db.classes import iter_adventure_class_names
 from backend.eq2db.items import DB_PATH as ITEMS_DB_PATH
 from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
 from backend.server.core.executor import run_sync
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
@@ -233,7 +236,7 @@ def _query_items_db(
         class_item_ids: list[int] | None = None
         if class_name:
             rows = conn.execute(
-                "SELECT id FROM items WHERE LOWER(class_label) LIKE ?",
+                _SQL["items_by_class_label_like"],
                 (f"%{class_name.lower()}%",),
             ).fetchall()
             class_item_ids = [r[0] for r in rows]
@@ -242,7 +245,7 @@ def _query_items_db(
         if elaborate_ids:
             ph = ",".join("?" * len(elaborate_ids))
             lrows = conn.execute(
-                f"SELECT id, class_label FROM items WHERE id IN ({ph})",
+                _SQL["items_class_labels_by_id_chunk"].format(placeholders=ph),
                 elaborate_ids,
             ).fetchall()
             label_map = {r[0]: r[1] for r in lrows if r[1]}
@@ -333,22 +336,12 @@ async def search_recipes(
     async with aiosqlite.connect(RECIPES_DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
-        count_sql = f"SELECT COUNT(DISTINCT id) FROM recipes WHERE {where}"
+        count_sql = _SQL["count_recipes_where"].format(where=where)
         async with db.execute(count_sql, params) as cur:
             count_row = await cur.fetchone()
             total = count_row[0] if count_row else 0
 
-        select_sql = (
-            f"SELECT id, name, bench, crafted_tier, "
-            f"primary_comp, primary_qty, secondary_comps, "
-            f"fuel_comp, fuel_qty, "
-            f"out_formed_id, out_formed_count, out_elaborate_id "
-            f"FROM recipes "
-            f"WHERE {where} "
-            f"GROUP BY id "
-            f"ORDER BY name_lower ASC "
-            f"LIMIT {per_page} OFFSET {offset}"
-        )
+        select_sql = _SQL["select_recipes_where"].format(where=where, limit=per_page, offset=offset)
         async with db.execute(select_sql, params) as cur:
             rows = await cur.fetchall()
 
@@ -359,7 +352,7 @@ async def search_recipes(
         if row_ids:
             ph = ",".join("?" * len(row_ids))
             async with db.execute(
-                f"SELECT recipe_id, class FROM recipe_classes WHERE recipe_id IN ({ph}) ORDER BY class",
+                _SQL["recipe_classes_for_recipes_chunk"].format(placeholders=ph),
                 row_ids,
             ) as cur:
                 async for rid, cls in cur:
