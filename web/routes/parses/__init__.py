@@ -23,6 +23,7 @@ router = APIRouter(tags=["parses"])
 from web.routes.parses import delete as _delete  # noqa: E402,F401
 from web.routes.parses import ingest as _ingest  # noqa: E402,F401
 from web.routes.parses import list as _list  # noqa: E402,F401
+from web.routes.parses import tamper_report as _tamper_report  # noqa: E402,F401
 
 # Re-export the SQL helper + fight-grouping function used cross-module by
 # web/routes/rankings.py to compute primary-boss kills. Pre-split these
@@ -50,6 +51,7 @@ from web.routes.parses.models import (  # noqa: E402
     ParsePermissions,
     ParsesListResponse,
     ParseUploadSummary,
+    TamperReportResponse,
     ThreatSummary,
 )
 
@@ -69,6 +71,7 @@ __all__ = [
     "ParsePermissions",
     "ParsesListResponse",
     "ParseUploadSummary",
+    "TamperReportResponse",
     "ThreatSummary",
     "_PLAYER_COUNT_SQL",
     "_group_into_fights",

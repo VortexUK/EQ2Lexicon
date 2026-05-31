@@ -6,6 +6,7 @@ import { ClaimsTable } from './admin/ClaimsTable'
 import { RoleRequestsTable } from './admin/RoleRequestsTable'
 import { ParsesAdminTable } from './admin/ParsesAdminTable'
 import { ServersSection } from './admin/ServersSection'
+import { TamperReportsTable } from './admin/TamperReportsTable'
 import type { UserItem, ClaimDetail, RoleRequest } from './admin/types'
 import { SECTION_TITLE_CLS } from './admin/types'
 
@@ -112,6 +113,15 @@ export default function AdminPage() {
           {/* Servers */}
           <div className={SECTION_CLS}>
             <ServersSection />
+          </div>
+
+          {/* Tamper reports — surfaced above the parses-sanitize table
+              because pending reports are the highest-signal admin work:
+              they represent active attempts to upload tampered parses
+              that the plugin already blocked at the source. The table
+              manages its own fetch + acknowledge flow. */}
+          <div className={SECTION_CLS}>
+            <TamperReportsTable />
           </div>
 
           {/* Parses (sanitize) */}
