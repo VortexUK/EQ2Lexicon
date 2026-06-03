@@ -2,41 +2,73 @@ import { useState, useEffect } from 'react'
 import { FilterDropdown, groupedFromHeaders } from '../../components/FilterDropdown'
 import { Button, Card } from '../../components/ui'
 
-// ── Stat options (canonical display names from STAT_MAP) ──────────────────────
+// ── Stat options ──────────────────────────────────────────────────────────────
+// IMPORTANT: each value must match a `stat` string in the item_stats table
+// EXACTLY — the search backend filters `item_stats.stat = ?` (see
+// backend/server/api/item.py). Any entry that doesn't match is a dead filter
+// that always returns zero results. Keep this list aligned with the DB; the
+// canonical names come from the item_parser modifier paths, not STAT_MAP.
 
-const STAT_OPTIONS_PRIMARY = [
+// Tuples are [dbValue, displayLabel] where the label differs from the DB stat
+// string. The flat-pool stats are stored lowercase ('health'/'mana') and are
+// distinct from the percentage 'Max Health'/'Max Power' below.
+const STAT_OPTIONS_PRIMARY: (string | [string, string])[] = [
   'Stamina',
   'Primary Attributes',
   'Combat Skills',
   'Resistances',
+  ['health', 'Health'],
+  ['mana', 'Power'],
 ]
 
 const STAT_OPTIONS_SECONDARY = [
-  'Ability Mod',
+  'Resolve',
   'Potency',
+  'Fervor',
+  'Ability Mod',
   'Crit Bonus',
   'Crit Chance',
   'Casting Speed',
-  'Max Health',
-  'Max Power',
-  'Haste',
+  'Reuse Speed',
+  'Spell Reuse Speed',
+  'Ability Doublecast',
+  'Attack Speed',
   'DPS',
   'Multi Attack',
-  'Strikethrough',
-  'Accuracy',
   'Flurry',
-  'Block',
+  'Flurry Multiplier',
+  'AE Auto',
+  'Weapon Damage',
+  'Accuracy',
+  'Strikethrough',
+  'Max Health',
+  'Max Power',
+  'Mitigation Increase',
+  'Block Chance',
   'Parry',
   'Deflection',
   'Dodge',
-  'Spell Aversion',
-  'Critical Avoidance',
-  'Overcap Bonus',
-  'Weapon Skill',
-  'AE Auto Attack',
-  'Spell Dmg Bonus',
-  'Attack Speed',
+  'Extra Riposte',
+  'Hate Gain',
+  'Combat Health Regen',
+  'Combat Power Regen',
+  'Haste',
+  'Weapon Skills',
 ]
+
+const STAT_OPTIONS_TRADESKILL = [
+  'Crafting Skills',
+  'Harvesting Skills',
+  'Tinkering',
+  'Adorning',
+  'Transmuting',
+]
+
+/** Normalise a stat option (plain string, or [dbValue, label] tuple) into a dropdown option. */
+function statOpt(s: string | [string, string], group: string) {
+  const [value, label] = Array.isArray(s) ? s : [s, s]
+  return { value, label, group }
+}
 
 // ── Static filter options ─────────────────────────────────────────────────────
 
@@ -360,8 +392,9 @@ export default function ItemSearchFilters({
                     standalone
                     value={f.stat}
                     options={[
-                      ...STAT_OPTIONS_PRIMARY.map(s => ({ value: s, label: s, group: 'Primary' })),
-                      ...STAT_OPTIONS_SECONDARY.map(s => ({ value: s, label: s, group: 'Secondary' })),
+                      ...STAT_OPTIONS_PRIMARY.map(s => statOpt(s, 'Primary')),
+                      ...STAT_OPTIONS_SECONDARY.map(s => statOpt(s, 'Secondary')),
+                      ...STAT_OPTIONS_TRADESKILL.map(s => statOpt(s, 'Tradeskill')),
                     ]}
                     onChange={v => updateStatFilter(f.id, 'stat', v)}
                   />
