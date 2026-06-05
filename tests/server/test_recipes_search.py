@@ -5,7 +5,7 @@ Covers:
   GET /recipes/search   — recipes DB missing → 503;
                           no query params → empty results (no conditions);
                           name filter → paginates results;
-                          tier filter → fuel-prefix matching;
+                          tier filter → out_level range matching;
                           bench filter → bench key and display-label both accepted;
                           class_name filter → items DB missing → 503;
                           class_name + items DB → item-id subquery;
@@ -13,7 +13,7 @@ Covers:
                           page parameter → correct offset applied.
 
   Helper unit tests:
-  _fuel_to_craft_tier   — prefix → tier label (known/unknown/None).
+  _level_to_craft_tier  — crafted-item level → tier label (T1 … T14 / None).
   _bench_label          — raw key → display label; unknown key → title-cased.
   _resolve_bench_param  — accepts raw key or display label.
   _row_to_result        — builds RecipeResult; malformed secondary_comps → [].
@@ -31,9 +31,8 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.server.api.recipes import (
     BENCH_DISPLAY,
-    TIER_FUEL,
     _bench_label,
-    _fuel_to_craft_tier,
+    _level_to_craft_tier,
     _resolve_bench_param,
 )
 
@@ -59,7 +58,8 @@ def _make_recipes_db(path: Path, rows: list[dict] | None = None) -> Path:
             fuel_qty INTEGER,
             out_formed_id INTEGER,
             out_formed_count INTEGER,
-            out_elaborate_id INTEGER
+            out_elaborate_id INTEGER,
+            out_level INTEGER
         )"""
     )
     conn.execute(
@@ -74,10 +74,10 @@ def _make_recipes_db(path: Path, rows: list[dict] | None = None) -> Path:
         conn.execute(
             """INSERT INTO recipes (id, name, name_lower, bench, crafted_tier,
                primary_comp, primary_qty, secondary_comps,
-               fuel_comp, fuel_qty, out_formed_id, out_formed_count, out_elaborate_id)
+               fuel_comp, fuel_qty, out_formed_id, out_formed_count, out_elaborate_id, out_level)
                VALUES (:id, :name, :name_lower, :bench, :crafted_tier,
                :primary_comp, :primary_qty, :secondary_comps,
-               :fuel_comp, :fuel_qty, :out_formed_id, :out_formed_count, :out_elaborate_id)""",
+               :fuel_comp, :fuel_qty, :out_formed_id, :out_formed_count, :out_elaborate_id, :out_level)""",
             {
                 "id": row.get("id", 1),
                 "name": row.get("name", "Test Recipe"),
@@ -92,6 +92,7 @@ def _make_recipes_db(path: Path, rows: list[dict] | None = None) -> Path:
                 "out_formed_id": row.get("out_formed_id"),
                 "out_formed_count": row.get("out_formed_count"),
                 "out_elaborate_id": row.get("out_elaborate_id"),
+                "out_level": row.get("out_level"),
             },
         )
         for cls in row.get("craft_classes", []):
@@ -130,20 +131,16 @@ def _make_items_db(path: Path, rows: list[dict] | None = None) -> Path:
 # ---------------------------------------------------------------------------
 
 
-class TestFuelToTier:
-    def test_known_fuel_prefix_returns_tier(self) -> None:
-        assert _fuel_to_craft_tier("Basic Kindling") == "T1"
-        assert _fuel_to_craft_tier("Glowing Fuel") == "T2"
-        assert _fuel_to_craft_tier("Formless Ethereal") == "T14"
+class TestLevelToTier:
+    def test_known_levels_return_tier(self) -> None:
+        assert _level_to_craft_tier(5) == "T1"
+        assert _level_to_craft_tier(15) == "T2"
+        assert _level_to_craft_tier(75) == "T8"
+        assert _level_to_craft_tier(130) == "T14"
 
-    def test_unknown_prefix_returns_none(self) -> None:
-        assert _fuel_to_craft_tier("Weird Fuel") is None
-
-    def test_none_fuel_returns_none(self) -> None:
-        assert _fuel_to_craft_tier(None) is None
-
-    def test_empty_string_returns_none(self) -> None:
-        assert _fuel_to_craft_tier("") is None
+    def test_no_level_returns_none(self) -> None:
+        assert _level_to_craft_tier(None) is None
+        assert _level_to_craft_tier(0) is None
 
 
 class TestBenchLabel:
@@ -293,13 +290,13 @@ class TestSearchRecipesHappyPath:
         assert "Firestarter Scroll" in names
         assert "Iceblast Scroll" in names
 
-    async def test_tier_filter_matches_fuel_prefix(self, app, tmp_path) -> None:
-        """tier=T1 filters recipes with 'Basic' fuel_comp prefix."""
+    async def test_tier_filter_matches_level_range(self, app, tmp_path) -> None:
+        """tier=T1 filters recipes whose out_level falls in the 1–9 bracket."""
         recipes_db = _make_recipes_db(
             tmp_path / "recipes.db",
             rows=[
-                {"id": 1, "name": "Basic Recipe", "fuel_comp": "Basic Kindling"},
-                {"id": 2, "name": "Glowing Recipe", "fuel_comp": "Glowing Coal"},
+                {"id": 1, "name": "Low Recipe", "out_level": 5},  # T1
+                {"id": 2, "name": "Higher Recipe", "out_level": 15},  # T2
             ],
         )
 
@@ -313,7 +310,7 @@ class TestSearchRecipesHappyPath:
         assert r.status_code == 200
         body = r.json()
         assert body["total"] == 1
-        assert body["results"][0]["name"] == "Basic Recipe"
+        assert body["results"][0]["name"] == "Low Recipe"
         assert body["results"][0]["craft_tier"] == "T1"
 
     async def test_bench_filter_by_key(self, app, tmp_path) -> None:
@@ -440,7 +437,7 @@ class TestSearchRecipesHappyPath:
     async def test_pagination_page_2_returns_offset_results(self, app, tmp_path) -> None:
         """page=2 returns the second page of results."""
         rows = [
-            {"id": i, "name": f"Recipe {i:03d}", "fuel_comp": "Basic Kindling"}
+            {"id": i, "name": f"Recipe {i:03d}", "out_level": 5}  # all T1
             for i in range(1, 30)  # 29 total
         ]
         recipes_db = _make_recipes_db(tmp_path / "recipes.db", rows=rows)
@@ -468,7 +465,7 @@ class TestSearchRecipesHappyPath:
         recipes_db = _make_recipes_db(
             tmp_path / "recipes.db",
             rows=[
-                {"id": 1, "name": "Complex Recipe", "secondary_comps": sec, "fuel_comp": "Basic Kindling"},
+                {"id": 1, "name": "Complex Recipe", "secondary_comps": sec, "out_level": 5},
             ],
         )
 

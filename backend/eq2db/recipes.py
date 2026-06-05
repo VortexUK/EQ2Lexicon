@@ -72,6 +72,7 @@ class RecipeRow(_RecipeRowRequired, total=False):
     out_formed_count: int | None
     base_name_lower: str | None
     crafted_tier: str | None
+    out_level: int | None  # crafted-output level (backfilled from items.db); drives craft tier
     last_update: int
 
 
@@ -206,6 +207,7 @@ def recipe_to_row(r: dict) -> dict | None:
 _MIGRATIONS = [
     _SQL["migrate_add_base_name_lower"],
     _SQL["migrate_add_crafted_tier"],
+    _SQL["migrate_add_out_level"],
 ]
 
 

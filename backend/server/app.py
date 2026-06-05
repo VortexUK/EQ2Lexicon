@@ -149,6 +149,57 @@ def _ensure_item_stats() -> None:
         _log.exception("[startup] item_stats init/backfill error")
 
 
+def _ensure_recipe_levels() -> None:
+    """
+    Called in a background thread at startup.
+
+    * Adds the recipes.out_level column if missing (idempotent migration).
+    * If any recipe rows still have a NULL out_level and items.db has data,
+      resolves the crafted-output level from items.db and fills it. This runs
+      once after a fresh deployment or after the code is upgraded on an existing
+      DB; subsequent boots find 0 NULL rows and no-op.
+
+    out_level drives the T1–T14 craft tier on the recipe page (replacing the old
+    fuel-name heuristic). Until this pass finishes, craft_tier reads blank for
+    not-yet-filled rows; all other recipe search/display works immediately.
+    """
+    import sqlite3
+
+    from backend.eq2db.items import DB_PATH as items_db_path
+    from backend.eq2db.recipes import DB_PATH as recipes_db_path
+    from backend.eq2db.recipes import init_db as recipes_init_db
+
+    if not recipes_db_path.exists() or not items_db_path.exists():
+        return  # need both DBs to resolve levels
+
+    try:
+        recipes_init_db(recipes_db_path).close()  # ensures out_level column exists
+
+        conn = sqlite3.connect(recipes_db_path)
+        missing = conn.execute("SELECT COUNT(*) FROM recipes WHERE out_level IS NULL").fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+        conn.close()
+
+        if missing > 0 and total > 0:
+            _log.info(
+                "[startup] %d/%d recipes missing out_level — running background backfill…",
+                missing,
+                total,
+            )
+            import sys
+
+            repo_root = str(Path(__file__).resolve().parent.parent.parent)
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
+            from scripts.backfill_recipe_levels import run as _backfill  # type: ignore[import]
+
+            _backfill(rebuild=False)
+            _log.info("[startup] recipe out_level backfill complete.")
+
+    except Exception:
+        _log.exception("[startup] recipe out_level init/backfill error")
+
+
 # ---------------------------------------------------------------------------
 # HTTP metrics middleware
 # ---------------------------------------------------------------------------
@@ -343,6 +394,10 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         # may take ~60–90 s; stat-filter searches will return 0 results until it
         # finishes, but name/tier/slot/class/level searches work immediately.
         threading.Thread(target=_ensure_item_stats, daemon=True, name="item-stats-backfill").start()
+        # Recipe craft-tier (out_level) self-heal — resolves crafted-output levels
+        # from items.db so the recipe page shows correct T1–T14 tiers. Background
+        # so it never blocks startup; one-time pass after a fresh deploy/upgrade.
+        threading.Thread(target=_ensure_recipe_levels, daemon=True, name="recipe-levels-backfill").start()
         # Register the DB gauge collector and set static app info.
         _register_db_collector()
         APP_INFO.info({"world": _WORLD, "version": "0.1.0"})
