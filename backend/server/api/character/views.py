@@ -457,10 +457,27 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
     if rec is not None:
         from backend.server.census_refresh import request_character_refresh
 
-        stale = (now - rec["last_resolved_at"]) > STALE_S
+        data = rec["data"]
+        # A guild-roster sync persists a partial character record (name / level /
+        # guild only) so the roster can render before the character is ever
+        # individually resolved. That blob lacks the id + world the response
+        # model requires (and carries no gear/stats). Fill the fields we know
+        # from context — the store row is keyed by current_world() — and treat
+        # it as stale so the full Census profile replaces it on refresh. For a
+        # full stored response data already carries id/world, so this is a no-op.
+        partial = not data.get("id")
+        stale = partial or (now - rec["last_resolved_at"]) > STALE_S
         if stale:
             request_character_refresh(name)  # throttled/health-gated background refresh
-        resp = CharacterResponse(**{**rec["data"], "fetched_at": rec["last_resolved_at"], "stale": stale})
+        resp = CharacterResponse(
+            **{
+                **data,
+                "id": data.get("id") or "",
+                "world": data.get("world") or current_world(),
+                "fetched_at": rec["last_resolved_at"],
+                "stale": stale,
+            }
+        )
         # Self-heal any "Item #<id>" placeholders left over from a cold
         # items.db at fetch time (see _heal_equipment_placeholders above
         # for the full backstory). items.db-only lookup so this stays
