@@ -356,3 +356,39 @@ async def test_stored_data_served_without_census(app, tmp_path, monkeypatch):
     body = response.json()
     assert body["level"] == 90
     assert body["stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_partial_roster_record_served_without_500(app, tmp_path, monkeypatch):
+    """A partial store record (roster-sync: no id/world) must serve, not 500.
+
+    Regression for the ValidationError seen in prod: CharacterResponse requires
+    id + world, but a roster-synced blob has neither. The endpoint must fill them
+    from context (world = current request world) and mark the record stale so a
+    background refresh replaces it — never raise.
+    """
+    from backend.census import store as census_store
+    from backend.server.cache import character_cache
+    from backend.server.config import WORLD as _WORLD
+
+    # Roster-shaped partial blob: name/level/guild only — no id, no world.
+    partial = {"name": "Verarec", "level": 90, "cls": "Wizard", "guild_name": "Test"}
+
+    db_path = tmp_path / "backend.census.db"
+    conn = census_store.init_db(db_path)
+    try:
+        census_store.upsert_character(conn, "Verarec", _WORLD, partial, resolved=True, now=1000)
+    finally:
+        conn.close()
+    monkeypatch.setattr(census_store, "DB_PATH", db_path)
+    character_cache.delete(f"verarec:{_WORLD.lower()}")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/character/Verarec")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == ""  # unknown until Census resolves it
+    assert body["world"] == _WORLD  # filled from request context
+    assert body["level"] == 90
+    assert body["stale"] is True  # partial → forced stale → background refresh
