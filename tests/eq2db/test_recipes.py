@@ -348,6 +348,39 @@ class TestOutLevelColumn:
         row = find_by_id(70, path=recipes_db)
         assert row["out_level"] == 75
 
+    def test_migrates_pre_out_level_db_shape(self, tmp_path: Path):
+        """A recipes.db created BEFORE the out_level column must migrate cleanly.
+
+        Mirrors the prod failure: read paths SELECT out_level, so init_db must
+        add the column to an old-shape DB. A fresh-fixture DB already has the
+        column and would mask this — build the legacy schema explicitly.
+        """
+        from backend.eq2db import recipes as recipes_mod
+
+        db_path = tmp_path / "legacy_recipes.db"
+        with sqlite3.connect(db_path) as conn:
+            # Build the real pre-migration table: schema_recipes is the CREATE
+            # TABLE without out_level (it's added only by migrate_add_out_level),
+            # so this faithfully reproduces an old-version recipes.db.
+            conn.execute(recipes_mod._SQL["schema_recipes"])
+            cols_before = {r[1] for r in conn.execute("PRAGMA table_info(recipes)")}
+            assert "out_level" not in cols_before  # sanity: genuinely old shape
+            conn.execute(
+                "INSERT INTO recipes (id, name, name_lower, secondary_comps) "
+                "VALUES (1, 'Old Recipe', 'old recipe', '[]')"
+            )
+            conn.commit()
+
+        init_db(db_path).close()  # must ALTER in out_level without error
+
+        with sqlite3.connect(db_path) as conn:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(recipes)")}
+        assert "out_level" in cols
+        # find_by_id SELECTs out_level — must not raise "no such column".
+        row = find_by_id(1, path=db_path)
+        assert row is not None
+        assert row["out_level"] is None
+
 
 # ---------------------------------------------------------------------------
 # upsert_recipes

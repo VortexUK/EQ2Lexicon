@@ -389,6 +389,17 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         from backend.eq2db import zones as zones_db
 
         zones_db.init_db().close()
+        # Initialise recipes.db synchronously so the out_level column (and any
+        # future migrations) exist BEFORE the first recipe read. The search and
+        # eq2db find_* paths SELECT out_level directly and do not run init_db
+        # themselves — without this, requests arriving before the background
+        # backfill thread finishes init_db hit "no such column: out_level".
+        # init_db is CREATE TABLE IF NOT EXISTS + idempotent ALTERs, so it's
+        # safe on a populated recipes.db. The slower data backfill still runs in
+        # the background thread below.
+        from backend.eq2db import recipes as recipes_db
+
+        recipes_db.init_db().close()
         # Run the item-stats check in a background thread so it never blocks
         # startup or Railway health checks.  On a fresh deployment the backfill
         # may take ~60–90 s; stat-filter searches will return 0 results until it
