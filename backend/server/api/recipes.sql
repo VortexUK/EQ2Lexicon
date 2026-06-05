@@ -39,7 +39,7 @@ SELECT COUNT(DISTINCT id) FROM recipes WHERE {where};
 -- because aiosqlite's parameter binder doesn't always accept ? for those
 -- positions on every SQLite build and the values are server-controlled
 -- (page param is validated upstream).
-SELECT id, name, bench, crafted_tier,
+SELECT id, name, bench, crafted_tier, out_level,
        primary_comp, primary_qty, secondary_comps,
        fuel_comp, fuel_qty,
        out_formed_id, out_formed_count, out_elaborate_id

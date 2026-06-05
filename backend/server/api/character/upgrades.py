@@ -25,7 +25,7 @@ from backend.server.api.character.views import _build_char_response
 from backend.server.api.recipes import IngredientResponse as _RecipeIngredientResponse
 from backend.server.api.recipes import RecipeResult as _RecipeResult
 from backend.server.api.recipes import _bench_label as _recipe_bench_label
-from backend.server.api.recipes import _fuel_to_craft_tier as _recipe_fuel_to_craft_tier
+from backend.server.api.recipes import _level_to_craft_tier as _recipe_level_to_craft_tier
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.census_lifecycle import shared_census_client
@@ -295,7 +295,7 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
             name=recipe["name"],
             bench=recipe.get("bench"),
             bench_label=_recipe_bench_label(recipe.get("bench")),
-            craft_tier=_recipe_fuel_to_craft_tier(recipe.get("fuel_comp")),
+            craft_tier=_recipe_level_to_craft_tier(recipe.get("out_level")),
             crafted_tier=recipe.get("crafted_tier"),
             primary_comp=recipe.get("primary_comp"),
             primary_qty=recipe.get("primary_qty"),

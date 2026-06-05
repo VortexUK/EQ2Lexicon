@@ -52,17 +52,18 @@ export interface IngredientSummary {
 
 export const STORAGE_KEY = 'eq2-shopping-list'
 
-// T1 = levels 1-9, T2 = 10-19, … derived from the fuel component prefix
+// T1 = levels 1-9, T2 = 10-19, … derived from the crafted item's level
+// (recipes.out_level), matched server-side via a level-range filter.
 export const CRAFT_TIERS = [
   'T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12','T13','T14',
 ]
 
 export const CRAFT_TIER_LABELS: Record<string, string> = {
-  T1: 'T1  (1–9)',   T2: 'T2  (10–19)', T3: 'T3  (20–29)',
-  T4: 'T4  (30–39)', T5: 'T5  (40–49)', T6: 'T6  (50–59)',
-  T7: 'T7  (60–69)', T8: 'T8  (70–79)', T9: 'T9  (80–89)',
-  T10:'T10 (90–99)', T11:'T11 (100+)',   T12:'T12',
-  T13:'T13',         T14:'T14',
+  T1: 'T1  (1–9)',     T2: 'T2  (10–19)',   T3: 'T3  (20–29)',
+  T4: 'T4  (30–39)',   T5: 'T5  (40–49)',   T6: 'T6  (50–59)',
+  T7: 'T7  (60–69)',   T8: 'T8  (70–79)',   T9: 'T9  (80–89)',
+  T10:'T10 (90–99)',   T11:'T11 (100–109)', T12:'T12 (110–119)',
+  T13:'T13 (120–129)', T14:'T14 (130+)',
 }
 
 // Tradeskill class filter

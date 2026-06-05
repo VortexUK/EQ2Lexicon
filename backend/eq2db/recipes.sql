@@ -83,6 +83,12 @@ ALTER TABLE recipes ADD COLUMN base_name_lower TEXT;
 -- :name migrate_add_crafted_tier
 ALTER TABLE recipes ADD COLUMN crafted_tier    TEXT;
 
+-- Idempotent migration: crafted-output level, resolved from items.db by the
+-- recipe-levels backfill (scripts/backfill_recipe_levels.py). Drives the
+-- T1–T14 craft tier on the recipe page. NULL = no leveled output / not yet filled.
+-- :name migrate_add_out_level
+ALTER TABLE recipes ADD COLUMN out_level INTEGER;
+
 -- :name upsert
 INSERT OR REPLACE INTO recipes (
     id, crc, name, name_lower,
@@ -131,7 +137,7 @@ out_simple_id, out_simple_count,
 out_worked_id, out_worked_count,
 out_elaborate_id, out_elaborate_count,
 out_formed_id, out_formed_count,
-base_name_lower, crafted_tier,
+base_name_lower, crafted_tier, out_level,
 last_update
 
 -- :name find_by_id

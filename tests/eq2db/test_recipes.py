@@ -321,6 +321,35 @@ class TestBackfillSpellTiers:
 
 
 # ---------------------------------------------------------------------------
+# out_level migration
+# ---------------------------------------------------------------------------
+
+
+class TestOutLevelColumn:
+    def _columns(self, db_path: Path) -> set[str]:
+        with sqlite3.connect(db_path) as conn:
+            return {r[1] for r in conn.execute("PRAGMA table_info(recipes)")}
+
+    def test_init_db_adds_out_level_column(self, recipes_db: Path):
+        assert "out_level" in self._columns(recipes_db)
+
+    def test_init_db_is_idempotent_on_out_level(self, recipes_db: Path):
+        # A second init_db on an already-migrated DB must not raise or drop data.
+        init_db(recipes_db).close()
+        assert "out_level" in self._columns(recipes_db)
+
+    def test_out_level_round_trips(self, recipes_db: Path):
+        with sqlite3.connect(recipes_db) as conn:
+            conn.execute(
+                "INSERT INTO recipes (id, name, name_lower, secondary_comps, out_level) "
+                "VALUES (70, 'Abhorrent Seal III (Journeyman)', 'abhorrent seal iii (journeyman)', '[]', 75)"
+            )
+            conn.commit()
+        row = find_by_id(70, path=recipes_db)
+        assert row["out_level"] == 75
+
+
+# ---------------------------------------------------------------------------
 # upsert_recipes
 # ---------------------------------------------------------------------------
 

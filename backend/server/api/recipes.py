@@ -4,9 +4,9 @@ GET /api/recipes/search  — paginated recipe search with optional filters.
 Filters
 -------
 q           partial name match (case-insensitive)
-tier        crafting tier: T1 – T14  (T1 = levels 1-9, T2 = 10-19, …)
-            Determined by the fuel component prefix:
-            Basic=T1, Glowing=T2, Smoldering=T3, Sparkling=T4, …
+tier        crafting tier: T1 – T14  (T1 = levels 1-9, T2 = 10-19, … T14 = 130+)
+            Derived from the crafted item's level (recipes.out_level), matched
+            via a level-range filter — NOT the fuel name.
 bench       raw bench key (e.g. "work_desk", "forge") or the display label
             (e.g. "Sage", "Armorer") — both are accepted.
 class_name  adventure class name (lowercase) — matched against the
@@ -38,30 +38,42 @@ _log = logging.getLogger(__name__)
 router = APIRouter(tags=["recipes"])
 
 # ---------------------------------------------------------------------------
-# Crafting tier → fuel prefix  (T1 = levels 1-9, T2 = 10-19, …)
+# Crafting tier — derived from the crafted item's level (T1 = levels 1-9,
+# T2 = 10-19, … T14 = 130+).
 # ---------------------------------------------------------------------------
+#
+# The tier is computed from the level of the item a recipe makes (resolved into
+# recipes.out_level by scripts/backfill_recipe_levels.py), NOT from the fuel
+# name. The old fuel-prefix heuristic was wrong for ~79% of recipes: the same
+# adjective (e.g. "Smoldering") appears across very different tiers depending on
+# the fuel type ("Smoldering Kindling" is level 1, "Smoldering Coal" level 70).
 
-TIER_FUEL: dict[str, str] = {
-    "T1": "Basic",
-    "T2": "Glowing",
-    "T3": "Smoldering",
-    "T4": "Sparkling",
-    "T5": "Scintillating",
-    "T6": "Glimmering",
-    "T7": "Lambent",
-    "T8": "Luminous",
-    "T9": "Ethereal",
-    "T10": "Celestial",
-    "T11": "Coruscating",
-    "T12": "Exultant",
-    "T13": "Thaumic",
-    "T14": "Formless",
-}
+MAX_CRAFT_TIER = 14  # T14 is the top bracket (level 130+)
 
-CRAFT_TIERS: list[str] = list(TIER_FUEL.keys())  # T1 … T14
+CRAFT_TIERS: list[str] = [f"T{i}" for i in range(1, MAX_CRAFT_TIER + 1)]  # T1 … T14
 
-# Reverse map: fuel prefix (lower) → tier label
-_FUEL_PREFIX_TO_TIER: dict[str, str] = {prefix.lower(): tier for tier, prefix in TIER_FUEL.items()}
+
+def _level_to_craft_tier(level: int | None) -> str | None:
+    """Map a crafted-item level to its craft tier (T1 … T14). None if unleveled."""
+    if not level or level < 1:
+        return None
+    return f"T{min(level // 10 + 1, MAX_CRAFT_TIER)}"
+
+
+def _craft_tier_to_level_range(tier: str) -> tuple[int, int | None] | None:
+    """Inverse of _level_to_craft_tier: (lo, hi) inclusive level bounds for a tier.
+
+    hi is None for the open-ended top tier (T14 → level 130+). Returns None for
+    an unrecognised tier label.
+    """
+    t = tier.strip().upper()
+    if t not in CRAFT_TIERS:
+        return None
+    n = int(t[1:])
+    lo = 1 if n == 1 else (n - 1) * 10
+    hi = None if n == MAX_CRAFT_TIER else n * 10 - 1
+    return lo, hi
+
 
 # ---------------------------------------------------------------------------
 # Bench → display label mapping
@@ -103,7 +115,7 @@ class RecipeResult(BaseModel):
     name: str
     bench: str | None = None
     bench_label: str | None = None
-    craft_tier: str | None = None  # T1 … T14 derived from fuel prefix
+    craft_tier: str | None = None  # T1 … T14 derived from crafted item level (out_level)
     crafted_tier: str | None = None  # spell-scroll quality tier (Expert, etc.)
     primary_comp: str | None = None
     primary_qty: int | None = None
@@ -132,13 +144,6 @@ class RecipeFiltersResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _fuel_to_craft_tier(fuel: str | None) -> str | None:
-    if not fuel:
-        return None
-    first_word = fuel.split()[0].lower()
-    return _FUEL_PREFIX_TO_TIER.get(first_word)
 
 
 def _bench_label(bench: str | None) -> str | None:
@@ -179,7 +184,7 @@ def _row_to_result(
         name=row["name"],
         bench=row["bench"],
         bench_label=_bench_label(row["bench"]),
-        craft_tier=_fuel_to_craft_tier(row["fuel_comp"]),
+        craft_tier=_level_to_craft_tier(row["out_level"]),
         crafted_tier=row["crafted_tier"],
         primary_comp=row["primary_comp"],
         primary_qty=row["primary_qty"],
@@ -297,10 +302,17 @@ async def search_recipes(
         conditions.append("name_lower LIKE ?")
         params.append(f"%{q.lower()}%")
 
-    if tier and tier.upper() in TIER_FUEL:
-        fuel_prefix = TIER_FUEL[tier.upper()]
-        conditions.append("fuel_comp LIKE ?")
-        params.append(f"{fuel_prefix} %")
+    tier_range = _craft_tier_to_level_range(tier) if tier else None
+    if tier_range is not None:
+        lo, hi = tier_range
+        if hi is None:
+            # Open-ended top tier (T14 → level 130+). NULL out_level fails the
+            # comparison, so unleveled recipes never match a specific tier.
+            conditions.append("out_level >= ?")
+            params.append(lo)
+        else:
+            conditions.append("out_level BETWEEN ? AND ?")
+            params.extend([lo, hi])
 
     if bench_key:
         conditions.append("bench = ?")
