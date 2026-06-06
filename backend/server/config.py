@@ -27,3 +27,9 @@ CORS_ORIGINS: list[str] = [
 # Parent domain for the session cookie so one login spans both subdomains
 # (e.g. ".eq2lexicon.com" in prod). Leave unset in dev (host-only cookie).
 SESSION_COOKIE_DOMAIN: str | None = os.getenv("SESSION_COOKIE_DOMAIN") or None
+
+# Open signup: when true, every new Discord login is auto-approved instead of
+# landing in the admin-approval queue (admins are always approved regardless).
+# Default off preserves the approve-before-access behaviour. When on, the
+# startup also clears any existing pending backlog (see app.py lifespan).
+OPEN_SIGNUP: bool = os.getenv("OPEN_SIGNUP", "false").strip().lower() in ("1", "true", "yes", "on")

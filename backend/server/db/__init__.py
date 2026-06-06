@@ -86,6 +86,7 @@ from backend.server.db.tokens import (  # noqa: E402,F401
     revoke_api_token,
 )
 from backend.server.db.users import (  # noqa: E402,F401
+    approve_all_pending,
     create_role_request,
     get_display_names_for_discord_ids,
     get_role_request,

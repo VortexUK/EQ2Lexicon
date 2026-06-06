@@ -24,6 +24,7 @@ async def upsert_user(
     discord_username: str,
     avatar: str | None,
     admin_ids: frozenset[str] = frozenset(),
+    open_signup: bool = False,
     path: Path = DB_PATH,
 ) -> str:
     """Insert a new user row or update name/username/avatar and bump last_seen.
@@ -33,8 +34,14 @@ async def upsert_user(
     Admin IDs (from ADMIN_DISCORD_IDS env var) are always forced to 'approved'
     regardless of what is stored — this prevents admins from being locked out
     even after a complete database wipe.
+
+    ``open_signup`` (config.OPEN_SIGNUP) auto-approves brand-new users so they
+    skip the admin-approval queue. It only affects the *initial* status on
+    insert — re-login preserves whatever is stored (see the ON CONFLICT clause),
+    so flipping the flag off later never re-pends an already-approved user.
     """
     is_admin = discord_id in admin_ids
+    new_user_status = "approved" if (is_admin or open_signup) else "pending"
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         await db.execute(
@@ -44,7 +51,7 @@ async def upsert_user(
                 discord_name,
                 discord_username,
                 avatar,
-                "approved" if is_admin else "pending",
+                new_user_status,
                 1 if is_admin else 0,
             ),
         )
@@ -89,6 +96,17 @@ async def list_pending_users(path: Path = DB_PATH) -> list[dict]:
         async with db.execute(_SQL["list_pending_users"]) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+async def approve_all_pending(path: Path = DB_PATH) -> int:
+    """Flip every access_status='pending' user to 'approved'. Returns the number
+    of rows updated. Used at startup when OPEN_SIGNUP is enabled to clear the
+    pre-existing approval backlog. Idempotent — a no-op once nothing is pending.
+    """
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute(_SQL["approve_all_pending"])
+        await db.commit()
+        return cur.rowcount
 
 
 async def list_all_users(path: Path = DB_PATH) -> list[dict]:
