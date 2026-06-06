@@ -14,6 +14,7 @@ from backend.core.log_safety import scrub as _scrub
 from backend.server.auth_deps import (
     ADMIN_IDS as _ADMIN_IDS,  # canonical source; auth_deps logs the "not set" warning once
 )
+from backend.server.config import OPEN_SIGNUP
 from backend.server.core.audit_log import audit_log
 from backend.server.db import get_user_access_status, list_roles_for_user, upsert_user
 
@@ -155,6 +156,7 @@ async def callback(code: str, state: str | None = None, *, request: Request) -> 
         discord_username=user["username"],
         avatar=user.get("avatar"),
         admin_ids=_ADMIN_IDS,
+        open_signup=OPEN_SIGNUP,
     )
 
     audit_log(

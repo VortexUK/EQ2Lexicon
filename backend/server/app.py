@@ -374,6 +374,15 @@ def create_app(session_secret: str | None = None) -> FastAPI:
                 f"both layers to use a cross-process backplane before scaling."
             )
         users_db.init_db()
+        # Open-signup backlog clear: when OPEN_SIGNUP is on, auto-approve any
+        # users already waiting in the pending queue so the policy applies to
+        # them too (new logins are auto-approved at upsert time). Idempotent —
+        # a no-op once nothing is pending.
+        from backend.server.config import OPEN_SIGNUP as _OPEN_SIGNUP
+
+        if _OPEN_SIGNUP:
+            _approved = await users_db.approve_all_pending()
+            _log.info("[startup] OPEN_SIGNUP on — approved %d pending user(s).", _approved)
         server_context.load_registry()
         # Initialise the parses DB too so the schema + migrations are in place
         # before the first /api/parses/ingest hits — otherwise the first

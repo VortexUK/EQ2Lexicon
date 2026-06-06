@@ -29,6 +29,10 @@ SELECT discord_id, discord_name FROM users WHERE discord_id IN ({placeholders});
 SELECT discord_id, discord_name, discord_username, avatar, first_seen
 FROM users WHERE access_status = 'pending' ORDER BY first_seen DESC;
 
+-- :name approve_all_pending
+-- One-shot backlog clear used when OPEN_SIGNUP is enabled.
+UPDATE users SET access_status = 'approved' WHERE access_status = 'pending';
+
 -- :name list_all_users_with_claim_count
 SELECT u.discord_id, u.discord_name, u.discord_username, u.avatar,
        u.first_seen, u.last_seen, u.access_status,

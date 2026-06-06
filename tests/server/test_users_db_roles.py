@@ -18,8 +18,10 @@ import pytest
 
 from backend.server.db import init_db
 from backend.server.db.users import (
+    approve_all_pending,
     create_role_request,
     get_role_request,
+    get_user_access_status,
     grant_role,
     has_role,
     list_all_users,
@@ -274,3 +276,45 @@ class TestListRoleAssignments:
         await _seed_user(db_path)
         assignments = await list_role_assignments(path=db_path)
         assert "user-1" not in assignments
+
+
+# ---------------------------------------------------------------------------
+# Open signup (OPEN_SIGNUP) — auto-approve + backlog clear
+# ---------------------------------------------------------------------------
+
+
+class TestOpenSignup:
+    @pytest.mark.asyncio
+    async def test_default_new_user_is_pending(self, db_path: Path):
+        status = await upsert_user("u-new", "New", "new", None, path=db_path)
+        assert status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_open_signup_approves_new_user(self, db_path: Path):
+        status = await upsert_user("u-open", "Open", "open", None, open_signup=True, path=db_path)
+        assert status == "approved"
+
+    @pytest.mark.asyncio
+    async def test_admin_always_approved_even_without_open_signup(self, db_path: Path):
+        status = await upsert_user("u-admin", "Admin", "admin", None, admin_ids=frozenset({"u-admin"}), path=db_path)
+        assert status == "approved"
+
+    @pytest.mark.asyncio
+    async def test_open_signup_does_not_reapprove_on_relogin(self, db_path: Path):
+        # First login while signup is closed → pending.
+        await upsert_user("u-relog", "Re", "re", None, open_signup=False, path=db_path)
+        # Re-login with the flag now ON must NOT auto-approve an existing user;
+        # ON CONFLICT preserves stored status (only approve_all_pending does that).
+        status = await upsert_user("u-relog", "Re", "re", None, open_signup=True, path=db_path)
+        assert status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_approve_all_pending_clears_backlog_idempotently(self, db_path: Path):
+        await upsert_user("p1", "P1", "p1", None, path=db_path)
+        await upsert_user("p2", "P2", "p2", None, path=db_path)
+        n = await approve_all_pending(path=db_path)
+        assert n == 2
+        assert await get_user_access_status("p1", path=db_path) == "approved"
+        assert await get_user_access_status("p2", path=db_path) == "approved"
+        # Idempotent: nothing pending now.
+        assert await approve_all_pending(path=db_path) == 0
