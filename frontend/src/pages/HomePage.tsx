@@ -5,8 +5,8 @@ import { useClaim } from '../hooks/useClaim'
 import type { Claim } from '../hooks/useClaim'
 import ServerLaunchTimer from '../components/ServerLaunchTimer'
 import { Card } from '../components/ui'
-// logo.png lives in frontend/public/ → served at site root by Vite
-const logo = '/logo.png'
+// logo.webp lives in frontend/public/ → served at site root by Vite
+const logo = '/logo.webp'
 import { useClasses } from '../useClasses'
 
 // ── Character detail (fetched from Census cache) ──────────────────────────────

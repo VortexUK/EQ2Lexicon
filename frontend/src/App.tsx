@@ -28,7 +28,7 @@ import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
 import { ServerProvider, useServer } from './hooks/useServer'
 import { Link } from 'react-router-dom'
-import logo from './assets/EQ2L.png'
+import logo from './assets/EQ2L.webp'
 import ServerLaunchTimer from './components/ServerLaunchTimer'
 import CensusStatus from './components/CensusStatus'
 import { MobileNav } from './components/MobileNav'
@@ -251,7 +251,7 @@ function Layout() {
             title="Download the EQ2 Lexicon ACT plugin"
             className="hidden lg:flex h-11 items-center shrink-0 transition-[transform,filter] duration-150 hover:brightness-110 hover:scale-[1.03]"
           >
-            <img src="/download_plugin.png" alt="Download ACT Plugin" className="h-full w-auto" />
+            <img src="/download_plugin.webp" alt="Download ACT Plugin" className="h-full w-auto" />
           </a>
           <NotificationBell />
           <UserWidget />
