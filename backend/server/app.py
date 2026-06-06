@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -277,6 +277,42 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
+# Discord (and other crawlers) read server-rendered OG tags, not the SPA's JS.
+# index.html ships the big "hero" embed (og-image.png + summary_large_image).
+# For deep links (item/character/etc.) we serve the same HTML with the image
+# swapped to the small square logo + a compact `summary` card, so a shared
+# link shows a tidy thumbnail instead of the full splash. Cached per index.html
+# mtime (rebuilds after a deploy; process-lifetime otherwise).
+_SMALL_EMBED_CACHE: dict[float, str] = {}
+
+
+def _small_embed_html(index_path: Path) -> str | None:
+    """Return index.html rewritten for the compact sub-page Discord embed, or
+    None if index.html can't be read."""
+    try:
+        mtime = index_path.stat().st_mtime
+    except OSError:
+        return None
+    cached = _SMALL_EMBED_CACHE.get(mtime)
+    if cached is not None:
+        return cached
+    try:
+        html = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    small = (
+        html.replace("og-image.png", "favicon-192.png")  # og:image + twitter:image
+        .replace("summary_large_image", "summary")  # compact card
+        .replace('content="1536"', 'content="192"')  # og:image:width
+        .replace('content="1024"', 'content="192"')  # og:image:height
+    )
+    _SMALL_EMBED_CACHE.clear()  # only the current mtime's variant is ever needed
+    _SMALL_EMBED_CACHE[mtime] = small
+    return small
+
+
 _ICONS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "items" / "icons"
 _AA_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "AAs"
 _SPELL_ICONS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "spells" / "icons"
@@ -598,7 +634,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         )
 
         @app.get("/{full_path:path}", include_in_schema=False)
-        async def serve_spa(full_path: str) -> FileResponse:
+        async def serve_spa(full_path: str) -> Response:
             """Catch-all: serve real files from the build root if they exist
             (favicon.svg, favicon.ico, robots.txt, og-image.png, etc.) and fall
             back to index.html so React Router can handle in-app navigation.
@@ -626,6 +662,16 @@ def create_app(session_secret: str | None = None) -> FastAPI:
                     resolved = None
                 if resolved is not None and resolved.is_file():
                     target = resolved
+            # SPA fallback for a deep link (non-root, not a real file): serve the
+            # compact-embed HTML so Discord shows the small logo instead of the
+            # hero. Root ("") and real static files keep their normal response.
+            if target == _FRONTEND_DIST / "index.html" and full_path:
+                small = _small_embed_html(target)
+                if small is not None:
+                    return HTMLResponse(
+                        small,
+                        headers={"Cache-Control": "no-cache, must-revalidate"},
+                    )
             return FileResponse(
                 target,
                 headers={"Cache-Control": "no-cache, must-revalidate"},

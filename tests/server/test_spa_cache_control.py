@@ -34,7 +34,16 @@ def app_with_built_frontend():
     with tempfile.TemporaryDirectory() as tmp:
         dist = Path(tmp) / "dist"
         (dist / "assets").mkdir(parents=True)
-        (dist / "index.html").write_text("<!doctype html><html><body>fake spa</body></html>")
+        (dist / "index.html").write_text(
+            "<!doctype html><html><head>"
+            "<title>EQ2 Lexicon</title>"
+            '<meta property="og:image" content="https://eq2lexicon.com/og-image.png" />'
+            '<meta property="og:image:width" content="1536" />'
+            '<meta property="og:image:height" content="1024" />'
+            '<meta name="twitter:card" content="summary_large_image" />'
+            '<meta name="twitter:image" content="https://eq2lexicon.com/og-image.png" />'
+            "</head><body>fake spa</body></html>"
+        )
         (dist / "assets" / "main-abc123.js").write_text("console.log('fake bundle');")
         (dist / "favicon.svg").write_text("<svg/>")
 
@@ -80,6 +89,35 @@ async def test_hashed_asset_has_immutable_cache(app_with_built_frontend):
     cc = r.headers.get("cache-control", "")
     assert "max-age=31536000" in cc, f"hashed asset must be cache-forever; got {cc!r}"
     assert "immutable" in cc, f"hashed asset must be immutable; got {cc!r}"
+
+
+@pytest.mark.asyncio
+async def test_root_serves_hero_embed(app_with_built_frontend):
+    """The landing page keeps the big hero embed (og-image.png + large card)."""
+    async with AsyncClient(transport=ASGITransport(app=app_with_built_frontend), base_url="http://test") as client:
+        r = await client.get("/")
+    assert r.status_code == 200
+    body = r.text
+    assert "og-image.png" in body
+    assert "summary_large_image" in body
+    assert "favicon-192.png" not in body
+
+
+@pytest.mark.asyncio
+async def test_deep_link_serves_compact_embed(app_with_built_frontend):
+    """A deep link (item/character/etc.) swaps to the small square logo + the
+    compact `summary` card so Discord shows a thumbnail, not the hero."""
+    async with AsyncClient(transport=ASGITransport(app=app_with_built_frontend), base_url="http://test") as client:
+        r = await client.get("/item/12345")
+    assert r.status_code == 200
+    body = r.text
+    assert "favicon-192.png" in body
+    assert 'content="summary"' in body
+    # The hero variants must be gone.
+    assert "og-image.png" not in body
+    assert "summary_large_image" not in body
+    # Compact card uses a square image.
+    assert 'content="192"' in body
 
 
 @pytest.mark.asyncio
