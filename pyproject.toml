@@ -13,7 +13,7 @@ dependencies = [
     # Web
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.48.0",
-    "python-multipart>=0.0.9",
+    "python-multipart>=0.0.32",
     "httpx>=0.27.0",
     "itsdangerous>=2.2.0",
     "slowapi>=0.1.9",
