@@ -233,10 +233,14 @@ class IngestCombatant(BaseModel):
 
     ``model_config = {"extra": "allow"}`` ensures new plugin fields pass
     through unchanged — forward compatibility with future plugin versions
-    that may add columns.
+    that may add columns. ``coerce_numbers_to_str`` lets the loosely-typed
+    ACT passthrough string fields accept a number too: the plugin emits the
+    percentage fields (critdamperc / crithealperc) as bare numbers in some
+    builds, and Pydantic v2 won't coerce int/float → str on its own. The
+    ``_to_*`` helpers stringify everything downstream regardless.
     """
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "allow", "coerce_numbers_to_str": True}
 
     name: str = ""
     ally: str | None = None  # "T" / "F" in ACT's export
@@ -275,7 +279,9 @@ class IngestCombatant(BaseModel):
 class IngestDamageType(BaseModel):
     """One ACT damage-type row as shipped by the plugin."""
 
-    model_config = {"extra": "allow"}
+    # coerce_numbers_to_str: critperc arrives as a bare number from some plugin
+    # builds; see IngestCombatant for the rationale.
+    model_config = {"extra": "allow", "coerce_numbers_to_str": True}
 
     combatant: str = ""
     type: str = ""  # damage type label, e.g. "Slashing"
@@ -305,7 +311,9 @@ class IngestDamageType(BaseModel):
 class IngestAttackType(BaseModel):
     """One ACT attack-type row as shipped by the plugin."""
 
-    model_config = {"extra": "allow"}
+    # coerce_numbers_to_str: critperc arrives as a bare number from some plugin
+    # builds; see IngestCombatant for the rationale.
+    model_config = {"extra": "allow", "coerce_numbers_to_str": True}
 
     attacker: str = ""
     type: str = ""  # attack name, e.g. "Crushing Blow"
