@@ -2,8 +2,28 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+
+@pytest.mark.asyncio
+async def test_422_logs_failing_field_and_returns_detail(app, caplog) -> None:
+    """A request-validation 422 must (a) still return detail + request_id in the
+    body, and (b) log the failing field(s) server-side so 422s are diagnosable
+    from logs (the plugin only sees the body). Body validation runs before the
+    in-handler auth check, so an empty body 422s without credentials."""
+    with caplog.at_level(logging.WARNING, logger="backend.server.app"):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post("/api/parses/ingest", json={})
+    assert res.status_code == 422
+    body = res.json()
+    assert "detail" in body and "request_id" in body
+    # The new server-side log line names the path + a field locator.
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "[validation] 422" in logged
+    assert "/api/parses/ingest" in logged
 
 
 @pytest.mark.asyncio
