@@ -373,10 +373,24 @@ async def _http_exception_handler(request: Request, exc: HTTPException) -> Respo
 
 
 async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """RequestValidationError (422) → JSON body with request_id surfaced."""
+    """RequestValidationError (422) → JSON body with request_id surfaced.
+
+    Logs the failing field(s) at WARNING so 422s are diagnosable from server
+    logs — the client only receives the JSON body, and a plugin may not surface
+    it. Logs just loc/type/msg (NOT the raw input value, which can be large or
+    carry payload data we don't want in logs).
+    """
     from backend.server.core.request_context import request_id_var
 
     rid = request_id_var.get() or "-"
+    summary = (
+        "; ".join(
+            f"{'.'.join(str(p) for p in e.get('loc', ()))}: {e.get('msg', '')} [{e.get('type', '')}]"
+            for e in exc.errors()
+        )
+        or "<no field detail>"
+    )
+    _log.warning("[validation] 422 %s %s (request_id=%s) — %s", request.method, request.url.path, rid, summary)
     return JSONResponse(
         status_code=422,
         content={"detail": exc.errors(), "request_id": rid},
