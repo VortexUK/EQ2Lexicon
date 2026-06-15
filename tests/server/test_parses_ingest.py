@@ -201,6 +201,35 @@ async def test_ingest_validates_payload_shape(app):
     assert r.status_code == 422
 
 
+def test_ingest_accepts_numeric_percent_fields():
+    """Regression: some plugin builds emit the *perc fields as bare numbers
+    instead of strings. Pydantic v2 won't coerce number → str on its own, which
+    422'd the whole upload (combatants/damage_types/attack_types .crit*perc).
+    coerce_numbers_to_str on the ingest row models accepts them; the values are
+    stored as strings and parse back to the right percentage."""
+    from backend.server.api.parses import IngestRequest
+    from backend.server.parses.models import _to_perc
+
+    payload = _minimal_payload()
+    payload["combatants"][0]["critdamperc"] = 93.0
+    payload["combatants"][0]["crithealperc"] = 3
+    payload["damage_types"][0]["critperc"] = 90
+    payload["attack_types"][0]["critperc"] = 90.5
+
+    req = IngestRequest(**payload)  # must not raise
+
+    for v in (
+        req.combatants[0].critdamperc,
+        req.combatants[0].crithealperc,
+        req.damage_types[0].critperc,
+        req.attack_types[0].critperc,
+    ):
+        assert isinstance(v, str), f"expected str after coercion, got {type(v)}"
+    assert _to_perc(req.combatants[0].critdamperc) == 93.0
+    assert _to_perc(req.damage_types[0].critperc) == 90.0
+    assert _to_perc(req.attack_types[0].critperc) == 90.5
+
+
 # ---------------------------------------------------------------------------
 # Bearer auth helper-level integration
 # ---------------------------------------------------------------------------
