@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { discordAvatarUrl } from '../../hooks/useAuth'
 import { Badge, Button } from '../../components/ui'
 import { FilterPill } from '../../components/FilterPill'
@@ -207,10 +207,12 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
 
 // ── UsersTable ────────────────────────────────────────────────────────────────
 
+const PER_PAGE = 10
+
 export function UsersTable({ users, onAction }: { users: UserItem[]; onAction: () => void }) {
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'denied'>('all')
-
-  const visible = filter === 'all' ? users : users.filter(u => u.access_status === filter)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
 
   const counts = {
     all:      users.length,
@@ -219,15 +221,47 @@ export function UsersTable({ users, onAction }: { users: UserItem[]; onAction: (
     denied:   users.filter(u => u.access_status === 'denied').length,
   }
 
+  // Status pill + free-text search (display name / username / discord id).
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return users.filter(u => {
+      if (filter !== 'all' && u.access_status !== filter) return false
+      if (!q) return true
+      return (
+        (u.discord_name ?? '').toLowerCase().includes(q) ||
+        (u.discord_username ?? '').toLowerCase().includes(q) ||
+        u.discord_id.includes(q)
+      )
+    })
+  }, [users, filter, search])
+
+  // Changing the filter or search jumps back to the first page.
+  useEffect(() => { setPage(1) }, [filter, search])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
+  const safePage  = Math.min(page, pageCount)  // clamp if the list shrank (e.g. after a kick)
+  const start     = (safePage - 1) * PER_PAGE
+  const pageRows  = filtered.slice(start, start + PER_PAGE)
+
   return (
     <div>
-      {/* Filter pills */}
-      <div className="flex gap-1.5 mb-3 flex-wrap">
-        {(['all', 'pending', 'approved', 'denied'] as const).map(f => (
-          <FilterPill key={f} active={filter === f} onClick={() => setFilter(f)}>
-            {f.charAt(0).toUpperCase() + f.slice(1)} <span className="opacity-70 text-[0.7rem]">({counts[f]})</span>
-          </FilterPill>
-        ))}
+      {/* Filter pills + search */}
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <div className="flex gap-1.5 flex-wrap">
+          {(['all', 'pending', 'approved', 'denied'] as const).map(f => (
+            <FilterPill key={f} active={filter === f} onClick={() => setFilter(f)}>
+              {f.charAt(0).toUpperCase() + f.slice(1)} <span className="opacity-70 text-[0.7rem]">({counts[f]})</span>
+            </FilterPill>
+          ))}
+        </div>
+        <input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search name or username…"
+          aria-label="Search users"
+          className="ml-auto w-full sm:w-[220px] text-[0.85rem] py-1 px-2.5 rounded-sm2 border border-border bg-surface-raised text-text"
+        />
       </div>
 
       <div className="overflow-x-auto border border-border rounded-md">
@@ -243,20 +277,38 @@ export function UsersTable({ users, onAction }: { users: UserItem[]; onAction: (
             </tr>
           </thead>
           <tbody>
-            {visible.length === 0 ? (
+            {pageRows.length === 0 ? (
               <tr>
                 <td colSpan={6} className={`${TD_CLS} text-text-muted text-center p-6`}>
-                  No users.
+                  {users.length === 0 ? 'No users.' : 'No users match.'}
                 </td>
               </tr>
             ) : (
-              visible.map(u => (
+              pageRows.map(u => (
                 <UserRow key={u.discord_id} user={u} onAction={onAction} />
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {filtered.length > PER_PAGE && (
+        <div className="flex items-center justify-between mt-3 text-[0.8rem] text-text-muted">
+          <span>
+            Showing {start + 1}–{Math.min(start + PER_PAGE, filtered.length)} of {filtered.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>
+              Prev
+            </Button>
+            <span>Page {safePage} of {pageCount}</span>
+            <Button variant="ghost" size="sm" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)}>
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
