@@ -16,7 +16,7 @@ jobs:
     name: Python (lint + types + tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -51,7 +51,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Node 20
         uses: actions/setup-node@v6
@@ -78,7 +78,7 @@ jobs:
     # the build. Add accepted-risk CVE IDs to .pip-audit-ignore (Python) or pass
     # `--audit-level=critical` if a noisy ecosystem briefly needs relief.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # ── Python deps via pip-audit ────────────────────────────────────────
       - name: Install uv
