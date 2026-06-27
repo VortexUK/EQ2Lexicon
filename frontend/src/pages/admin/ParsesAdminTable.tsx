@@ -21,6 +21,12 @@ function resultLabel(successLevel: number): string {
 // URL-length safety cap for the batch-purge endpoint.
 const PARSE_BATCH_CHUNK_SIZE = 64
 
+// Trash = an encounter whose title starts lowercase ("a krait warrior");
+// named bosses start uppercase. Mirrors isBoss() in ParsesPage and the
+// authoritative is_boss() server-side. Inlined here so the admin chunk
+// doesn't pull in the whole ParsesPage module.
+const isTrashTitle = (title: string): boolean => !/^[A-Z]/.test(title)
+
 // ── ParsesAdminTable ──────────────────────────────────────────────────────────
 
 export function ParsesAdminTable() {
@@ -72,6 +78,11 @@ export function ParsesAdminTable() {
   const allSelected = rows.length > 0 && rows.every(r => selected.has(r.id))
   function toggleAll() {
     setSelected(allSelected ? new Set() : new Set(rows.map(r => r.id)))
+  }
+
+  const trashCount = rows.reduce((n, r) => (isTrashTitle(r.title) ? n + 1 : n), 0)
+  function selectAllTrash() {
+    setSelected(new Set(rows.filter(r => isTrashTitle(r.title)).map(r => r.id)))
   }
 
   async function purgeOne(p: AdminParse) {
@@ -141,6 +152,16 @@ export function ParsesAdminTable() {
         />
         <Button variant="secondary" size="sm" type="submit" disabled={busy}>
           Search
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          onClick={selectAllTrash}
+          disabled={busy || trashCount === 0}
+          title="Select every trash encounter (lowercase title) on this page"
+        >
+          Select all trash ({trashCount})
         </Button>
         <Button
           variant="danger"

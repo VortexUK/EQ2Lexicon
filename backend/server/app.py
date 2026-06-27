@@ -80,7 +80,7 @@ from backend.server.cache import aa_cache, character_cache, claim_cache, guild_c
 from backend.server.config import CORS_ORIGINS as _CORS_ORIGINS
 from backend.server.config import SESSION_COOKIE_DOMAIN as _SESSION_COOKIE_DOMAIN
 from backend.server.config import WORLD as _WORLD
-from backend.server.constants import CACHE_SWEEP_INTERVAL_S
+from backend.server.constants import CACHE_SWEEP_INTERVAL_S, PARSE_CLEANUP_INTERVAL_S
 from backend.server.core import census_lifecycle
 from backend.server.limiter import limiter
 from backend.server.metrics import (
@@ -480,6 +480,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             asyncio.create_task(prewarm_character_cache(), name="prewarm-character-cache"),
             asyncio.create_task(_cache_sweep_loop(), name="cache-sweep-loop"),
             asyncio.create_task(census_health.poll_loop(), name="census-health-poll"),
+            asyncio.create_task(_parse_cleanup_loop(), name="parse-cleanup-loop"),
         ]
 
         try:
@@ -506,6 +507,24 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             await asyncio.sleep(CACHE_SWEEP_INTERVAL_S)
             for cache in (character_cache, guild_cache, claim_cache, aa_cache):
                 cache.sweep()
+
+    async def _parse_cleanup_loop() -> None:
+        """Periodically run the parses retention sweep (delete aged trash;
+        collapse aged boss mirror-groups to their primary). Runs once shortly
+        after startup, then every PARSE_CLEANUP_INTERVAL_S. The sweep is sync
+        SQLite work, so it runs in a worker thread to keep the loop responsive;
+        CancelledError from asyncio.sleep bubbles for clean shutdown.
+        """
+        from backend.server.parses import cleanup as parse_cleanup
+
+        while True:
+            try:
+                result = await asyncio.to_thread(parse_cleanup.run_parse_cleanup)
+                if result["trash_deleted"] or result["dup_uploads_deleted"]:
+                    _log.info("[parse-cleanup] %s", result)
+            except Exception:
+                _log.exception("[parse-cleanup] sweep failed")
+            await asyncio.sleep(PARSE_CLEANUP_INTERVAL_S)
 
     app = FastAPI(
         lifespan=lifespan,

@@ -106,38 +106,44 @@ describe('ParsesPage grouping', () => {
 
   it('opens Raid + Dungeon by default; collapses Other', async () => {
     mockFetch([
-      fight({ id: 1, title: 'RaidFight', category: 'raid', guild_name: 'Guild', started_at: 100, zone: 'Z', player_count: 12 }),
-      fight({ id: 2, title: 'DungeonFight', category: 'dungeon', guild_name: 'Guild', started_at: 110, zone: 'Z', player_count: 5 }),
-      fight({ id: 3, title: 'OtherFight', category: 'other', guild_name: 'Guild', started_at: 120, zone: 'Z', player_count: 1 }),
+      fight({ id: 1, title: 'RaidFight', category: 'raid', guild_name: 'Guild', started_at: 100, zone: 'RaidZone', player_count: 12 }),
+      fight({ id: 2, title: 'DungeonFight', category: 'dungeon', guild_name: 'Guild', started_at: 110, zone: 'DungeonZone', player_count: 5 }),
+      fight({ id: 3, title: 'OtherFight', category: 'other', guild_name: 'Guild', started_at: 120, zone: 'OtherZone', player_count: 1 }),
     ])
     renderPage()
-    // Raid + Dungeon fight titles visible immediately.
-    expect(await screen.findByText('RaidFight')).toBeInTheDocument()
+    // Raid + Dungeon categories are open by default, so their zone-day buckets
+    // render — but zone-day buckets default collapsed, so expand each to reveal
+    // its fight. The Other category is collapsed, so its zone bucket (and fight)
+    // never renders at all.
+    await userEvent.click(await screen.findByRole('button', { name: /RaidZone/ }))
+    await userEvent.click(screen.getByRole('button', { name: /DungeonZone/ }))
+    expect(screen.getByText('RaidFight')).toBeInTheDocument()
     expect(screen.getByText('DungeonFight')).toBeInTheDocument()
-    // Other fight title hidden behind the collapsed Other subsection.
+    expect(screen.queryByRole('button', { name: /OtherZone/ })).not.toBeInTheDocument()
     expect(screen.queryByText('OtherFight')).not.toBeInTheDocument()
   })
 
   it('clicking Other reveals its fights', async () => {
     mockFetch([
-      fight({ id: 1, title: 'OtherFight', category: 'other', guild_name: 'Guild', started_at: 100, zone: 'Z', player_count: 1 }),
+      fight({ id: 1, title: 'OtherFight', category: 'other', guild_name: 'Guild', started_at: 100, zone: 'OtherZone', player_count: 1 }),
     ])
     renderPage()
-    const otherToggle = await screen.findByRole('button', { name: /^Other ·/ })
-    await userEvent.click(otherToggle)
+    // Open the Other category, then expand its (collapsed) zone-day bucket.
+    await userEvent.click(await screen.findByRole('button', { name: /^Other ·/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /OtherZone/ }))
     expect(await screen.findByText('OtherFight')).toBeInTheDocument()
   })
 
   it('renders empty category subsections as nothing', async () => {
     mockFetch([
-      fight({ id: 1, title: 'RaidFight', category: 'raid', guild_name: 'Guild', started_at: 100, zone: 'Z', player_count: 12 }),
+      fight({ id: 1, title: 'RaidFight', category: 'raid', guild_name: 'Guild', started_at: 100, zone: 'RaidZone', player_count: 12 }),
     ])
     renderPage()
-    // Wait for the fetch to resolve and the page to render the one fight
-    // before checking that the empty categories are absent. Without this,
-    // the queryAllByRole calls fire before useFetch's state update settles,
-    // and react-testing-library logs "not wrapped in act()" warnings.
-    await screen.findByText('RaidFight')
+    // Wait for the fetch to resolve (the Raid zone-day bucket header renders)
+    // before checking that the empty categories are absent. Without this, the
+    // queryAllByRole calls fire before useFetch's state update settles, and
+    // react-testing-library logs "not wrapped in act()" warnings.
+    await screen.findByRole('button', { name: /RaidZone/ })
     // Dungeon + Other should not render at all because the guild has no
     // fights in those buckets. Only the Raid section header is present.
     const dungeonHeaders = screen.queryAllByRole('button', { name: /^Dungeon ·/ })
@@ -148,14 +154,17 @@ describe('ParsesPage grouping', () => {
 
   it('per-row badge shows {Np}, not the old sizeLabel', async () => {
     mockFetch([
-      fight({ id: 1, title: 'RaidFight', category: 'raid', guild_name: 'Guild', started_at: 100, zone: 'Z', player_count: 24 }),
-      fight({ id: 2, title: 'GroupFight', category: 'dungeon', guild_name: 'Guild', started_at: 110, zone: 'Z', player_count: 6 }),
-      fight({ id: 3, title: 'SoloFight', category: 'other', guild_name: 'Guild', started_at: 120, zone: 'Z', player_count: 1 }),
+      fight({ id: 1, title: 'RaidFight', category: 'raid', guild_name: 'Guild', started_at: 100, zone: 'RaidZone', player_count: 24 }),
+      fight({ id: 2, title: 'GroupFight', category: 'dungeon', guild_name: 'Guild', started_at: 110, zone: 'GroupZone', player_count: 6 }),
+      fight({ id: 3, title: 'SoloFight', category: 'other', guild_name: 'Guild', started_at: 120, zone: 'SoloZone', player_count: 1 }),
     ])
     renderPage()
-    // Other is collapsed by default — expand to reach SoloFight first.
-    const otherToggle = await screen.findByRole('button', { name: /^Other ·/ })
-    await userEvent.click(otherToggle)
+    // Open the Other category, then expand every zone-day bucket so each fight
+    // row (and its {Np} badge) is visible.
+    await userEvent.click(await screen.findByRole('button', { name: /^Other ·/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /RaidZone/ }))
+    await userEvent.click(screen.getByRole('button', { name: /GroupZone/ }))
+    await userEvent.click(screen.getByRole('button', { name: /SoloZone/ }))
 
     expect(screen.getByText('24p')).toBeInTheDocument()
     expect(screen.getByText('6p')).toBeInTheDocument()
@@ -183,29 +192,33 @@ describe('ParsesPage grouping', () => {
       fight({ id: 3, title: 'C', category: 'raid', guild_name: 'Guild', started_at: may23, zone: 'Castle Mistmoore', player_count: 24 }),
     ])
     renderPage()
-    // Two zone-day headings should be present under Raid; both default-open.
-    // Heading text format is "YYYY-MM-DD · ZoneName"; the date string depends
-    // on the host's local timezone, so just match on the zone name.
+    // Two zone-day headings should be present under Raid. Heading text format
+    // is "YYYY-MM-DD · ZoneName"; the date string depends on the host's local
+    // timezone, so just match on the zone name.
     const headings = await screen.findAllByText(/Castle Mistmoore/)
     expect(headings.length).toBeGreaterThanOrEqual(2)
-    // All three fight titles visible (zone-day defaults to open).
+    // Zone-day buckets default collapsed — expand both to reveal their fights.
+    for (const b of screen.getAllByRole('button', { name: /Castle Mistmoore/ })) {
+      await userEvent.click(b)
+    }
     expect(screen.getByText('A')).toBeInTheDocument()
     expect(screen.getByText('B')).toBeInTheDocument()
     expect(screen.getByText('C')).toBeInTheDocument()
   })
 
-  it('zone-day section is collapsible', async () => {
+  it('zone-day section is collapsible (collapsed by default)', async () => {
     mockFetch([
       fight({ id: 1, title: 'RaidFight', category: 'raid', guild_name: 'Guild', started_at: 100, zone: 'Castle Mistmoore', player_count: 12 }),
     ])
     renderPage()
-    expect(await screen.findByText('RaidFight')).toBeInTheDocument()
     // The zone-day heading is a button — find it by its aria-label which
     // contains the bucket key plus the fight count.
-    const zoneDayToggle = screen.getByRole('button', { name: /Castle Mistmoore/ })
-    await userEvent.click(zoneDayToggle)
+    const zoneDayToggle = await screen.findByRole('button', { name: /Castle Mistmoore/ })
+    // Default collapsed — the fight is hidden until the bucket is expanded.
     expect(screen.queryByText('RaidFight')).not.toBeInTheDocument()
     await userEvent.click(zoneDayToggle)
     expect(screen.getByText('RaidFight')).toBeInTheDocument()
+    await userEvent.click(zoneDayToggle)
+    expect(screen.queryByText('RaidFight')).not.toBeInTheDocument()
   })
 })

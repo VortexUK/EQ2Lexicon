@@ -1,8 +1,9 @@
 /**
  * ZoneDaySection — one collapsible date+zone bucket under a CategorySection.
  *
- * Renders a grid header row followed by FightRow children. Defaults to open
- * so a fresh load shows the most recent raid night without an extra click.
+ * Renders a grid header row followed by FightRow children. Defaults to
+ * collapsed so a fresh load shows a compact list of zone-day buckets the
+ * user can expand on demand rather than a wall of fights.
  */
 import { useState } from 'react'
 
@@ -20,10 +21,10 @@ export interface ZoneDaySectionProps {
 }
 
 export function ZoneDaySection({ bucket, guild, onDeleted }: ZoneDaySectionProps) {
-  // Default-open so a fresh load shows the most recent raid night's
-  // fights without an extra click. Same component-local state pattern
-  // as CategorySection — refreshing the page resets to default.
-  const [open, setOpen] = useState(true)
+  // Default-collapsed so a fresh load shows a compact list of zone-day
+  // buckets rather than every fight at once. Same component-local state
+  // pattern as CategorySection — refreshing the page resets to default.
+  const [open, setOpen] = useState(false)
   // Reference `guild` so the unused-var lint passes — kept on the props
   // so a future "delete this zone-day" button has the guild context it
   // would need without needing to drill through CategorySection again.

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { useDebounce } from '../hooks/useDebounce'
 import { useSearchParams } from 'react-router-dom'
 
 import { FilterPill } from '../components/FilterPill'
@@ -144,13 +145,19 @@ export default function ParsesPage() {
   const [bossesOnly, setBossesOnly] = useState<boolean>(
     searchParams.get('bosses') === '1',
   )
+  // `searchInput` is the live text field; `search` is the debounced value that
+  // actually drives the fetch URL (server-side filter across all stored parses).
+  const [searchInput, setSearchInput] = useState<string>(searchParams.get('q') ?? '')
+  const [search, setSearch] = useState<string>(searchParams.get('q') ?? '')
+  const commitSearch = useDebounce((v: string) => setSearch(v.trim()), 350)
 
   const parsesUrl = useMemo(() => {
     const url = new URL('/api/parses', window.location.origin)
     if (size) url.searchParams.set('size', size)
+    if (search) url.searchParams.set('search', search)
     url.searchParams.set('limit', String(PARSES_FETCH_LIMIT))
     return url.toString()
-  }, [size])
+  }, [size, search])
 
   const { data: fetchedData, loading, error } = useFetch<ParsesListResponse>(parsesUrl)
 
@@ -168,8 +175,9 @@ export default function ParsesPage() {
     const p: Record<string, string> = {}
     if (size) p.size = size
     if (bossesOnly) p.bosses = '1'
+    if (search) p.q = search
     setSearchParams(p, { replace: true })
-  }, [size, bossesOnly, setSearchParams])
+  }, [size, bossesOnly, search, setSearchParams])
 
   // Optimistic local removal after a successful delete — avoids a full
   // refetch (which would briefly toggle `loading` and unmount every
@@ -205,6 +213,16 @@ export default function ParsesPage() {
         )}
       </div>
 
+      {/* Search box — server-side filter across all stored parses */}
+      <input
+        type="search"
+        value={searchInput}
+        onChange={e => { setSearchInput(e.target.value); commitSearch(e.target.value) }}
+        placeholder="Search by encounter, zone, or uploader…"
+        aria-label="Search parses"
+        className="w-full mb-3 bg-surface border border-border rounded-sm px-3 py-2 text-[0.875rem] text-text"
+      />
+
       {/* Filter pills */}
       <div className="flex flex-wrap gap-1.5 mb-[1.2rem]">
         {SIZE_OPTIONS.map(opt => (
@@ -228,7 +246,7 @@ export default function ParsesPage() {
 
       {!loading && !error && data && data.results.length === 0 && (
         <p className="text-text-muted">
-          No parses {size ? `match the ${size} filter` : 'yet'}.
+          No parses {search ? `match “${search}”` : size ? `match the ${size} filter` : 'yet'}.
         </p>
       )}
 
