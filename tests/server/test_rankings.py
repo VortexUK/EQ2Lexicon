@@ -550,6 +550,21 @@ async def test_rankings_class_filter(app, rankings_db):
 
 
 @pytest.mark.asyncio
+async def test_rankings_archetype_filter(app, rankings_db):
+    """The class filter also accepts an archetype, ranking every class under it.
+    The board is all Wizards (a Mage), so class=Mage matches them and class=Fighter
+    matches none."""
+    with patch("backend.server.api.rankings._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            mage = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=dps&class=Mage")
+            fighter = await client.get("/api/rankings?size=raid&zone=Vetrovia&boss=Tarinax&metric=dps&class=Fighter")
+    mage_body = mage.json()
+    assert mage_body["total"] == 8  # Wizard is a Mage → archetype expands to it
+    assert all(row["cls"] == "Wizard" for row in mage_body["rows"])
+    assert fighter.json()["total"] == 0  # no fighters on this board
+
+
+@pytest.mark.asyncio
 async def test_rankings_rejects_bad_size(app, rankings_db):
     with patch("backend.server.api.rankings._require_user", _fake_user):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

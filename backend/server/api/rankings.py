@@ -19,6 +19,7 @@ from functools import lru_cache
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from backend.census.constants import FIGHTERS, MAGES, PRIESTS, SCOUTS
 from backend.eq2db import zones as zones_db
 from backend.server.api.parses.list import _PLAYER_COUNT_SQL, _group_into_fights
 from backend.server.auth_deps import require_user_session as _require_user
@@ -33,6 +34,17 @@ from backend.sql_loader import load_sql
 _SQL = load_sql(__file__)
 
 router = APIRouter(tags=["rankings"])
+
+# The `class` rankings filter accepts either a single class name or one of these
+# archetypes — selecting an archetype ranks every class under it. Keys match the
+# `archetype` field served by /api/classes (singular: Fighter/Priest/Scout/Mage),
+# so the frontend can group the dropdown and send the archetype straight through.
+_ARCHETYPE_CLASSES: dict[str, frozenset[str]] = {
+    "Fighter": FIGHTERS,
+    "Priest": PRIESTS,
+    "Scout": SCOUTS,
+    "Mage": MAGES,
+}
 
 # Mirror of frontend normaliseBossName in RankingsPage.tsx — keep in sync.
 # Folds the full set of apostrophe-like and space-like Unicode codepoints
@@ -630,7 +642,11 @@ async def get_rankings(
     else:
         rows, classes = _build_character_board(kills, size=size, zone=zone, boss=boss, metric=metric)
         if class_name:
-            rows = [r for r in rows if r["cls"] == class_name]
+            members = _ARCHETYPE_CLASSES.get(class_name)
+            if members is not None:
+                rows = [r for r in rows if r["cls"] in members]
+            else:
+                rows = [r for r in rows if r["cls"] == class_name]
         _apply_percentiles(rows, score_key="score", higher_better=True)
 
     return RankingsResponse(

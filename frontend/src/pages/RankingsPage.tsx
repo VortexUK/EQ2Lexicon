@@ -6,6 +6,39 @@ import { Card } from '../components/ui'
 import { FilterBar, FilterDropdown, type DropdownOption } from '../components/FilterDropdown'
 import { fmtDuration, fmtLocalDate, fmtNum } from '../formatters'
 import { percentileColor } from '../percentileColors'
+import { useClasses } from '../useClasses'
+
+// Canonical EQ2 archetype order for the grouped class dropdown.
+const ARCHETYPE_ORDER = ['Fighter', 'Priest', 'Scout', 'Mage']
+
+/**
+ * Build the class-filter dropdown options: "All classes", then — per archetype
+ * that has at least one class on this board — a selectable "All <archetype>s"
+ * row followed by its individual classes, all sharing the archetype as the
+ * FilterDropdown group caption. The archetype value (e.g. "Fighter") is sent as
+ * ?class= and expanded server-side (rankings.py:_ARCHETYPE_CLASSES).
+ */
+export function buildClassOptions(present: string[], archetypeOf: (cls: string) => string | undefined): DropdownOption[] {
+  const opts: DropdownOption[] = [{ value: '', label: 'All classes' }]
+  if (present.length === 0) return opts
+
+  const byArch = new Map<string, string[]>()
+  for (const c of present) {
+    const arch = archetypeOf(c) ?? 'Other'
+    if (!byArch.has(arch)) byArch.set(arch, [])
+    byArch.get(arch)!.push(c)
+  }
+  const order = (a: string) => {
+    const i = ARCHETYPE_ORDER.indexOf(a)
+    return i === -1 ? ARCHETYPE_ORDER.length : i
+  }
+  for (const arch of [...byArch.keys()].sort((a, b) => order(a) - order(b) || a.localeCompare(b))) {
+    const group = `${arch}s` // "Fighters", "Mages", …
+    opts.push({ value: arch, label: `All ${group}`, group })
+    for (const c of byArch.get(arch)!.sort()) opts.push({ value: c, label: c, group })
+  }
+  return opts
+}
 
 interface FilterZone { zone: string; bosses: string[]; expansion?: string | null }
 interface FilterScope { key: string; label: string; zones: FilterZone[] }
@@ -114,6 +147,7 @@ export default function RankingsPage() {
   const [boss, setBoss] = useState(() => searchParams.get('boss') || '')
   const [metric, setMetric] = useState(() => searchParams.get('metric') || 'dps')
   const [cls, setCls] = useState(() => searchParams.get('class') || '')
+  const { byName: classByName } = useClasses()
   // Explicit ?xpac in URL overrides the zone-derived expansion. null = derive.
   const [xpacOverride, setXpacOverride] = useState<string | null>(
     () => searchParams.get('xpac'),
@@ -282,7 +316,7 @@ export default function RankingsPage() {
             {!isSpeed && (
               <FilterDropdown
                 value={cls}
-                options={[{ value: '', label: 'All classes' }, ...(board?.classes ?? []).map(c => ({ value: c, label: c }))]}
+                options={buildClassOptions(board?.classes ?? [], c => classByName.get(c)?.archetype)}
                 onChange={v => setCls(v)}
               />
             )}
