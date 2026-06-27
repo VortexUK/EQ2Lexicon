@@ -194,7 +194,7 @@ async def test_list_parses_clamps_fight_limit(app):
     The inner SQL cap is generous (limit*30) so grouping has headroom."""
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size, world="Varsoon"):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None):
         captured["inner_cap"] = inner_cap
         captured["zone"] = zone
         captured["size"] = size
@@ -217,7 +217,7 @@ async def test_list_parses_clamps_fight_limit(app):
 async def test_list_parses_passes_zone_filter(app):
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size, world="Varsoon"):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None):
         captured["zone"] = zone
         return []
 
@@ -234,7 +234,7 @@ async def test_list_parses_passes_zone_filter(app):
 async def test_list_parses_passes_size_filter(app):
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size, world="Varsoon"):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None):
         captured["size"] = size
         return []
 
@@ -371,3 +371,51 @@ async def test_get_parse_clamps_top_attacks(app):
             assert captured["top"] == 50
             await client.get("/api/parses/1?top_attacks=0")
             assert captured["top"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Server-side search filter (_list_encounters_sync)
+# ---------------------------------------------------------------------------
+
+
+def _seed_search_db(conn, world="Varsoon"):
+    rows = [
+        ("Captain Krasniv", "Castle Mistmoore", "Tankee"),
+        ("a krait patriarch", "Loping Plains", "Healz"),
+        ("Venril Sathir", "Castle Mistmoore", "Dpsguy"),
+    ]
+    for i, (title, zone, uploader) in enumerate(rows):
+        conn.execute(
+            "INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at, "
+            "duration_s, success_level, source_dsn, uploaded_by, guild_name, ingested_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 60, 1, 'eq2act', ?, 'Exordium', ?)",
+            (world, f"enc-{i}", title, zone, 1_900_000_000 + i, 1_900_000_060 + i, uploader, 1_900_000_000 + i),
+        )
+    conn.commit()
+
+
+def test_list_encounters_search_filters_title_zone_uploader(tmp_path, monkeypatch):
+    from backend.server.api.parses.list import _list_encounters_sync
+    from backend.server.parses import db as parses_db
+
+    db_path = tmp_path / "parses.db"
+    monkeypatch.setattr(parses_db, "DB_PATH", db_path)
+    conn = parses_db.init_db(db_path)
+    try:
+        _seed_search_db(conn)
+    finally:
+        conn.close()
+
+    def titles(search):
+        return {r["title"] for r in _list_encounters_sync(100, None, None, "Varsoon", search)}
+
+    # No search → everything.
+    assert titles(None) == {"Captain Krasniv", "a krait patriarch", "Venril Sathir"}
+    # Title match, case-insensitive.
+    assert titles("krasniv") == {"Captain Krasniv"}
+    # Zone match.
+    assert titles("loping") == {"a krait patriarch"}
+    # Uploader match.
+    assert titles("dpsguy") == {"Venril Sathir"}
+    # No match → empty.
+    assert titles("nonexistent-boss") == set()

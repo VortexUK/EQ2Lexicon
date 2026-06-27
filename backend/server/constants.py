@@ -83,3 +83,8 @@ API_TOKEN_LAST_USED_COALESCE_S: int = 60
 
 # Cache-sweep loop interval (see web/app.py:_cache_sweep_loop).
 CACHE_SWEEP_INTERVAL_S: int = 600  # 10 min
+
+# Parses retention-sweep loop interval (see app.py:_parse_cleanup_loop).
+# 6 h is plenty — the cutoff is days, so cadence only bounds how stale a
+# just-past-cutoff parse can be before it's swept.
+PARSE_CLEANUP_INTERVAL_S: int = 6 * 60 * 60  # 6 h

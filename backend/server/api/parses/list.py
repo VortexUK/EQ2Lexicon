@@ -221,6 +221,7 @@ def _list_encounters_sync(
     zone: str | None,
     size: str | None,
     world: str = "Varsoon",
+    search: str | None = None,
 ) -> list[dict]:
     """Return matching encounter rows most-recent-first, capped at
     ``inner_cap`` raw uploads (not fights). Mirror grouping happens after
@@ -243,6 +244,16 @@ def _list_encounters_sync(
         lo, hi = SIZE_BUCKETS[size]
         where_clauses.append("player_count BETWEEN ? AND ?")
         params.extend([lo, hi])
+    if search and search.strip():
+        # Free-text filter over the user-visible fields, mirroring the admin
+        # search (db.list_encounters_for_admin). Applied BEFORE mirror-grouping
+        # so a whole fight matches when any of its uploads does.
+        like = f"%{search.strip().lower()}%"
+        where_clauses.append(
+            "(LOWER(title) LIKE ? OR LOWER(IFNULL(zone, '')) LIKE ? "
+            "OR LOWER(IFNULL(uploaded_by, '')) LIKE ? OR LOWER(IFNULL(guild_name, '')) LIKE ?)"
+        )
+        params.extend([like, like, like, like])
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
     list_sql = _SQL["list_encounters_recent"].format(where_sql=where_sql, player_count_sql=_PLAYER_COUNT_SQL)
@@ -434,6 +445,7 @@ async def list_parses(
     limit: int = 200,
     zone: str | None = None,
     size: str | None = None,
+    search: str | None = None,
 ) -> ParsesListResponse:
     _require_user(request)
 
@@ -483,7 +495,7 @@ async def list_parses(
         sees the correct flag. Also re-query player_count for each
         backfilled encounter so the response carries the correct
         number on the same request (no stale-on-first-load glitch)."""
-        rows = _list_encounters_sync(inner_cap, zone, size, active_world)
+        rows = _list_encounters_sync(inner_cap, zone, size, active_world, search)
         if not rows:
             return rows, [], 0
         conn = parses_db.init_db(parses_db.DB_PATH)
