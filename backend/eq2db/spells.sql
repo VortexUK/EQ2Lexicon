@@ -115,6 +115,14 @@ SELECT {cols} FROM spells WHERE id = ? LIMIT 1;
 -- so SQLite parses the IN list with a fixed parameter count.
 SELECT {cols} FROM spells WHERE id IN ({placeholders});
 
+-- :name upgradeable_crcs
+-- Of the given CRCs, return those whose spell line has more than one tier
+-- (Apprentice → Grandmaster, …) — i.e. genuinely upgradeable spells. Single-tier
+-- abilities (Cure, Resurrect, Soothe, …) have one tier_name and are excluded.
+-- {placeholders} sized at call time. idx_crc keeps the IN + GROUP BY fast.
+SELECT crc FROM spells WHERE crc IN ({placeholders})
+GROUP BY crc HAVING COUNT(DISTINCT tier_name) > 1;
+
 -- :name find_by_crc_and_tier
 SELECT {cols} FROM spells WHERE crc = ? AND tier = ? LIMIT 1;
 
