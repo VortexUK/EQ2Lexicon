@@ -509,15 +509,17 @@ interface LaneProps {
 }
 
 function LaneSection({ lane, admin, killedByZone, hasGuild, onRemoveZone, onDeleteCategory }: LaneProps) {
-  // The Uncategorised lane has NO header label. Named lanes get a draggable
-  // <SortableLaneHeader>. If the uncategorised lane is empty, render nothing.
   const isUncategorised = lane.name === null
-  if (isUncategorised && lane.zones.length === 0) return null
 
   // Make the lane's zone-grid container droppable so empty lanes can still
   // receive a dragged zone. The id uses the lane name so handleZoneDragEnd
   // can identify the destination lane even when dropping on an empty area.
+  // Called unconditionally (before any early return) to satisfy rules-of-hooks.
   const { setNodeRef, isOver } = useDroppable({ id: LANE_DROP_ID(lane.name) })
+
+  // The Uncategorised lane has NO header label. Named lanes get a draggable
+  // <SortableLaneHeader>. If the uncategorised lane is empty, render nothing.
+  if (isUncategorised && lane.zones.length === 0) return null
 
   return (
     <div>

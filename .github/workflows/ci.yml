@@ -63,6 +63,9 @@ jobs:
       - name: npm ci
         run: npm ci
 
+      - name: ESLint
+        run: npm run lint
+
       - name: tsc -b
         run: npx tsc -b
 

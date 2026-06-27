@@ -439,7 +439,8 @@ export function SpellsTab({ charName }: { charName: string }) {
   function toggleTier(tier: string) {
     setTierFilter(prev => {
       const next = new Set(prev)
-      next.has(tier) ? next.delete(tier) : next.add(tier)
+      if (next.has(tier)) next.delete(tier)
+      else next.add(tier)
       return next
     })
   }

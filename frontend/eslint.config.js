@@ -23,7 +23,20 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      // The classic react-hooks rules — the ones that catch real bugs.
+      //
+      // NOT `reactHooks.configs.recommended.rules`: in eslint-plugin-react-hooks
+      // v7 that preset bundles the React Compiler rules (set-state-in-effect,
+      // refs, purity, immutability, preserve-manual-memoization, …) as errors.
+      // This project doesn't use the React Compiler, and those rules flag
+      // standard, correct patterns (e.g. fetch-then-setState in an effect), so
+      // we opt out of them and keep just the two timeless ones.
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+      // Irregular whitespace inside regex literals is intentional here — e.g.
+      // normaliseBossName's SPACE_VARIANTS class matches the Unicode space
+      // variants that show up in ACT logs / curator data.
+      'no-irregular-whitespace': ['error', { skipRegExps: true }],
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },
