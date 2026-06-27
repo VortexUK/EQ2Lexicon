@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -472,3 +473,62 @@ async def test_persist_merges_offline_member_from_store(app, tmp_path, monkeypat
         assert main_rec["last_resolved_at"] > 1000
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Guild spell-check tier building  (_build_spell_check_from_overviews)
+# ---------------------------------------------------------------------------
+
+
+def _spell_row(name, tier_name, given_by, crc, level, type_="spells"):
+    return {
+        "name": name,
+        "tier_name": tier_name,
+        "given_by": given_by,
+        "crc": crc,
+        "level": level,
+        "type": type_,
+    }
+
+
+def test_guild_spell_check_includes_base_tier_apprentice():
+    """Every *upgradeable* spell a member owns is counted regardless of how it
+    was acquired — so base-tier auto-grants (given_by='class', typically
+    Apprentice) and trainer-granted spells appear as their own tier columns.
+    Regression guard: the old given_by=='spellscroll' gate dropped them, so the
+    Apprentice column never showed. AA abilities stay excluded."""
+    from backend.server import guild_cache
+
+    overviews = [SimpleNamespace(name="Healer", spell_ids=[1, 2, 3, 4, 5])]
+    spell_db = {
+        1: _spell_row("Base Heal I", "Apprentice", "class", 101, 10),  # auto-granted base tier
+        2: _spell_row("Trained Ward I", "Adept", "classtraining", 102, 20, "arts"),  # trainer
+        3: _spell_row("Scribed Bolt I", "Master", "spellscroll", 103, 30),  # scroll
+        4: _spell_row("AA Strike I", "Expert", "alternateadvancement", 104, 25),  # AA → excluded
+        5: _spell_row("Cure", "Apprentice", "class", 105, 10),  # single-tier utility → not upgradeable
+    }
+    mock_db = MagicMock()
+    mock_db.exists.return_value = True
+
+    with (
+        patch.object(guild_cache, "_SPELLS_DB", mock_db),
+        patch.object(guild_cache, "_spell_find_by_ids", return_value=spell_db),
+        patch.object(guild_cache, "_load_spell_blocklist", return_value=set()),
+        # Catalogue says 101/102/103 span multiple tiers; the AA spell and "Cure" don't.
+        patch.object(guild_cache, "_upgradeable_crcs", return_value={101, 102, 103}),
+    ):
+        resp = guild_cache._build_spell_check_from_overviews(
+            "Exordium", "Varsoon", overviews, {"Healer": ("Leader", 0)}
+        )
+
+    assert resp is not None
+    # The base-tier Apprentice column is present (the bug this fixes).
+    assert "Apprentice" in resp.tiers
+    assert resp.tiers == ["Apprentice", "Adept", "Master"]  # _TIER_ORDER subset, ordered
+
+    member = resp.members[0]
+    assert member.tiers["Apprentice"] == 1  # Base Heal counted; Cure (single-tier) not
+    assert member.tiers["Adept"] == 1  # trainer-granted counted
+    assert member.tiers["Master"] == 1  # scroll counted
+    assert member.tiers["Expert"] == 0  # AA excluded
+    assert member.total == 3

@@ -45,6 +45,9 @@ from backend.eq2db.spells import (
 from backend.eq2db.spells import (
     unique_highest_entries as _unique_highest,
 )
+from backend.eq2db.spells import (
+    upgradeable_crcs as _upgradeable_crcs,
+)
 from backend.server.cache import character_cache, guild_cache
 from backend.server.core.cache_keys import census_refresh_guild_key, guild_info_key, guild_roster_key
 from backend.server.core.census_lifecycle import shared_census_client
@@ -175,6 +178,23 @@ def _build_spell_check_from_overviews(
     spell_db: dict[int, _SpellRow] = _spell_find_by_ids(list(set(all_ids)))
     blocklist = _load_spell_blocklist()
 
+    # Show every *upgradeable* spell a member owns (a line with a tier ladder),
+    # regardless of how it was acquired. The old `given_by=='spellscroll'` gate
+    # dropped base-tier auto-grants (given_by='class', e.g. Apprentice) and
+    # trainer-granted spells (given_by='classtraining'), so those tiers — most
+    # visibly Apprentice — never appeared as columns. Mirrors the character
+    # spells path; AA abilities (given_by='alternateadvancement') stay excluded.
+    upgradeable = _upgradeable_crcs(
+        {
+            row.get("crc")
+            for row in spell_db.values()
+            if (row.get("level") or 0) > 0
+            and row.get("type") in ("spells", "arts")
+            and row.get("given_by") != "alternateadvancement"
+            and _strip_roman(row.get("name") or "").lower() not in blocklist
+        }
+    )
+
     out_members: list[MemberSpellTiers] = []
     tiers_with_data: set[str] = set()
 
@@ -188,7 +208,9 @@ def _build_spell_check_from_overviews(
                 continue
             if row.get("type") not in ("spells", "arts"):
                 continue
-            if row.get("given_by") != "spellscroll":
+            if row.get("given_by") == "alternateadvancement":
+                continue
+            if row.get("crc") not in upgradeable:
                 continue
             if _strip_roman(row.get("name") or "").lower() in blocklist:
                 continue
