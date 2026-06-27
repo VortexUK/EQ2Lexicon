@@ -20,6 +20,7 @@ import json
 import logging
 import re
 import sqlite3
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
 from typing import TypedDict
@@ -267,6 +268,27 @@ def find_by_ids(spell_ids: list[int], path: Path = DB_PATH) -> dict[int, SpellRo
             spell_ids,
         ).fetchall()
     return {row["id"]: _row_to_dict(row) for row in rows}
+
+
+def upgradeable_crcs(crcs: Iterable[int | None], path: Path = DB_PATH) -> set[int]:
+    """Return the subset of ``crcs`` that are upgradeable spells.
+
+    A spell is upgradeable when its line spans more than one tier in the
+    catalogue (Apprentice → Grandmaster, …). Single-tier abilities — utility
+    casts like Cure, Resurrect, Soothe, Enduring Breath — have one tier and are
+    excluded. This is independent of *how* a character acquired the spell
+    (spellscroll / classtraining / class), so an upgradeable spell granted by
+    the trainer or auto-granted at base tier still counts.
+
+    Empty input (or a missing DB) → empty set.
+    """
+    ids = [c for c in {*crcs} if c is not None]
+    if not ids or not path.exists():
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(_SQL["upgradeable_crcs"].format(placeholders=placeholders), ids).fetchall()
+    return {r[0] for r in rows}
 
 
 @lru_cache(maxsize=4096)

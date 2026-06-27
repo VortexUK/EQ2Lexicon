@@ -38,6 +38,7 @@ def _fake_spell_row(
     given_by: str = "spellscroll",
     icon_id: int | None = 500,
     icon_backdrop: int | None = 456,
+    crc: int | None = None,
 ) -> dict:
     """Build a minimal spell DB row dict."""
     return {
@@ -52,7 +53,15 @@ def _fake_spell_row(
         "icon_id": icon_id,
         "icon_backdrop": icon_backdrop,
         "passes_spellcheck": 1,
+        "crc": crc if crc is not None else spell_id,
     }
+
+
+# Treat every supplied CRC as upgradeable — the default for tests that aren't
+# specifically exercising the upgradeable filter. Patches eq2db's catalogue
+# query so no real spells.db is needed.
+def _all_upgradeable(crcs, **_kw):
+    return {c for c in crcs if c is not None}
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +145,7 @@ async def test_spells_returns_data(app):
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
+        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
         patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
@@ -175,6 +185,7 @@ async def test_spells_blocklist_applied(app):
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
+        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
         patch("backend.server.api.character.spells._load_spell_blocklist", return_value=blocklist),
     ):
         mock_cache.get_stale.return_value = (char, False)
@@ -190,24 +201,35 @@ async def test_spells_blocklist_applied(app):
 
 
 @pytest.mark.asyncio
-async def test_spells_only_includes_spellscroll(app):
-    """Only given_by='spellscroll' entries are included; class/aa/any are excluded."""
+async def test_spells_includes_all_upgradeable_excludes_aa_and_utility(app):
+    """Every *upgradeable* spell counts, regardless of how it was acquired —
+    scribed (spellscroll), trained (classtraining), or auto-granted at base tier
+    (class). AA abilities and non-upgradeable single-tier utility casts are out.
+
+    This is the Restoration-VI regression: a trainer-granted (classtraining)
+    upgradeable spell must show instead of being dropped for the lower-rank
+    scroll the character happened to scribe.
+    """
     mock_db = MagicMock()
     mock_db.exists.return_value = True
 
-    char = _fake_char(spell_ids=[3001, 3002, 3003])
+    char = _fake_char(spell_ids=[3001, 3002, 3003, 3004, 3005])
     spell_rows = {
-        3001: _fake_spell_row(
-            3001, name="Cheap Shot I", tier_name="Adept", spell_type="arts", level=15, given_by="class"
-        ),
-        3002: _fake_spell_row(3002, name="AA Spell I", tier_name="Adept", level=50, given_by="alternateadvancement"),
-        3003: _fake_spell_row(3003, name="Scribed Spell I", tier_name="Adept", level=30, given_by="spellscroll"),
+        3001: _fake_spell_row(3001, name="Scribed Spell I", level=30, given_by="spellscroll", crc=9001),
+        3002: _fake_spell_row(3002, name="Trained Spell I", level=60, given_by="classtraining", crc=9002),
+        3003: _fake_spell_row(3003, name="Base Spell I", level=40, given_by="class", crc=9003),
+        3004: _fake_spell_row(3004, name="AA Spell I", level=50, given_by="alternateadvancement", crc=9004),
+        3005: _fake_spell_row(3005, name="Cure", level=10, given_by="class", crc=9005),  # single-tier utility
     }
+    # Catalogue says 9001/9002/9003 are multi-tier (upgradeable); the AA spell
+    # and "Cure" are single-tier and therefore not upgradeable.
+    upgradeable = {9001, 9002, 9003}
 
     with (
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
+        patch("backend.server.api.character.spells._upgradeable_crcs", return_value=upgradeable),
         patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
@@ -218,9 +240,11 @@ async def test_spells_only_includes_spellscroll(app):
     assert r.status_code == 200
     data = r.json()
     spell_names = {s["name"] for s in data["spells"]}
-    assert "Cheap Shot I" not in spell_names
-    assert "AA Spell I" not in spell_names
-    assert "Scribed Spell I" in spell_names
+    assert "Scribed Spell I" in spell_names  # spellscroll, upgradeable
+    assert "Trained Spell I" in spell_names  # classtraining, upgradeable (the fix)
+    assert "Base Spell I" in spell_names  # class base-tier, still upgradeable
+    assert "AA Spell I" not in spell_names  # AA lives in the AA tab
+    assert "Cure" not in spell_names  # single-tier utility, not upgradeable
 
 
 @pytest.mark.asyncio
@@ -239,6 +263,7 @@ async def test_spells_excludes_zero_level(app):
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
+        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
         patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
@@ -270,6 +295,7 @@ async def test_spells_deduplication_keeps_highest_level(app):
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
+        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
         patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
@@ -345,6 +371,7 @@ async def test_spells_response_structure(app):
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
+        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
         patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)

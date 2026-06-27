@@ -19,6 +19,7 @@ from backend.eq2db.spells import (
     spell_to_row,
     strip_roman,
     unique_highest_entries,
+    upgradeable_crcs,
     upsert_spells,
 )
 
@@ -316,6 +317,27 @@ def _make_spell(
         "crc": crc,
         "icon": {"id": 500, "backdrop": 456},
     }
+
+
+class TestUpgradeableCrcs:
+    def test_multi_tier_crc_upgradeable_single_tier_not(self, db):
+        conn = sqlite3.connect(db)
+        upsert_spells(
+            [
+                # crc 200 — a real spell line with two tiers → upgradeable
+                {**_make_spell(1, name="Restoration VI", crc=200, tier=1), "tier_name": "Apprentice"},
+                {**_make_spell(2, name="Restoration VI", crc=200, tier=5), "tier_name": "Master"},
+                # crc 300 — a single-tier utility cast → NOT upgradeable
+                {**_make_spell(3, name="Cure", crc=300, tier=1), "tier_name": "Apprentice"},
+            ],
+            conn,
+        )
+        conn.close()
+        assert upgradeable_crcs({200, 300}, path=db) == {200}
+
+    def test_empty_input_and_missing_db(self, tmp_path):
+        assert upgradeable_crcs(set(), path=tmp_path / "spells.db") == set()
+        assert upgradeable_crcs({1, 2}, path=tmp_path / "does_not_exist.db") == set()
 
 
 class TestFindById:
