@@ -125,6 +125,7 @@ _FAKE_TOP_ATTACKS = {
             "combatant_id": 10,
             "attack_name": "Smite",
             "damage": 400000,
+            "dps": 8695.65,
             "hits": 100,
             "swings": 100,
             "crit_perc": 90.0,
@@ -137,6 +138,7 @@ _FAKE_TOP_ATTACKS = {
             "combatant_id": 11,
             "attack_name": "melee",
             "damage": 5716,
+            "dps": 381.07,
             "hits": 11,
             "swings": 12,
             "crit_perc": 0.0,
@@ -150,6 +152,7 @@ _FAKE_TOP_HEALS = {
         {
             "attack_name": "Reverence",
             "damage": 7818,  # amount healed
+            "dps": 170.0,  # heal-per-second (HPS)
             "hits": 12,
             "swings": 12,
             "crit_perc": 0.0,
@@ -159,6 +162,7 @@ _FAKE_TOP_HEALS = {
         {
             "attack_name": "Stonewill",
             "damage": 3819,
+            "dps": 83.0,
             "hits": 12,
             "swings": 12,
             "crit_perc": 0.0,

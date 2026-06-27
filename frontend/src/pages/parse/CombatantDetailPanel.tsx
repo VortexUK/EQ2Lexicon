@@ -8,6 +8,7 @@ import type { CombatantSummary } from '../ParsePage'
 export interface AttackSummary {
   attack_name: string
   damage: number
+  dps: number
   hits: number
   swings: number
   crit_perc: number
@@ -27,6 +28,7 @@ export interface DamageTypeBreakdown {
 export interface HealSummary {
   heal_name: string
   healed: number
+  hps: number
   hits: number
   swings: number
   crit_perc: number
@@ -141,10 +143,11 @@ function AttacksTable({ attacks, combatantDamage }: { attacks: AttackSummary[]; 
   return (
     <div
       className="grid items-center gap-x-2 gap-y-px text-[0.78rem]"
-      style={{ gridTemplateColumns: 'minmax(150px,1.4fr) 80px 50px 60px 60px 70px 1fr' }}
+      style={{ gridTemplateColumns: 'minmax(150px,1.4fr) 80px 70px 50px 60px 60px 70px 1fr' }}
     >
       <div className={HDR_SUB_CELL_CLS}>Attack</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>DMG</div>
+      <div className={`${HDR_SUB_CELL_CLS} text-right`}>DPS</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>Hits</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>Swings</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>Crit%</div>
@@ -157,6 +160,7 @@ function AttacksTable({ attacks, combatantDamage }: { attacks: AttackSummary[]; 
           <div key={i} className={SUB_ROW_CLS}>
             <div className="text-text">{a.attack_name}</div>
             <div className={CELL_RIGHT_CLS}>{fmtNum(a.damage)}</div>
+            <div className={CELL_RIGHT_CLS}>{fmtNum(a.dps)}</div>
             <div className={CELL_RIGHT_CLS}>{a.hits}</div>
             <div className={CELL_RIGHT_CLS}>{a.swings}</div>
             <div className={CELL_RIGHT_CLS}>{Math.round(a.crit_perc)}%</div>
@@ -205,10 +209,11 @@ function HealsTable({ heals, totalHealed }: { heals: HealSummary[]; totalHealed:
   return (
     <div
       className="grid items-center gap-x-2 gap-y-px text-[0.78rem]"
-      style={{ gridTemplateColumns: 'minmax(150px,1.4fr) 80px 50px 60px 70px 90px 1fr' }}
+      style={{ gridTemplateColumns: 'minmax(150px,1.4fr) 80px 70px 50px 60px 70px 90px 1fr' }}
     >
       <div className={HDR_SUB_CELL_CLS}>Ability</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>Healed</div>
+      <div className={`${HDR_SUB_CELL_CLS} text-right`}>HPS</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>Hits</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>Crit%</div>
       <div className={`${HDR_SUB_CELL_CLS} text-right`}>Max</div>
@@ -222,6 +227,7 @@ function HealsTable({ heals, totalHealed }: { heals: HealSummary[]; totalHealed:
           <div key={i} className={SUB_ROW_CLS}>
             <div className="text-text">{h.heal_name}</div>
             <div className={CELL_RIGHT_CLS}>{fmtNum(h.healed)}</div>
+            <div className={CELL_RIGHT_CLS}>{fmtNum(h.hps)}</div>
             <div className={CELL_RIGHT_CLS}>{h.hits}</div>
             <div className={CELL_RIGHT_CLS}>{Math.round(h.crit_perc)}%</div>
             <div className={CELL_RIGHT_CLS}>{fmtNum(h.max_hit)}</div>

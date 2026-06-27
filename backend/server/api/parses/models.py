@@ -96,6 +96,7 @@ class ParsesListResponse(BaseModel):
 class AttackSummary(BaseModel):
     attack_name: str
     damage: int
+    dps: float
     hits: int
     swings: int
     crit_perc: float
@@ -110,6 +111,7 @@ class HealSummary(BaseModel):
 
     heal_name: str
     healed: int
+    hps: float  # heal row's per-second rate (ACT stores it in the `dps` column for swing_type=3)
     hits: int
     swings: int
     crit_perc: float
