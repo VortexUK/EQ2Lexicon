@@ -15,7 +15,7 @@ This is a Python ([uv](https://docs.astral.sh/uv/)) backend + Discord bot, with 
 ```powershell
 # Backend — from the repo root
 uv sync --all-groups           # provisions .venv from uv.lock
-uv run uvicorn web.app:app --port 8000 --reload
+uv run uvicorn backend.server.app:app --port 8000 --reload --reload-dir backend
 
 # Frontend — from frontend/
 npm ci
