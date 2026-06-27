@@ -63,14 +63,16 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // React core + router — loaded on every page, biggest single dep group.
-          'vendor-react':    ['react', 'react-dom', 'react-router-dom'],
-          // Drag-and-drop — only needed by the boss-roster editor (admin-only).
-          // Splits ~50KB out of the main bundle for non-editor users.
-          'vendor-dnd':      ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
-          // Markdown — used by encounter strategy + zone overview.
-          'vendor-markdown': ['react-markdown', 'remark-gfm'],
+        // Function form (rolldown/vite 8 only accepts a function, not the
+        // object map). Returns the vendor chunk name for a node_modules id.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('@dnd-kit')) return 'vendor-dnd'
+          if (id.includes('react-markdown') || id.includes('remark')) return 'vendor-markdown'
+          if (id.includes('react-router') || id.includes('react-dom') || /[\\/]react[\\/]/.test(id)) {
+            return 'vendor-react'
+          }
+          return undefined
         },
       },
     },
