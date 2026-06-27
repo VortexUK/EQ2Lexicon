@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { discordAvatarUrl } from '../../hooks/useAuth'
+import { usePagedSearch } from '../../hooks/usePagedSearch'
 import { Button } from '../../components/ui'
+import { TablePager, TableSearch } from './TableControls'
 import { fmtRelative } from '../../formatters'
 import {
   type RoleRequest,
@@ -108,31 +110,53 @@ function RoleRequestRow({ request, onAction }: { request: RoleRequest; onAction:
 
 // ── RoleRequestsTable ─────────────────────────────────────────────────────────
 
+const requestMatches = (r: RoleRequest, q: string) =>
+  (r.discord_name ?? '').toLowerCase().includes(q) ||
+  (r.discord_username ?? '').toLowerCase().includes(q) ||
+  r.role.toLowerCase().includes(q) ||
+  r.discord_id.includes(q)
+
 export function RoleRequestsTable({ requests, onAction }: { requests: RoleRequest[]; onAction: () => void }) {
+  const pg = usePagedSearch(requests, requestMatches)
+
   return (
-    <div className="bg-surface border border-border rounded-[10px] overflow-x-auto">
-      <table className={TABLE_CLS}>
-        <thead>
-          <tr>
-            <th className={TH_CLS}>Requester</th>
-            <th className={TH_CLS}>Role</th>
-            <th className={TH_CLS}>Submitted</th>
-            <th className={TH_CLS}>Note</th>
-            <th className={TH_CLS}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {requests.length === 0 ? (
+    <div>
+      {/* Search — only worth showing once it would actually paginate */}
+      {requests.length > pg.perPage && (
+        <div className="flex mb-3">
+          <TableSearch value={pg.search} onChange={pg.setSearch} placeholder="Search requester or role…" />
+        </div>
+      )}
+
+      <div className="bg-surface border border-border rounded-[10px] overflow-x-auto">
+        <table className={TABLE_CLS}>
+          <thead>
             <tr>
-              <td colSpan={5} className={`${TD_CLS} text-text-muted text-center p-6`}>
-                No pending role requests.
-              </td>
+              <th className={TH_CLS}>Requester</th>
+              <th className={TH_CLS}>Role</th>
+              <th className={TH_CLS}>Submitted</th>
+              <th className={TH_CLS}>Note</th>
+              <th className={TH_CLS}>Actions</th>
             </tr>
-          ) : (
-            requests.map(r => <RoleRequestRow key={r.id} request={r} onAction={onAction} />)
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {pg.rows.length === 0 ? (
+              <tr>
+                <td colSpan={5} className={`${TD_CLS} text-text-muted text-center p-6`}>
+                  {requests.length === 0 ? 'No pending role requests.' : 'No requests match.'}
+                </td>
+              </tr>
+            ) : (
+              pg.rows.map(r => <RoleRequestRow key={r.id} request={r} onAction={onAction} />)
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <TablePager
+        page={pg.page} pageCount={pg.pageCount} start={pg.start}
+        perPage={pg.perPage} total={pg.total} onPage={pg.setPage}
+      />
     </div>
   )
 }
