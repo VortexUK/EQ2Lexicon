@@ -26,7 +26,7 @@ const RaidZonePage      = lazy(() => import('./pages/RaidZonePage'))
 const RaidZonesPage     = lazy(() => import('./pages/RaidZonesPage'))
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
-import { ServerProvider, useServer } from './hooks/useServer'
+import { ServerProvider } from './hooks/useServer'
 import { Link } from 'react-router-dom'
 import logo from './assets/EQ2L.webp'
 import ServerLaunchTimer from './components/ServerLaunchTimer'
@@ -78,72 +78,31 @@ const navLinkStyle = ({ isActive }: { isActive: boolean }) => ({
 })
 
 /**
- * Builds a target URL for switching to another server subdomain.
- * On production (e.g. varsoon.eq2lexicon.com) it swaps the leading subdomain
- * label.  On localhost / any host with no dot it falls back to a plain
- * absolute URL pointing at {subdomain}.eq2lexicon.com so the link is still
- * useful even in dev.
+ * Partner / affiliate site logos, shown in the header next to the main logo.
+ * Each links out (new tab) to the partner site. The logo images live in
+ * public/ (drop the two files in with these names). Hidden below md so they
+ * don't crowd the mobile header.
  */
-function buildSwitchUrl(targetSubdomain: string, activeSubdomain: string | undefined): string {
-  const { protocol, host, pathname, search, hash } = window.location
-  // Derive the base domain by stripping the ACTIVE server's subdomain label if
-  // the current host carries it. On a subdomain host ("varsoon.eq2lexicon.com",
-  // active "varsoon") base = "eq2lexicon.com". On the apex ("eq2lexicon.com",
-  // which serves the default server) the host does NOT start with the active
-  // subdomain, so base = the host as-is — NOT a blind first-label strip (which
-  // turned "eq2lexicon.com" into ".com" → "wuoshi.com").
-  let base = host
-  if (activeSubdomain && host.toLowerCase().startsWith(`${activeSubdomain.toLowerCase()}.`)) {
-    base = host.slice(activeSubdomain.length + 1)
-  }
-  // localhost / IP without a domain → fall back to the live domain so the link
-  // is still useful in dev.
-  if (!base.includes('.')) {
-    base = 'eq2lexicon.com'
-  }
-  return `${protocol}//${targetSubdomain}.${base}${pathname}${search}${hash}`
-}
+const PARTNERS = [
+  { href: 'https://at-age-s-end.web.app/', src: '/partner-aae.webp', label: "At Age's End" },
+  { href: 'https://eq2tleraid.com/', src: '/partner-eq2tleraid.webp', label: 'EQ2 TLE Raid' },
+]
 
-/**
- * Server name badge + optional switcher links for other servers.
- * Rendered inside the header next to the logo.
- */
-function ServerBadge() {
-  const server = useServer()
-  if (!server) return null
-
-  const others = server.servers.filter(s => s.world !== server.world)
-  const activeSubdomain = server.servers.find(s => s.world === server.world)?.subdomain
-
+function PartnerLinks() {
   return (
-    <div className="flex items-center gap-2 ml-2">
-      {/* Active server name */}
-      <span
-        className="font-heading text-[0.7rem] font-semibold tracking-[0.12em] uppercase px-2 py-[0.2rem] rounded-sm"
-        style={{
-          color: 'var(--gold)',
-          background: 'rgba(var(--gold-rgb), 0.1)',
-          border: '1px solid rgba(var(--gold-rgb), 0.22)',
-        }}
-      >
-        {server.displayName}
-      </span>
-
-      {/* Switch links — only shown when there are other servers */}
-      {others.length > 0 && (
-        <div className="flex items-center gap-1">
-          {others.map(s => (
-            <a
-              key={s.world}
-              href={buildSwitchUrl(s.subdomain, activeSubdomain)}
-              className="font-heading text-[0.65rem] font-semibold tracking-[0.1em] uppercase px-1.5 py-[0.18rem] rounded-sm no-underline transition-colors duration-150 text-gold-dim bg-transparent border border-gold/15 hover:text-gold hover:border-gold/35"
-              title={`Switch to ${s.displayName}`}
-            >
-              {s.displayName}
-            </a>
-          ))}
-        </div>
-      )}
+    <div className="hidden md:flex items-center gap-2 ml-3 pl-3 border-l border-border">
+      {PARTNERS.map(p => (
+        <a
+          key={p.href}
+          href={p.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={p.label}
+          className="flex items-center h-8 shrink-0 transition-[transform,filter] duration-150 hover:brightness-110 hover:scale-[1.04]"
+        >
+          <img src={p.src} alt={p.label} className="h-full w-auto" />
+        </a>
+      ))}
     </div>
   )
 }
@@ -230,7 +189,7 @@ function Layout() {
           <Link to="/" className="flex items-center leading-none">
             <img src={logo} alt="EQ2 Lexicon" className="h-10 w-auto" />
           </Link>
-          <ServerBadge />
+          <PartnerLinks />
         </div>
         {/* Inline nav: lg+ only. Below lg, MobileNav renders the hamburger. */}
         <div className="hidden lg:block">
