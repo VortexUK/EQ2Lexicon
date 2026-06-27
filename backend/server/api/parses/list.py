@@ -648,6 +648,7 @@ async def get_parse(
                 AttackSummary(
                     attack_name=a["attack_name"],
                     damage=a["damage"],
+                    dps=a["dps"],
                     hits=a["hits"],
                     swings=a["swings"],
                     crit_perc=a["crit_perc"],
@@ -659,6 +660,7 @@ async def get_parse(
                 HealSummary(
                     heal_name=h["attack_name"],
                     healed=h["damage"],  # `damage` column = amount healed for swing_type=3
+                    hps=h["dps"],  # `dps` column = heal-per-second for swing_type=3
                     hits=h["hits"],
                     swings=h["swings"],
                     crit_perc=h["crit_perc"],

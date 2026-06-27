@@ -4,12 +4,15 @@
 # available either. fnm installs an exact, new-enough Node at build time (and
 # its bundled npm avoids the optional-dependencies bug, npm/cli#4828, that
 # dropped the @rolldown/binding-linux-x64-gnu native binary on older npm).
-[variables]
-# Fixed install dir so the Node that fnm installs in the install phase is found
-# again in the build phase — phases run as separate shells, but the dir persists
-# on the image filesystem.
-FNM_DIR = "/opt/fnm"
-
+#
+# fnm's install dir is passed as an explicit `--fnm-dir /opt/fnm` on every
+# invocation rather than via the FNM_DIR env var: Railway injects service
+# variables as Docker build ARGs, and an empty `ARG FNM_DIR` clobbers any
+# `ENV FNM_DIR` we'd set — leaving fnm with an empty base dir, which fnm 1.37.2
+# rejects ("a value is required for '--fnm-dir'", exit 2). The explicit flag
+# can't be clobbered. The fixed dir also lets the build phase find the Node the
+# install phase installed (phases are separate shells; the dir persists on the
+# image filesystem).
 [phases.setup]
 # litestream ships the binary used in the startCommand to back up parses.db +
 # users.db to Cloudflare R2.
@@ -26,12 +29,12 @@ cmds = [
   # Install the latest Node 22.x (>=22.12) and run a clean, lockfile-exact npm
   # install under it. `fnm exec --using=22` activates that version for the
   # command without needing shell integration.
-  "fnm install 22 && cd frontend && fnm exec --using=22 npm ci"
+  "mkdir -p /opt/fnm && fnm --fnm-dir /opt/fnm install 22 && cd frontend && fnm --fnm-dir /opt/fnm exec --using=22 npm ci"
 ]
 
 [phases.build]
 cmds = [
-  "cd frontend && fnm exec --using=22 npm run build"
+  "cd frontend && fnm --fnm-dir /opt/fnm exec --using=22 npm run build"
 ]
 
 # [start].cmd here is only used when railway.toml's startCommand is NOT set

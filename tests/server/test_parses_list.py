@@ -306,6 +306,7 @@ async def test_get_parse_returns_detail(app):
     assert menludiir["threat_delta"] == 20000
     assert len(menludiir["top_attacks"]) == 1
     assert menludiir["top_attacks"][0]["attack_name"] == "Smite"
+    assert menludiir["top_attacks"][0]["dps"] == 8695.65  # per-attack DPS surfaced
     assert len(menludiir["damage_types"]) == 2
     assert menludiir["damage_types"][0]["damage_type"] == "divine"
     assert menludiir["damage_types"][0]["damage"] == 400000
@@ -314,6 +315,7 @@ async def test_get_parse_returns_detail(app):
     assert len(menludiir["top_heals"]) == 2
     rev = next(h for h in menludiir["top_heals"] if h["heal_name"] == "Reverence")
     assert rev["healed"] == 7818
+    assert rev["hps"] == 170.0  # per-ability HPS surfaced
     assert rev["heal_type"] == "Hitpoints"
     sw = next(h for h in menludiir["top_heals"] if h["heal_name"] == "Stonewill")
     assert sw["heal_type"] == "Absorption"
