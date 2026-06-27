@@ -1,7 +1,11 @@
 [phases.setup]
 # `litestream` ships the binary we use in the startCommand to back up
 # parses.db + users.db to Cloudflare R2.
-nixPkgs = ["python313Full", "nodejs_20", "uv", "litestream"]
+# nodejs_22 (not _20): Vite 8 / rolldown requires Node >=20.19 or >=22.12, but
+# the pinned nodejs_20 nixpkg ships 20.18.0 — too old, and its bundled npm hits
+# the optional-dependencies bug (npm/cli#4828) that skips the platform-specific
+# @rolldown/binding-linux-x64-gnu native binary, failing every Vite build.
+nixPkgs = ["python313Full", "nodejs_22", "uv", "litestream"]
 
 [phases.install]
 cmds = [
@@ -11,7 +15,9 @@ cmds = [
   # --frozen: error if lockfile is out of date (catches missing `uv lock` commits)
   # --no-dev: skip the dev dependency-group (ruff, pyright, pytest)
   "uv sync --frozen --no-dev --python python3.13",
-  "cd frontend && npm install"
+  # npm ci (not install): clean, lockfile-exact install — reproducible and
+  # reliably pulls the platform's native optional deps (rolldown binding).
+  "cd frontend && npm ci"
 ]
 
 [phases.build]
