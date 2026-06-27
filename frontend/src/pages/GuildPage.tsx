@@ -543,7 +543,8 @@ export default function GuildPage() {
   function toggleRank(rank: string) {
     setHiddenRanks(prev => {
       const next = new Set(prev)
-      next.has(rank) ? next.delete(rank) : next.add(rank)
+      if (next.has(rank)) next.delete(rank)
+      else next.add(rank)
       return next
     })
   }
