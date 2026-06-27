@@ -23,12 +23,23 @@ interface SpellTooltip {
   names: string[]
 }
 
+// ── Raid readiness ────────────────────────────────────────────────────────────
+
+// Mirrors the character spell page: a member is raid-ready when ≥90% of their
+// spells are at Expert tier or better (Expert + Master + Grandmaster).
+function spellRaidReadiness(m: MemberSpellTiers): { pct: number; ready: boolean; expertPlus: number } {
+  const expertPlus = (m.tiers['Expert'] ?? 0) + (m.tiers['Master'] ?? 0) + (m.tiers['Grandmaster'] ?? 0)
+  const pct = m.total > 0 ? Math.min(100, Math.round((expertPlus / m.total) * 100)) : 0
+  return { pct, ready: pct >= 90, expertPlus }
+}
+
 // ── Spell sort value ──────────────────────────────────────────────────────────
 
 function spellSortValue(m: MemberSpellTiers, key: SpellSortKey): string | number {
   if (key === 'rank')  return m.rank_id ?? 9999
   if (key === 'name')  return m.name.toLowerCase()
   if (key === 'total') return m.total
+  if (key === 'ready') return spellRaidReadiness(m).pct
   return m.tiers[key] ?? 0
 }
 
@@ -109,6 +120,9 @@ export function GuildSpellCheckTab({ data, filter, hiddenRanks, myChars }: Guild
             <SortTh sortKey="total" active={sortKey} dir={sortDir} onSort={handleSort} className={`${TH_CLS} text-right`}>
               Total
             </SortTh>
+            <SortTh sortKey="ready" active={sortKey} dir={sortDir} onSort={handleSort} className={`${TH_CLS} text-center`}>
+              Ready
+            </SortTh>
           </tr>
         </thead>
         <tbody>
@@ -149,6 +163,21 @@ export function GuildSpellCheckTab({ data, filter, hiddenRanks, myChars }: Guild
               <td className={`${TD_CLS} text-right font-semibold text-text`}>
                 {m.total}
               </td>
+              {(() => {
+                const { pct, ready, expertPlus } = spellRaidReadiness(m)
+                if (m.total === 0) {
+                  return <td className={`${TD_CLS} text-center text-text-muted`}>—</td>
+                }
+                return (
+                  <td
+                    className={`${TD_CLS} text-center font-bold`}
+                    style={{ color: ready ? 'var(--success)' : 'var(--danger)' }}
+                    title={`${pct}% at Expert+ (${expertPlus}/${m.total}) — 90% required`}
+                  >
+                    {ready ? '✓' : '✗'}
+                  </td>
+                )
+              })()}
             </tr>
           ))}
         </tbody>
