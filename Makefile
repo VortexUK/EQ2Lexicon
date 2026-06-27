@@ -26,12 +26,12 @@ install-prod:
 dev:
 	@echo "Starting backend on :8000 and frontend dev server on :5173 ..."
 	@trap 'kill 0' INT; \
-	uv run uvicorn web.app:app --reload --port 8000 & \
+	uv run uvicorn backend.server.app:app --reload --reload-dir backend --port 8000 & \
 	(cd frontend && npm run dev) & \
 	wait
 
 web:
-	uv run uvicorn web.app:app --reload --port 8000
+	uv run uvicorn backend.server.app:app --reload --reload-dir backend --port 8000
 
 bot:
 	uv run python main.py

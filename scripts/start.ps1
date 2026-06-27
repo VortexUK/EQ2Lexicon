@@ -28,7 +28,7 @@ $Root = Split-Path $PSScriptRoot -Parent
 function Start-Backend {
     Write-Host "Starting backend on http://localhost:8000 ..." -ForegroundColor Cyan
     Start-Process powershell -ArgumentList "-NoExit", "-Command",
-        "cd '$Root'; uv run uvicorn web.app:app --reload --port 8000"
+        "cd '$Root'; uv run uvicorn backend.server.app:app --reload --reload-dir backend --port 8000"
 }
 
 function Start-Frontend {

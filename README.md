@@ -131,7 +131,7 @@ Or start each manually in separate terminals:
 
 ```bash
 # Terminal 1 — backend
-python -m uvicorn web.app:app --reload --port 8000
+python -m uvicorn backend.server.app:app --reload --port 8000
 
 # Terminal 2 — frontend dev server
 cd frontend && npm run dev
