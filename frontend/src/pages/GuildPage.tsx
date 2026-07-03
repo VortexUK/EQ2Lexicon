@@ -5,7 +5,7 @@ import { mergeParams, safeSetParams } from '../lib/searchParams'
 import Breadcrumb from '../components/Breadcrumb'
 import { FilterPill } from '../components/FilterPill'
 import { useClaim } from '../hooks/useClaim'
-import { useAuth, discordAvatarUrl } from '../hooks/useAuth'
+import { useAuth, isAdmin, discordAvatarUrl } from '../hooks/useAuth'
 import { Button, Card } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { FreshnessBadge } from '../components/FreshnessBadge'
@@ -730,10 +730,10 @@ export default function GuildPage() {
         </Card>
       )}
 
-      {/* Raid schedule — public view, officer edit; self-contained loading */}
+      {/* Raid schedule — public view, officer/admin edit; self-contained loading */}
       {tab === 'raids' && guildName && (
         <Card className="p-0">
-          <GuildRaidScheduleTab guildName={guildName} isOfficer={isOfficer} />
+          <GuildRaidScheduleTab guildName={guildName} isOfficer={isOfficer || isAdmin(auth)} />
         </Card>
       )}
     </main>

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from backend.server import raid_live
 from backend.server.api.guild import _officer_chars, _validate_guild_name
+from backend.server.auth_deps import is_admin
 from backend.server.core.audit_log import audit_log
 from backend.server.core.text_moderation import contains_blocked_term, sanitize_text
 from backend.server.core.twitch import is_blocked, parse_twitch_login
@@ -182,7 +183,9 @@ async def put_raid_schedule(guild_name: str, body: RaidScheduleInput, request: R
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    if not await _officer_chars(user["id"], guild_name):
+    # Admins may edit/clear any guild's schedule; otherwise the caller must be an
+    # officer of this guild. (Clearing is a PUT with an empty teams list.)
+    if not is_admin(user) and not await _officer_chars(user["id"], guild_name):
         raise HTTPException(status_code=403, detail="Officer access required")
 
     if len(body.teams) > _MAX_TEAMS:
