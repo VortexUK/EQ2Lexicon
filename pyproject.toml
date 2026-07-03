@@ -28,6 +28,11 @@ dependencies = [
     # raid-strategies feature. Used by scripts/dev/scrape_eq2i_raids.py
     # and backend/census/wikitext_md.py (the wikitext→markdown converter).
     "mwparserfromhell>=0.6.0",
+    # Profanity screen for officer-supplied free text (raid team names/labels)
+    # and Twitch logins. Ships its own maintained wordlist + leetspeak variants
+    # so we don't hand-curate a slur list in the repo. See
+    # backend/server/core/text_moderation.py.
+    "better-profanity>=0.7.0",
 ]
 
 [dependency-groups]

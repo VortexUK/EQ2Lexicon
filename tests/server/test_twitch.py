@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
+import pytest
+from better_profanity import profanity
+
 from backend.server.core.twitch import is_blocked, parse_twitch_login
+
+_SENTINEL = "zzsentinelzz"
+
+
+@pytest.fixture(autouse=True)
+def _sentinel_word():
+    profanity.add_censor_words([_SENTINEL])
+    yield
+    profanity.load_censor_words()  # reset to the default wordlist
 
 
 def test_parse_accepts_twitch_channel_urls():
@@ -23,7 +35,7 @@ def test_parse_rejects_non_twitch_or_malformed():
     assert parse_twitch_login("https://evil.com/twitch.tv/foobar") is None
 
 
-def test_is_blocked_matches_the_blocklist_substring():
+def test_is_blocked_screens_the_login():
     assert is_blocked("cleanchannel") is None
-    assert is_blocked("pornstreamer") == "porn"  # substring hit
-    assert is_blocked("PORNguy") == "porn"  # case-insensitive
+    assert is_blocked(_SENTINEL) == _SENTINEL
+    assert is_blocked(_SENTINEL.upper()) == _SENTINEL  # case-insensitive

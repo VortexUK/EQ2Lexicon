@@ -14,12 +14,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import itsdangerous
 import pytest
+from better_profanity import profanity
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.db import init_db
 from backend.server.db import raid_schedule as rs
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
+
+# A neutral sentinel word standing in for profanity, so no real slurs live in the
+# repo. Injected into the shared better-profanity set for the blocklist tests.
+_SENTINEL = "zzsentinelzz"
+
+
+@pytest.fixture
+def sentinel_profanity():
+    profanity.add_censor_words([_SENTINEL])
+    yield _SENTINEL
+    profanity.load_censor_words()  # reset to the default wordlist
 
 
 # ---------------------------------------------------------------------------
@@ -200,9 +212,9 @@ async def test_put_rejects_non_twitch_url(app):
     rep.assert_not_awaited()
 
 
-async def test_put_rejects_blocklisted_twitch_and_reports(app):
+async def test_put_rejects_blocklisted_twitch_and_reports(app, sentinel_profanity):
     body = _valid_body()
-    body["teams"][0]["twitch_url"] = "https://twitch.tv/pornstreamer"
+    body["teams"][0]["twitch_url"] = f"https://twitch.tv/{sentinel_profanity}"
     r, rep, audit = await _put(app, body)
     assert r.status_code == 400
     rep.assert_not_awaited()
@@ -210,9 +222,9 @@ async def test_put_rejects_blocklisted_twitch_and_reports(app):
     assert audit.call_args.args[0] == "suspicious_twitch_url"
 
 
-async def test_put_rejects_blocklisted_team_name_and_reports(app):
+async def test_put_rejects_blocklisted_team_name_and_reports(app, sentinel_profanity):
     body = _valid_body()
-    body["teams"][0]["name"] = "P0rn Squad"  # leetspeak evasion
+    body["teams"][0]["name"] = f"{sentinel_profanity} Squad"
     r, rep, audit = await _put(app, body)
     assert r.status_code == 400
     rep.assert_not_awaited()
@@ -221,9 +233,9 @@ async def test_put_rejects_blocklisted_team_name_and_reports(app):
     assert audit.call_args.kwargs["field"] == "team_name"
 
 
-async def test_put_rejects_blocklisted_raid_label_and_reports(app):
+async def test_put_rejects_blocklisted_raid_label_and_reports(app, sentinel_profanity):
     body = _valid_body()
-    body["teams"][0]["raids"][0]["label"] = "f a g g o t"  # spacing evasion
+    body["teams"][0]["raids"][0]["label"] = f"raid {sentinel_profanity}"
     r, rep, audit = await _put(app, body)
     assert r.status_code == 400
     rep.assert_not_awaited()
