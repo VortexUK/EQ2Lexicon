@@ -11,7 +11,8 @@
  * defensive-react-mirror]] memory for context.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { normaliseBossName, safeSetParams } from './RankingsPage'
+import { normaliseBossName } from './RankingsPage'
+import { safeSetParams } from '../lib/searchParams'
 
 // ── normaliseBossName ────────────────────────────────────────────────────────
 

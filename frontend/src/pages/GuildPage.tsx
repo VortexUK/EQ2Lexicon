@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLazyFetch } from '../hooks/useFetch'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { mergeParams, safeSetParams } from '../lib/searchParams'
 import Breadcrumb from '../components/Breadcrumb'
 import { FilterPill } from '../components/FilterPill'
 import { useClaim } from '../hooks/useClaim'
@@ -421,11 +422,14 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'claims', 'watch']
+
 export default function GuildPage() {
   const { guildName } = useParams<{ guildName: string }>()
   const claimState = useClaim()
   const auth = useAuth()
   const { subscribe } = useCensusStream()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const myChars = useMemo<Set<string>>(() => {
     if (claimState.status !== 'ready') return new Set()
@@ -434,7 +438,11 @@ export default function GuildPage() {
 
   const [isOfficer, setIsOfficer] = useState(false)
 
-  const [tab, setTab] = useState<Tab>('roster')
+  // Deep-linkable sub-tab: ?tab=spells|adorns|claims|watch (roster is default).
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get('tab')
+    return GUILD_TABS.includes(t as Tab) ? (t as Tab) : 'roster'
+  })
   const [filter, setFilter] = useState('')
   const [hiddenRanks, setHiddenRanks] = useState<Set<string>>(new Set())
 
@@ -518,9 +526,30 @@ export default function GuildPage() {
   function switchTab(t: Tab) {
     setTab(t)
     setFilter('')
-    if (t === 'spells') loadSpells()
-    if (t === 'adorns') loadAdorns()
   }
+
+  // Mirror the sub-tab to the URL for deep-linking (state is source of truth).
+  useEffect(() => {
+    safeSetParams(setSearchParams as (...a: unknown[]) => void, [
+      mergeParams({ tab: tab === 'roster' ? null : tab }),
+      { replace: true },
+    ])
+  }, [tab, setSearchParams])
+
+  // Fire the lazy spell/adorn fetch when that tab is active — covers both a
+  // click (switchTab sets `tab`) and a deep-link landing straight on it. Both
+  // loaders are idempotent (guard on existing/in-flight data).
+  useEffect(() => {
+    if (tab === 'spells') loadSpells()
+    else if (tab === 'adorns') loadAdorns()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, guildName])
+
+  // A non-officer can't see the officer-only tabs — fall back to roster if a
+  // deep link points at one (isOfficer resolves async after mount).
+  useEffect(() => {
+    if (!isOfficer && (tab === 'claims' || tab === 'watch')) setTab('roster')
+  }, [isOfficer, tab])
 
   const currentDiscordId = auth.status === 'authenticated' ? auth.user.id : ''
 
