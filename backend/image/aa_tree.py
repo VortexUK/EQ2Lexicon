@@ -186,6 +186,41 @@ def load_tree_index() -> dict[int, dict[str, str]]:
     return out
 
 
+@lru_cache(maxsize=256)
+def tree_node_costs(tree_id: int) -> dict[int, int]:
+    """Return {node_id: pointspertier} for a tree — the per-tier AA point cost of
+    each node (most are 1, some endline nodes are 2). Used to compute a
+    character's *point* spend (tier × cost) rather than a bare tier count.
+    Missing/unparseable tree → empty dict (callers default to 1). Cached; tree
+    JSON is static reference data (restart to refresh)."""
+    path = _TREES_DIR / f"{tree_id}.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        nodes = (data.get("alternateadvancement_list") or [{}])[0].get("alternateadvancementnode_list") or []
+        return {int(n["nodeid"]): int(n.get("pointspertier", 1)) for n in nodes if "nodeid" in n}
+    except Exception:
+        _log.exception("[aa-tree] Failed to load node costs %s", path.name)
+        return {}
+
+
+@lru_cache(maxsize=256)
+def tree_max_points(tree_id: int) -> int:
+    """Return the tree's fully-maxed point total: Σ (maxtier × pointspertier) over
+    its nodes. Used to derive the tradeskill AA cap from the data. Cached."""
+    path = _TREES_DIR / f"{tree_id}.json"
+    if not path.exists():
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        nodes = (data.get("alternateadvancement_list") or [{}])[0].get("alternateadvancementnode_list") or []
+        return sum(int(n.get("maxtier", 0)) * int(n.get("pointspertier", 1)) for n in nodes)
+    except Exception:
+        _log.exception("[aa-tree] Failed to compute max points %s", path.name)
+        return 0
+
+
 def render_aa_tree(tree_id: int, aa_data: dict[int, int] | None = None) -> Image.Image:
     tree_path = DATA_DIR / "trees" / f"{tree_id}.json"
     with tree_path.open(encoding="utf-8") as f:

@@ -49,6 +49,28 @@ def _make_char_aas_response(name: str = "Sihtric") -> CharAAsResponse:
     )
 
 
+def test_build_trees_applies_pointspertier() -> None:
+    """A node's spent points = tier × pointspertier. Bladedance (tree 1) costs
+    2 points/tier — one tier spent must count as 2, not 1."""
+    from backend.census.models import NodeAA
+    from backend.image.aa_tree import tree_node_costs
+    from backend.server.api.aa import _aas_response_from_census, _build_trees
+
+    node_id = 554687586  # Bladedance, tree 1, pointspertier=2
+    assert tree_node_costs(1).get(node_id) == 2, "tree data no longer has a 2-point node here"
+
+    trees = _build_trees([NodeAA(node_id=node_id, tree_id=1, tier=1)])
+    assert len(trees) == 1
+    assert trees[0].total_spent == 2  # tier(1) × pointspertier(2)
+
+    aas = MagicMock()
+    aas.character_name = "Test"
+    aas.aa_list = [NodeAA(node_id=node_id, tree_id=1, tier=1)]
+    aas.profiles = []
+    resp = _aas_response_from_census(aas)
+    assert resp.total_spent == 2  # global total is point-accurate too
+
+
 def _make_census_aas_mock(name: str = "Sihtric") -> MagicMock:
     """Return a mock CharacterAAs (Census model) with minimal aa_list."""
     node = MagicMock()
@@ -109,6 +131,32 @@ class TestGetAaConfig:
         body = r.json()
         assert body["aa_cap"] == 320
         assert "class" in body["unlocked_tree_types"]
+
+    async def test_tradeskill_cap_derived_from_unlocked_trees(self, app, tmp_path) -> None:
+        """tradeskill_aa_cap = Σ max points of the UNLOCKED tradeskill trees, derived
+        from the tree data. Adventure aa_cap is unaffected by tradeskill."""
+        limits_file = tmp_path / "aa_limits.json"
+        limits_file.write_text(
+            json.dumps(
+                {
+                    "EoF": {"aa_cap": 100, "unlocked_trees": ["class", "subclass", "tradeskill"]},
+                    "AoD": {"aa_cap": 320, "unlocked_trees": ["class", "tradeskill", "tradeskill_general"]},
+                }
+            ),
+            encoding="utf-8",
+        )
+        for xpac, expected_ts, expected_adv in [("EoF", 45, 100), ("AoD", 116, 320)]:
+            mock_server = MagicMock()
+            mock_server.current_xpac = xpac
+            with (
+                patch("backend.server.api.aa._LIMITS", limits_file),
+                patch("backend.server.api.aa.current_server", return_value=mock_server),
+            ):
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                    r = await client.get("/api/aa/config")
+            body = r.json()
+            assert body["tradeskill_aa_cap"] == expected_ts, xpac
+            assert body["aa_cap"] == expected_adv, xpac  # adventure cap unchanged
 
     async def test_limits_file_present_unknown_xpac_returns_zero_defaults(self, app, tmp_path) -> None:
         """When aa_limits.json exists but xpac key is absent, zeros are returned."""

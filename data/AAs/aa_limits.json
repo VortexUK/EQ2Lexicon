@@ -16,32 +16,32 @@
   },
   "Echoes of Faydwer": {
     "aa_cap": 100,
-    "notes": "Subclass (Expertise) trees added — one per class",
-    "unlocked_trees": ["class", "subclass"]
+    "notes": "Subclass (Expertise) trees added — one per class; tradeskill AA tree added (own 45-pt cap, separate from the adventure cap)",
+    "unlocked_trees": ["class", "subclass", "tradeskill"]
   },
   "Rise of Kunark": {
     "aa_cap": 140,
     "notes": "AA cap increased, no new tree types",
-    "unlocked_trees": ["class", "subclass"]
+    "unlocked_trees": ["class", "subclass", "tradeskill"]
   },
   "The Shadow Odyssey": {
     "aa_cap": 200,
     "notes": "Shadows tree added — one per class, cross-archetype nodes",
-    "unlocked_trees": ["class", "subclass", "shadows"]
+    "unlocked_trees": ["class", "subclass", "shadows", "tradeskill"]
   },
   "Sentinel's Fate": {
     "aa_cap": 250,
     "notes": "AA cap increased, no new tree types",
-    "unlocked_trees": ["class", "subclass", "shadows"]
+    "unlocked_trees": ["class", "subclass", "shadows", "tradeskill"]
   },
   "Destiny of Velious": {
     "aa_cap": 300,
     "notes": "Heroic AA tree added — one per archetype",
-    "unlocked_trees": ["class", "subclass", "shadows", "heroic"]
+    "unlocked_trees": ["class", "subclass", "shadows", "heroic", "tradeskill"]
   },
   "Age of Discovery": {
     "aa_cap": 320,
-    "notes": "Tradeskill AA trees added; Beastlord class introduced with Warder trees",
+    "notes": "General tradeskill AA tree added; Beastlord class introduced with Warder trees",
     "unlocked_trees": ["class", "subclass", "shadows", "heroic", "tradeskill", "tradeskill_general", "warder"]
   },
   "Chains of Eternity": {
