@@ -199,6 +199,10 @@ async def refresh() -> None:
 
 async def poll_loop() -> None:
     """Background task: refresh now, then every _POLL_INTERVAL. Never raises."""
+    if is_configured():
+        _log.info("[raid-live] Twitch live-check enabled")
+    else:
+        _log.info("[raid-live] Twitch live-check disabled (no TWITCH_CLIENT_ID/SECRET)")
     while True:
         try:
             await refresh()
