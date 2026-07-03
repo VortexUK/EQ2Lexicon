@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import Breadcrumb from '../components/Breadcrumb'
 import { Card, SectionLabel } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
@@ -8,6 +8,7 @@ import { FreshnessBadge } from '../components/FreshnessBadge'
 import { AAsTab } from './CharacterAAsTab'
 import { SpellsTab } from './CharacterSpellsTab'
 import { useCensusStream } from '../hooks/useCensusStream'
+import { mergeParams, safeSetParams } from '../lib/searchParams'
 import { useServer } from '../hooks/useServer'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -565,11 +566,25 @@ export default function CharacterPage() {
 
 type ActiveTab = 'equipment' | 'aas' | 'spells'
 
+const TABS: readonly ActiveTab[] = ['equipment', 'aas', 'spells']
+
 function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxLevel: number; ratingConfig: RatingConfig }) {
   const bySlot = buildSlotMap(char.equipment)
   const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
   const [hoveredStat, setHoveredStat] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('equipment')
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Deep-linkable tab: ?tab=aas|spells (equipment is the default, no param).
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    const t = searchParams.get('tab')
+    return TABS.includes(t as ActiveTab) ? (t as ActiveTab) : 'equipment'
+  })
+  // Mirror the tab to the URL (React state is source of truth; URL best-effort).
+  // Off the AA tab, drop the AA-only params so links stay clean.
+  useEffect(() => {
+    const updates: Record<string, string | null> = { tab: activeTab === 'equipment' ? null : activeTab }
+    if (activeTab !== 'aas') { updates.profile = null; updates.tree = null }
+    safeSetParams(setSearchParams as (...a: unknown[]) => void, [mergeParams(updates), { replace: true }])
+  }, [activeTab, setSearchParams])
   // Tracks when background prefetch completes so highlights + gear rating re-evaluate.
   const [itemsReady, setItemsReady] = useState(false)
 

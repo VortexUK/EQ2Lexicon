@@ -1,9 +1,11 @@
-﻿import { useEffect, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AATree, AATreeData } from '../components/AATree'
 import { Card, SectionLabel } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { StatGroup, StatRow } from './CharacterPage'
 import { partitionAASpend, TRADESKILL_TYPES } from './aaSpend'
+import { mergeParams, safeSetParams } from '../lib/searchParams'
 
 // ── AA types ─────────────────────────────────────────────────────────────────
 
@@ -160,17 +162,53 @@ function isProfileIndex(p: ActiveProfile): p is number {
   return typeof p === 'number'
 }
 
+// The trees shown for a given profile, filtered to the xpac-unlocked types.
+function visibleTreesFor(charAAs: CharAAsResponse, config: AAConfig, profile: ActiveProfile): CharAATree[] {
+  const unlocked = new Set(config.unlocked_tree_types)
+  const base = isProfileIndex(profile) ? (charAAs.profiles[profile]?.trees ?? []) : charAAs.trees
+  return base.filter(t => unlocked.size === 0 || unlocked.has(t.tree_type))
+}
+
+// Deep-link resolution: URL ?tree= is a tree_type, ?profile= is a profile name.
+function resolveTreeId(want: string | null, trees: CharAATree[]): number | null {
+  return want ? (trees.find(t => t.tree_type === want)?.tree_id ?? null) : null
+}
+function resolveProfile(want: string | null, profiles: CharAAProfile[]): ActiveProfile {
+  if (!want || want === 'current') return 'current'
+  const idx = profiles.findIndex(p => p.name === want)
+  return idx >= 0 ? idx : 'current'
+}
+
 export function AAsTab({ charName, aaCount }: { charName: string; aaCount: number }) {
   const cacheKey = charName.toLowerCase()
   const cached   = aaCache.get(cacheKey)
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Deep-link targets captured once at mount (URL is best-effort mirror after).
+  const deepLink = useRef({ tree: searchParams.get('tree'), profile: searchParams.get('profile') })
 
   const [state, setState] = useState<AATabState>(
     cached ? { status: 'ok', ...cached } : { status: 'loading' }
   )
   const [selectedTreeId, setSelectedTreeId]     = useState<number | null>(
-    cached ? (cached.charAAs.trees[0]?.tree_id ?? null) : null
+    cached
+      ? (resolveTreeId(deepLink.current.tree, cached.charAAs.trees) ?? cached.charAAs.trees[0]?.tree_id ?? null)
+      : null
   )
-  const [activeProfile, setActiveProfile] = useState<ActiveProfile>('current')
+  const [activeProfile, setActiveProfile] = useState<ActiveProfile>(
+    cached ? resolveProfile(deepLink.current.profile, cached.charAAs.profiles) : 'current'
+  )
+
+  // Mirror active profile + tree to the URL (state is source of truth). The AA
+  // tab is the only place this component mounts, so ?profile/?tree only appear
+  // there; CharacterView clears them when you leave the tab.
+  useEffect(() => {
+    if (state.status !== 'ok') return
+    const trees = visibleTreesFor(state.charAAs, state.config, activeProfile)
+    const tree = trees.find(t => t.tree_id === selectedTreeId)?.tree_type ?? null
+    const profile = isProfileIndex(activeProfile) ? (state.charAAs.profiles[activeProfile]?.name ?? null) : null
+    safeSetParams(setSearchParams as (...a: unknown[]) => void, [mergeParams({ profile, tree }), { replace: true }])
+  }, [state, activeProfile, selectedTreeId, setSearchParams])
 
   useEffect(() => {
     // Already cached — nothing to fetch
@@ -215,7 +253,9 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
         const entry: AACacheEntry = { charAAs: { ...charAAs, trees: visibleTrees }, config, treeData }
         aaCache.set(cacheKey, entry)
         setState({ status: 'ok', ...entry })
-        setSelectedTreeId(prev => prev ?? (visibleTrees[0]?.tree_id ?? null))
+        // Apply any deep-linked profile/tree now that the data is loaded.
+        setActiveProfile(prev => (prev === 'current' ? resolveProfile(deepLink.current.profile, charAAs.profiles) : prev))
+        setSelectedTreeId(prev => prev ?? resolveTreeId(deepLink.current.tree, visibleTrees) ?? visibleTrees[0]?.tree_id ?? null)
       } catch (err) {
         if (!cancelled) setState({ status: 'error', message: String(err) })
       }
@@ -234,18 +274,9 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
 
   const { charAAs, config, treeData } = state
 
-  // Determine which set of trees (current or a profile) to display.
-  // Profile trees are filtered to the same unlocked types as the current view.
-  const unlocked = new Set(config.unlocked_tree_types)
-  const profileTrees: CharAATree[] | null =
-    isProfileIndex(activeProfile)
-      ? (charAAs.profiles[activeProfile]?.trees ?? null)
-      : null
-
-  // Active tree list: profile trees (filtered) or current trees (already filtered during load).
-  const visibleTrees: CharAATree[] = profileTrees
-    ? profileTrees.filter(t => unlocked.size === 0 || unlocked.has(t.tree_type))
-    : charAAs.trees
+  // Trees to display for the active profile (current or a saved profile),
+  // filtered to the xpac-unlocked types.
+  const visibleTrees: CharAATree[] = visibleTreesFor(charAAs, config, activeProfile)
 
   const activeCt = visibleTrees.find(t => t.tree_id === selectedTreeId) ?? visibleTrees[0]
   const activeTd = activeCt ? treeData.get(activeCt.tree_id) : undefined
