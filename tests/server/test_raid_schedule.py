@@ -192,3 +192,25 @@ async def test_put_rejects_blocklisted_twitch_and_reports(app):
     rep.assert_not_awaited()
     audit.assert_called_once()
     assert audit.call_args.args[0] == "suspicious_twitch_url"
+
+
+async def test_put_rejects_blocklisted_team_name_and_reports(app):
+    body = _valid_body()
+    body["teams"][0]["name"] = "P0rn Squad"  # leetspeak evasion
+    r, rep, audit = await _put(app, body)
+    assert r.status_code == 400
+    rep.assert_not_awaited()
+    audit.assert_called_once()
+    assert audit.call_args.args[0] == "suspicious_raid_text"
+    assert audit.call_args.kwargs["field"] == "team_name"
+
+
+async def test_put_rejects_blocklisted_raid_label_and_reports(app):
+    body = _valid_body()
+    body["teams"][0]["raids"][0]["label"] = "f a g g o t"  # spacing evasion
+    r, rep, audit = await _put(app, body)
+    assert r.status_code == 400
+    rep.assert_not_awaited()
+    audit.assert_called_once()
+    assert audit.call_args.args[0] == "suspicious_raid_text"
+    assert audit.call_args.kwargs["field"] == "raid_label"
