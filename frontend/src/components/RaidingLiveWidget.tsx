@@ -15,12 +15,16 @@ const POLL_MS = 60_000
 /**
  * Site-wide "Raiding live" indicator: a red "● N live" pill in the header that
  * expands to a dropdown of guilds currently within a raid window AND live on
- * Twitch (per the raid_live poller). Renders nothing when nobody is live.
+ * Twitch (per the raid_live poller). Auto-expands when a raid goes live; the
+ * user can minimise it back to the pill. Renders nothing when nobody is live.
  */
 export default function RaidingLiveWidget() {
   const [live, setLive] = useState<LiveEntry[]>([])
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  // Whether we've already auto-expanded for the current live session, so a user
+  // who minimises the dropdown isn't re-opened on the next poll.
+  const autoOpenedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -36,6 +40,18 @@ export default function RaidingLiveWidget() {
     const id = setInterval(poll, POLL_MS)
     return () => { cancelled = true; clearInterval(id) }
   }, [])
+
+  // Auto-expand once when a raid goes live; reset when the list empties so the
+  // next live session expands again. The user can still minimise in between.
+  useEffect(() => {
+    if (live.length > 0 && !autoOpenedRef.current) {
+      autoOpenedRef.current = true
+      setOpen(true)
+    } else if (live.length === 0 && autoOpenedRef.current) {
+      autoOpenedRef.current = false
+      setOpen(false)
+    }
+  }, [live])
 
   useEffect(() => {
     if (!open) return
@@ -53,11 +69,13 @@ export default function RaidingLiveWidget() {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        title="Guilds raiding live right now"
+        title={open ? 'Minimise' : 'Guilds raiding live right now'}
+        aria-expanded={open}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-danger/15 border border-danger/40 text-[0.78rem] font-semibold text-danger cursor-pointer appearance-none"
       >
         <span className="w-2 h-2 rounded-full bg-danger animate-pulse" />
         {live.length} live
+        <span className={`text-[0.6rem] transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
       </button>
 
       {open && (
