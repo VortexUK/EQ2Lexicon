@@ -661,7 +661,13 @@ async def test_resolve_snapshots_backfills_missing_ilvl():
     client.get_character = AsyncMock(return_value=object())  # opaque; _build_char_response is patched
     client.close = AsyncMock()
 
-    filled = SimpleNamespace(level=92, guild_name="Exordium", cls="Wizard", ilvl=355.0)
+    # Real CharacterResponse is pydantic (has model_dump); the ilvl-backfill now
+    # writes it through to census_store, so the fake needs model_dump too.
+    class _Filled(SimpleNamespace):
+        def model_dump(self):
+            return dict(self.__dict__)
+
+    filled = _Filled(level=92, guild_name="Exordium", cls="Wizard", ilvl=355.0)
 
     with (
         patch.object(parses_mod, "character_cache", fake_cache),

@@ -16,6 +16,7 @@ import time
 
 from fastapi import BackgroundTasks, HTTPException, Request
 
+from backend.census import store as census_store
 from backend.server.api.parses import router
 from backend.server.api.parses.list import _classify_zone
 from backend.server.api.parses.models import (
@@ -81,16 +82,20 @@ async def _resolve_uploader_guild_async(
     uploader: str,
     world: str | None = None,
 ) -> str | None | _CensusUnavailable:
-    """Cache-aware guild lookup for the upload path. Order of attempts:
+    """Cache-first guild lookup for the upload path. Order of attempts:
 
       1. character_cache hit on the uploader's character → return its
          guild_name (zero Census traffic).
-      2. Miss → single-character Census call via get_character_guild_name
+      2. Miss → durable census_store hit → return its guild_name (zero
+         Census). The store never deletes, so an uploader resolved once is
+         served from here forever; and if they're in the store the guild was
+         already loaded, so its members are too and combatant resolution finds
+         them without a prewarm.
+      3. Never-seen → single-character Census call via get_character_guild_name
          to learn the guild name for this upload.
-      3. If we learned a guild, fire-and-forget _fetch_and_cache_guild()
-         to pull the full roster into character_cache so the rest of the
-         raid hits step 1. Thundering-herd guard inside the helper
-         dedupes concurrent prewarms for the same guild.
+      4. If we learned a guild that way, fire-and-forget _fetch_and_cache_guild()
+         to pull + persist the full roster so the rest of the raid hits step 1/2.
+         Thundering-herd guard inside the helper dedupes concurrent prewarms.
 
     ``world`` overrides the EQ2_WORLD env-var default — the plugin
     (v0.1.10+) detects the server from its log file path and stamps it
@@ -119,6 +124,17 @@ async def _resolve_uploader_guild_async(
     cached, _ = character_cache.get_stale(cache_key)
     if cached is not None:
         return getattr(cached, "guild_name", None) or None
+
+    # Durable store — no Census. A known uploader (from any prior path) is
+    # served from here forever; skip the prewarm since their roster is already
+    # persisted and combatant resolution will hit the store.
+    store_conn = census_store.init_db(census_store.DB_PATH)
+    try:
+        rec = census_store.get_character(store_conn, uploader, effective_world)
+    finally:
+        store_conn.close()
+    if rec is not None:
+        return rec["data"].get("guild_name") or None
 
     try:
         async with shared_census_client() as client:
@@ -156,65 +172,94 @@ async def _resolve_combatant_snapshots(
     world: str | None = None,
 ) -> dict[str, CombatantSnapshot]:
     """Freeze each named player's identity (level / guild / class) at ingest
-    time, reusing the website's character_cache.
+    time. Cache-first against the durable store; Census only for never-seen
+    names.
 
     Per-name strategy, in order:
       1. character_cache hit → snapshot it (zero Census traffic).
-      2. Miss → one Census call (get_character_guild_name) to find the
-         character's guild, then *await* a full roster fetch which caches
-         every guildmate. Re-check the cache for this character.
+      2. Miss → durable census_store hit → snapshot the last-known data
+         (zero Census). The store never deletes, so a character resolved once
+         (via the character page, a guild load, or a prior parse) is served
+         from here forever.
+      3. Never-seen (absent from both) → one Census call
+         (get_character_guild_name) to find the guild, then *await* a full
+         roster fetch which caches + persists every guildmate; re-check cache
+         then store.
+      4. iLvl backfill: a guild-roster resolve sometimes has class/level but no
+         equipment, leaving ilvl None. Only then do one get_character to fill it
+         — and write the result through to census_store so it's never re-fetched.
 
-    Because a raid is overwhelmingly one guild, the first miss warms the
-    whole roster, so every subsequent name is a step-1 hit — one guild
-    fetch covers the parse. Unguilded players / pugs / Census errors leave
-    that name absent from the result (combatant row stores NULLs).
-
-    Never raises — snapshot resolution is best-effort and must not block a
-    valid upload.
+    Because a raid is overwhelmingly one guild, the first never-seen miss warms
+    the whole roster, so every subsequent name is a step-1/2 hit. Unguilded pugs
+    / Census errors leave that name absent from the result (combatant row stores
+    NULLs). Never raises — best-effort, must not block a valid upload.
     """
     # Same sanitisation as _resolve_uploader_guild_async — a malformed
     # logger_server can't end up in a Census URL.
     effective_world = _sanitize_world(world) or _WORLD
     world_lower = effective_world.lower()
     out: dict[str, CombatantSnapshot] = {}
-    async with shared_census_client() as client:
-        for name in names:
-            cache_key = f"{name.lower()}:{world_lower}"
-            cached, _ = character_cache.get_stale(cache_key)
-            if cached is None:
-                try:
-                    guild_name = await client.get_character_guild_name(name, effective_world)
-                except Exception as exc:
-                    _log.warning("Combatant guild lookup failed for %r: %s", name, exc)
-                    guild_name = None
-                if guild_name:
-                    # Awaited (not fire-and-forget) so the roster is warm for
-                    # the remaining names. The thundering-herd guard in
-                    # _fetch_and_cache_guild dedupes against the uploader's
-                    # own prewarm for the same guild.
-                    await _prewarm_guild_silently(guild_name)
-                    cached, _ = character_cache.get_stale(cache_key)
-            # The guild-roster resolve sometimes returns a member's class/level
-            # but no equipment, so the cached ilvl is None even for a real
-            # player. A direct character fetch returns equipment — fill the ilvl
-            # so they aren't missing it on the leaderboard. Bounded: only fires
-            # for resolved players still lacking an ilvl.
-            if cached is not None and getattr(cached, "cls", None) and getattr(cached, "ilvl", None) is None:
-                try:
-                    char = await client.get_character(name, effective_world)
-                except Exception as exc:
-                    _log.warning("Combatant ilvl backfill failed for %r: %s", name, exc)
-                    char = None
-                if char is not None:
-                    from backend.server.api.character import (
-                        _build_char_response,  # noqa: PLC0415 — local, avoid circular import
-                    )
+    store_conn = census_store.init_db(census_store.DB_PATH)
+    try:
+        async with shared_census_client() as client:
+            for name in names:
+                cache_key = f"{name.lower()}:{world_lower}"
+                snap: CombatantSnapshot | None = None
 
-                    resp = _build_char_response(char)
-                    character_cache.set(cache_key, resp)
-                    cached = resp
-            if cached is not None:
-                out[name] = _snapshot_from_cache(cached)
+                cached, _ = character_cache.get_stale(cache_key)
+                if cached is not None:
+                    snap = _snapshot_from_cache(cached)
+                else:
+                    # Durable store — no Census.
+                    rec = census_store.get_character(store_conn, name, effective_world)
+                    if rec is not None:
+                        snap = _snapshot_from_store_data(rec["data"])
+                    else:
+                        # Never seen anywhere → learn the guild, then warm +
+                        # persist the whole roster (awaited so the remaining
+                        # names hit the cache/store). The thundering-herd guard
+                        # in _fetch_and_cache_guild dedupes against the
+                        # uploader's own prewarm for the same guild.
+                        try:
+                            guild_name = await client.get_character_guild_name(name, effective_world)
+                        except Exception as exc:
+                            _log.warning("Combatant guild lookup failed for %r: %s", name, exc)
+                            guild_name = None
+                        if guild_name:
+                            await _prewarm_guild_silently(guild_name)
+                            cached, _ = character_cache.get_stale(cache_key)
+                            if cached is not None:
+                                snap = _snapshot_from_cache(cached)
+                            else:
+                                rec = census_store.get_character(store_conn, name, effective_world)
+                                if rec is not None:
+                                    snap = _snapshot_from_store_data(rec["data"])
+
+                # iLvl backfill — only when we have a class but still no ilvl
+                # (neither cache nor store had equipment). One Census fetch,
+                # written through to the store so it's durable.
+                if snap is not None and snap.cls and snap.ilvl is None:
+                    try:
+                        char = await client.get_character(name, effective_world)
+                    except Exception as exc:
+                        _log.warning("Combatant ilvl backfill failed for %r: %s", name, exc)
+                        char = None
+                    if char is not None:
+                        from backend.server.api.character import (
+                            _build_char_response,  # noqa: PLC0415 — local, avoid circular import
+                        )
+
+                        resp = _build_char_response(char)
+                        character_cache.set(cache_key, resp)
+                        census_store.upsert_character(
+                            store_conn, name, effective_world, resp.model_dump(), resolved=True
+                        )
+                        snap = _snapshot_from_cache(resp)
+
+                if snap is not None:
+                    out[name] = snap
+    finally:
+        store_conn.close()
     return out
 
 
@@ -228,18 +273,37 @@ def _snapshot_from_cache(cached: object) -> CombatantSnapshot:
     )
 
 
+def _snapshot_from_store_data(data: dict) -> CombatantSnapshot:
+    """Build a CombatantSnapshot from a census_store record's ``data`` dict."""
+    return CombatantSnapshot(
+        level=data.get("level"),
+        guild_name=data.get("guild_name"),
+        cls=data.get("cls"),
+        ilvl=data.get("ilvl"),
+    )
+
+
 def _cached_snapshots(names: list[str], world: str | None = None) -> dict[str, CombatantSnapshot]:
-    """Cache-only snapshot lookup for the ingest response path — NO Census
-    calls, so an upload can never block/time out on Census. Whatever is already
-    warm in character_cache is snapshotted now; the rest is filled in by the
-    background task."""
+    """No-Census snapshot lookup for the ingest response path — never calls
+    Census, so an upload can't block/time out on it. Checks the hot in-memory
+    character_cache first, then falls back to the durable census_store (which
+    keeps last-known character data forever). Anything absent from both is left
+    to the background task to resolve."""
     effective_world = _sanitize_world(world) or _WORLD
     world_lower = effective_world.lower()
     out: dict[str, CombatantSnapshot] = {}
-    for name in names:
-        cached, _ = character_cache.get_stale(f"{name.lower()}:{world_lower}")
-        if cached is not None:
-            out[name] = _snapshot_from_cache(cached)
+    store_conn = census_store.init_db(census_store.DB_PATH)
+    try:
+        for name in names:
+            cached, _ = character_cache.get_stale(f"{name.lower()}:{world_lower}")
+            if cached is not None:
+                out[name] = _snapshot_from_cache(cached)
+                continue
+            rec = census_store.get_character(store_conn, name, effective_world)
+            if rec is not None:
+                out[name] = _snapshot_from_store_data(rec["data"])
+    finally:
+        store_conn.close()
     return out
 
 
