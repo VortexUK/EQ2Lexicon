@@ -104,10 +104,11 @@ def _valid_body() -> dict:
     }
 
 
-async def _put(app, body, *, officer=True, cookies=True):
+async def _put(app, body, *, officer=True, admin=False, cookies=True):
     officer_ret = {"sihtric"} if officer else set()
     with (
         patch("backend.server.api.raid_schedule._officer_chars", new=AsyncMock(return_value=officer_ret)),
+        patch("backend.server.api.raid_schedule.is_admin", return_value=admin),
         patch("backend.server.api.raid_schedule.replace_schedule", new=AsyncMock()) as rep,
         patch("backend.server.api.raid_schedule.get_schedule", new=AsyncMock(return_value=[])),
         patch("backend.server.api.raid_schedule.audit_log") as audit,
@@ -137,6 +138,21 @@ async def test_put_requires_auth(app):
 async def test_put_requires_officer(app):
     r, _, _ = await _put(app, _valid_body(), officer=False)
     assert r.status_code == 403
+
+
+async def test_put_allows_admin_who_is_not_an_officer(app):
+    # An admin can edit any guild's schedule even without an officer rank.
+    r, rep, _ = await _put(app, _valid_body(), officer=False, admin=True)
+    assert r.status_code == 200
+    rep.assert_awaited_once()
+
+
+async def test_put_admin_can_clear_schedule(app):
+    # Delete == PUT with an empty teams list; admins may do it for any guild.
+    r, rep, _ = await _put(app, {"teams": []}, officer=False, admin=True)
+    assert r.status_code == 200
+    rep.assert_awaited_once()
+    assert rep.await_args.args[2] == []  # (world, guild, teams, ...)
 
 
 async def test_put_officer_saves_and_converts(app):
@@ -192,3 +208,25 @@ async def test_put_rejects_blocklisted_twitch_and_reports(app):
     rep.assert_not_awaited()
     audit.assert_called_once()
     assert audit.call_args.args[0] == "suspicious_twitch_url"
+
+
+async def test_put_rejects_blocklisted_team_name_and_reports(app):
+    body = _valid_body()
+    body["teams"][0]["name"] = "P0rn Squad"  # leetspeak evasion
+    r, rep, audit = await _put(app, body)
+    assert r.status_code == 400
+    rep.assert_not_awaited()
+    audit.assert_called_once()
+    assert audit.call_args.args[0] == "suspicious_raid_text"
+    assert audit.call_args.kwargs["field"] == "team_name"
+
+
+async def test_put_rejects_blocklisted_raid_label_and_reports(app):
+    body = _valid_body()
+    body["teams"][0]["raids"][0]["label"] = "f a g g o t"  # spacing evasion
+    r, rep, audit = await _put(app, body)
+    assert r.status_code == 400
+    rep.assert_not_awaited()
+    audit.assert_called_once()
+    assert audit.call_args.args[0] == "suspicious_raid_text"
+    assert audit.call_args.kwargs["field"] == "raid_label"

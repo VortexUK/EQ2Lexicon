@@ -16,7 +16,9 @@ from pydantic import BaseModel
 
 from backend.server import raid_live
 from backend.server.api.guild import _officer_chars, _validate_guild_name
+from backend.server.auth_deps import is_admin
 from backend.server.core.audit_log import audit_log
+from backend.server.core.text_moderation import contains_blocked_term, sanitize_text
 from backend.server.core.twitch import is_blocked, parse_twitch_login
 from backend.server.db.raid_schedule import get_schedule, replace_schedule
 from backend.server.server_context import current_world
@@ -28,6 +30,7 @@ router = APIRouter(tags=["guild"])
 _MAX_TEAMS = 4
 _MAX_RAIDS = 4
 _MAX_SPAN_MIN = 300  # 5 hours
+_MAX_TEXT_LEN = 40  # team name + raid label
 _VALID_TZS = available_timezones()  # computed once at import
 
 
@@ -114,8 +117,19 @@ def _slot_to_db(slot: RaidSlotInput) -> dict:
         raise HTTPException(status_code=400, detail="A raid's end time must differ from its start.")
     if span > _MAX_SPAN_MIN:
         raise HTTPException(status_code=400, detail="A raid can be at most 5 hours long.")
-    label = (slot.label or "").strip() or None
+    label = sanitize_text(slot.label, max_len=_MAX_TEXT_LEN) or None
     return {"days": ",".join(str(d) for d in days), "start_min": start, "end_min": end, "label": label}
+
+
+def _screen_text(value: str, *, actor: str, guild: str, field: str) -> None:
+    """Reject + report officer free text that hits the blocklist. No-op if clean."""
+    hit = contains_blocked_term(value)
+    if hit:
+        audit_log("suspicious_raid_text", actor=actor, guild=guild, field=field, value=value, reason=hit)
+        raise HTTPException(
+            status_code=400,
+            detail="That text contains disallowed content and has been reported.",
+        )
 
 
 def _fmt_schedule(teams: list[dict]) -> RaidScheduleResponse:
@@ -169,7 +183,9 @@ async def put_raid_schedule(guild_name: str, body: RaidScheduleInput, request: R
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    if not await _officer_chars(user["id"], guild_name):
+    # Admins may edit/clear any guild's schedule; otherwise the caller must be an
+    # officer of this guild. (Clearing is a PUT with an empty teams list.)
+    if not is_admin(user) and not await _officer_chars(user["id"], guild_name):
         raise HTTPException(status_code=403, detail="Officer access required")
 
     if len(body.teams) > _MAX_TEAMS:
@@ -199,13 +215,19 @@ async def put_raid_schedule(guild_name: str, body: RaidScheduleInput, request: R
                     status_code=400,
                     detail="That stream link contains disallowed content and has been reported.",
                 )
-        name = (team.name or "").strip()[:40] or f"Team {i + 1}"
+        name = sanitize_text(team.name, max_len=_MAX_TEXT_LEN)
+        if name:
+            _screen_text(name, actor=user["id"], guild=guild_name, field="team_name")
+        raids = [_slot_to_db(s) for s in team.raids]
+        for r in raids:
+            if r["label"]:
+                _screen_text(r["label"], actor=user["id"], guild=guild_name, field="raid_label")
         db_teams.append(
             {
-                "name": name,
+                "name": name or f"Team {i + 1}",
                 "primary_tz": team.primary_tz,
                 "twitch_login": twitch_login,
-                "raids": [_slot_to_db(s) for s in team.raids],
+                "raids": raids,
             }
         )
 
