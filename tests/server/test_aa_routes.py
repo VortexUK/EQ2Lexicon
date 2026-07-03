@@ -158,6 +158,28 @@ class TestGetAaConfig:
             assert body["tradeskill_aa_cap"] == expected_ts, xpac
             assert body["aa_cap"] == expected_adv, xpac  # adventure cap unchanged
 
+    async def test_short_xpac_code_resolves_to_full_key(self, app, tmp_path) -> None:
+        """A server whose current_xpac is a short code ("DoV") still resolves to
+        the aa_limits.json entry — otherwise the cap silently reads 0 and the
+        Raid-Ready check + per-expansion limit vanish from the AA tab."""
+        limits_file = tmp_path / "aa_limits.json"
+        limits_file.write_text(
+            json.dumps({"Destiny of Velious": {"aa_cap": 300, "unlocked_trees": ["class", "subclass", "tradeskill"]}}),
+            encoding="utf-8",
+        )
+        mock_server = MagicMock()
+        mock_server.current_xpac = "DoV"
+        with (
+            patch("backend.server.api.aa._LIMITS", limits_file),
+            patch("backend.server.api.aa.current_server", return_value=mock_server),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.get("/api/aa/config")
+        body = r.json()
+        assert body["aa_cap"] == 300  # resolved via the DoV alias
+        assert body["tradeskill_aa_cap"] == 45
+        assert body["xpac"] == "DoV"  # raw code preserved for display
+
     async def test_limits_file_present_unknown_xpac_returns_zero_defaults(self, app, tmp_path) -> None:
         """When aa_limits.json exists but xpac key is absent, zeros are returned."""
         limits_data = {"SomeExpansion": {"aa_cap": 320, "unlocked_trees": ["class"]}}

@@ -45,6 +45,41 @@ _TYPE_ORDER = {
 # (their own pool, earned from crafting, not bounded by the adventure xpac cap).
 _TRADESKILL_TYPES = frozenset({"tradeskill", "tradeskill_general"})
 
+# EQ2 expansion short codes → the canonical aa_limits.json keys. A server's
+# current_xpac is often stored as a short code (e.g. "DoV"); without this the
+# aa_limits lookup misses and the AA cap silently reads 0 — which hides the
+# Raid-Ready check and the per-expansion cap on the AA tab.
+_XPAC_ALIASES: dict[str, str] = {
+    "kos": "Kingdom of Sky",
+    "eof": "Echoes of Faydwer",
+    "rok": "Rise of Kunark",
+    "tso": "The Shadow Odyssey",
+    "sf": "Sentinel's Fate",
+    "dov": "Destiny of Velious",
+    "aod": "Age of Discovery",
+    "coe": "Chains of Eternity",
+    "tov": "Tears of Veeshan",
+    "aom": "Altar of Malice",
+}
+
+
+def _resolve_xpac_key(xpac: str, limits: dict) -> str | None:
+    """Map the server's current_xpac to an aa_limits.json key, tolerating short
+    codes ("DoV" → "Destiny of Velious") and case/whitespace. None if unknown."""
+    if xpac in limits:
+        return xpac
+    norm = xpac.strip().lower()
+    if not norm:
+        return None
+    aliased = _XPAC_ALIASES.get(norm)
+    if aliased in limits:
+        return aliased
+    for k in limits:
+        if k.lower() == norm:
+            return k
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -112,7 +147,13 @@ async def get_aa_config() -> AAConfigResponse:
     if not _LIMITS.exists():
         return AAConfigResponse(xpac=xpac, aa_cap=0, tradeskill_aa_cap=0, unlocked_tree_types=[])
     limits = json.loads(_LIMITS.read_text(encoding="utf-8"))
-    entry = limits.get(xpac, {})
+    key = _resolve_xpac_key(xpac, limits)
+    if key is None:
+        if xpac:
+            _log.warning("[aa] current_xpac %r has no aa_limits.json entry — AA cap reads 0", xpac)
+        entry = {}
+    else:
+        entry = limits[key]
     unlocked = entry.get("unlocked_trees", [])
     # Tradeskill cap = the total the unlocked tradeskill trees add up to
     # (Σ maxtier × pointspertier), derived from the tree data rather than
