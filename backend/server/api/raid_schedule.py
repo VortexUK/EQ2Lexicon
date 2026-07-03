@@ -14,6 +14,7 @@ from zoneinfo import available_timezones
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.server import raid_live
 from backend.server.api.guild import _officer_chars, _validate_guild_name
 from backend.server.core.audit_log import audit_log
 from backend.server.core.twitch import is_blocked, parse_twitch_login
@@ -51,6 +52,16 @@ class RaidTeamResponse(BaseModel):
 
 class RaidScheduleResponse(BaseModel):
     teams: list[RaidTeamResponse]
+
+
+class RaidingLiveEntry(BaseModel):
+    guild_name: str
+    team_name: str
+    twitch_login: str
+    twitch_url: str
+    viewer_count: int | None = None
+    title: str | None = None
+    started_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +153,13 @@ async def get_raid_schedule(guild_name: str) -> RaidScheduleResponse:
     _validate_guild_name(guild_name)
     teams = await get_schedule(current_world(), guild_name)
     return _fmt_schedule(teams)
+
+
+@router.get("/raiding-live", response_model=list[RaidingLiveEntry])
+async def get_raiding_live() -> list[dict]:
+    """Public — teams currently within a raid window AND live on Twitch, for the
+    active server. Served from the poller cache (raid_live)."""
+    return raid_live.get_live(current_world())
 
 
 @router.put("/guild/{guild_name}/raid-schedule", response_model=RaidScheduleResponse)
