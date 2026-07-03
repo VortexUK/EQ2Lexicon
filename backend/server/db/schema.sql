@@ -171,3 +171,37 @@ CREATE TABLE IF NOT EXISTS servers (
 -- executescript BEFORE the ADD COLUMN migration on a pre-existing DB, so any
 -- column-dependent DDL/DML must live in migrations.sql after the ALTER, never
 -- here.
+
+-- Guild raid schedules. Officer-editable, publicly viewable. Up to 4 teams per
+-- guild (team_index 0..3); each team has up to 4 raids (raid_slots, slot_index
+-- 0..3). Brand-new tables — CREATE TABLE IF NOT EXISTS is safe on existing DBs,
+-- so no migration is needed (unlike an ADD COLUMN).
+-- NOTE: inline comments in these column blocks must NOT contain commas —
+-- _assertions.py splits column defs on top-level commas to check schema drift.
+CREATE TABLE IF NOT EXISTS raid_teams (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    world        TEXT    NOT NULL,
+    guild_name   TEXT    NOT NULL,
+    team_index   INTEGER NOT NULL,               -- 0..3 (display order)
+    name         TEXT    NOT NULL,               -- e.g. Team 1 (officer-editable)
+    primary_tz   TEXT    NOT NULL,               -- IANA tz e.g. America/New_York
+    twitch_login TEXT,                           -- normalized channel login (nullable)
+    updated_by   TEXT    NOT NULL REFERENCES users(discord_id),
+    updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE(world, guild_name, team_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_raid_teams_guild ON raid_teams(world, guild_name);
+
+CREATE TABLE IF NOT EXISTS raid_slots (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id    INTEGER NOT NULL REFERENCES raid_teams(id) ON DELETE CASCADE,
+    slot_index INTEGER NOT NULL,                 -- 0..3
+    days       TEXT    NOT NULL,                 -- CSV of ISO weekdays (1=Mon .. 7=Sun)
+    start_min  INTEGER NOT NULL,                 -- minutes since midnight in the team tz (0..1439)
+    end_min    INTEGER NOT NULL,                 -- may be < start_min so crosses midnight; span <= 300 (5h)
+    label      TEXT,                             -- optional (e.g. Progression)
+    UNIQUE(team_id, slot_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_raid_slots_team ON raid_slots(team_id);

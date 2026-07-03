@@ -1,0 +1,18 @@
+{
+  "_comment": "Substrings disallowed in a Twitch channel login on raid-schedule save. Case-insensitive. A hit rejects the save and reports to admins (audit_log suspicious_twitch_url). Re-read on every check — edit + it takes effect without a restart.",
+  "blocked": [
+    "nigger",
+    "nigga",
+    "faggot",
+    "retard",
+    "rape",
+    "cunt",
+    "childporn",
+    "porn",
+    "pornhub",
+    "onlyfans",
+    "nazi",
+    "hitler",
+    "kkk"
+  ]
+}

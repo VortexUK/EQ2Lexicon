@@ -14,6 +14,7 @@ import { fmtLocalDate, fmtRelative } from '../formatters'
 import { GuildRosterTab } from './guild/GuildRosterTab'
 import { GuildSpellCheckTab } from './guild/GuildSpellCheckTab'
 import { GuildAdornCheckTab } from './guild/GuildAdornCheckTab'
+import { GuildRaidScheduleTab } from './guild/GuildRaidScheduleTab'
 import type {
   GuildData,
   GuildSpellCheck,
@@ -422,7 +423,7 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'claims', 'watch']
+const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'raids', 'claims', 'watch']
 
 export default function GuildPage() {
   const { guildName } = useParams<{ guildName: string }>()
@@ -641,6 +642,7 @@ export default function GuildPage() {
         <TabButton active={tab === 'roster'} onClick={() => switchTab('roster')}>Roster</TabButton>
         <TabButton active={tab === 'spells'} onClick={() => switchTab('spells')}>Spell Check</TabButton>
         <TabButton active={tab === 'adorns'} onClick={() => switchTab('adorns')}>Adorn Check</TabButton>
+        <TabButton active={tab === 'raids'} onClick={() => switchTab('raids')}>Raid Schedule</TabButton>
         {isOfficer && (
           <TabButton active={tab === 'claims'} onClick={() => switchTab('claims')}>Claim Requests</TabButton>
         )}
@@ -649,8 +651,8 @@ export default function GuildPage() {
         )}
       </div>
 
-      {/* Filters — hidden on claims and watch tabs */}
-      {tab !== 'claims' && tab !== 'watch' && !isLoading && !error && (
+      {/* Filters — roster/spell/adorn only (not the self-contained tabs) */}
+      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && !isLoading && !error && (
         <div className="mb-3 flex flex-col gap-2">
           <input
             type="text"
@@ -700,7 +702,7 @@ export default function GuildPage() {
       )}
 
       {/* Tables */}
-      {tab !== 'claims' && tab !== 'watch' && !isLoading && !error && (
+      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && !isLoading && !error && (
         <Card className="p-0 overflow-x-auto">
           {tab === 'roster' && roster && (
             <GuildRosterTab members={roster.members} filter={filter} hiddenRanks={hiddenRanks} myChars={myChars} />
@@ -725,6 +727,13 @@ export default function GuildPage() {
       {tab === 'watch' && isOfficer && guildName && (
         <Card className="p-0">
           <ItemWatchTab guildName={guildName} />
+        </Card>
+      )}
+
+      {/* Raid schedule — public view, officer edit; self-contained loading */}
+      {tab === 'raids' && guildName && (
+        <Card className="p-0">
+          <GuildRaidScheduleTab guildName={guildName} isOfficer={isOfficer} />
         </Card>
       )}
     </main>
