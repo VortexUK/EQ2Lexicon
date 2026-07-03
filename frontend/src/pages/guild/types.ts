@@ -58,7 +58,7 @@ export interface GuildAdornCheck {
   members: MemberAdornStats[]
 }
 
-export type Tab = 'roster' | 'spells' | 'adorns' | 'claims' | 'watch'
+export type Tab = 'roster' | 'spells' | 'adorns' | 'raids' | 'claims' | 'watch'
 
 // Shared table-cell utility classes (invariant, dynamic bits stay inline at call sites)
 export const TH_CLS = 'px-2.5 py-2 text-[0.72rem] uppercase tracking-[0.05em] font-semibold whitespace-nowrap'

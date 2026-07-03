@@ -17,6 +17,11 @@ dependencies = [
     "httpx>=0.27.0",
     "itsdangerous>=2.2.0",
     "slowapi>=0.1.9",
+    # IANA timezone database — Python's zoneinfo has no bundled tz data on
+    # Windows (and minimal containers), so available_timezones()/ZoneInfo need
+    # this for the raid-schedule timezone validation + live-window checks to
+    # work cross-platform.
+    "tzdata>=2024.1",
     # Observability
     "prometheus-client>=0.20.0",
     # Reference-data pipeline: parse MediaWiki wikitext from EQ2i for the
