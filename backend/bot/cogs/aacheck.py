@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from backend.census.config import WORLD
-from backend.image.aa_tree import load_tree_index, render_tree
+from backend.image.aa_tree import load_tree_index, render_tree, tree_node_costs
 
 if TYPE_CHECKING:
     from backend.bot.bot import EQ2Bot
@@ -85,7 +85,9 @@ class AaCheckCog(commands.Cog):
         img.save(buf, format="PNG")
         buf.seek(0)
 
-        total = sum(aa_data.values())
+        # Points spent = Σ tier × pointspertier (some nodes cost 2 points/tier).
+        costs = tree_node_costs(tree_id)
+        total = sum(tier * costs.get(node_id, 1) for node_id, tier in aa_data.items())
         await interaction.followup.send(
             content=f"**{char_aas.character_name}** — {tree_name} ({total} AAs)",
             file=discord.File(buf, filename="aacheck.png"),

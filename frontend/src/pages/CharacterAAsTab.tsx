@@ -3,6 +3,7 @@ import { AATree, AATreeData } from '../components/AATree'
 import { Card, SectionLabel } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { StatGroup, StatRow } from './CharacterPage'
+import { partitionAASpend, TRADESKILL_TYPES } from './aaSpend'
 
 // ── AA types ─────────────────────────────────────────────────────────────────
 
@@ -28,7 +29,8 @@ export interface CharAAsResponse {
 
 interface AAConfig {
   xpac:               string
-  aa_cap:             number
+  aa_cap:             number   // adventure AA cap (tradeskill excluded)
+  tradeskill_aa_cap:  number   // separate tradeskill pool cap
   unlocked_tree_types: string[]
 }
 
@@ -248,14 +250,19 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
   const activeCt = visibleTrees.find(t => t.tree_id === selectedTreeId) ?? visibleTrees[0]
   const activeTd = activeCt ? treeData.get(activeCt.tree_id) : undefined
 
-  // Sum only the shown trees.
-  const spentInView = visibleTrees.reduce((sum, t) => sum + t.total_spent, 0)
+  // Tradeskill AAs are a separate pool — split the shown trees so tradeskill
+  // never counts against the adventure/expansion cap.
+  const { adventure: adventureSpent, tradeskill: tradeskillSpent } = partitionAASpend(visibleTrees)
+  const hasTradeskill = visibleTrees.some(t => TRADESKILL_TYPES.has(t.tree_type))
+  const tradeskillPct = config.tradeskill_aa_cap > 0
+    ? Math.min(100, Math.round((tradeskillSpent / config.tradeskill_aa_cap) * 100))
+    : null
 
   const earnedPct = config.aa_cap > 0
     ? Math.min(100, Math.round((aaCount / config.aa_cap) * 100))
     : null
   const spentPct = aaCount > 0
-    ? Math.min(100, Math.round((spentInView / aaCount) * 100))
+    ? Math.min(100, Math.round((adventureSpent / aaCount) * 100))
     : null
 
   return (
@@ -264,8 +271,8 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
       {/* ── Left sidebar ── */}
       <div className="w-full md:w-[240px] md:shrink-0">
 
-        {/* Raid Ready */}
-        <AARaidReady spent={spentInView} cap={config.aa_cap} />
+        {/* Raid Ready (adventure AA — tradeskill is its own pool) */}
+        <AARaidReady spent={adventureSpent} cap={config.aa_cap} />
 
         {/* Profile selector */}
         {charAAs.profiles.length > 0 && (
@@ -310,7 +317,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
           </StatGroup>
         )}
 
-        {/* Progress */}
+        {/* Progress — adventure AA (tradeskill counted separately below) */}
         <StatGroup title="Alternate Advancements">
           <AAProgressBar
             label="Earned"
@@ -320,11 +327,23 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
           />
           <AAProgressBar
             label="Spent"
-            value={spentInView}
+            value={adventureSpent}
             max={aaCount}
             pct={spentPct}
           />
         </StatGroup>
+
+        {/* Tradeskill AA — separate pool with its own cap */}
+        {hasTradeskill && (
+          <StatGroup title="Tradeskill AA">
+            <AAProgressBar
+              label="Spent"
+              value={tradeskillSpent}
+              max={config.tradeskill_aa_cap > 0 ? config.tradeskill_aa_cap : null}
+              pct={tradeskillPct}
+            />
+          </StatGroup>
+        )}
 
         {/* Per-tree breakdown */}
         {visibleTrees.length > 0 && (

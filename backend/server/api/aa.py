@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from backend.census import store as census_store
 from backend.census.store import StoreRecord
 from backend.eq2db.spells import find_by_crc
-from backend.image.aa_tree import detect_tree_type, load_tree_index
+from backend.image.aa_tree import detect_tree_type, load_tree_index, tree_max_points, tree_node_costs
 from backend.server.cache import aa_cache
 from backend.server.constants import CHARACTER_STALE_S
 from backend.server.core.cache_keys import aa_cache_key
@@ -41,6 +41,45 @@ _TYPE_ORDER = {
     "dragon": 8,
 }
 
+# Tradeskill AA tree types — counted and capped SEPARATELY from adventure AAs
+# (their own pool, earned from crafting, not bounded by the adventure xpac cap).
+_TRADESKILL_TYPES = frozenset({"tradeskill", "tradeskill_general"})
+
+# EQ2 expansion short codes → the canonical aa_limits.json keys. A server's
+# current_xpac is often stored as a short code (e.g. "DoV"); without this the
+# aa_limits lookup misses and the AA cap silently reads 0 — which hides the
+# Raid-Ready check and the per-expansion cap on the AA tab.
+_XPAC_ALIASES: dict[str, str] = {
+    "kos": "Kingdom of Sky",
+    "eof": "Echoes of Faydwer",
+    "rok": "Rise of Kunark",
+    "tso": "The Shadow Odyssey",
+    "sf": "Sentinel's Fate",
+    "dov": "Destiny of Velious",
+    "aod": "Age of Discovery",
+    "coe": "Chains of Eternity",
+    "tov": "Tears of Veeshan",
+    "aom": "Altar of Malice",
+}
+
+
+def _resolve_xpac_key(xpac: str, limits: dict) -> str | None:
+    """Map the server's current_xpac to an aa_limits.json key, tolerating short
+    codes ("DoV" → "Destiny of Velious") and case/whitespace. None if unknown."""
+    if xpac in limits:
+        return xpac
+    norm = xpac.strip().lower()
+    if not norm:
+        return None
+    aliased = _XPAC_ALIASES.get(norm)
+    if aliased in limits:
+        return aliased
+    for k in limits:
+        if k.lower() == norm:
+            return k
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -48,7 +87,8 @@ _TYPE_ORDER = {
 
 class AAConfigResponse(BaseModel):
     xpac: str
-    aa_cap: int
+    aa_cap: int  # adventure AA cap (tradeskill excluded)
+    tradeskill_aa_cap: int = 0  # Σ max points of the unlocked tradeskill trees
     unlocked_tree_types: list[str]
 
 
@@ -105,13 +145,28 @@ async def get_aa_config() -> AAConfigResponse:
     """Return the current xpac's AA cap and which tree types are unlocked."""
     xpac = current_server().current_xpac or ""
     if not _LIMITS.exists():
-        return AAConfigResponse(xpac=xpac, aa_cap=0, unlocked_tree_types=[])
+        return AAConfigResponse(xpac=xpac, aa_cap=0, tradeskill_aa_cap=0, unlocked_tree_types=[])
     limits = json.loads(_LIMITS.read_text(encoding="utf-8"))
-    entry = limits.get(xpac, {})
+    key = _resolve_xpac_key(xpac, limits)
+    if key is None:
+        if xpac:
+            _log.warning("[aa] current_xpac %r has no aa_limits.json entry — AA cap reads 0", xpac)
+        entry = {}
+    else:
+        entry = limits[key]
+    unlocked = entry.get("unlocked_trees", [])
+    # Tradeskill cap = the total the unlocked tradeskill trees add up to
+    # (Σ maxtier × pointspertier), derived from the tree data rather than
+    # hardcoded. EoF (tradeskill only) → 45; Age of Discovery+ (both) → 116.
+    unlocked_ts = _TRADESKILL_TYPES & set(unlocked)
+    tradeskill_cap = sum(
+        tree_max_points(tid) for tid, info in load_tree_index().items() if info.get("type") in unlocked_ts
+    )
     return AAConfigResponse(
         xpac=xpac,
         aa_cap=entry.get("aa_cap", 0),
-        unlocked_tree_types=entry.get("unlocked_trees", []),
+        tradeskill_aa_cap=tradeskill_cap,
+        unlocked_tree_types=unlocked,
     )
 
 
@@ -182,13 +237,15 @@ def _build_trees(aa_list) -> list[CharAATree]:
     result = []
     for tid, spent in by_tree.items():
         info = tree_index.get(tid, {})
+        costs = tree_node_costs(tid)
         result.append(
             CharAATree(
                 tree_id=tid,
                 tree_type=info.get("type", "unknown"),
                 tree_name=info.get("name", str(tid)),
                 spent={str(k): v for k, v in spent.items()},
-                total_spent=sum(spent.values()),
+                # Points spent = Σ tier × pointspertier (some nodes cost 2/tier).
+                total_spent=sum(tier * costs.get(node_id, 1) for node_id, tier in spent.items()),
             )
         )
     result.sort(key=lambda t: _TYPE_ORDER.get(t.tree_type, 99))
@@ -199,7 +256,8 @@ def _aas_response_from_census(char_aas) -> CharAAsResponse:
     """Build a CharAAsResponse from a Census CharacterAAs model object."""
     return CharAAsResponse(
         character_name=char_aas.character_name,
-        total_spent=sum(aa.tier for aa in char_aas.aa_list),
+        # Point-accurate: tier × pointspertier per node (see _build_trees).
+        total_spent=sum(aa.tier * tree_node_costs(aa.tree_id).get(aa.node_id, 1) for aa in char_aas.aa_list),
         trees=_build_trees(char_aas.aa_list),
         profiles=[CharAAProfile(name=p.name, trees=_build_trees(p.aa_list)) for p in char_aas.profiles],
     )
