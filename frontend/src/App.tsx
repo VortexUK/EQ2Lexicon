@@ -14,6 +14,7 @@ import { CharacterSearchPage, GuildSearchPage } from './pages/SearchPage'
 import UserWidget from './components/UserWidget'
 import NotFoundPage from './pages/NotFoundPage'
 import NotificationBell from './components/NotificationBell'
+import RaidingLiveWidget from './components/RaidingLiveWidget'
 
 // Lazy-loaded: low-traffic pages or heavy-deps pages (admin, parse detail, raid editor).
 // Each becomes a separate chunk fetched on first navigation.
@@ -212,6 +213,7 @@ function Layout() {
           >
             <img src="/download_plugin.webp" alt="Download ACT Plugin" className="h-full w-auto" />
           </a>
+          <RaidingLiveWidget />
           <NotificationBell />
           <UserWidget />
           {/* Hamburger: below lg only. */}

@@ -38,6 +38,9 @@ A web companion site for EverQuest 2 (TLE), with a Discord bot for spot checks (
 | `backend/server/census_refresh.py` | Background refresh orchestration (throttle 15 min / in-flight dedupe / skip-when-down); merges into census_store, updates cache, publishes SSE. `_merge_roster` best-known join. |
 | `backend/server/api/census.py` | `GET /api/backend/census/health` (first-paint snapshot) + `GET /api/backend/census/stream` (SSE: character/guild refresh records + health changes). |
 | `backend/server/parses/cleanup.py` | Parses retention sweep (`run_parse_cleanup`). Trash (non-boss) hard-deleted `PARSE_RETENTION_DAYS` after the fight; named (boss) fights keep only the primary (longest) upload after the same window, deleting duplicate uploads. Reuses `_group_into_fights` so it picks the same primary rankings link to (rankings-safe); never touches soft-deleted rows. Run periodically by `app.py:_parse_cleanup_loop`. |
+| `backend/server/api/raid_schedule.py` | Guild raid-schedule API. Public `GET /api/guild/{name}/raid-schedule`; officer-only `PUT` (full replace, ≤4 teams × ≤4 raids, each ≤5h, IANA tz, Twitch validated). `GET /api/raiding-live` returns the current world's live teams. Tables `raid_teams`/`raid_slots` in `users.db` (`backend/server/db/raid_schedule.py`). |
+| `backend/server/raid_live.py` | Twitch-verified "Raiding live" poller (`poll_loop`, `app.py` lifespan). Finds teams inside a scheduled window (team tz, ±15min grace) then verifies live via Twitch Helix; caches per world for `/api/raiding-live`. No-ops without `TWITCH_CLIENT_ID/SECRET`. |
+| `backend/server/core/twitch.py` | `parse_twitch_login` (accept only `twitch.tv/<channel>`) + `is_blocked` against `data/twitch_blocklist.json` (admin-tunable, live-reloaded). |
 
 ## ACT plugin upload (`POST /api/backend/server/parses/ingest`)
 
@@ -187,6 +190,7 @@ Shared types + className constants for a split page go in a sibling `types.ts`. 
 | `LAUNCH_DT` | Seed-only — runtime value is per-server in the `servers` table (admin-editable). Seeds the server launch datetime for the Varsoon row on first migration. |
 | `ADMIN_DISCORD_IDS` | Comma-separated Discord IDs allowed to hit `/api/admin/*` and delete arbitrary parses |
 | `PARSE_RETENTION_DAYS` | Days after the fight before the retention sweep (`backend/server/parses/cleanup.py`) hard-deletes a trash parse and collapses a named fight's duplicate uploads to its primary. Default `3`. |
+| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | Twitch app (client-credentials) creds for the raid-schedule "Raiding live" list (`backend/server/raid_live.py`). Both optional — unset ⇒ live list disabled, raid schedule unaffected. |
 | `DB_USERS_PATH` | Override the default `data/users.db` location (set on Railway to the persistent-volume mount) |
 | `DB_PARSES_PATH` | Override the default `data/backend/server/parses/backend.server.parses.db` location (set on Railway to the persistent-volume mount) |
 | `DB_CENSUS_PATH` | Override the default `data/backend/census/census.db` location (persistent last-known character/guild lookups for resilient caching). Set on Railway to the persistent-volume mount; the `.db` is gitignored + generated at runtime. |

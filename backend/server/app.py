@@ -475,13 +475,14 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         APP_INFO_LEGACY.info({"world": _WORLD, "version": "0.1.0"})  # legacy; drop next release
 
         # ---- async background tasks (tracked so shutdown can cancel) ----
-        from backend.server import census_health
+        from backend.server import census_health, raid_live
 
         tasks: list[asyncio.Task] = [
             asyncio.create_task(prewarm_character_cache(), name="prewarm-character-cache"),
             asyncio.create_task(_cache_sweep_loop(), name="cache-sweep-loop"),
             asyncio.create_task(census_health.poll_loop(), name="census-health-poll"),
             asyncio.create_task(_parse_cleanup_loop(), name="parse-cleanup-loop"),
+            asyncio.create_task(raid_live.poll_loop(), name="raid-live-poll"),
         ]
 
         try:
