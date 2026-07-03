@@ -2,8 +2,8 @@
 
 Used by the raid-schedule write path: an officer-supplied stream link must be a
 real ``twitch.tv/<channel>`` URL (anything else is rejected), and the channel
-name is screened against the shared word blocklist. A blocklist hit is rejected
-AND reported to admins via audit_log by the caller.
+name is screened by the shared profanity check. A hit is rejected AND reported
+to admins via audit_log by the caller.
 """
 
 from __future__ import annotations
