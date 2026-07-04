@@ -106,13 +106,31 @@ def upsert_character(
     resolved: bool,
     now: int | None = None,
 ) -> None:
-    """Merge-store a character. When ``resolved`` is False the call is a no-op
-    (keep best-known: never overwrite a good row with a sparse one, and never
-    insert a sparse first-sight row). When True, replace the record + stamp
-    last_resolved_at."""
+    """Merge-store a character (keep best-known).
+
+    When ``resolved`` is False the call is a no-op (never overwrite a good row
+    with a sparse one, never insert a sparse first-sight row).
+
+    When True and a row already exists, the incoming blob is **overlaid** onto
+    the stored one field-by-field: keys present in ``data`` refresh the stored
+    values, keys ``data`` omits are preserved. This is what stops a guild-roster
+    overview (name/level/class/deity only — no equipment/stats) from nulling an
+    individually-resolved character's gear on the next roster refresh. A partial
+    write (one that carries no ``equipment`` key, i.e. hasn't re-resolved the
+    full profile) also leaves ``last_resolved_at`` untouched so the character
+    view's staleness clock stays honest and still triggers a real refresh."""
     if not resolved:
         return
-    ts = int(time.time()) if now is None else now
+    write_ts = int(time.time()) if now is None else now
+    resolved_ts = write_ts
+
+    existing = get_character(conn, name, world)
+    if existing is not None:
+        incoming_is_full = "equipment" in data
+        data = {**existing["data"], **data}
+        if not incoming_is_full:
+            resolved_ts = existing["last_resolved_at"]  # sparse overlay — don't advance freshness
+
     conn.execute(
         """
         INSERT INTO characters (name_lower, world, name, level, guild_name, data_json, last_resolved_at, updated_at)
@@ -122,7 +140,7 @@ def upsert_character(
             data_json=excluded.data_json, last_resolved_at=excluded.last_resolved_at,
             updated_at=excluded.updated_at
         """,
-        (name.lower(), world, name, data.get("level"), data.get("guild_name"), json.dumps(data), ts, ts),
+        (name.lower(), world, name, data.get("level"), data.get("guild_name"), json.dumps(data), resolved_ts, write_ts),
     )
     conn.commit()
 
