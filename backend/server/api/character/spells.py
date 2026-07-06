@@ -12,12 +12,7 @@ from pydantic import BaseModel
 
 from backend.census.constants import SPELL_TIER_ORDER as _TIER_ORDER
 from backend.eq2db.spells import DB_PATH as _SPELLS_DB
-from backend.eq2db.spells import SpellRow as _SpellRow
-from backend.eq2db.spells import find_by_ids as _spell_find_by_ids
-from backend.eq2db.spells import load_blocklist as _load_spell_blocklist
-from backend.eq2db.spells import strip_roman as _strip_roman
-from backend.eq2db.spells import unique_highest_entries as _unique_highest_rows
-from backend.eq2db.spells import upgradeable_crcs as _upgradeable_crcs
+from backend.eq2db.spells import character_upgradeable_spells as _character_upgradeable_spells
 from backend.server.api.character import router
 from backend.server.api.character.views import _build_char_response
 from backend.server.cache import character_cache
@@ -77,32 +72,10 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
             character_name=char_name, spells=[], tier_counts={t: 0 for t in _TIER_ORDER}, tiers_present=[]
         )
 
-    # Bulk DB lookup — one query for all IDs
-    spell_db: dict[int, _SpellRow] = _spell_find_by_ids(spell_ids)
-
-    # Show every *upgradeable* spell the character owns, at its best tier —
-    # regardless of how it was acquired. A spell is upgradeable when its line
-    # has a tier ladder (Apprentice → Grandmaster); single-tier utility casts
-    # (Cure, Resurrect, Soothe, …) are excluded. The old `given_by=='spellscroll'`
-    # gate was wrong: it dropped spells obtained from the class trainer
-    # (given_by='classtraining') or still at their auto-granted base tier
-    # (given_by='class'), so a character who trained Restoration VI instead of
-    # scribing a scroll saw only the lower-rank scroll they happened to own.
-    # AA abilities (given_by='alternateadvancement') live in the AA tab, not here.
-    blocklist = _load_spell_blocklist()
-    candidate = [
-        r
-        for r in spell_db.values()
-        if (r.get("level") or 0) > 0
-        and r.get("type") in ("spells", "arts")
-        and r.get("given_by") != "alternateadvancement"
-        and _strip_roman(r.get("name") or "").lower() not in blocklist
-    ]
-    upgradeable = _upgradeable_crcs({r.get("crc") for r in candidate})
-    rows = [r for r in candidate if r.get("crc") in upgradeable]
-
-    # Deduplicate: per base name+type keep the highest-level entry (highest rank)
-    rows = _unique_highest_rows(rows)
+    # Canonical "owned upgradeable spells at best tier" list — shared with the
+    # upgrade-materials checker so the two never drift (see the helper's docstring
+    # for the given_by-gate history). Sort by level for display.
+    rows = _character_upgradeable_spells(spell_ids)
     rows.sort(key=lambda r: r.get("level") or 0)
 
     count = Counter(r.get("tier_name") or "Unknown" for r in rows)
@@ -111,7 +84,7 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
         character_name=char_name,
         spells=[
             SpellEntryResponse(
-                name=r["name"],
+                name=r.get("name") or "",
                 tier=r.get("tier_name") or "Unknown",
                 level=r.get("level") or 0,
                 spell_type=r.get("type") or "",

@@ -144,9 +144,9 @@ async def test_spells_returns_data(app):
     with (
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
-        patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
-        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
-        patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
+        patch("backend.eq2db.spells.find_by_ids", return_value=spell_rows),
+        patch("backend.eq2db.spells.upgradeable_crcs", side_effect=_all_upgradeable),
+        patch("backend.eq2db.spells.load_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
 
@@ -184,9 +184,9 @@ async def test_spells_blocklist_applied(app):
     with (
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
-        patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
-        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
-        patch("backend.server.api.character.spells._load_spell_blocklist", return_value=blocklist),
+        patch("backend.eq2db.spells.find_by_ids", return_value=spell_rows),
+        patch("backend.eq2db.spells.upgradeable_crcs", side_effect=_all_upgradeable),
+        patch("backend.eq2db.spells.load_blocklist", return_value=blocklist),
     ):
         mock_cache.get_stale.return_value = (char, False)
 
@@ -228,9 +228,9 @@ async def test_spells_includes_all_upgradeable_excludes_aa_and_utility(app):
     with (
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
-        patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
-        patch("backend.server.api.character.spells._upgradeable_crcs", return_value=upgradeable),
-        patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
+        patch("backend.eq2db.spells.find_by_ids", return_value=spell_rows),
+        patch("backend.eq2db.spells.upgradeable_crcs", return_value=upgradeable),
+        patch("backend.eq2db.spells.load_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
 
@@ -262,9 +262,9 @@ async def test_spells_excludes_zero_level(app):
     with (
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
-        patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
-        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
-        patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
+        patch("backend.eq2db.spells.find_by_ids", return_value=spell_rows),
+        patch("backend.eq2db.spells.upgradeable_crcs", side_effect=_all_upgradeable),
+        patch("backend.eq2db.spells.load_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
 
@@ -294,9 +294,9 @@ async def test_spells_deduplication_keeps_highest_level(app):
     with (
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
-        patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
-        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
-        patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
+        patch("backend.eq2db.spells.find_by_ids", return_value=spell_rows),
+        patch("backend.eq2db.spells.upgradeable_crcs", side_effect=_all_upgradeable),
+        patch("backend.eq2db.spells.load_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
 
@@ -370,9 +370,9 @@ async def test_spells_response_structure(app):
     with (
         patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
-        patch("backend.server.api.character.spells._spell_find_by_ids", return_value=spell_rows),
-        patch("backend.server.api.character.spells._upgradeable_crcs", side_effect=_all_upgradeable),
-        patch("backend.server.api.character.spells._load_spell_blocklist", return_value=_EMPTY_BLOCKLIST),
+        patch("backend.eq2db.spells.find_by_ids", return_value=spell_rows),
+        patch("backend.eq2db.spells.upgradeable_crcs", side_effect=_all_upgradeable),
+        patch("backend.eq2db.spells.load_blocklist", return_value=_EMPTY_BLOCKLIST),
     ):
         mock_cache.get_stale.return_value = (char, False)
 

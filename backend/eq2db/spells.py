@@ -428,6 +428,32 @@ def load_blocklist(path: Path = _BLOCKLIST_PATH) -> Blocklist:
         return Blocklist(frozenset(), [])
 
 
+def character_upgradeable_spells(spell_ids: list[int], path: Path = DB_PATH) -> list[SpellRow]:
+    """The canonical "which upgradeable spells does this character own" list, at
+    each line's highest owned tier.
+
+    Single source of truth for both the spells tab and the upgrade-materials
+    checker so the two can't drift. Keeps scribed/trained/auto-granted spells
+    alike (excluding only AA abilities) and restricts to lines that actually
+    have a tier ladder — the ``given_by == 'spellscroll'`` gate used to drop
+    trainer-granted (``classtraining``) and base-tier (``class``) spells, so a
+    trained Apprentice never showed up. See get_character_spells for the history.
+    """
+    spell_db = find_by_ids(spell_ids, path=path)
+    blocklist = load_blocklist()
+    candidate = [
+        r
+        for r in spell_db.values()
+        if (r.get("level") or 0) > 0
+        and r.get("type") in ("spells", "arts")
+        and r.get("given_by") != "alternateadvancement"
+        and strip_roman(r.get("name") or "").lower() not in blocklist
+    ]
+    upgradeable = upgradeable_crcs({r.get("crc") for r in candidate}, path=path)
+    rows = [r for r in candidate if r.get("crc") in upgradeable]
+    return unique_highest_entries(rows)
+
+
 def find_by_name(name: str, path: Path = DB_PATH) -> list[SpellRow]:
     """Return all spell rows whose name matches (exact, then LIKE). Ordered by level."""
     if not path.exists():

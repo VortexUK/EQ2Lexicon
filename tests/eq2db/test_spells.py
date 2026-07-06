@@ -10,6 +10,7 @@ import pytest
 
 from backend.eq2db.spells import (
     _passes_spellcheck,
+    character_upgradeable_spells,
     find_by_crc,
     find_by_id,
     find_by_ids,
@@ -338,6 +339,69 @@ class TestUpgradeableCrcs:
     def test_empty_input_and_missing_db(self, tmp_path):
         assert upgradeable_crcs(set(), path=tmp_path / "spells.db") == set()
         assert upgradeable_crcs({1, 2}, path=tmp_path / "does_not_exist.db") == set()
+
+
+class TestCharacterUpgradeableSpells:
+    """The single source of truth shared by the spells tab and upgrade checker.
+    Keeps scribed/trained/auto-granted upgradeable spells alike; drops AA
+    abilities, single-tier utility casts, and level-0 rows."""
+
+    def test_keeps_all_acquisition_paths_drops_aa_and_utility(self, db):
+        conn = sqlite3.connect(db)
+        upsert_spells(
+            [
+                # Owned rows (in the character's spell_ids), one per line.
+                _make_spell(1, name="Scribed Line I", given_by="spellscroll", crc=201, level=30, tier=1),
+                _make_spell(2, name="Trained Line I", given_by="classtraining", crc=202, level=60, tier=1),
+                _make_spell(3, name="Base Line I", given_by="class", crc=203, level=40, tier=1),
+                _make_spell(4, name="AA Line I", given_by="alternateadvancement", crc=204, level=50, tier=1),
+                _make_spell(5, name="Utility Cure", given_by="class", crc=205, level=10, tier=1),
+                _make_spell(6, name="Zero Line I", given_by="spellscroll", crc=206, level=0, tier=1),
+                # Extra higher tiers (NOT owned) with a DISTINCT tier_name so crc
+                # 201-204 span >1 tier = upgradeable. 205 (utility) stays single-
+                # tier. 206 excluded by level before the upgradeable check.
+                {
+                    **_make_spell(11, name="Scribed Line I", given_by="spellscroll", crc=201, level=30),
+                    "tier_name": "Master",
+                },
+                {
+                    **_make_spell(12, name="Trained Line I", given_by="classtraining", crc=202, level=60),
+                    "tier_name": "Master",
+                },
+                {**_make_spell(13, name="Base Line I", given_by="class", crc=203, level=40), "tier_name": "Master"},
+                {
+                    **_make_spell(14, name="AA Line I", given_by="alternateadvancement", crc=204, level=50),
+                    "tier_name": "Master",
+                },
+            ],
+            conn,
+        )
+        conn.close()
+
+        rows = character_upgradeable_spells([1, 2, 3, 4, 5, 6], path=db)
+        names = {r["name"] for r in rows}
+        assert names == {"Scribed Line I", "Trained Line I", "Base Line I"}
+        assert "AA Line I" not in names  # given_by=alternateadvancement → AA tab
+        assert "Utility Cure" not in names  # single-tier → not upgradeable
+        assert "Zero Line I" not in names  # level 0
+
+    def test_deduplicates_to_highest_owned_tier(self, db):
+        conn = sqlite3.connect(db)
+        upsert_spells(
+            [
+                {**_make_spell(1, name="Fireball I", crc=300, level=10), "tier_name": "Apprentice"},
+                {**_make_spell(2, name="Fireball II", crc=300, level=20), "tier_name": "Adept"},
+            ],
+            conn,
+        )
+        conn.close()
+        rows = character_upgradeable_spells([1, 2], path=db)
+        assert len(rows) == 1
+        assert rows[0]["level"] == 20  # highest owned rank kept
+
+    def test_empty_and_missing_db(self, tmp_path):
+        assert character_upgradeable_spells([], path=tmp_path / "spells.db") == []
+        assert character_upgradeable_spells([1], path=tmp_path / "missing.db") == []
 
 
 class TestFindById:
