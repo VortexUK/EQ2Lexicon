@@ -151,10 +151,9 @@ class TestGetUpgradeMaterials:
                 return_value=(cached, True),
             ),
             patch(
-                "backend.server.api.character.upgrades._spell_find_by_ids",
-                return_value={101: expert_row},
+                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                return_value=[expert_row],
             ),
-            patch("backend.server.api.character.upgrades._load_spell_blocklist", return_value=set()),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/character/Sihtric/upgrade-materials")
@@ -192,10 +191,9 @@ class TestGetUpgradeMaterials:
                 return_value=(cached, True),
             ),
             patch(
-                "backend.server.api.character.upgrades._spell_find_by_ids",
-                return_value={101: adept_row},
+                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                return_value=[adept_row],
             ),
-            patch("backend.server.api.character.upgrades._load_spell_blocklist", return_value=set()),
             patch(
                 "backend.server.api.character.upgrades._find_spell_recipes",
                 return_value={"Divine Favor": fake_recipe},
@@ -255,8 +253,10 @@ class TestGetUpgradeMaterials:
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(cached, True),
             ),
-            patch("backend.server.api.character.upgrades._spell_find_by_ids", return_value=rows),
-            patch("backend.server.api.character.upgrades._load_spell_blocklist", return_value=set()),
+            patch(
+                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                return_value=list(rows.values()),
+            ),
             patch("backend.server.api.character.upgrades._find_spell_recipes", return_value=recipes),
             patch("backend.server.api.character.upgrades._lookup_items_by_name", return_value={}),
         ):
@@ -350,8 +350,10 @@ class TestGetUpgradeRecipes:
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(cached, True),
             ),
-            patch("backend.server.api.character.upgrades._spell_find_by_ids", return_value={101: adept_row}),
-            patch("backend.server.api.character.upgrades._load_spell_blocklist", return_value=set()),
+            patch(
+                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                return_value=[adept_row],
+            ),
             patch(
                 "backend.server.api.character.upgrades._find_spell_recipes",
                 return_value={"Divine Favor": fake_recipe},

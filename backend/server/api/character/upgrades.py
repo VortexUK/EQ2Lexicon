@@ -15,11 +15,7 @@ from backend.eq2db.items import DB_PATH as _ITEMS_DB
 from backend.eq2db.recipes import DB_PATH as _RECIPES_DB
 from backend.eq2db.recipes import find_spells_by_tier as _find_spell_recipes
 from backend.eq2db.spells import DB_PATH as _SPELLS_DB
-from backend.eq2db.spells import SpellRow as _SpellRow
-from backend.eq2db.spells import find_by_ids as _spell_find_by_ids
-from backend.eq2db.spells import load_blocklist as _load_spell_blocklist
-from backend.eq2db.spells import strip_roman as _strip_roman
-from backend.eq2db.spells import unique_highest_entries as _unique_highest_rows
+from backend.eq2db.spells import character_upgradeable_spells as _character_upgradeable_spells
 from backend.server.api.character import router
 from backend.server.api.character.views import _build_char_response
 from backend.server.api.recipes import IngredientResponse as _RecipeIngredientResponse
@@ -160,26 +156,15 @@ async def get_upgrade_materials(request: Request, name: str) -> UpgradeMaterials
     if not spell_ids:
         return UpgradeMaterialsResponse(spells_needing_upgrade=0, spells_with_recipe=0, ingredients=[])
 
-    # Get spell rows, apply same filter as the spells endpoint
-    spell_db: dict[int, _SpellRow] = _spell_find_by_ids(spell_ids)
-    blocklist = _load_spell_blocklist()
-    rows = [
-        r
-        for r in spell_db.values()
-        if (r.get("level") or 0) > 0
-        and r.get("type") in ("spells", "arts")
-        and r.get("given_by") == "spellscroll"
-        and _strip_roman(r.get("name") or "").lower() not in blocklist
-    ]
-    rows = _unique_highest_rows(rows)
-
-    # Keep only sub-Expert spells
+    # Same canonical spell list as the spells tab (scribed/trained/auto-granted
+    # alike), then keep only the sub-Expert lines that still have an upgrade path.
+    rows = _character_upgradeable_spells(spell_ids)
     sub_expert = [r for r in rows if (r.get("tier_name") or "") in _SUB_EXPERT_TIERS]
     if not sub_expert:
         return UpgradeMaterialsResponse(spells_needing_upgrade=0, spells_with_recipe=0, ingredients=[])
 
     # Bulk recipe lookup: one DB query for all spell names
-    spell_names = [r["name"] for r in sub_expert]
+    spell_names = [r.get("name") or "" for r in sub_expert]
     recipes = _find_spell_recipes(spell_names, "Expert", path=_RECIPES_DB)
 
     # Aggregate ingredients across all matched recipes
@@ -268,25 +253,15 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
     if not spell_ids:
         return UpgradeRecipesResponse(results=[], spells_needing_upgrade=0, spells_with_recipe=0)
 
-    # Get spell rows, apply same filter as the spells endpoint
-    spell_db: dict[int, _SpellRow] = _spell_find_by_ids(spell_ids)
-    blocklist = _load_spell_blocklist()
-    rows = [
-        r
-        for r in spell_db.values()
-        if (r.get("level") or 0) > 0
-        and r.get("type") in ("spells", "arts")
-        and r.get("given_by") == "spellscroll"
-        and _strip_roman(r.get("name") or "").lower() not in blocklist
-    ]
-    rows = _unique_highest_rows(rows)
-
+    # Same canonical spell list as the spells tab (scribed/trained/auto-granted
+    # alike), then keep only the sub-Expert lines that still have an upgrade path.
+    rows = _character_upgradeable_spells(spell_ids)
     sub_expert = [r for r in rows if (r.get("tier_name") or "") in _SUB_EXPERT_TIERS]
     if not sub_expert:
         return UpgradeRecipesResponse(results=[], spells_needing_upgrade=0, spells_with_recipe=0)
 
     # Bulk recipe lookup
-    spell_names = [r["name"] for r in sub_expert]
+    spell_names = [r.get("name") or "" for r in sub_expert]
     recipes = _find_spell_recipes(spell_names, "Expert", path=_RECIPES_DB)
 
     results = [
