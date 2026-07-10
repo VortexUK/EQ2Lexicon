@@ -14,7 +14,7 @@ from backend.server.core.silent_swallow import swallow
 
 _log = logging.getLogger(__name__)
 
-CacheName = Literal["character", "guild", "claim", "aa", "rankings"]
+CacheName = Literal["character", "guild", "claim", "aa", "rankings", "favorites"]
 
 
 class TTLCache:
@@ -162,7 +162,12 @@ class TTLCache:
 #   guild:     ~5 cache keys per guild (roster/info/spells/adorns/chars); 50 covers 10 guilds
 #   claim:     one entry per discord_id; 200 covers a large player base
 #   aa:        one entry per character; 200 covers regular users
+#   favorites: one favourited-by-N count per (character, world) — a cheap int,
+#              cached to skip the per-request aiosqlite connection open on hot
+#              character pages. Writes invalidate exactly (single-process), so
+#              the TTL is only a backstop.
 character_cache: TTLCache = TTLCache(name="character", maxsize=500)
 guild_cache: TTLCache = TTLCache(name="guild", maxsize=50)
 claim_cache: TTLCache = TTLCache(name="claim", maxsize=200)
 aa_cache: TTLCache = TTLCache(name="aa", maxsize=200)
+favorite_count_cache: TTLCache = TTLCache(name="favorites", maxsize=1000)

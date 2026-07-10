@@ -205,3 +205,22 @@ CREATE TABLE IF NOT EXISTS raid_slots (
 );
 
 CREATE INDEX IF NOT EXISTS idx_raid_slots_team ON raid_slots(team_id);
+
+-- Favourite (bookmark) characters per user. NOT ownership — carries no guild
+-- or claim implications. Scoped per (character, world) so each server's home
+-- page shows only that world's favourites. Brand-new table — CREATE TABLE IF
+-- NOT EXISTS is safe on existing DBs so no migration is needed.
+-- Names are validated + capitalised at the route layer before any DB access
+-- so the plain UNIQUE behaves case-insensitively.
+CREATE TABLE IF NOT EXISTS character_favorites (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_id      TEXT    NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
+    character_name  TEXT    NOT NULL,             -- canonical capitalised EQ2 name
+    world           TEXT    NOT NULL,
+    created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE(discord_id, character_name, world)
+);
+
+-- Serves the public favourited-by-N count on character pages. The per-user
+-- list query is covered by the UNIQUE index prefix (discord_id first).
+CREATE INDEX IF NOT EXISTS idx_favorites_character ON character_favorites(character_name, world);

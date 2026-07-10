@@ -62,7 +62,15 @@ LEFT JOIN users u ON u.discord_id = c.discord_id
 ORDER BY c.requested_at {order};
 
 -- :name select_claim_user_and_world
-SELECT discord_id, world FROM character_claims WHERE id = ?;
+SELECT discord_id, world, character_name FROM character_claims WHERE id = ?;
+
+-- A user cannot favourite their own character; when a claim is approved the
+-- new owner's existing favourite of that character (if any) is removed in the
+-- same transaction. COLLATE NOCASE because the favourites row is stored
+-- capitalised while a claim may carry different casing.
+-- :name remove_new_owners_favorite
+DELETE FROM character_favorites
+WHERE discord_id = ? AND world = ? AND character_name = ? COLLATE NOCASE;
 
 -- :name review_claim
 UPDATE character_claims
