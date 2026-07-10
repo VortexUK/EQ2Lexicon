@@ -220,7 +220,8 @@ def upsert_tree(conn: sqlite3.Connection, tree_id: int, tree_data: dict) -> int:
 
     Computes tree_type + max_points; fully replaces the tree's nodes so a
     rebuild never leaves removed nodes behind. Census sometimes serialises
-    numeric fields as strings — everything is coerced. Returns the node count.
+    numeric fields as strings — everything is coerced. Returns the number of
+    node rows actually inserted (nodeid-less nodes are skipped, not counted).
     """
     aa_list = tree_data.get("alternateadvancement_list") or []
     if not aa_list:
@@ -228,30 +229,15 @@ def upsert_tree(conn: sqlite3.Connection, tree_id: int, tree_data: dict) -> int:
     tree = aa_list[0]
     nodes = tree.get("alternateadvancementnode_list") or []
     tree_type = detect_tree_type(tree_data)
-    max_points = sum(_as_int(n.get("maxtier", 0)) * _as_int(n.get("pointspertier", 1), 1) for n in nodes)
 
-    conn.execute(
-        _SQL["upsert_tree"],
-        (
-            tree_id,
-            str(tree.get("name", tree_id)),
-            tree_type,
-            max_points,
-            1 if str(tree.get("iswardertree", "false")).lower() == "true" else 0,
-            _as_int(tree.get("maximumpoints", 0)),
-            _as_int(tree.get("minimumpointsrequired", 0)),
-            tree.get("ofxclassification"),
-            tree.get("ofyclassification"),
-            _as_int(tree.get("version", 0)),
-        ),
-    )
-    conn.execute(_SQL["delete_nodes_for_tree"], (tree_id,))
+    # Coerce node rows FIRST, then derive max_points from the same values that
+    # get stored — the cap and the rows can never disagree about a default.
+    rows: list[tuple] = []
     for n in nodes:
         if "nodeid" not in n:
             continue
         icon = n.get("icon") or {}
-        conn.execute(
-            _SQL["insert_node"],
+        rows.append(
             (
                 tree_id,
                 _as_int(n["nodeid"]),
@@ -274,7 +260,26 @@ def upsert_tree(conn: sqlite3.Connection, tree_id: int, tree_data: dict) -> int:
                 _as_int(n.get("classificationpointsrequired", 0)),
                 _as_int(n["firstparentid"]) if "firstparentid" in n else None,
                 _as_int(n["firstparentrequiredtier"]) if "firstparentrequiredtier" in n else None,
-            ),
+            )
         )
+    max_points = sum(r[12] * r[13] for r in rows)  # maxtier × points_per_tier, as stored
+
+    conn.execute(
+        _SQL["upsert_tree"],
+        (
+            tree_id,
+            str(tree.get("name", tree_id)),
+            tree_type,
+            max_points,
+            1 if str(tree.get("iswardertree", "false")).lower() == "true" else 0,
+            _as_int(tree.get("maximumpoints", 0)),
+            _as_int(tree.get("minimumpointsrequired", 0)),
+            tree.get("ofxclassification"),
+            tree.get("ofyclassification"),
+            _as_int(tree.get("version", 0)),
+        ),
+    )
+    conn.execute(_SQL["delete_nodes_for_tree"], (tree_id,))
+    conn.executemany(_SQL["insert_node"], rows)
     conn.commit()
-    return len(nodes)
+    return len(rows)

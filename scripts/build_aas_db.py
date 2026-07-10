@@ -39,13 +39,26 @@ def main() -> int:
     nodes = 0
     skipped: list[str] = []
     try:
-        for path in sorted(args.trees_dir.glob("*.json"), key=lambda p: int(p.stem)):
+        # Only numeric stems are tree files — a stray index.json / editor backup
+        # must not abort the whole rebuild.
+        tree_files = sorted(
+            (p for p in args.trees_dir.glob("*.json") if p.stem.isdigit()),
+            key=lambda p: int(p.stem),
+        )
+        for path in args.trees_dir.glob("*.json"):
+            if not path.stem.isdigit():
+                skipped.append(f"{path.name}: non-numeric filename stem")
+        for path in tree_files:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError as exc:
                 skipped.append(f"{path.name}: {exc}")
                 continue
-            count = aas_db.upsert_tree(conn, int(path.stem), data)
+            try:
+                count = aas_db.upsert_tree(conn, int(path.stem), data)
+            except Exception as exc:  # e.g. IntegrityError on a corrupt census dupe
+                skipped.append(f"{path.name}: {exc}")
+                continue
             if count == 0 and not (data.get("alternateadvancement_list") or []):
                 skipped.append(f"{path.name}: no alternateadvancement_list")
                 continue
