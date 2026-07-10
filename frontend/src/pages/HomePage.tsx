@@ -1,13 +1,14 @@
 ﻿import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useClaim } from '../hooks/useClaim'
 import type { Claim } from '../hooks/useClaim'
 import ServerLaunchTimer from '../components/ServerLaunchTimer'
+import CharacterSummaryCard from '../components/CharacterSummaryCard'
+import FavoritesSection from '../components/FavoritesSection'
 import { Card } from '../components/ui'
 // logo.webp lives in frontend/public/ → served at site root by Vite
 const logo = '/logo.webp'
-import { useClasses } from '../useClasses'
 
 // ── Character detail (fetched from Census cache) ──────────────────────────────
 
@@ -16,126 +17,6 @@ interface CharDetail {
   level: number | null
   ts_class: string | null
   ts_level: number | null
-}
-
-// ── Character card ────────────────────────────────────────────────────────────
-
-function CharacterCard({ claim, detail, isPrimary }: {
-  claim: Claim
-  detail: CharDetail | null
-  isPrimary: boolean
-}) {
-  const { colourFor } = useClasses()
-  const accentColour = colourFor(detail?.cls, 'var(--gold)')
-  const navigate = useNavigate()
-
-  return (
-    // Use a div + onClick instead of <Link> so the guild <Link> inside is not a nested <a>
-    <div
-      role="link"
-      tabIndex={0}
-      onClick={() => navigate(`/character/${encodeURIComponent(claim.character_name)}`)}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') navigate(`/character/${encodeURIComponent(claim.character_name)}`) }}
-      className="no-underline block cursor-pointer"
-    >
-      <div
-        className="relative border border-border rounded-md pt-[1.1rem] pr-[1.2rem] pb-[1.1rem] pl-[1.15rem] cursor-pointer overflow-hidden [transition:border-color_0.15s,background_0.15s]"
-        style={{
-          background: 'var(--surface)',
-          borderLeft: `3px solid ${accentColour}`,
-        }}
-        onMouseEnter={e => {
-          ;(e.currentTarget as HTMLDivElement).style.borderColor = accentColour
-          ;(e.currentTarget as HTMLDivElement).style.background = 'var(--surface-raised)'
-        }}
-        onMouseLeave={e => {
-          ;(e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'
-          ;(e.currentTarget as HTMLDivElement).style.background = 'var(--surface)'
-          ;(e.currentTarget as HTMLDivElement).style.borderLeftColor = accentColour
-        }}
-      >
-
-        {/* Primary star */}
-        {isPrimary && (
-          <span className="absolute top-[0.7rem] right-[0.8rem] text-[0.7rem] text-gold opacity-80 tracking-[0.04em]">
-            ★ Primary
-          </span>
-        )}
-
-        {/* Character name */}
-        <div
-          className="font-heading text-[1.25rem] font-bold tracking-[0.04em] leading-[1.15] mb-1"
-          style={{
-            color: isPrimary ? 'var(--rarity-legendary)' : 'var(--rarity-treasured)',
-            textShadow: isPrimary
-              ? '0 0 10px rgba(213,105,0,0.4)'
-              : '0 0 8px rgba(0,120,180,0.35)',
-          }}
-        >
-          {claim.character_name}
-        </div>
-
-        {/* Guild */}
-        <div className="text-[0.8rem] text-text-muted font-heading tracking-[0.03em] mb-[0.8rem] min-h-[1em]">
-          {claim.guild_name
-            ? <span onClick={e => { e.preventDefault(); e.stopPropagation() }}>
-                <Link
-                  to={`/guild/${encodeURIComponent(claim.guild_name)}`}
-                  className="text-gold/70 no-underline"
-                  onClick={e => e.stopPropagation()}
-                >
-                  &lt;{claim.guild_name}&gt;
-                </Link>
-              </span>
-            : <span className="opacity-40">&lt;No guild&gt;</span>
-          }
-        </div>
-
-        {/* Stats row */}
-        <div className="flex flex-col gap-1">
-          {/* Adventure class */}
-          <div className="flex items-baseline gap-2">
-            {detail ? (
-              <span
-                className="text-[0.92rem] font-semibold"
-                style={{
-                  color: detail.cls ? colourFor(detail.cls, 'var(--text)') : 'var(--text-muted)',
-                }}
-              >
-                {detail.cls ?? '—'}
-                {detail.level != null && (
-                  <span className="font-normal text-text-muted text-[0.82rem] ml-[0.35rem]">
-                    ({detail.level})
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span className="text-[0.82rem] text-text-muted opacity-50">loading…</span>
-            )}
-          </div>
-
-          {/* Tradeskill class */}
-          <div className="flex items-baseline gap-2">
-            {detail ? (
-              <span className="text-[0.88rem] text-text-muted font-medium">
-                {detail.ts_class
-                  ? `${detail.ts_class.charAt(0).toUpperCase()}${detail.ts_class.slice(1)}`
-                  : '—'
-                }
-                {detail.ts_level != null && (
-                  <span className="font-normal text-[0.82rem] ml-[0.35rem]">
-                    ({detail.ts_level})
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span className="text-[0.82rem] text-text-muted opacity-50">loading…</span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 // ── Guilds sidebar ────────────────────────────────────────────────────────────
@@ -267,14 +148,22 @@ function MyCharacters() {
 
         {/* Cards grid */}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-          {approved.map(c => (
-            <CharacterCard
-              key={c.id}
-              claim={c}
-              detail={details[c.character_name] ?? null}
-              isPrimary={c === primary}
-            />
-          ))}
+          {approved.map(c => {
+            const detail = details[c.character_name] ?? null
+            return (
+              <CharacterSummaryCard
+                key={c.id}
+                name={c.character_name}
+                guildName={c.guild_name}
+                cls={detail?.cls ?? null}
+                level={detail?.level ?? null}
+                tsClass={detail?.ts_class ?? null}
+                tsLevel={detail?.ts_level ?? null}
+                isPrimary={c === primary}
+                detailLoaded={detail !== null}
+              />
+            )
+          })}
         </div>
 
         {/* Pending claim notice */}
@@ -329,6 +218,13 @@ export default function HomePage() {
 
       {/* Characters */}
       {auth.status === 'authenticated' && <MyCharacters />}
+
+      {/* Favourites — bookmarks, independent of claims; hidden when empty */}
+      {auth.status === 'authenticated' && (
+        <div className="mt-10">
+          <FavoritesSection />
+        </div>
+      )}
 
     </main>
   )

@@ -5,6 +5,7 @@ import { Card, SectionLabel } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { ItemTooltip, useItemTooltip, getCachedItem, prefetchItem } from '../components/ItemTooltip'
 import { FreshnessBadge } from '../components/FreshnessBadge'
+import FavoriteButton from '../components/FavoriteButton'
 import { AAsTab } from './CharacterAAsTab'
 import { SpellsTab } from './CharacterSpellsTab'
 import { useCensusStream } from '../hooks/useCensusStream'
@@ -730,15 +731,18 @@ function GeneralBanner({ char }: { char: Character }) {
     <Card className="rounded-sm2 px-4 py-2 flex flex-wrap items-stretch gap-y-2">
       {/* Identity: name + subtitle, separated by a divider */}
       <div className="w-full md:w-auto md:pr-5 md:mr-5 md:border-r border-border flex flex-col justify-center shrink-0">
-        <div
-          className="font-heading text-[1.6rem] font-bold leading-[1.2] tracking-[0.04em] inline-block"
-          style={{
-            background: 'linear-gradient(135deg, var(--gold) 0%, var(--gold-bright) 40%, var(--gold) 70%, var(--gold-dim) 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-          }}
-        >{char.name}</div>
+        <div className="flex items-center gap-2">
+          <div
+            className="font-heading text-[1.6rem] font-bold leading-[1.2] tracking-[0.04em] inline-block"
+            style={{
+              background: 'linear-gradient(135deg, var(--gold) 0%, var(--gold-bright) 40%, var(--gold) 70%, var(--gold-dim) 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
+          >{char.name}</div>
+          <FavoriteButton name={char.name} />
+        </div>
         <div className="text-text-muted text-[0.82rem] mt-0.5">
           {[char.world, char.race, char.gender].filter(Boolean).join(' · ')}
         </div>
