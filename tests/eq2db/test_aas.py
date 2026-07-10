@@ -48,11 +48,12 @@ def _node(node_id: int, **over) -> dict:
     return base
 
 
-@pytest.fixture(autouse=True)
-def _clear_caches():
-    aas.clear_caches()
-    yield
-    aas.clear_caches()
+@pytest.fixture
+def cat(tmp_path):
+    """A fresh AACatalogue on a tmp db, built via init_db."""
+    c = aas.AACatalogue(tmp_path / "aas.db")
+    c.init_db().close()
+    return c
 
 
 # ---------------------------------------------------------------------------
@@ -60,18 +61,17 @@ def _clear_caches():
 # ---------------------------------------------------------------------------
 
 
-def test_upsert_and_get_tree_round_trip(tmp_path):
-    db = tmp_path / "aas.db"
-    conn = aas.init_db(db)
+def test_upsert_and_get_tree_round_trip(cat):
+    conn = cat.init_db()
     try:
         # class-shaped coords (xcoords {1,4,7,10,13}) → tree_type "class"
         nodes = [_node(100 + i, xcoord=x) for i, x in enumerate((1, 4, 7, 10, 13))]
-        count = aas.upsert_tree(conn, 42, _tree_json(nodes))
+        count = cat.upsert_tree(conn, 42, _tree_json(nodes))
     finally:
         conn.close()
     assert count == 5
 
-    tree = aas.get_tree(42, path=db)
+    tree = cat.get_tree(42)
     assert tree is not None
     assert tree["name"] == "Testar"
     assert tree["tree_type"] == "class"
@@ -82,10 +82,9 @@ def test_upsert_and_get_tree_round_trip(tmp_path):
     assert node["points_per_tier"] == 1 and node["spellcrc"] == 12345
 
 
-def test_upsert_coerces_census_string_numerics(tmp_path):
+def test_upsert_coerces_census_string_numerics(cat):
     """Census sometimes serialises numerics as strings — the loader coerces."""
-    db = tmp_path / "aas.db"
-    conn = aas.init_db(db)
+    conn = cat.init_db()
     try:
         stringy = _node(
             "101",
@@ -97,59 +96,70 @@ def test_upsert_coerces_census_string_numerics(tmp_path):
             firstparentid="999",
             firstparentrequiredtier="3",
         )
-        aas.upsert_tree(conn, 7, _tree_json([stringy]))
+        cat.upsert_tree(conn, 7, _tree_json([stringy]))
     finally:
         conn.close()
-    tree = aas.get_tree(7, path=db)
+    tree = cat.get_tree(7)
     assert tree is not None
     n = tree["nodes"][0]
     assert (n["node_id"], n["xcoord"], n["ycoord"]) == (101, 1, 2)
     assert (n["maxtier"], n["points_per_tier"]) == (5, 2)
     assert (n["first_parent_id"], n["first_parent_required_tier"]) == (999, 3)
     assert tree["max_points"] == 10  # 5 × 2
-    assert aas.tree_node_costs(7, path=db) == {101: 2}
-    assert aas.tree_max_points(7, path=db) == 10
+    assert cat.tree_node_costs(7) == {101: 2}
+    assert cat.tree_max_points(7) == 10
 
 
-def test_rebuild_replaces_removed_nodes(tmp_path):
+def test_rebuild_replaces_removed_nodes(cat):
     """A rebuild fully replaces a tree's nodes — removed nodes never linger."""
-    db = tmp_path / "aas.db"
-    conn = aas.init_db(db)
+    conn = cat.init_db()
     try:
-        aas.upsert_tree(conn, 1, _tree_json([_node(101), _node(102, xcoord=4)]))
-        aas.upsert_tree(conn, 1, _tree_json([_node(101)]))  # 102 removed upstream
+        cat.upsert_tree(conn, 1, _tree_json([_node(101), _node(102, xcoord=4)]))
+        cat.upsert_tree(conn, 1, _tree_json([_node(101)]))  # 102 removed upstream
     finally:
         conn.close()
-    tree = aas.get_tree(1, path=db)
+    tree = cat.get_tree(1)
     assert tree is not None
     assert [n["node_id"] for n in tree["nodes"]] == [101]
 
 
-def test_missing_db_and_unknown_tree(tmp_path):
-    missing = tmp_path / "nope.db"
-    assert aas.load_tree_index(path=missing) == {}
-    assert aas.tree_node_costs(1, path=missing) == {}
-    assert aas.tree_max_points(1, path=missing) == 0
-    assert aas.total_max_points(frozenset({"tradeskill"}), path=missing) == 0
-    assert aas.get_tree(1, path=missing) is None
-    db = tmp_path / "empty.db"
-    aas.init_db(db).close()
-    assert aas.get_tree(999, path=db) is None
+def test_missing_db_and_unknown_tree(tmp_path, cat):
+    missing = aas.AACatalogue(tmp_path / "nope.db")
+    assert missing.load_tree_index() == {}
+    assert missing.tree_node_costs(1) == {}
+    assert missing.tree_max_points(1) == 0
+    assert missing.total_max_points(frozenset({"tradeskill"})) == 0
+    assert missing.get_tree(1) is None
+    assert cat.get_tree(999) is None  # built but empty
 
 
-def test_total_max_points_filters_by_type(tmp_path):
-    db = tmp_path / "aas.db"
-    conn = aas.init_db(db)
+def test_total_max_points_filters_by_type(cat):
+    conn = cat.init_db()
     try:
         # tradeskill tree (classification "Crafting Expertise")
-        aas.upsert_tree(conn, 1, _tree_json([_node(1, classification="Crafting Expertise", maxtier=3)]))
+        cat.upsert_tree(conn, 1, _tree_json([_node(1, classification="Crafting Expertise", maxtier=3)]))
         # heroic tree
-        aas.upsert_tree(conn, 2, _tree_json([_node(2, classification="Heroic", maxtier=4)]))
+        cat.upsert_tree(conn, 2, _tree_json([_node(2, classification="Heroic", maxtier=4)]))
     finally:
         conn.close()
-    assert aas.total_max_points(frozenset({"tradeskill"}), path=db) == 3
-    assert aas.total_max_points(frozenset({"tradeskill", "heroic"}), path=db) == 7
-    assert aas.total_max_points(frozenset(), path=db) == 0
+    assert cat.total_max_points(frozenset({"tradeskill"})) == 3
+    assert cat.total_max_points(frozenset({"tradeskill", "heroic"})) == 7
+    assert cat.total_max_points(frozenset()) == 0
+
+
+def test_limits_round_trip_and_alias_resolution(tmp_path, cat):
+    conn = cat.init_db()
+    try:
+        cat.upsert_limits(
+            conn, "Destiny of Velious", {"aa_cap": 300, "unlocked_trees": ["class", "subclass"], "notes": "x"}
+        )
+    finally:
+        conn.close()
+    for query in ("Destiny of Velious", "DoV", "dov", " DOV "):
+        lim = cat.xpac_limits(query)
+        assert lim == {"aa_cap": 300, "unlocked_trees": ["class", "subclass"]}, query
+    assert cat.xpac_limits("Unknown Xpac") is None
+    assert aas.AACatalogue(tmp_path / "missing.db").xpac_limits("DoV") is None
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +187,7 @@ _committed = pytest.mark.skipif(not aas.DB_PATH.exists(), reason="committed aas.
 
 @_committed
 def test_committed_db_tree_count():
-    idx = aas.load_tree_index()
+    idx = aas.catalogue.load_tree_index()
     assert len(idx) == 157
     assert all(v["type"] != "unknown" for v in idx.values())
 
@@ -186,16 +196,23 @@ def test_committed_db_tree_count():
 def test_committed_db_known_values():
     # Bladedance (tree 1) costs 2 points/tier — the same real-data invariant
     # test_aa_routes.py relies on.
-    assert aas.tree_node_costs(1).get(554687586) == 2
+    assert aas.catalogue.tree_node_costs(1).get(554687586) == 2
     # Tradeskill caps derived from the data: EoF (tradeskill only) → 45;
     # with tradeskill_general (AoD+) → 116.
-    assert aas.total_max_points(frozenset({"tradeskill"})) == 45
-    assert aas.total_max_points(frozenset({"tradeskill", "tradeskill_general"})) == 116
+    assert aas.catalogue.total_max_points(frozenset({"tradeskill"})) == 45
+    assert aas.catalogue.total_max_points(frozenset({"tradeskill", "tradeskill_general"})) == 116
+
+
+@_committed
+def test_committed_db_limits():
+    lim = aas.catalogue.xpac_limits("Destiny of Velious")
+    assert lim is not None and lim["aa_cap"] == 300
+    assert aas.catalogue.xpac_limits("KoS") == aas.catalogue.xpac_limits("Kingdom of Sky")
 
 
 @_committed
 def test_committed_db_meta_stamps():
-    conn = aas.init_db(aas.DB_PATH)
+    conn = aas.catalogue.init_db()
     try:
         assert aas.get_meta(conn, "tree_count") == "157"
         assert aas.get_meta(conn, "built_at") is not None

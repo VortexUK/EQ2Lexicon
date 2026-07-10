@@ -53,12 +53,11 @@ def test_build_trees_applies_pointspertier() -> None:
     """A node's spent points = tier × pointspertier. Bladedance (tree 1) costs
     2 points/tier — one tier spent must count as 2, not 1."""
     from backend.census.models import NodeAA
-
-    from backend.eq2db.aas import tree_node_costs
+    from backend.eq2db.aas import catalogue
     from backend.server.api.aa import _aas_response_from_census, _build_trees
 
     node_id = 554687586  # Bladedance, tree 1, pointspertier=2
-    assert tree_node_costs(1).get(node_id) == 2, "tree data no longer has a 2-point node here"
+    assert catalogue.tree_node_costs(1).get(node_id) == 2, "tree data no longer has a 2-point node here"
 
     trees = _build_trees([NodeAA(node_id=node_id, tree_id=1, tier=1)])
     assert len(trees) == 1
@@ -92,13 +91,35 @@ def _make_census_aas_mock(name: str = "Sihtric") -> MagicMock:
 
 
 class TestGetAaConfig:
+    """aa_limits now live in aas.db — each test seeds a tmp db through the real
+    build path (aas.upsert_limits) and binds xpac_limits to it. total_max_points
+    still reads the committed aas.db, so the tradeskill caps stay real-data."""
+
     def setup_method(self) -> None:
         _load_tree_for_response.cache_clear()
 
-    async def test_missing_limits_file_returns_zero_defaults(self, app) -> None:
-        """When aa_limits.json does not exist, aa_cap is 0 and lists are empty."""
-        with patch("backend.server.api.aa._LIMITS") as mock_limits:
-            mock_limits.exists.return_value = False
+    @staticmethod
+    def _limits_db(tmp_path, limits: dict):
+        from backend.eq2db import aas
+
+        cat = aas.AACatalogue(tmp_path / "aas.db")
+        conn = cat.init_db()
+        try:
+            for xpac, entry in limits.items():
+                cat.upsert_limits(conn, xpac, entry)
+        finally:
+            conn.close()
+        # xpac_limits resolves against the tmp catalogue; everything else
+        # (total_max_points for the tradeskill caps) stays on the real
+        # committed db so those assertions remain real-data.
+        proxy = MagicMock(wraps=aas.catalogue)
+        proxy.xpac_limits = cat.xpac_limits
+        proxy.total_max_points = aas.catalogue.total_max_points
+        return patch("backend.server.api.aa.aa_db", proxy)
+
+    async def test_empty_limits_returns_zero_defaults(self, app, tmp_path) -> None:
+        """An aas.db with no aa_limits rows → aa_cap 0 and empty lists."""
+        with self._limits_db(tmp_path, {}):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/config")
         assert r.status_code == 200
@@ -114,15 +135,11 @@ class TestGetAaConfig:
                 "unlocked_trees": ["class", "subclass", "shadows"],
             }
         }
-        limits_file = tmp_path / "aa_limits.json"
-        limits_file.write_text(json.dumps(limits_data), encoding="utf-8")
-
-        # Patch both the _LIMITS path and current_server to return the right xpac
         mock_server = MagicMock()
         mock_server.current_xpac = "Varsoon"
 
         with (
-            patch("backend.server.api.aa._LIMITS", limits_file),
+            self._limits_db(tmp_path, limits_data),
             patch("backend.server.api.aa.current_server", return_value=mock_server),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -136,21 +153,15 @@ class TestGetAaConfig:
     async def test_tradeskill_cap_derived_from_unlocked_trees(self, app, tmp_path) -> None:
         """tradeskill_aa_cap = Σ max points of the UNLOCKED tradeskill trees, derived
         from the tree data. Adventure aa_cap is unaffected by tradeskill."""
-        limits_file = tmp_path / "aa_limits.json"
-        limits_file.write_text(
-            json.dumps(
-                {
-                    "EoF": {"aa_cap": 100, "unlocked_trees": ["class", "subclass", "tradeskill"]},
-                    "AoD": {"aa_cap": 320, "unlocked_trees": ["class", "tradeskill", "tradeskill_general"]},
-                }
-            ),
-            encoding="utf-8",
-        )
+        limits_data = {
+            "EoF": {"aa_cap": 100, "unlocked_trees": ["class", "subclass", "tradeskill"]},
+            "AoD": {"aa_cap": 320, "unlocked_trees": ["class", "tradeskill", "tradeskill_general"]},
+        }
         for xpac, expected_ts, expected_adv in [("EoF", 45, 100), ("AoD", 116, 320)]:
             mock_server = MagicMock()
             mock_server.current_xpac = xpac
             with (
-                patch("backend.server.api.aa._LIMITS", limits_file),
+                self._limits_db(tmp_path, limits_data),
                 patch("backend.server.api.aa.current_server", return_value=mock_server),
             ):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -163,15 +174,11 @@ class TestGetAaConfig:
         """A server whose current_xpac is a short code ("DoV") still resolves to
         the aa_limits.json entry — otherwise the cap silently reads 0 and the
         Raid-Ready check + per-expansion limit vanish from the AA tab."""
-        limits_file = tmp_path / "aa_limits.json"
-        limits_file.write_text(
-            json.dumps({"Destiny of Velious": {"aa_cap": 300, "unlocked_trees": ["class", "subclass", "tradeskill"]}}),
-            encoding="utf-8",
-        )
+        limits_data = {"Destiny of Velious": {"aa_cap": 300, "unlocked_trees": ["class", "subclass", "tradeskill"]}}
         mock_server = MagicMock()
         mock_server.current_xpac = "DoV"
         with (
-            patch("backend.server.api.aa._LIMITS", limits_file),
+            self._limits_db(tmp_path, limits_data),
             patch("backend.server.api.aa.current_server", return_value=mock_server),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -184,14 +191,11 @@ class TestGetAaConfig:
     async def test_limits_file_present_unknown_xpac_returns_zero_defaults(self, app, tmp_path) -> None:
         """When aa_limits.json exists but xpac key is absent, zeros are returned."""
         limits_data = {"SomeExpansion": {"aa_cap": 320, "unlocked_trees": ["class"]}}
-        limits_file = tmp_path / "aa_limits.json"
-        limits_file.write_text(json.dumps(limits_data), encoding="utf-8")
-
         mock_server = MagicMock()
         mock_server.current_xpac = "UnknownXpac"
 
         with (
-            patch("backend.server.api.aa._LIMITS", limits_file),
+            self._limits_db(tmp_path, limits_data),
             patch("backend.server.api.aa.current_server", return_value=mock_server),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -253,18 +257,17 @@ class TestGetAaTree:
                 }
             ]
         }
-        db = tmp_path / "aas.db"
-        conn = aas.init_db(db)
+        cat = aas.AACatalogue(tmp_path / "aas.db")
+        conn = cat.init_db()
         try:
-            aas.upsert_tree(conn, 42, tree_data)
+            cat.upsert_tree(conn, 42, tree_data)
         finally:
             conn.close()
 
-        with patch("backend.server.api.aa.get_tree", lambda tid: aas.get_tree(tid, path=db)):
+        with patch("backend.server.api.aa.aa_db", cat):
             _load_tree_for_response.cache_clear()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/tree/42")
-        aas.clear_caches()
 
         assert r.status_code == 200
         body = r.json()
@@ -390,7 +393,7 @@ class TestGetCharacterAas:
             patch("backend.server.api.aa.aa_cache.get_stale", return_value=(None, False)),
             patch("backend.server.api.aa.run_sync", side_effect=_fake_run_sync),
             patch("backend.server.api.aa.shared_census_client", return_value=mock_cm),
-            patch("backend.server.api.aa.load_tree_index", return_value={1: {"type": "class", "name": "Templar"}}),
+            patch("backend.server.api.aa.aa_db.load_tree_index", return_value={1: {"type": "class", "name": "Templar"}}),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/character/Sihtric/aas")

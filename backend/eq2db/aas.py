@@ -1,24 +1,26 @@
-"""Local SQLite AA-tree catalogue (aas.db) — the single source of AA tree +
-node reference data.
+"""Local SQLite AA catalogue (aas.db) — the single source of AA reference data.
 
-Condenses ``data/AAs/trees/{id}.json`` (157 files) into ``aa_trees`` +
-``aa_nodes``. ``tree_type`` (the structural detect_tree_type heuristic) and
-``max_points`` (Σ maxtier × points_per_tier) are precomputed at build time by
-``scripts/build_aas_db.py``, so runtime consumers do simple indexed reads.
+Condenses the AA JSONs (``data/AAs/trees/{id}.json`` × 157 + ``aa_limits.json``)
+into ``aa_trees`` + ``aa_nodes`` + ``aa_limits``. ``tree_type`` (the structural
+detect_tree_type heuristic) and ``max_points`` (Σ maxtier × points_per_tier)
+are precomputed at build time by ``scripts/build_aas_db.py``, so runtime
+consumers do simple indexed reads.
 
-Like classes.db, aas.db is committed pre-populated (small, static reference
-data); the JSONs stay committed as the rebuild source. ``DB_AAS_PATH`` env
-overrides the location.
+All access goes through the :class:`AACatalogue` class — one method call per
+question, so AA code elsewhere stays minimal. The module-level ``catalogue``
+is the shared default instance (committed ``data/AAs/aas.db``, like
+classes.db; ``DB_AAS_PATH`` env overrides). Tests construct their own
+``AACatalogue(tmp_path)`` — every instance carries its own caches.
 
-Accessors are ``lru_cache``d — AA data is static per deploy; tests use
-``clear_caches()`` (or distinct tmp paths, which key separately).
+The JSONs stay committed as the rebuild source:
+``scripts/download_aa_trees.py`` → ``scripts/build_aas_db.py`` → commit aas.db.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -32,149 +34,40 @@ _SQL = load_sql(__file__)
 
 DB_PATH: Path = resolve_db_path("DB_AAS_PATH", "AAs", "aas.db")
 
-
-def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
-    """Create the aas tables if missing. Returns an open connection."""
-    if str(path) == ":memory:":
-        conn = sqlite3.connect(":memory:")
-    else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
-        conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
-    _meta_db.create_table(conn)
-    conn.execute(_SQL["schema_aa_trees"])
-    conn.execute(_SQL["schema_aa_nodes"])
-    conn.executescript(_SQL["indexes_aas"])
-    conn.commit()
-    return conn
-
-
 # Re-export the shared meta helpers (provenance stamps set by the build script).
 get_meta = _meta_db.get_meta
 set_meta = _meta_db.set_meta
 
+# EQ2 expansion short codes → canonical aa_limits keys. A server's current_xpac
+# is often stored as a short code (e.g. "DoV"); without this the limits lookup
+# misses and the AA cap silently reads 0 — which hides the Raid-Ready check and
+# the per-expansion cap on the AA tab.
+_XPAC_ALIASES: dict[str, str] = {
+    "kos": "Kingdom of Sky",
+    "eof": "Echoes of Faydwer",
+    "rok": "Rise of Kunark",
+    "tso": "The Shadow Odyssey",
+    "sf": "Sentinel's Fate",
+    "dov": "Destiny of Velious",
+    "aod": "Age of Discovery",
+    "coe": "Chains of Eternity",
+    "tov": "Tears of Veeshan",
+    "aom": "Altar of Malice",
+}
 
-# ---------------------------------------------------------------------------
-# Runtime accessors (cached — static reference data)
-# ---------------------------------------------------------------------------
 
-
-@lru_cache(maxsize=1)
-def load_tree_index(path: Path = DB_PATH) -> dict[int, dict[str, str]]:
-    """Return ``{tree_id: {"name": str, "type": str}}`` for every tree.
-
-    Single source of truth for the web AA routes and the bot /aacheck cog
-    (same contract as the old JSON-glob implementation).
-    """
-    if not path.exists():
-        return {}
-    conn = sqlite3.connect(path)
+def _as_int(value: Any, default: int = 0) -> int:
     try:
-        rows = conn.execute(_SQL["select_tree_index"]).fetchall()
-    except sqlite3.OperationalError:
-        _log.exception("[aas-db] tree index query failed (unbuilt db?)")
-        return {}
-    finally:
-        conn.close()
-    return {int(r[0]): {"name": r[1], "type": r[2]} for r in rows}
-
-
-@lru_cache(maxsize=256)
-def tree_node_costs(tree_id: int, path: Path = DB_PATH) -> dict[int, int]:
-    """``{node_id: points_per_tier}`` for a tree — the per-tier AA point cost of
-    each node (most are 1, some endline nodes are 2). Unknown tree → {}."""
-    if not path.exists():
-        return {}
-    conn = sqlite3.connect(path)
-    try:
-        rows = conn.execute(_SQL["select_node_costs"], (tree_id,)).fetchall()
-    except sqlite3.OperationalError:
-        return {}
-    finally:
-        conn.close()
-    return {int(r[0]): int(r[1]) for r in rows}
-
-
-@lru_cache(maxsize=256)
-def tree_max_points(tree_id: int, path: Path = DB_PATH) -> int:
-    """The tree's fully-maxed point total (precomputed at build). Unknown → 0."""
-    if not path.exists():
-        return 0
-    conn = sqlite3.connect(path)
-    try:
-        row = conn.execute(_SQL["select_max_points"], (tree_id,)).fetchone()
-    except sqlite3.OperationalError:
-        return 0
-    finally:
-        conn.close()
-    return int(row[0]) if row else 0
-
-
-@lru_cache(maxsize=32)
-def total_max_points(tree_types: frozenset[str], path: Path = DB_PATH) -> int:
-    """Σ max_points over every tree whose type is in ``tree_types`` — e.g. the
-    tradeskill AA cap = total_max_points(frozenset({"tradeskill",
-    "tradeskill_general"}))."""
-    if not tree_types or not path.exists():
-        return 0
-    conn = sqlite3.connect(path)
-    try:
-        placeholders = ",".join("?" * len(tree_types))
-        row = conn.execute(
-            _SQL["sum_max_points_for_types"].format(placeholders=placeholders),
-            sorted(tree_types),
-        ).fetchone()
-    except sqlite3.OperationalError:
-        return 0
-    finally:
-        conn.close()
-    return int(row[0]) if row else 0
-
-
-@lru_cache(maxsize=128)
-def get_tree(tree_id: int, path: Path = DB_PATH) -> dict | None:
-    """Full tree detail: the aa_trees row plus a ``nodes`` list of aa_nodes rows
-    (dicts, DB column names) in tree reading order. None when unknown."""
-    if not path.exists():
-        return None
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    try:
-        tree = conn.execute(_SQL["select_tree"], (tree_id,)).fetchone()
-        if tree is None:
-            return None
-        nodes = conn.execute(_SQL["select_nodes_for_tree"], (tree_id,)).fetchall()
-    except sqlite3.OperationalError:
-        return None
-    finally:
-        conn.close()
-    out = dict(tree)
-    out["nodes"] = [dict(n) for n in nodes]
-    return out
-
-
-def clear_caches() -> None:
-    """Reset every lru_cache — used by tests and the build script."""
-    load_tree_index.cache_clear()
-    tree_node_costs.cache_clear()
-    tree_max_points.cache_clear()
-    total_max_points.cache_clear()
-    get_tree.cache_clear()
-
-
-# ---------------------------------------------------------------------------
-# Build-time helpers (scripts/build_aas_db.py)
-# ---------------------------------------------------------------------------
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def detect_tree_type(tree_data: dict) -> str:
     """Classify a raw tree JSON dict into its structural type key.
 
     Build-time only: the result is stored in aa_trees.tree_type, so runtime
-    consumers never re-run this heuristic. Moved verbatim from
-    backend/image/aa_tree.py.
+    consumers never re-run this heuristic.
     """
     tree = tree_data["alternateadvancement_list"][0]
     nodes = tree["alternateadvancementnode_list"]
@@ -208,78 +101,248 @@ def detect_tree_type(tree_data: dict) -> str:
     return "unknown"
 
 
-def _as_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+class AACatalogue:
+    """Read (and build) access to one aas.db file, with per-instance caching.
 
-
-def upsert_tree(conn: sqlite3.Connection, tree_id: int, tree_data: dict) -> int:
-    """Insert/replace one tree (and all its nodes) from its raw JSON dict.
-
-    Computes tree_type + max_points; fully replaces the tree's nodes so a
-    rebuild never leaves removed nodes behind. Census sometimes serialises
-    numeric fields as strings — everything is coerced. Returns the number of
-    node rows actually inserted (nodeid-less nodes are skipped, not counted).
+    AA data is static per deploy, so every read is cached forever on the
+    instance; ``clear_caches()`` resets (tests + the build script).
     """
-    aa_list = tree_data.get("alternateadvancement_list") or []
-    if not aa_list:
-        return 0
-    tree = aa_list[0]
-    nodes = tree.get("alternateadvancementnode_list") or []
-    tree_type = detect_tree_type(tree_data)
 
-    # Coerce node rows FIRST, then derive max_points from the same values that
-    # get stored — the cap and the rows can never disagree about a default.
-    rows: list[tuple] = []
-    for n in nodes:
-        if "nodeid" not in n:
-            continue
-        icon = n.get("icon") or {}
-        rows.append(
+    def __init__(self, path: Path = DB_PATH) -> None:
+        self.path = Path(path)
+        self._tree_index: dict[int, dict[str, str]] | None = None
+        self._trees: dict[int, dict | None] = {}
+        self._node_costs: dict[int, dict[int, int]] = {}
+        self._max_points: dict[int, int] = {}
+        self._total_max_points: dict[frozenset[str], int] = {}
+        self._limits: dict[str, dict | None] = {}
+
+    # ── Connection helpers ───────────────────────────────────────────────────
+
+    def init_db(self) -> sqlite3.Connection:
+        """Create the aas tables if missing. Returns an open connection."""
+        if str(self.path) == ":memory:":
+            conn = sqlite3.connect(":memory:")
+        else:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(self.path)
+            conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+        _meta_db.create_table(conn)
+        conn.execute(_SQL["schema_aa_trees"])
+        conn.execute(_SQL["schema_aa_nodes"])
+        conn.execute(_SQL["schema_aa_limits"])
+        conn.executescript(_SQL["indexes_aas"])
+        conn.commit()
+        return conn
+
+    def _query(self, name: str, params: tuple = (), *, row_factory: bool = False) -> list:
+        """Run one read query; [] when the DB is missing or unbuilt."""
+        if not self.path.exists():
+            return []
+        conn = sqlite3.connect(self.path)
+        if row_factory:
+            conn.row_factory = sqlite3.Row
+        try:
+            return conn.execute(_SQL[name], params).fetchall()
+        except sqlite3.OperationalError:
+            _log.exception("[aas-db] query %s failed (unbuilt db?)", name)
+            return []
+        finally:
+            conn.close()
+
+    def clear_caches(self) -> None:
+        """Reset every per-instance cache — used by tests and the build script."""
+        self._tree_index = None
+        self._trees.clear()
+        self._node_costs.clear()
+        self._max_points.clear()
+        self._total_max_points.clear()
+        self._limits.clear()
+
+    # ── Runtime accessors ────────────────────────────────────────────────────
+
+    def load_tree_index(self) -> dict[int, dict[str, str]]:
+        """``{tree_id: {"name": str, "type": str}}`` for every tree.
+
+        Single source of truth for the web AA routes and the bot /aacheck cog.
+        """
+        if self._tree_index is None:
+            rows = self._query("select_tree_index")
+            self._tree_index = {int(r[0]): {"name": r[1], "type": r[2]} for r in rows}
+        return self._tree_index
+
+    def tree_node_costs(self, tree_id: int) -> dict[int, int]:
+        """``{node_id: points_per_tier}`` — the per-tier AA point cost of each
+        node (most are 1, some endline nodes are 2). Unknown tree → {}."""
+        if tree_id not in self._node_costs:
+            rows = self._query("select_node_costs", (tree_id,))
+            self._node_costs[tree_id] = {int(r[0]): int(r[1]) for r in rows}
+        return self._node_costs[tree_id]
+
+    def tree_max_points(self, tree_id: int) -> int:
+        """The tree's fully-maxed point total (precomputed at build). Unknown → 0."""
+        if tree_id not in self._max_points:
+            rows = self._query("select_max_points", (tree_id,))
+            self._max_points[tree_id] = int(rows[0][0]) if rows else 0
+        return self._max_points[tree_id]
+
+    def total_max_points(self, tree_types: frozenset[str]) -> int:
+        """Σ max_points over every tree whose type is in ``tree_types`` — e.g.
+        the tradeskill AA cap."""
+        if not tree_types:
+            return 0
+        if tree_types not in self._total_max_points:
+            if not self.path.exists():
+                return 0
+            conn = sqlite3.connect(self.path)
+            try:
+                placeholders = ",".join("?" * len(tree_types))
+                row = conn.execute(
+                    _SQL["sum_max_points_for_types"].format(placeholders=placeholders),
+                    sorted(tree_types),
+                ).fetchone()
+                self._total_max_points[tree_types] = int(row[0]) if row else 0
+            except sqlite3.OperationalError:
+                return 0
+            finally:
+                conn.close()
+        return self._total_max_points[tree_types]
+
+    def get_tree(self, tree_id: int) -> dict | None:
+        """Full tree detail: the aa_trees row plus a ``nodes`` list of aa_nodes
+        rows (dicts, DB column names) in tree reading order. None when unknown."""
+        if tree_id not in self._trees:
+            trees = self._query("select_tree", (tree_id,), row_factory=True)
+            if not trees:
+                self._trees[tree_id] = None
+            else:
+                out = dict(trees[0])
+                nodes = self._query("select_nodes_for_tree", (tree_id,), row_factory=True)
+                out["nodes"] = [dict(n) for n in nodes]
+                self._trees[tree_id] = out
+        return self._trees[tree_id]
+
+    def xpac_limits(self, xpac: str) -> dict | None:
+        """``{"aa_cap": int, "unlocked_trees": [tree_type, ...]}`` for an
+        expansion. Tolerates short codes ("DoV" → "Destiny of Velious") and
+        case/whitespace. None when unknown (caller decides the fallback)."""
+        if xpac not in self._limits:
+            self._limits[xpac] = self._resolve_limits(xpac)
+        return self._limits[xpac]
+
+    def _resolve_limits(self, xpac: str) -> dict | None:
+        candidates = [xpac]
+        norm = xpac.strip().lower()
+        if norm:
+            aliased = _XPAC_ALIASES.get(norm)
+            if aliased:
+                candidates.append(aliased)
+        row = None
+        for candidate in candidates:
+            rows = self._query("select_limit", (candidate,))
+            if rows:
+                row = rows[0]
+                break
+        if row is None and norm:
+            # Case-insensitive full-name fallback
+            for (key,) in self._query("select_limit_xpacs"):
+                if key.lower() == norm:
+                    row = self._query("select_limit", (key,))[0]
+                    break
+        if row is None:
+            return None
+        try:
+            unlocked = json.loads(row[1] or "[]")
+        except json.JSONDecodeError:
+            unlocked = []
+        return {"aa_cap": int(row[0]), "unlocked_trees": unlocked}
+
+    # ── Build (scripts/build_aas_db.py) ──────────────────────────────────────
+
+    def upsert_tree(self, conn: sqlite3.Connection, tree_id: int, tree_data: dict) -> int:
+        """Insert/replace one tree (and all its nodes) from its raw JSON dict.
+
+        Computes tree_type + max_points from the SAME coerced values that get
+        stored (the cap and the rows can never disagree); fully replaces the
+        tree's nodes so a rebuild never leaves removed nodes behind. Census
+        string-numerics are coerced. Returns the count of rows inserted
+        (nodeid-less nodes are skipped, not counted).
+        """
+        aa_list = tree_data.get("alternateadvancement_list") or []
+        if not aa_list:
+            return 0
+        tree = aa_list[0]
+        nodes = tree.get("alternateadvancementnode_list") or []
+        tree_type = detect_tree_type(tree_data)
+
+        rows: list[tuple] = []
+        for n in nodes:
+            if "nodeid" not in n:
+                continue
+            icon = n.get("icon") or {}
+            rows.append(
+                (
+                    tree_id,
+                    _as_int(n["nodeid"]),
+                    str(n.get("name", "")),
+                    str(n.get("description", "")),
+                    str(n.get("classification", "")),
+                    str(n.get("group", "")),
+                    str(n.get("title", "")),
+                    _as_int(n.get("titlelevel", 0)),
+                    _as_int(n["xcoord"]),
+                    _as_int(n["ycoord"]),
+                    _as_int(icon.get("id", 0)),
+                    _as_int(icon.get("backdrop", -1), -1),
+                    _as_int(n.get("maxtier", 1), 1),
+                    _as_int(n.get("pointspertier", 1), 1),
+                    _as_int(n.get("minlevel", 1), 1),
+                    _as_int(n.get("spellcrc", 0)),
+                    _as_int(n.get("pointsspentintreetounlock", 0)),
+                    _as_int(n.get("pointsspentgloballytounlock", 0)),
+                    _as_int(n.get("classificationpointsrequired", 0)),
+                    _as_int(n["firstparentid"]) if "firstparentid" in n else None,
+                    _as_int(n["firstparentrequiredtier"]) if "firstparentrequiredtier" in n else None,
+                )
+            )
+        max_points = sum(r[12] * r[13] for r in rows)  # maxtier × points_per_tier, as stored
+
+        conn.execute(
+            _SQL["upsert_tree"],
             (
                 tree_id,
-                _as_int(n["nodeid"]),
-                str(n.get("name", "")),
-                str(n.get("description", "")),
-                str(n.get("classification", "")),
-                str(n.get("group", "")),
-                str(n.get("title", "")),
-                _as_int(n.get("titlelevel", 0)),
-                _as_int(n["xcoord"]),
-                _as_int(n["ycoord"]),
-                _as_int(icon.get("id", 0)),
-                _as_int(icon.get("backdrop", -1), -1),
-                _as_int(n.get("maxtier", 1), 1),
-                _as_int(n.get("pointspertier", 1), 1),
-                _as_int(n.get("minlevel", 1), 1),
-                _as_int(n.get("spellcrc", 0)),
-                _as_int(n.get("pointsspentintreetounlock", 0)),
-                _as_int(n.get("pointsspentgloballytounlock", 0)),
-                _as_int(n.get("classificationpointsrequired", 0)),
-                _as_int(n["firstparentid"]) if "firstparentid" in n else None,
-                _as_int(n["firstparentrequiredtier"]) if "firstparentrequiredtier" in n else None,
-            )
+                str(tree.get("name", tree_id)),
+                tree_type,
+                max_points,
+                1 if str(tree.get("iswardertree", "false")).lower() == "true" else 0,
+                _as_int(tree.get("maximumpoints", 0)),
+                _as_int(tree.get("minimumpointsrequired", 0)),
+                tree.get("ofxclassification"),
+                tree.get("ofyclassification"),
+                _as_int(tree.get("version", 0)),
+            ),
         )
-    max_points = sum(r[12] * r[13] for r in rows)  # maxtier × points_per_tier, as stored
+        conn.execute(_SQL["delete_nodes_for_tree"], (tree_id,))
+        conn.executemany(_SQL["insert_node"], rows)
+        conn.commit()
+        return len(rows)
 
-    conn.execute(
-        _SQL["upsert_tree"],
-        (
-            tree_id,
-            str(tree.get("name", tree_id)),
-            tree_type,
-            max_points,
-            1 if str(tree.get("iswardertree", "false")).lower() == "true" else 0,
-            _as_int(tree.get("maximumpoints", 0)),
-            _as_int(tree.get("minimumpointsrequired", 0)),
-            tree.get("ofxclassification"),
-            tree.get("ofyclassification"),
-            _as_int(tree.get("version", 0)),
-        ),
-    )
-    conn.execute(_SQL["delete_nodes_for_tree"], (tree_id,))
-    conn.executemany(_SQL["insert_node"], rows)
-    conn.commit()
-    return len(rows)
+    def upsert_limits(self, conn: sqlite3.Connection, xpac: str, entry: dict) -> None:
+        """Insert/replace one expansion's AA limits (from aa_limits.json's
+        ``{xpac: {aa_cap, unlocked_trees, notes}}`` entries)."""
+        conn.execute(
+            _SQL["upsert_limit"],
+            (
+                xpac,
+                _as_int(entry.get("aa_cap", 0)),
+                json.dumps(entry.get("unlocked_trees", [])),
+                entry.get("notes"),
+            ),
+        )
+        conn.commit()
+
+
+# The shared default instance — every runtime consumer goes through this.
+catalogue = AACatalogue()

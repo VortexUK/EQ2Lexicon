@@ -95,3 +95,25 @@ INSERT INTO aa_nodes (tree_id, node_id, name, description, classification, node_
                       points_global_to_unlock, classification_points_required,
                       first_parent_id, first_parent_required_tier)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- ── AA limits (per-expansion caps — from data/AAs/aa_limits.json) ────────────
+
+-- :name schema_aa_limits
+CREATE TABLE IF NOT EXISTS aa_limits (
+    xpac            TEXT    PRIMARY KEY,          -- canonical expansion name
+    aa_cap          INTEGER NOT NULL DEFAULT 0,   -- adventure AA cap
+    unlocked_trees  TEXT    NOT NULL DEFAULT '[]',-- JSON array of tree_type keys
+    notes           TEXT
+);
+
+-- :name select_limit
+SELECT aa_cap, unlocked_trees, notes FROM aa_limits WHERE xpac = ?;
+
+-- :name select_limit_xpacs
+SELECT xpac FROM aa_limits;
+
+-- :name upsert_limit
+INSERT INTO aa_limits (xpac, aa_cap, unlocked_trees, notes)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(xpac) DO UPDATE SET
+    aa_cap=excluded.aa_cap, unlocked_trees=excluded.unlocked_trees, notes=excluded.notes;

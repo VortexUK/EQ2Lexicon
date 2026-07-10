@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from backend.eq2db.aas import get_tree
+from backend.eq2db.aas import catalogue
 
 _log = logging.getLogger(__name__)
 
@@ -132,7 +132,7 @@ def _make_badge(tier: int, maxed: bool) -> Image.Image:
 
 def _tree_nodes(tree_id: int) -> list[dict]:
     """The tree's node rows; raises like the old missing-JSON open() did."""
-    tree = get_tree(tree_id)
+    tree = catalogue.get_tree(tree_id)
     if tree is None:
         raise FileNotFoundError(f"AA tree {tree_id} not found in aas.db")
     return tree["nodes"]
@@ -322,7 +322,7 @@ def render_tree(
     aa_data: dict[int, int] | None = None,
 ) -> tuple[Image.Image, str]:
     """Render any AA tree, returning (image, tree_type_key)."""
-    tree = get_tree(tree_id)
+    tree = catalogue.get_tree(tree_id)
     if tree is None:
         raise FileNotFoundError(f"AA tree {tree_id} not found in aas.db")
     tree_type = tree["tree_type"]

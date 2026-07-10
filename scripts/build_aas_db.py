@@ -21,20 +21,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from backend.eq2db import aas as aas_db  # noqa: E402
+from backend.eq2db import aas as aas_module  # noqa: E402
+from backend.eq2db.aas import AACatalogue, set_meta  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trees-dir", type=Path, default=ROOT / "data" / "AAs" / "trees")
-    parser.add_argument("--db", type=Path, default=aas_db.DB_PATH)
+    parser.add_argument("--limits", type=Path, default=ROOT / "data" / "AAs" / "aa_limits.json")
+    parser.add_argument("--db", type=Path, default=aas_module.DB_PATH)
     args = parser.parse_args()
 
     if not args.trees_dir.is_dir():
         print(f"trees dir not found: {args.trees_dir}", file=sys.stderr)
         return 1
 
-    conn = aas_db.init_db(args.db)
+    cat = AACatalogue(args.db)
+    conn = cat.init_db()
     trees = 0
     nodes = 0
     skipped: list[str] = []
@@ -55,7 +58,7 @@ def main() -> int:
                 skipped.append(f"{path.name}: {exc}")
                 continue
             try:
-                count = aas_db.upsert_tree(conn, int(path.stem), data)
+                count = cat.upsert_tree(conn, int(path.stem), data)
             except Exception as exc:  # e.g. IntegrityError on a corrupt census dupe
                 skipped.append(f"{path.name}: {exc}")
                 continue
@@ -65,15 +68,25 @@ def main() -> int:
             trees += 1
             nodes += count
 
-        aas_db.set_meta(conn, "built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-        aas_db.set_meta(conn, "built_from", str(args.trees_dir))
-        aas_db.set_meta(conn, "tree_count", str(trees))
-        aas_db.set_meta(conn, "node_count", str(nodes))
+        limits_count = 0
+        if args.limits.exists():
+            limits = json.loads(args.limits.read_text(encoding="utf-8"))
+            for xpac, entry in limits.items():
+                cat.upsert_limits(conn, xpac, entry)
+                limits_count += 1
+        else:
+            print(f"limits file not found (skipping): {args.limits}", file=sys.stderr)
+
+        set_meta(conn, "built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        set_meta(conn, "built_from", str(args.trees_dir))
+        set_meta(conn, "tree_count", str(trees))
+        set_meta(conn, "node_count", str(nodes))
+        set_meta(conn, "limits_count", str(limits_count))
     finally:
         conn.close()
 
-    aas_db.clear_caches()
-    print(f"aas.db built: {trees} trees, {nodes} nodes -> {args.db}")
+    aas_module.catalogue.clear_caches()
+    print(f"aas.db built: {trees} trees, {nodes} nodes, {limits_count} xpac limits -> {args.db}")
     for s in skipped:
         print(f"  skipped {s}")
     return 0
