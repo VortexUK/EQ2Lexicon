@@ -482,7 +482,14 @@ async def _persist_and_publish_guild(guild_name: str, world: str | None = None) 
         for m in fresh_by_name.values():
             if not m.get("name"):
                 continue
-            census_store.upsert_character(conn, m["name"], world, m, resolved=True, now=now)
+            # Stamp the guild onto the stored member. The roster overview
+            # (GuildMemberResponse) carries no guild_name, so without this a
+            # character served from the durable store on a cache miss shows no
+            # guild — most visibly for combatants in a big-guild parse import,
+            # where many members are resolved once then fall out of the hot cache.
+            census_store.upsert_character(
+                conn, m["name"], world, {**m, "guild_name": roster.name}, resolved=True, now=now
+            )
     finally:
         conn.close()
     # SSE event carries the MERGED roster
