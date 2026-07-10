@@ -173,7 +173,7 @@ export function diffGear(aEquip: EquipmentSlot[], bEquip: EquipmentSlot[]): Gear
   }
 }
 
-export function ilvlDelta(a: number | null, b: number | null): number | null {
+export function nullableDelta(a: number | null, b: number | null): number | null {
   return a != null && b != null ? b - a : null
 }
 

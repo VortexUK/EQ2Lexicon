@@ -3,7 +3,7 @@ import { Badge, Card } from '../../components/ui'
 import { ItemTooltip, useItemTooltip } from '../../components/ItemTooltip'
 import type { Character, EquipmentSlot } from '../characterSheet'
 import { tierStyle } from '../characterSheet'
-import { diffGear, ilvlDelta, type GearDiffRow } from './diff'
+import { diffGear, nullableDelta, type GearDiffRow } from './diff'
 import DeltaChip from './DeltaChip'
 
 /** One side of a mirrored slot row: icon + tier-coloured name + adorn fill. */
@@ -91,7 +91,7 @@ export default function CompareGear({ charA, charB }: { charA: Character; charB:
           <span className="font-semibold tabular-nums">{charA.ilvl != null ? Math.round(charA.ilvl) : '—'}</span>
           <span className="text-text-muted"> vs </span>
           <span className="font-semibold tabular-nums">{charB.ilvl != null ? Math.round(charB.ilvl) : '—'}</span>{' '}
-          <DeltaChip delta={ilvlDelta(charA.ilvl != null ? Math.round(charA.ilvl) : null, charB.ilvl != null ? Math.round(charB.ilvl) : null)} fmt="int" />
+          <DeltaChip delta={nullableDelta(charA.ilvl != null ? Math.round(charA.ilvl) : null, charB.ilvl != null ? Math.round(charB.ilvl) : null)} fmt="int" />
         </span>
         <span className="text-[0.82rem] text-text-muted">
           {gear.differingCount} of {gear.occupiedCount} slots differ

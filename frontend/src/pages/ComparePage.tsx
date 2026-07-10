@@ -12,7 +12,7 @@ import CompareStats from './compare/CompareStats'
 import CompareGear from './compare/CompareGear'
 import CompareAAs from './compare/CompareAAs'
 import DeltaChip from './compare/DeltaChip'
-import { ilvlDelta } from './compare/diff'
+import { nullableDelta } from './compare/diff'
 import type { CompareTab, FavoriteEntry, SideState } from './compare/types'
 
 const TABS: [CompareTab, string][] = [
@@ -151,7 +151,7 @@ export default function ComparePage() {
               <span className="font-semibold tabular-nums">{charA.level ?? '—'}</span>
               <span className="text-text-muted"> vs </span>
               <span className="font-semibold tabular-nums">{charB.level ?? '—'}</span>{' '}
-              <DeltaChip delta={ilvlDelta(charA.level, charB.level)} fmt="int" />
+              <DeltaChip delta={nullableDelta(charA.level, charB.level)} fmt="int" />
             </span>
             <span>
               <span className="text-text-muted">Item Level:</span>{' '}
@@ -159,7 +159,7 @@ export default function ComparePage() {
               <span className="text-text-muted"> vs </span>
               <span className="font-semibold tabular-nums">{charB.ilvl != null ? Math.round(charB.ilvl) : '—'}</span>{' '}
               <DeltaChip
-                delta={ilvlDelta(
+                delta={nullableDelta(
                   charA.ilvl != null ? Math.round(charA.ilvl) : null,
                   charB.ilvl != null ? Math.round(charB.ilvl) : null,
                 )}
@@ -178,7 +178,7 @@ export default function ComparePage() {
               <span className="font-semibold tabular-nums">{charA.stats.health_max?.toLocaleString() ?? '—'}</span>
               <span className="text-text-muted"> vs </span>
               <span className="font-semibold tabular-nums">{charB.stats.health_max?.toLocaleString() ?? '—'}</span>{' '}
-              <DeltaChip delta={ilvlDelta(charA.stats.health_max, charB.stats.health_max)} fmt="int" />
+              <DeltaChip delta={nullableDelta(charA.stats.health_max, charB.stats.health_max)} fmt="int" />
             </span>
           </Card>
 

@@ -17,9 +17,10 @@ export default function CompareStats({ charA, charB }: { charA: Character; charB
   const [diffOnly, setDiffOnly] = useState(false)
   const groups = useMemo(() => diffStats(charA.stats, charB.stats), [charA, charB])
 
+  // A null delta (stat present on one side only) IS a difference — keep it.
   const shown = diffOnly
     ? groups
-        .map(g => ({ ...g, rows: g.rows.filter(r => r.delta !== 0 && r.delta !== null) }))
+        .map(g => ({ ...g, rows: g.rows.filter(r => r.delta !== 0) }))
         .filter(g => g.rows.length > 0)
     : groups
 

@@ -63,7 +63,12 @@ export default function CharacterPicker({ side, state, favorites, excludeName, o
   const seqRef = useRef(0)
 
   const runSearch = useDebounce((q: string) => {
-    if (q.trim().length < 2) { setResults(null); setSearching(false); return }
+    if (q.trim().length < 2) {
+      seqRef.current++ // invalidate any in-flight longer-query response
+      setResults(null)
+      setSearching(false)
+      return
+    }
     const seq = ++seqRef.current
     setSearching(true)
     fetch(`/api/characters/search?name=${encodeURIComponent(q.trim())}`, { credentials: 'include' })

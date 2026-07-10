@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  diffStats, fmtDelta, diffGear, ilvlDelta, sameSubclass, alignTrees, diffTreeNodes,
+  diffStats, fmtDelta, diffGear, nullableDelta, sameSubclass, alignTrees, diffTreeNodes,
 } from './diff'
 import type { CharacterStats, EquipmentSlot } from '../characterSheet'
 import type { CharAATree } from '../CharacterAAsTab'
@@ -155,10 +155,10 @@ describe('diffGear', () => {
   })
 })
 
-describe('ilvlDelta', () => {
+describe('nullableDelta', () => {
   it('is B − A or null when a side is missing', () => {
-    expect(ilvlDelta(100, 130)).toBe(30)
-    expect(ilvlDelta(null, 130)).toBeNull()
+    expect(nullableDelta(100, 130)).toBe(30)
+    expect(nullableDelta(null, 130)).toBeNull()
   })
 })
 

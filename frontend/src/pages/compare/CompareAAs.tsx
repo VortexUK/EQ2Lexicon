@@ -41,15 +41,11 @@ function TreeRow({ summary, entryA, entryB, nameA, nameB }: {
   // Tree metadata: either character's cached copy (same tree_id → same JSON).
   const treeMeta = entryA.treeData.get(summary.tree_id) ?? entryB.treeData.get(summary.tree_id) ?? null
 
-  // Lazy: only computed once expanded (memoised for re-renders after that).
-  const nodeDiff = useMemo(
-    () => (open ? diffTreeNodes(spentA, spentB, treeMeta) : null),
-    [open, spentA, spentB, treeMeta],
-  )
-
-  const shownRows = nodeDiff ? (showAll ? nodeDiff.rows : nodeDiff.rows.filter(r => r.delta !== 0)) : []
-  // Differing-count badge is cheap to show unexpanded too:
-  const differing = useMemo(() => diffTreeNodes(spentA, spentB, treeMeta).differing, [spentA, spentB, treeMeta])
+  // Computed once per (spend, spend, meta) — the badge needs `differing` even
+  // collapsed, so there's no saving in deferring the row diff to expand time.
+  const nodeDiff = useMemo(() => diffTreeNodes(spentA, spentB, treeMeta), [spentA, spentB, treeMeta])
+  const differing = nodeDiff.differing
+  const shownRows = open ? (showAll ? nodeDiff.rows : nodeDiff.rows.filter(r => r.delta !== 0)) : []
 
   return (
     <Card className="rounded-sm px-0 py-0 mb-2 overflow-hidden">
@@ -129,6 +125,9 @@ export default function CompareAAs({ charA, charB }: { charA: Character; charB: 
   useEffect(() => {
     if (!gatePassed) return
     let cancelled = false
+    // Reset on pair change (e.g. swap-in of a new same-subclass character) so
+    // the previous pair's diffs never show against the new names.
+    setState({ status: 'loading' })
     Promise.all([loadAAData(charA.name), loadAAData(charB.name)])
       .then(([a, b]) => { if (!cancelled) setState({ status: 'ok', a, b }) })
       .catch(err => { if (!cancelled) setState({ status: 'error', message: String(err) }) })

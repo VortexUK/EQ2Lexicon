@@ -121,7 +121,12 @@ export function loadAAData(charName: string): Promise<AACacheEntry> {
     }
 
     const entry: AACacheEntry = { charAAs: { ...charAAs, trees: visibleTrees }, config, treeData }
-    aaCache.set(key, entry)
+    // Only cache COMPLETE entries: if a tree fetch failed transiently, return
+    // the partial entry (the UI renders a per-tree fallback) but let the next
+    // mount retry instead of pinning the gap in the cache until a full reload.
+    if (treeData.size === visibleTrees.length) {
+      aaCache.set(key, entry)
+    }
     return entry
   })().finally(() => { aaInFlight.delete(key) })
 
