@@ -526,6 +526,32 @@ class TestFindByCrc:
         assert row is not None
         assert row["tier"] == 2
 
+    def test_prefers_lowest_nonzero_level_variant(self, db):
+        """A (crc, tier) pair has one row per level-scaled variant; the
+        high-level rows from later expansions carry 0.0% placeholder effects
+        and a level=0 row may exist too. The lookup must deterministically
+        pick the lowest NON-ZERO level (the populated TLE-era row) — the
+        'Increases Max Health by 0.0%' AA-tooltip regression."""
+        conn = sqlite3.connect(db)
+        upsert_spells(
+            [
+                # Same crc + tier, three level variants (inserted worst-first
+                # so an ORDER BY-less LIMIT 1 would pick a placeholder).
+                _make_spell(id=901, name="Resolve", crc=888, tier=10, level=120),  # placeholder-era
+                _make_spell(id=902, name="Resolve", crc=888, tier=10, level=0),  # levelless row
+                _make_spell(id=903, name="Resolve", crc=888, tier=10, level=70),  # populated TLE row
+                _make_spell(id=904, name="Resolve", crc=888, tier=10, level=100),
+            ],
+            conn,
+        )
+        conn.close()
+
+        exact = find_by_crc(crc=888, tier=10, path=db)
+        assert exact is not None and exact["level"] == 70
+        find_by_crc.cache_clear()
+        fallback = find_by_crc(crc=888, tier=None, path=db)  # highest-tier path
+        assert fallback is not None and fallback["tier"] == 10 and fallback["level"] == 70
+
     def test_falls_back_to_highest_tier(self, db):
         conn = sqlite3.connect(db)
         upsert_spells(

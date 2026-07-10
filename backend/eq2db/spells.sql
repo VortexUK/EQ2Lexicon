@@ -123,11 +123,19 @@ SELECT {cols} FROM spells WHERE id IN ({placeholders});
 SELECT crc FROM spells WHERE crc IN ({placeholders})
 GROUP BY crc HAVING COUNT(DISTINCT tier_name) > 1;
 
+-- A (crc, tier) pair has one row PER LEVEL-SCALED VARIANT (level 70 / 100 /
+-- 110 / 120 / …). The high-level variants from later expansions carry 0.0%
+-- placeholder effect values; the earliest non-zero level (the TLE-era row) is
+-- the populated, deployment-relevant one. Without a deterministic ORDER BY,
+-- LIMIT 1 returned an arbitrary variant — sometimes a 0.0% placeholder (the
+-- "Increases Max Health by 0.0%" AA-tooltip bug). Sort level=0 rows last.
 -- :name find_by_crc_and_tier
-SELECT {cols} FROM spells WHERE crc = ? AND tier = ? LIMIT 1;
+SELECT {cols} FROM spells WHERE crc = ? AND tier = ?
+ORDER BY CASE WHEN level = 0 THEN 9999 ELSE level END ASC LIMIT 1;
 
 -- :name find_by_crc_highest_tier
-SELECT {cols} FROM spells WHERE crc = ? ORDER BY tier DESC LIMIT 1;
+SELECT {cols} FROM spells WHERE crc = ?
+ORDER BY tier DESC, CASE WHEN level = 0 THEN 9999 ELSE level END ASC LIMIT 1;
 
 -- :name find_by_name_exact
 SELECT {cols} FROM spells WHERE name_lower = ? ORDER BY level;
