@@ -471,6 +471,10 @@ async def test_persist_merges_offline_member_from_store(app, tmp_path, monkeypat
         main_rec = census_store.get_character(conn, "OnlineMain", _WORLD)
         assert main_rec is not None
         assert main_rec["last_resolved_at"] > 1000
+        # The stored member carries its guild, so a cache-miss lookup (e.g. a
+        # parse combatant served from the store) still shows the guild. The
+        # roster overview itself has no guild_name — it's stamped on persist.
+        assert main_rec["data"]["guild_name"] == "TestGuild"
     finally:
         conn.close()
 
