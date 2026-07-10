@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.census import store as census_store
+from backend.core.log_safety import scrub as _scrub
 from backend.server.auth_deps import require_user_session
 from backend.server.cache import character_cache, favorite_count_cache
 from backend.server.core.cache_keys import char_cache_key
@@ -170,7 +171,7 @@ async def add_favorite(request: Request, name: str) -> FavoriteStatusResponse:
         added = await favorites_db.add_favorite(user["id"], canonical, world, cap=MAX_FAVORITES_PER_WORLD)
         if added:
             favorite_count_cache.delete(_count_key(canonical, world))
-            _log.info("[favorites] %s favorited %s on %s", user["id"], canonical, world)
+            _log.info("[favorites] %s favorited %s on %s", _scrub(user["id"]), _scrub(canonical), world)
         elif not await favorites_db.is_favorited(user["id"], canonical, world):
             raise HTTPException(
                 status_code=409,
@@ -188,7 +189,7 @@ async def remove_favorite(request: Request, name: str) -> FavoriteStatusResponse
     world = current_world()
     if await favorites_db.remove_favorite(user["id"], canonical, world):
         favorite_count_cache.delete(_count_key(canonical, world))
-        _log.info("[favorites] %s unfavorited %s on %s", user["id"], canonical, world)
+        _log.info("[favorites] %s unfavorited %s on %s", _scrub(user["id"]), _scrub(canonical), world)
     return await _status(canonical, world, user["id"])
 
 
