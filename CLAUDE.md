@@ -14,6 +14,7 @@ A web companion site for EverQuest 2 (TLE), with a Discord bot for spot checks (
 | `backend/census/item_parser.py` | Item data parsing helpers (parse_item, parse_stats, parse_effects, parse_flags, etc.) extracted from client.py |
 | `backend/eq2db/spells.py` | Local SQLite spell catalogue: strip_roman, unique_highest_entries, load_blocklist, find_by_ids, find_by_crc, spell_to_row, upsert_spells |
 | `backend/eq2db/recipes.py` | Local SQLite recipe catalogue (~70k rows). Helpers: find_by_id, find_by_name, find_by_output_id. Secondary components stored as JSON array. |
+| `backend/eq2db/aas.py` | Local SQLite AA catalogue (aas.db — committed like classes.db). Tables `aa_trees` (tree_type + max_points precomputed at build) + `aa_nodes`. Accessors: `load_tree_index`, `tree_node_costs`, `tree_max_points`, `total_max_points`, `get_tree`; `detect_tree_type` is build-time only. Rebuild: `scripts/build_aas_db.py` after `scripts/download_aa_trees.py`. |
 | `backend/eq2db/zones.py` | Local SQLite zone catalogue (~1124 rows). Tables: `zones`, `zone_types`, `zone_aliases`, `zone_encounters`, `zone_encounter_mobs`. Lookup helpers: `find_by_name`, `list_by_expansion`, `list_by_event`, `list_by_type`, `list_bosses_for_zone`, `find_zones_by_boss`. Zone metadata from `scripts/dev/eq2_zones.cleaned.json`; rebuild via `scripts/build_zones_db.py`. Boss data is curator-managed in-place. |
 | `backend/census/wikitext_md.py` | MediaWiki wikitext → markdown converter (mwparserfromhell). Handles EQ2i templates, wikilinks, nested lists, headings, bold/italic. Used by the raid scraper. |
 | `backend/eq2db/raids.py` | Local SQLite raid-strategy catalogue: `raid_zones` + `raid_encounters` (markdown blob per encounter) + `raid_encounter_revisions`. `DB_RAIDS_PATH` env var. |
@@ -212,9 +213,9 @@ Base URL: `https://census.daybreakgames.com/s:{service_id}/json/get/eq2/`
 
 ## AA tree notes
 
-Data in `data/AAs/trees/{id}.json` and `data/AAs/icons/{id}.png`. Each node has `nodeid`, `xcoord`, `ycoord`, `icon.id`, `icon.backdrop`, `maxtier`, `classification`. `bg_sprite.png` has backdrop circles (44px) and badge circles (24px) — see `backend/image/aa_tree.py` for exact offsets.
+Tree + node reference data lives in `data/AAs/aas.db` (see `backend/eq2db/aas.py`), built from the committed `data/AAs/trees/{id}.json` sources via `scripts/build_aas_db.py`. Icons stay as files: `data/AAs/icons/{id}.png` served at `/aa-assets`. `bg_sprite.png` has backdrop circles (44px) and badge circles (24px) — see `backend/image/aa_tree.py` for exact offsets.
 
-`detect_tree_type()` returns: `class`, `subclass`, `shadows`, `heroic`, `tradeskill`, `tradeskill_general`, `warder`, `prestige`, `dragon`, `reign_of_shadows`, `far_seas`, or `unknown`. The last six fall back to `render_subclass_tree` pending calibration. Coordinate systems are native 640×480 (SCALE=2 → 1280×960); full arithmetic is in `backend/image/aa_tree.py`. The `/aacheck` command offers five static tree choices (Class/Subclass/Shadows/Heroic/Trade) to avoid autocomplete API calls.
+`tree_type` is precomputed at build time (`aas.detect_tree_type`): `class`, `subclass`, `shadows`, `heroic`, `tradeskill`, `tradeskill_general`, `warder`, `prestige`, `dragon`, `reign_of_shadows`, `far_seas`, or `unknown`. The last six fall back to `render_subclass_tree` pending calibration. Coordinate systems are native 640×480 (SCALE=2 → 1280×960); full arithmetic is in `backend/image/aa_tree.py`. The `/aacheck` command offers five static tree choices (Class/Subclass/Shadows/Heroic/Trade) to avoid autocomplete API calls.
 
 ## Tooltip rendering notes
 

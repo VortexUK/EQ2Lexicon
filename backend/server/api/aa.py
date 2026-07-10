@@ -12,8 +12,8 @@ from pydantic import BaseModel
 
 from backend.census import store as census_store
 from backend.census.store import StoreRecord
+from backend.eq2db.aas import get_tree, load_tree_index, total_max_points, tree_node_costs
 from backend.eq2db.spells import find_by_crc
-from backend.image.aa_tree import detect_tree_type, load_tree_index, tree_max_points, tree_node_costs
 from backend.server.cache import aa_cache
 from backend.server.constants import CHARACTER_STALE_S
 from backend.server.core.cache_keys import aa_cache_key
@@ -26,7 +26,6 @@ _log = logging.getLogger(__name__)
 router = APIRouter(tags=["aa"])
 
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "AAs"
-_TREES_DIR = _DATA_DIR / "trees"
 _LIMITS = _DATA_DIR / "aa_limits.json"
 
 _TYPE_ORDER = {
@@ -159,9 +158,7 @@ async def get_aa_config() -> AAConfigResponse:
     # (Σ maxtier × pointspertier), derived from the tree data rather than
     # hardcoded. EoF (tradeskill only) → 45; Age of Discovery+ (both) → 116.
     unlocked_ts = _TRADESKILL_TYPES & set(unlocked)
-    tradeskill_cap = sum(
-        tree_max_points(tid) for tid, info in load_tree_index().items() if info.get("type") in unlocked_ts
-    )
+    tradeskill_cap = total_max_points(frozenset(unlocked_ts))
     return AAConfigResponse(
         xpac=xpac,
         aa_cap=entry.get("aa_cap", 0),
@@ -172,50 +169,38 @@ async def get_aa_config() -> AAConfigResponse:
 
 @lru_cache(maxsize=128)
 def _load_tree_for_response(tree_id: int) -> AATreeResponse | None:
-    """Parse + build the AATreeResponse for a single tree id.
+    """Build the AATreeResponse for a single tree id from aas.db.
 
-    Returns None when the file is missing or has no AA data.
-
-    Invalidation: tree JSON is static reference data on disk; rebuild via a
-    process restart. If the data/AAs/trees/ files ever become hot-editable,
-    add a sibling _load_tree_for_response.cache_clear() on the mutation
-    path — see the canonical pattern at web/routes/rankings.py:195-203
-    (invalidate_zones_cache).
+    Returns None when the tree is unknown. Static reference data — the
+    eq2db.aas accessors are themselves cached; this cache just skips the
+    pydantic re-validation on hot trees. Tests clear via .cache_clear() AND
+    backend.eq2db.aas.clear_caches().
     """
-    path = _TREES_DIR / f"{tree_id}.json"
-    if not path.exists():
+    tree = get_tree(tree_id)
+    if tree is None:
         return None
-    data = json.loads(path.read_text(encoding="utf-8"))
-    aa_list = data.get("alternateadvancement_list") or []
-    if not aa_list:
-        return None
-    tree = aa_list[0]
-    tree_type = detect_tree_type(data)
-    nodes: list[AANodeResponse] = []
-    for n in tree.get("alternateadvancementnode_list") or []:
-        icon = n.get("icon") or {}
-        nodes.append(
-            AANodeResponse(
-                node_id=int(n["nodeid"]),
-                name=str(n.get("name", "")),
-                description=str(n.get("description", "")),
-                classification=str(n.get("classification", "")),
-                xcoord=int(n["xcoord"]),
-                ycoord=int(n["ycoord"]),
-                icon_id=int(icon.get("id", 0)),
-                backdrop_id=int(icon.get("backdrop", -1)),
-                maxtier=int(n.get("maxtier", 1)),
-                pointspertier=int(n.get("pointspertier", 1)),
-                points_to_unlock=int(n.get("pointsspentintreetounlock", 0)),
-                title=str(n.get("title", "")),
-                spellcrc=int(n.get("spellcrc", 0)),
-            )
-        )
     return AATreeResponse(
         tree_id=tree_id,
-        tree_name=tree.get("name", str(tree_id)),
-        tree_type=tree_type,
-        nodes=nodes,
+        tree_name=tree["name"],
+        tree_type=tree["tree_type"],
+        nodes=[
+            AANodeResponse(
+                node_id=n["node_id"],
+                name=n["name"],
+                description=n["description"],
+                classification=n["classification"],
+                xcoord=n["xcoord"],
+                ycoord=n["ycoord"],
+                icon_id=n["icon_id"],
+                backdrop_id=n["icon_backdrop"],
+                maxtier=n["maxtier"],
+                pointspertier=n["points_per_tier"],
+                points_to_unlock=n["points_to_unlock"],
+                title=n["title"],
+                spellcrc=n["spellcrc"],
+            )
+            for n in tree["nodes"]
+        ],
     )
 
 

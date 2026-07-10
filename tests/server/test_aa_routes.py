@@ -53,7 +53,8 @@ def test_build_trees_applies_pointspertier() -> None:
     """A node's spent points = tier × pointspertier. Bladedance (tree 1) costs
     2 points/tier — one tier spent must count as 2, not 1."""
     from backend.census.models import NodeAA
-    from backend.image.aa_tree import tree_node_costs
+
+    from backend.eq2db.aas import tree_node_costs
     from backend.server.api.aa import _aas_response_from_census, _build_trees
 
     node_id = 554687586  # Bladedance, tree 1, pointspertier=2
@@ -223,7 +224,11 @@ class TestGetAaTree:
         assert "9999" in r.json()["detail"]
 
     async def test_existing_tree_returns_tree_response(self, app, tmp_path) -> None:
-        """When the tree JSON file exists, the parsed AATreeResponse is returned."""
+        """A tree present in aas.db is served as an AATreeResponse. The raw
+        Census JSON (string-valued numerics included) goes through the real
+        build path (aas.upsert_tree) into a tmp DB, so coercion is covered."""
+        from backend.eq2db import aas
+
         tree_data = {
             "alternateadvancement_list": [
                 {
@@ -248,14 +253,18 @@ class TestGetAaTree:
                 }
             ]
         }
-        trees_dir = tmp_path / "trees"
-        trees_dir.mkdir()
-        (trees_dir / "42.json").write_text(json.dumps(tree_data), encoding="utf-8")
+        db = tmp_path / "aas.db"
+        conn = aas.init_db(db)
+        try:
+            aas.upsert_tree(conn, 42, tree_data)
+        finally:
+            conn.close()
 
-        with patch("backend.server.api.aa._TREES_DIR", trees_dir):
+        with patch("backend.server.api.aa.get_tree", lambda tid: aas.get_tree(tid, path=db)):
             _load_tree_for_response.cache_clear()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/tree/42")
+        aas.clear_caches()
 
         assert r.status_code == 200
         body = r.json()
@@ -263,6 +272,8 @@ class TestGetAaTree:
         assert body["tree_name"] == "Templar"
         assert len(body["nodes"]) == 1
         assert body["nodes"][0]["node_id"] == 101
+        assert body["nodes"][0]["icon_id"] == 500
+        assert body["nodes"][0]["backdrop_id"] == 456
 
 
 # ---------------------------------------------------------------------------

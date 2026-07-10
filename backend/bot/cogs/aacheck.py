@@ -8,7 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from backend.census.config import WORLD
-from backend.image.aa_tree import load_tree_index, render_tree, tree_node_costs
+from backend.eq2db.aas import load_tree_index, tree_node_costs
+from backend.image.aa_tree import render_tree
 
 if TYPE_CHECKING:
     from backend.bot.bot import EQ2Bot

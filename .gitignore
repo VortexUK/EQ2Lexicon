@@ -326,6 +326,8 @@ data/users.db-shm
 # CI uses the committed file. Only the WAL/SHM transients stay ignored.
 data/classes/classes.db-wal
 data/classes/classes.db-shm
+data/AAs/aas.db-wal
+data/AAs/aas.db-shm
 
 # Census persistence (generated at runtime, copied to the Railway volume)
 data/census/census.db
