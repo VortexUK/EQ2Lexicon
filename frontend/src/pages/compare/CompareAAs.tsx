@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Badge, Card } from '../../components/ui'
 import Caret from '../../components/Caret'
+import { AANodeTooltip, type AANodeTooltipData } from '../../components/AATree'
 import { useClasses } from '../../useClasses'
 import type { Character } from '../characterSheet'
 import { loadAAData, TREE_TYPE_LABEL, type AACacheEntry } from '../CharacterAAsTab'
@@ -35,6 +36,7 @@ function TreeRow({ summary, entryA, entryB, nameA, nameB }: {
 }) {
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const [hoverTip, setHoverTip] = useState<AANodeTooltipData | null>(null)
 
   const spentA = entryA.charAAs.trees.find(t => t.tree_id === summary.tree_id)?.spent
   const spentB = entryB.charAAs.trees.find(t => t.tree_id === summary.tree_id)?.spent
@@ -92,20 +94,37 @@ function TreeRow({ summary, entryA, entryB, nameA, nameB }: {
           {shownRows.length === 0 && (
             <p className="text-[0.8rem] text-text-muted">No differing nodes in this tree.</p>
           )}
-          {shownRows.map(row => (
-            <div
-              key={row.node_id}
-              className="grid grid-cols-[24px_1fr_70px_70px_70px] gap-2 items-center py-[3px] border-b border-border last:border-b-0 text-[0.82rem]"
-            >
-              {row.icon_id != null
-                ? <img src={`/aa-assets/icons/${row.icon_id}.png`} alt="" className="w-6 h-6 rounded-sm" />
-                : <span className="w-6 h-6 inline-block rounded-sm bg-surface-raised" />}
-              <span className="truncate">{row.name}</span>
-              <span className="text-right"><RankCell rank={row.rankA} maxtier={row.maxtier} other={row.rankB} /></span>
-              <span className="text-right"><RankCell rank={row.rankB} maxtier={row.maxtier} other={row.rankA} /></span>
-              <span className="text-right"><DeltaChip delta={row.delta} fmt="int" /></span>
+          {shownRows.length > 0 && (
+            <div className="grid grid-cols-[24px_1fr_90px_90px_64px] gap-2 items-baseline pb-1 mb-0.5 border-b border-border text-[0.68rem] uppercase tracking-[0.08em] text-text-muted">
+              <span />
+              <span>Node</span>
+              <span className="text-right truncate" title={nameA}>{nameA}</span>
+              <span className="text-right truncate" title={nameB}>{nameB}</span>
+              <span className="text-right">Δ</span>
             </div>
-          ))}
+          )}
+          {shownRows.map(row => {
+            const meta = treeMeta?.nodes.find(n => n.node_id === row.node_id)
+            return (
+              <div
+                key={row.node_id}
+                className="grid grid-cols-[24px_1fr_90px_90px_64px] gap-2 items-center py-[3px] border-b border-border last:border-b-0 text-[0.82rem]"
+                onMouseEnter={e => {
+                  if (meta) setHoverTip({ node: meta, tier: Math.max(row.rankA, row.rankB), mx: e.clientX, my: e.clientY })
+                }}
+                onMouseLeave={() => setHoverTip(null)}
+              >
+                {row.icon_id != null
+                  ? <img src={`/aa-assets/icons/${row.icon_id}.png`} alt="" className="w-6 h-6 rounded-sm" />
+                  : <span className="w-6 h-6 inline-block rounded-sm bg-surface-raised" />}
+                <span className="truncate">{row.name}</span>
+                <span className="text-right"><RankCell rank={row.rankA} maxtier={row.maxtier} other={row.rankB} /></span>
+                <span className="text-right"><RankCell rank={row.rankB} maxtier={row.maxtier} other={row.rankA} /></span>
+                <span className="text-right"><DeltaChip delta={row.delta} fmt="int" /></span>
+              </div>
+            )
+          })}
+          {hoverTip && <AANodeTooltip data={hoverTip} />}
         </div>
       )}
     </Card>
@@ -156,20 +175,26 @@ export default function CompareAAs({ charA, charB }: { charA: Character; charB: 
 
   return (
     <div>
-      {/* Totals header */}
+      {/* Totals header — values carry the character's name so it's always
+          clear which side is which (both share a class colour here). */}
       <Card className="rounded-sm px-4 py-2.5 mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-1 text-[0.85rem]">
         <span>
           <span className="text-text-muted">Adventure AA:</span>{' '}
-          <span className="font-semibold tabular-nums" style={{ color: colourFor(charA.cls, 'var(--text)') }}>{partsA.adventure}</span>
+          <span style={{ color: colourFor(charA.cls, 'var(--text)') }}>
+            {charA.name} <span className="font-semibold tabular-nums">{partsA.adventure}</span>
+          </span>
           <span className="text-text-muted"> vs </span>
-          <span className="font-semibold tabular-nums" style={{ color: colourFor(charB.cls, 'var(--text)') }}>{partsB.adventure}</span>{' '}
+          <span style={{ color: colourFor(charB.cls, 'var(--text)') }}>
+            {charB.name} <span className="font-semibold tabular-nums">{partsB.adventure}</span>
+          </span>{' '}
           <DeltaChip delta={partsB.adventure - partsA.adventure} fmt="int" />
         </span>
         {(partsA.tradeskill > 0 || partsB.tradeskill > 0) && (
           <span>
             <span className="text-text-muted">Tradeskill AA:</span>{' '}
+            <span className="text-text-muted">{charA.name}</span>{' '}
             <span className="font-semibold tabular-nums">{partsA.tradeskill}</span>
-            <span className="text-text-muted"> vs </span>
+            <span className="text-text-muted"> vs {charB.name}</span>{' '}
             <span className="font-semibold tabular-nums">{partsB.tradeskill}</span>{' '}
             <DeltaChip delta={partsB.tradeskill - partsA.tradeskill} fmt="int" />
           </span>

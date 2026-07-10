@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Badge, Card } from '../../components/ui'
 import { ItemTooltip, useItemTooltip } from '../../components/ItemTooltip'
+import { useClasses } from '../../useClasses'
 import type { Character, EquipmentSlot } from '../characterSheet'
 import { tierStyle } from '../characterSheet'
 import { diffGear, nullableDelta, type GearDiffRow } from './diff'
@@ -70,6 +71,7 @@ function SlotRowMirror({ row, onShow, onHide }: {
 /** Mirrored paperdoll comparison: [A item | slot | B item] rows + ilvl headline. */
 export default function CompareGear({ charA, charB }: { charA: Character; charB: Character }) {
   const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
+  const { colourFor } = useClasses()
   const [diffOnly, setDiffOnly] = useState(false)
   const gear = useMemo(() => diffGear(charA.equipment, charB.equipment), [charA, charB])
 
@@ -84,13 +86,18 @@ export default function CompareGear({ charA, charB }: { charA: Character; charB:
 
   return (
     <div onMouseMove={moveTip}>
-      {/* Headline: ilvl + differing count */}
+      {/* Headline: ilvl + differing count — values carry names so the mirrored
+          columns below are unambiguous. */}
       <Card className="rounded-sm px-4 py-2.5 mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-1">
         <span className="text-[0.85rem]">
           <span className="text-text-muted">Item Level:</span>{' '}
-          <span className="font-semibold tabular-nums">{charA.ilvl != null ? Math.round(charA.ilvl) : '—'}</span>
+          <span style={{ color: colourFor(charA.cls, 'var(--text)') }}>
+            {charA.name} <span className="font-semibold tabular-nums">{charA.ilvl != null ? Math.round(charA.ilvl) : '—'}</span>
+          </span>
           <span className="text-text-muted"> vs </span>
-          <span className="font-semibold tabular-nums">{charB.ilvl != null ? Math.round(charB.ilvl) : '—'}</span>{' '}
+          <span style={{ color: colourFor(charB.cls, 'var(--text)') }}>
+            {charB.name} <span className="font-semibold tabular-nums">{charB.ilvl != null ? Math.round(charB.ilvl) : '—'}</span>
+          </span>{' '}
           <DeltaChip delta={nullableDelta(charA.ilvl != null ? Math.round(charA.ilvl) : null, charB.ilvl != null ? Math.round(charB.ilvl) : null)} fmt="int" />
         </span>
         <span className="text-[0.82rem] text-text-muted">
@@ -101,6 +108,13 @@ export default function CompareGear({ charA, charB }: { charA: Character; charB:
           differences only
         </label>
       </Card>
+
+      {/* Column identity for the mirrored rows */}
+      <div className="grid grid-cols-[1fr_84px_1fr] gap-2 mb-2 text-[0.72rem] uppercase tracking-[0.08em]">
+        <span className="font-semibold truncate" style={{ color: colourFor(charA.cls, 'var(--gold)') }}>{charA.name}</span>
+        <span />
+        <span className="font-semibold truncate text-right" style={{ color: colourFor(charB.cls, 'var(--gold)') }}>{charB.name}</span>
+      </div>
 
       {sections.map(([title, rows]) =>
         rows.length === 0 ? null : (

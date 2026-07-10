@@ -122,15 +122,19 @@ function getBgOverlay(treeType: string): string | null {
 const NODE_D = 44
 
 // ── Hover tooltip ──────────────────────────────────────────────────────────────
+// Exported: the compare page's AA node-diff rows reuse the exact same tooltip
+// (name, rank, description, lazy-fetched spell effects) as the tree view.
 
-interface TooltipData {
+export interface AANodeTooltipData {
   node: AANode
   tier: number
   mx:   number
   my:   number
 }
 
-function AANodeTooltip({ data }: { data: TooltipData }) {
+type TooltipData = AANodeTooltipData
+
+export function AANodeTooltip({ data }: { data: TooltipData }) {
   const { node, tier, mx, my } = data
   const spent = tier > 0
 
