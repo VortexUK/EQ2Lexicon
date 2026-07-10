@@ -567,6 +567,12 @@ function GeneralBanner({ char }: { char: Character }) {
             ⚔ {char.guild_name}
           </Link>
         )}
+        <Link
+          to={`/compare?a=${encodeURIComponent(char.name)}`}
+          className="inline-block mt-1 text-[0.82rem] no-underline font-medium text-gold-dim hover:text-gold"
+        >
+          ⚖ Compare
+        </Link>
       </div>
 
       {/* Stat columns, each divided */}
