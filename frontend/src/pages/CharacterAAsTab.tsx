@@ -29,27 +29,114 @@ export interface CharAAsResponse {
   profiles:       CharAAProfile[]
 }
 
-interface AAConfig {
+export interface AAConfig {
   xpac:               string
   aa_cap:             number   // adventure AA cap (tradeskill excluded)
   tradeskill_aa_cap:  number   // separate tradeskill pool cap
   unlocked_tree_types: string[]
 }
 
-// ── AA data cache ─────────────────────────────────────────────────────────────
-// Module-level: survives re-renders and Vite HMR remounts.
-// Keyed by lower-cased character name.
+// ── AA data cache + loaders ──────────────────────────────────────────────────
+// Module-level: survives re-renders and Vite HMR remounts. Shared with the
+// compare page — when two same-subclass characters are compared, each tree
+// JSON is fetched once (getTreeData promise cache), the xpac config once per
+// session, and a character's AA payload once across the AAs tab and compare.
 
-interface AACacheEntry {
+export interface AACacheEntry {
   charAAs:  CharAAsResponse
   config:   AAConfig
   treeData: Map<number, AATreeData>
 }
 const aaCache = new Map<string, AACacheEntry>()
+const aaInFlight = new Map<string, Promise<AACacheEntry>>()
+
+// /api/aa/config is session-static (like /api/classes) — one fetch, retried
+// only after a failure.
+let _configPromise: Promise<AAConfig> | null = null
+
+export function getAAConfig(): Promise<AAConfig> {
+  if (!_configPromise) {
+    _configPromise = fetch('/api/aa/config', { credentials: 'include' })
+      .then(r => (r.ok ? (r.json() as Promise<AAConfig>) : Promise.reject(new Error(`Config: HTTP ${r.status}`))))
+      .catch(err => {
+        _configPromise = null // allow retry on next call
+        throw err
+      })
+  }
+  return _configPromise
+}
+
+// Per-tree promise cache: a tree_id is fetched at most once per session (tree
+// JSON is static reference data). Failures aren't cached — the next caller
+// retries.
+const _treeCache = new Map<number, Promise<AATreeData | null>>()
+
+export function getTreeData(treeId: number): Promise<AATreeData | null> {
+  let p = _treeCache.get(treeId)
+  if (!p) {
+    p = fetch(`/api/aa/tree/${treeId}`, { credentials: 'include' })
+      .then(r => (r.ok ? (r.json() as Promise<AATreeData>) : null))
+      .catch(() => null)
+      .then(td => {
+        if (td === null) _treeCache.delete(treeId)
+        return td
+      })
+    _treeCache.set(treeId, p)
+  }
+  return p
+}
+
+export function getCachedAAData(charName: string): AACacheEntry | undefined {
+  return aaCache.get(charName.toLowerCase())
+}
+
+/** Load a character's AA payload + config + visible-tree node data.
+ * Cache-first with in-flight dedupe; throws on HTTP failure (callers own
+ * their error state). The entry's `charAAs.trees` is pre-filtered to the
+ * xpac-unlocked tree types. */
+export function loadAAData(charName: string): Promise<AACacheEntry> {
+  const key = charName.toLowerCase()
+  const hit = aaCache.get(key)
+  if (hit) return Promise.resolve(hit)
+  const pending = aaInFlight.get(key)
+  if (pending) return pending
+
+  const promise = (async (): Promise<AACacheEntry> => {
+    const [aasRes, config] = await Promise.all([
+      fetch(`/api/character/${encodeURIComponent(charName)}/aas`, { credentials: 'include' }),
+      getAAConfig(),
+    ])
+    if (!aasRes.ok) throw new Error(`AAs: HTTP ${aasRes.status}`)
+    const charAAs: CharAAsResponse = await aasRes.json()
+
+    // Filter trees to only those unlocked in the current xpac
+    const unlocked = new Set(config.unlocked_tree_types)
+    const visibleTrees = charAAs.trees.filter(t => unlocked.size === 0 || unlocked.has(t.tree_type))
+
+    // Fetch full node data for each visible tree in parallel (per-tree cached)
+    const treeResponses = await Promise.all(visibleTrees.map(t => getTreeData(t.tree_id)))
+    const treeData = new Map<number, AATreeData>()
+    for (const td of treeResponses) {
+      if (td) treeData.set(td.tree_id, td)
+    }
+
+    const entry: AACacheEntry = { charAAs: { ...charAAs, trees: visibleTrees }, config, treeData }
+    // Only cache COMPLETE entries: if a tree fetch failed transiently, return
+    // the partial entry (the UI renders a per-tree fallback) but let the next
+    // mount retry instead of pinning the gap in the cache until a full reload.
+    if (treeData.size === visibleTrees.length) {
+      aaCache.set(key, entry)
+    }
+    return entry
+  })().finally(() => { aaInFlight.delete(key) })
+
+  aaInFlight.set(key, promise)
+  return promise
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TREE_TYPE_LABEL: Record<string, string> = {
+export const TREE_TYPE_LABEL: Record<string, string> = {
   class:              'Class',
   subclass:           'Subclass',
   shadows:            'Shadows',
@@ -163,7 +250,7 @@ function isProfileIndex(p: ActiveProfile): p is number {
 }
 
 // The trees shown for a given profile, filtered to the xpac-unlocked types.
-function visibleTreesFor(charAAs: CharAAsResponse, config: AAConfig, profile: ActiveProfile): CharAATree[] {
+export function visibleTreesFor(charAAs: CharAAsResponse, config: AAConfig, profile: ActiveProfile): CharAATree[] {
   const unlocked = new Set(config.unlocked_tree_types)
   const base = isProfileIndex(profile) ? (charAAs.profiles[profile]?.trees ?? []) : charAAs.trees
   return base.filter(t => unlocked.size === 0 || unlocked.has(t.tree_type))
@@ -215,53 +302,21 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
     if (aaCache.has(cacheKey)) return
 
     let cancelled = false
-
-    async function load() {
-      try {
-        const [aasRes, configRes] = await Promise.all([
-          fetch(`/api/character/${encodeURIComponent(charName)}/aas`),
-          fetch('/api/aa/config'),
-        ])
-        if (!aasRes.ok)    throw new Error(`AAs: HTTP ${aasRes.status}`)
-        if (!configRes.ok) throw new Error(`Config: HTTP ${configRes.status}`)
-
-        const charAAs: CharAAsResponse = await aasRes.json()
-        const config:  AAConfig        = await configRes.json()
-
-        // Filter trees to only those unlocked in the current xpac
-        const unlocked = new Set(config.unlocked_tree_types)
-        const visibleTrees = charAAs.trees.filter(t =>
-          unlocked.size === 0 || unlocked.has(t.tree_type)
-        )
-
-        // Fetch full node data for each visible tree in parallel
-        const treeResponses = await Promise.all(
-          visibleTrees.map(t =>
-            fetch(`/api/aa/tree/${t.tree_id}`)
-              .then(r => r.ok ? r.json() as Promise<AATreeData> : null)
-              .catch(() => null)
-          )
-        )
-
+    loadAAData(charName)
+      .then(entry => {
         if (cancelled) return
-
-        const treeData = new Map<number, AATreeData>()
-        for (const td of treeResponses) {
-          if (td) treeData.set(td.tree_id, td)
-        }
-
-        const entry: AACacheEntry = { charAAs: { ...charAAs, trees: visibleTrees }, config, treeData }
-        aaCache.set(cacheKey, entry)
         setState({ status: 'ok', ...entry })
         // Apply any deep-linked profile/tree now that the data is loaded.
-        setActiveProfile(prev => (prev === 'current' ? resolveProfile(deepLink.current.profile, charAAs.profiles) : prev))
-        setSelectedTreeId(prev => prev ?? resolveTreeId(deepLink.current.tree, visibleTrees) ?? visibleTrees[0]?.tree_id ?? null)
-      } catch (err) {
+        setActiveProfile(prev =>
+          prev === 'current' ? resolveProfile(deepLink.current.profile, entry.charAAs.profiles) : prev
+        )
+        setSelectedTreeId(
+          prev => prev ?? resolveTreeId(deepLink.current.tree, entry.charAAs.trees) ?? entry.charAAs.trees[0]?.tree_id ?? null
+        )
+      })
+      .catch(err => {
         if (!cancelled) setState({ status: 'error', message: String(err) })
-      }
-    }
-
-    load()
+      })
     return () => { cancelled = true }
   }, [charName, cacheKey])
 

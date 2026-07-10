@@ -25,6 +25,7 @@ const ParsePage         = lazy(() => import('./pages/ParsePage'))
 const ParsesPage        = lazy(() => import('./pages/ParsesPage'))
 const RaidZonePage      = lazy(() => import('./pages/RaidZonePage'))
 const RaidZonesPage     = lazy(() => import('./pages/RaidZonesPage'))
+const ComparePage       = lazy(() => import('./pages/ComparePage'))
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
 import { ServerProvider } from './hooks/useServer'
@@ -285,6 +286,7 @@ function App() {
         <Route path="/guilds"     element={<GuildSearchPage />} />
         <Route path="/items"      element={<ItemSearchPage />} />
         <Route path="/character/:name" element={<CharacterPage />} />
+        <Route path="/compare" element={<ComparePage />} />
         <Route path="/guild/:guildName" element={<GuildPage />} />
         <Route path="/item/:itemId"    element={<ItemPage />} />
         <Route path="/claim" element={<ClaimPage />} />

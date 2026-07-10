@@ -10,94 +10,26 @@ import { AAsTab } from './CharacterAAsTab'
 import { SpellsTab } from './CharacterSpellsTab'
 import { useCensusStream } from '../hooks/useCensusStream'
 import { mergeParams, safeSetParams } from '../lib/searchParams'
+import { fetchCharacter, getCachedCharacter, setCachedCharacter } from '../lib/characterCache'
 import { useServer } from '../hooks/useServer'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types + shared sheet config ──────────────────────────────────────────────
+// Types, stat groups, slot layout, and tier styling live in characterSheet.ts —
+// shared with the compare page so the two can never drift.
 
-interface AdornSlot {
-  color: string
-  adorn_name: string | null
-  adorn_id: string | null
-  ilvl_bonus: number
-}
-
-interface EquipmentSlot {
-  slot: string
-  name: string
-  item_id: string | null
-  icon_id: string | null
-  tier: string | null
-  adorn_slots: AdornSlot[]
-}
-
-interface CharacterStats {
-  health_max: number | null
-  health_regen: number | null
-  power_max: number | null
-  power_regen: number | null
-  run_speed: number | null
-  status_points: number | null
-  str_eff: number | null
-  sta_eff: number | null
-  agi_eff: number | null
-  wis_eff: number | null
-  int_eff: number | null
-  armor: number | null
-  avoidance: number | null
-  block_chance: number | null
-  parry: number | null
-  mit_physical: number | null
-  mit_elemental: number | null
-  mit_noxious: number | null
-  mit_arcane: number | null
-  potency: number | null
-  crit_chance: number | null
-  crit_bonus: number | null
-  fervor: number | null
-  dps: number | null
-  double_attack: number | null
-  ability_doublecast: number | null
-  attack_speed: number | null
-  strikethrough: number | null
-  accuracy: number | null
-  ability_mod: number | null
-  weapon_damage_bonus: number | null
-  flurry: number | null
-  lethality: number | null
-  toughness: number | null
-  reuse_speed: number | null
-  casting_speed: number | null
-  recovery_speed: number | null
-  primary_min: number | null
-  primary_max: number | null
-  primary_delay: number | null
-  secondary_min: number | null
-  secondary_max: number | null
-  secondary_delay: number | null
-  ranged_min: number | null
-  ranged_max: number | null
-  ranged_delay: number | null
-}
-
-interface Character {
-  id: string
-  name: string
-  level: number | null
-  cls: string | null
-  race: string | null
-  gender: string | null
-  deity: string | null
-  aa_count: number
-  world: string
-  ts_class: string | null
-  ts_level: number | null
-  guild_name: string | null
-  ilvl: number | null
-  stats: CharacterStats
-  equipment: EquipmentSlot[]
-  fetched_at?: number | null
-  stale?: boolean
-}
+import {
+  type Character,
+  type EquipmentSlot,
+  type Fmt,
+  CONSUMABLE_SLOTS,
+  LEFT_SLOTS,
+  RIGHT_SLOTS,
+  STAT_GROUPS,
+  WEAPON_SLOTS,
+  buildSlotMap,
+  fmtStat,
+  tierStyle,
+} from './characterSheet'
 
 // ── Gear rating ──────────────────────────────────────────────────────────────
 
@@ -272,72 +204,6 @@ function GearRating({ equipment, ready, maxLevel, ratingConfig, ilvl }: {
 
 // ── Paperdoll slot config ────────────────────────────────────────────────────
 
-const LEFT_SLOTS: [string, string][] = [
-  ['Charm',      'activate1'],
-  ['Cloak',      'cloak'],
-  ['Head',       'head'],
-  ['Shoulders',  'shoulders'],
-  ['Chest',      'chest'],
-  ['Arms',       'forearms'],
-  ['Hands',      'hands'],
-  ['Legs',       'legs'],
-  ['Feet',       'feet'],
-  ['Primary',    'primary'],
-  ['Secondary',  'secondary'],
-]
-
-const RIGHT_SLOTS: [string, string][] = [
-  ['Charm',      'activate2'],
-  ['Ear',        'ears'],
-  ['Ear',        'ears2'],
-  ['Neck',       'neck'],
-  ['Ring',       'left_ring'],
-  ['Ring',       'right_ring'],
-  ['Wrist',      'left_wrist'],
-  ['Wrist',      'right_wrist'],
-  ['Waist',      'waist'],
-  ['Ranged',     'ranged'],
-]
-
-const CONSUMABLE_SLOTS: [string, string][] = [
-  ['Food',  'food'],
-  ['Drink', 'drink'],
-]
-
-const DISPLAY_TO_BASE: Record<string, string> = {
-  Primary: 'primary', Secondary: 'secondary', Ranged: 'ranged',
-  Head: 'head', Chest: 'chest', Shoulders: 'shoulders',
-  Forearms: 'forearms', Hands: 'hands', Legs: 'legs',
-  Feet: 'feet', Waist: 'waist', Neck: 'neck', Cloak: 'cloak',
-  Charm: 'activate', Finger: 'ring', Ear: 'ear', Wrist: 'wrist',
-  Food: 'food', Drink: 'drink',
-}
-const MULTI_SUFFIXES: Record<string, string[]> = {
-  activate: ['activate1', 'activate2'],
-  ring:     ['left_ring', 'right_ring'],
-  ear:      ['ears', 'ears2'],
-  wrist:    ['left_wrist', 'right_wrist'],
-}
-
-function buildSlotMap(equipment: EquipmentSlot[]): Map<string, EquipmentSlot> {
-  const map = new Map<string, EquipmentSlot>()
-  const counters: Record<string, number> = {}
-  for (const s of equipment) {
-    const base = DISPLAY_TO_BASE[s.slot]
-    if (!base) continue
-    const suffixes = MULTI_SUFFIXES[base]
-    let key: string
-    if (suffixes) {
-      counters[base] = (counters[base] ?? 0) + 1
-      key = suffixes[counters[base] - 1] ?? base
-    } else {
-      key = base
-    }
-    map.set(key, s)
-  }
-  return map
-}
-
 // Adornment slot colours — matches EQ2 in-game colours
 const ADORN_COLOUR: Record<string, string> = {
   White:     '#e8e8e8',
@@ -381,48 +247,6 @@ function parseAdornName(name: string): ParsedAdorn | null {
   return { short: `${m[1].slice(0, 3)} ${m[2]}`, tierLetter: tier.letter, tierColor: tier.color }
 }
 
-type TierStyle = { color: string; textShadow?: string }
-
-const OUTLINE = '-1px 0px 0px #000, 0px 1px 0px #000, 1px 0px 0px #000, 0px -1px 0px #000'
-
-// Adornment-name styling: canonical rarity colour + a game-style outline/glow
-// text-shadow. Colours reference the --rarity-* tokens; the glows stay literal.
-const TIER_STYLE: Record<string, TierStyle> = {
-  MYTHICAL: {
-    color: 'var(--rarity-mythical)',
-    textShadow: `${OUTLINE}, 0px 0px 4px #C859E6, 0px 0px 4px #C859E6`,
-  },
-  FABLED: {
-    color: 'var(--rarity-fabled)',
-    textShadow: `${OUTLINE}, 0px 0px 4px #DF535F, 0px 0px 4px #DF535F`,
-  },
-  LEGENDARY: {
-    color: 'var(--rarity-legendary)',
-    textShadow: `${OUTLINE}, 0px 0px 4px #D56900, 0px 0px 4px #ffc993`,
-  },
-  MASTERCRAFTED: {
-    color: 'var(--rarity-treasured)',
-    textShadow: `${OUTLINE}, 0px 0px 4px #D56900, 0px 0px 4px #92d7fd`,
-  },
-  TREASURED: {   // same as mastercrafted
-    color: 'var(--rarity-treasured)',
-    textShadow: `${OUTLINE}, 0px 0px 4px #D56900, 0px 0px 4px #92d7fd`,
-  },
-  UNCOMMON: { color: 'var(--rarity-handcrafted)' },
-  COMMON:   { color: 'var(--text)' },
-}
-
-function tierStyle(tier: string | null): TierStyle {
-  const key = (tier ?? '').toUpperCase()
-  if (TIER_STYLE[key]) return TIER_STYLE[key]
-  // Compound tier like "MASTERCRAFTED FABLED" — use the last recognised word
-  const words = key.split(/\s+/)
-  for (let i = words.length - 1; i >= 0; i--) {
-    if (TIER_STYLE[words[i]]) return TIER_STYLE[words[i]]
-  }
-  return { color: 'var(--text)' }
-}
-
 // ── Stat ↔ item-stat matching ─────────────────────────────────────────────────
 //
 // Panel labels sometimes differ from the Census stat display_name.
@@ -462,10 +286,6 @@ function statMatches(panelLabel: string, itemStatName: string): boolean {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-// Module-level cache: survives re-renders and Vite HMR remounts.
-// Keyed by lower-cased character name.
-const charCache = new Map<string, Character>()
-
 type State =
   | { status: 'loading' }
   | { status: 'ok'; char: Character }
@@ -494,7 +314,7 @@ export default function CharacterPage() {
   const { name } = useParams<{ name: string }>()
   const server = useServer()
   const [state, setState] = useState<State>(() => {
-    const cached = name ? charCache.get(name.toLowerCase()) : undefined
+    const cached = name ? getCachedCharacter(name) : undefined
     return cached ? { status: 'ok', char: cached } : { status: 'loading' }
   })
   const [ratingConfig, setRatingConfig] = useState<RatingConfig>(DEFAULT_RATING_CONFIG)
@@ -512,25 +332,17 @@ export default function CharacterPage() {
 
   useEffect(() => {
     if (!name) return
-    // Already have fresh data — don't hit Census again.
-    if (charCache.has(name.toLowerCase())) return
-    fetch(`/api/character/${encodeURIComponent(name)}`, { credentials: 'include' })
-      .then(async res => {
-        if (res.status === 404) { setState({ status: 'not_found', name }); return }
-        if (res.status === 503) {
-          setState({ status: 'census_unavailable', name })
-          return
-        }
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          setState({ status: 'error', message: body.detail ?? `HTTP ${res.status}` })
-          return
-        }
-        const char: Character = await res.json()
-        charCache.set(name.toLowerCase(), char)
-        setState({ status: 'ok', char })
-      })
-      .catch(err => setState({ status: 'error', message: String(err) }))
+    // Already have fresh data — don't hit Census again. (fetchCharacter is
+    // cache-first + in-flight-deduped; shared with the compare page.)
+    if (getCachedCharacter(name)) return
+    fetchCharacter(name).then(result => {
+      switch (result.status) {
+        case 'ok':                  setState({ status: 'ok', char: result.char }); break
+        case 'not_found':           setState({ status: 'not_found', name }); break
+        case 'census_unavailable':  setState({ status: 'census_unavailable', name }); break
+        case 'error':               setState({ status: 'error', message: result.message }); break
+      }
+    })
   }, [name])
 
   // SSE live-swap: replace character state when the server pushes a fresh record.
@@ -542,7 +354,7 @@ export default function CharacterPage() {
     if (!charName || !charWorld) return
     const key = `${charName.toLowerCase()}:${charWorld.toLowerCase()}`
     return subscribe<Character>(key, (updated) => {
-      charCache.set(updated.name.toLowerCase(), updated)
+      setCachedCharacter(updated)
       setState({ status: 'ok', char: updated })
     })
   }, [charName, charWorld, subscribe])
@@ -755,6 +567,12 @@ function GeneralBanner({ char }: { char: Character }) {
             ⚔ {char.guild_name}
           </Link>
         )}
+        <Link
+          to={`/compare?a=${encodeURIComponent(char.name)}`}
+          className="inline-block mt-1 text-[0.82rem] no-underline font-medium text-gold-dim hover:text-gold"
+        >
+          ⚖ Compare
+        </Link>
       </div>
 
       {/* Stat columns, each divided */}
@@ -793,74 +611,34 @@ function StatsPanel({ char, onStatHover, onStatLeave }: {
 
   return (
     <div>
-      <StatGroup title="Attributes">
-        <StatRow label="Strength"     value={s.str_eff} fmt="int"  {...h('Strength')} />
-        <StatRow label="Stamina"      value={s.sta_eff} fmt="int"  {...h('Stamina')} />
-        <StatRow label="Agility"      value={s.agi_eff} fmt="int"  {...h('Agility')} />
-        <StatRow label="Wisdom"       value={s.wis_eff} fmt="int"  {...h('Wisdom')} />
-        <StatRow label="Intelligence" value={s.int_eff} fmt="int"  {...h('Intelligence')} />
-      </StatGroup>
-
-      <StatGroup title="Defense">
-        <StatRow label="Armor"              value={s.armor}         fmt="int"  {...h('Armor')} />
-        <StatRow label="Avoidance"          value={s.avoidance}     fmt="int"  {...h('Avoidance')} />
-        <StatRow label="Block Chance"       value={s.block_chance}  fmt="pct1" {...h('Block Chance')} />
-        <StatRow label="Parry"              value={s.parry}         fmt="int"  {...h('Parry')} />
-        <StatRow label="Physical Mit"       value={s.mit_physical}  fmt="pct1" {...h('Physical Mit')} />
-        <StatRow label="Elemental Mit"      value={s.mit_elemental} fmt="pct1" {...h('Elemental Mit')} />
-        <StatRow label="Noxious Mit"        value={s.mit_noxious}   fmt="pct1" {...h('Noxious Mit')} />
-        <StatRow label="Arcane Mit"         value={s.mit_arcane}    fmt="pct1" {...h('Arcane Mit')} />
-      </StatGroup>
-
-      <StatGroup title="Combat">
-        <StatRow label="Potency"            value={s.potency}             fmt="dec1" {...h('Potency')} />
-        <StatRow label="Crit Chance"        value={s.crit_chance}         fmt="pct1" {...h('Crit Chance')} />
-        <StatRow label="Crit Bonus"         value={s.crit_bonus}          fmt="pct1" {...h('Crit Bonus')} />
-        <StatRow label="Fervor"             value={s.fervor}              fmt="dec1" {...h('Fervor')} />
-        <StatRow label="DPS"                value={s.dps}                 fmt="dec1" {...h('DPS')} />
-        <StatRow label="Double Attack"      value={s.double_attack}       fmt="pct1" {...h('Double Attack')} />
-        <StatRow label="Ability Doublecast" value={s.ability_doublecast}  fmt="pct1" {...h('Ability Doublecast')} />
-        <StatRow label="Attack Speed"       value={s.attack_speed}        fmt="pct1" {...h('Attack Speed')} />
-        <StatRow label="Ability Mod"        value={s.ability_mod}         fmt="int"  {...h('Ability Mod')} />
-        <StatRow label="Weapon Damage"      value={s.weapon_damage_bonus} fmt="pct1" {...h('Weapon Damage')} />
-        <StatRow label="Flurry"             value={s.flurry}              fmt="pct1" {...h('Flurry')} />
-        <StatRow label="Strikethrough"      value={s.strikethrough}       fmt="pct1" {...h('Strikethrough')} />
-        <StatRow label="Accuracy"           value={s.accuracy}            fmt="pct1" {...h('Accuracy')} />
-        <StatRow label="Lethality"          value={s.lethality}           fmt="pct1" {...h('Lethality')} />
-        <StatRow label="Toughness"          value={s.toughness}           fmt="dec1" {...h('Toughness')} />
-      </StatGroup>
-
-      <StatGroup title="Casting">
-        <StatRow label="Reuse Speed"    value={s.reuse_speed}    fmt="pct1" {...h('Reuse Speed')} />
-        <StatRow label="Casting Speed"  value={s.casting_speed}  fmt="pct1" {...h('Casting Speed')} />
-        <StatRow label="Recovery Speed" value={s.recovery_speed} fmt="pct1" {...h('Recovery Speed')} />
-      </StatGroup>
+      {/* Data-driven from the shared STAT_GROUPS config (characterSheet.ts) —
+          hover labels are the row labels, so STAT_ALIASES matching is unchanged. */}
+      {STAT_GROUPS.map(group => (
+        <StatGroup key={group.title} title={group.title}>
+          {group.rows.map(row => (
+            <StatRow key={row.label} label={row.label} value={s[row.key]} fmt={row.fmt} {...h(row.label)} />
+          ))}
+        </StatGroup>
+      ))}
 
       <StatGroup title="Weapon">
-        {s.primary_min != null && s.primary_max != null &&
-          <StatRow label="Primary"   value={`${s.primary_min.toLocaleString()} – ${s.primary_max.toLocaleString()}  (${s.primary_delay?.toFixed(2)}s)`} />}
-        {s.secondary_min != null && s.secondary_max != null &&
-          <StatRow label="Secondary" value={`${s.secondary_min.toLocaleString()} – ${s.secondary_max.toLocaleString()}  (${s.secondary_delay?.toFixed(2)}s)`} />}
-        {s.ranged_min != null && s.ranged_max != null &&
-          <StatRow label="Ranged"    value={`${s.ranged_min.toLocaleString()} – ${s.ranged_max.toLocaleString()}  (${s.ranged_delay?.toFixed(2)}s)`} />}
+        {WEAPON_SLOTS.map(w => {
+          const min = s[w.min], max = s[w.max], delay = s[w.delay]
+          if (min == null || max == null) return null
+          return (
+            <StatRow
+              key={w.label}
+              label={w.label}
+              value={`${min.toLocaleString()} – ${max.toLocaleString()}  (${delay?.toFixed(2)}s)`}
+            />
+          )
+        })}
       </StatGroup>
     </div>
   )
 }
 
 // ── Stat display helpers ──────────────────────────────────────────────────────
-
-type Fmt = 'int' | 'pct' | 'pct1' | 'dec1'
-
-function fmt(value: number, format?: Fmt): string {
-  switch (format) {
-    case 'int':  return value.toLocaleString()
-    case 'pct':  return `${Math.round(value)}%`
-    case 'pct1': return `${value.toFixed(1)}%`
-    case 'dec1': return value.toFixed(1)
-    default:     return String(value)
-  }
-}
 
 export function StatRow({ label, value, fmt: format, onHover, onLeave }: {
   label: string
@@ -870,7 +648,7 @@ export function StatRow({ label, value, fmt: format, onHover, onLeave }: {
   onLeave?: () => void
 }) {
   if (value === null || value === undefined) return null
-  const display = typeof value === 'number' ? fmt(value, format) : value
+  const display = typeof value === 'number' ? fmtStat(value, format) : value
   return (
     <div
       className="flex justify-between items-baseline py-[2px] border-b border-border"
