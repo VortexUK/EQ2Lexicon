@@ -5,15 +5,19 @@ import FavoriteButton from './FavoriteButton'
 
 type Status = { count: number; favorited_by_me: boolean }
 
-/** Stub fetch: GET returns `initial`; PUT/DELETE resolve via a held promise so
- * tests can observe the optimistic state before the server answers. */
-function mockFetch(initial: Status) {
+/** Stub fetch: GET on the favourite URL returns `initial`; /api/claim/me
+ * returns `approvedClaims`; PUT/DELETE resolve via a held promise so tests can
+ * observe the optimistic state before the server answers. */
+function mockFetch(initial: Status, approvedClaims: { character_name: string }[] = []) {
   let releaseMutation!: (r: { ok: boolean; status?: number; body?: unknown }) => void
   const gate = new Promise<{ ok: boolean; status?: number; body?: unknown }>(res => { releaseMutation = res })
   const calls: { url: string; method: string }[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, opts?: RequestInit) => {
     const method = opts?.method ?? 'GET'
     calls.push({ url, method })
+    if (method === 'GET' && url.includes('/api/claim/me')) {
+      return { ok: true, status: 200, json: async () => ({ approved: approvedClaims, pending: null }) }
+    }
     if (method === 'GET') {
       return { ok: true, status: 200, json: async () => initial }
     }
@@ -71,6 +75,14 @@ describe('FavoriteButton', () => {
     await waitFor(() => expect(btn).toHaveAttribute('aria-pressed', 'false')) // rolled back
     expect(screen.getByText('3')).toBeInTheDocument()
     expect(screen.getByText(/Favourite limit reached/)).toBeInTheDocument()
+  })
+
+  it('renders count-only (no button) for your own character', async () => {
+    mockFetch({ count: 3, favorited_by_me: false }, [{ character_name: 'menludiir' }]) // case-insensitive
+    render(<FavoriteButton name="Menludiir" />)
+    expect(await screen.findByText('3')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('button')).not.toBeInTheDocument())
+    expect(screen.getByTitle(/own character/)).toBeInTheDocument()
   })
 
   it('unfavourites with DELETE when already favorited', async () => {

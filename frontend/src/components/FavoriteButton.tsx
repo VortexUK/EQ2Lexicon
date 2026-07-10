@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useFavorite } from '../hooks/useFavorite'
+import { useClaim } from '../hooks/useClaim'
 
 /**
  * Favourite star + count for a character page's banner. A favourite is a
  * bookmark, not ownership. The whole app sits behind the login gate, so no
- * anonymous affordance is needed — the button is always interactive once the
- * status has loaded.
+ * anonymous affordance is needed. Your OWN characters (approved claims) can't
+ * be favourited — the star renders as a muted count-only badge there (the
+ * backend enforces the same rule with a 400, and claim approval auto-removes
+ * a pre-existing favourite).
  */
 export default function FavoriteButton({ name }: { name: string }) {
   const { status, pending, error, toggle } = useFavorite(name)
+  const claimState = useClaim()
   const [showError, setShowError] = useState(false)
 
   // Surface errors transiently (e.g. the 50-favourite cap's 409 message).
@@ -20,6 +24,22 @@ export default function FavoriteButton({ name }: { name: string }) {
   }, [error])
 
   if (status === null) return null
+
+  const isOwn =
+    claimState.status === 'ready' &&
+    claimState.data.approved.some(c => c.character_name.toLowerCase() === name.toLowerCase())
+
+  if (isOwn) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-[0.78rem] text-text-muted"
+        title="Favourited by — you can't favourite your own character"
+      >
+        <span className="text-[1.05rem] leading-none opacity-40">★</span>
+        {status.count.toLocaleString()}
+      </span>
+    )
+  }
 
   const fav = status.favorited_by_me
   return (

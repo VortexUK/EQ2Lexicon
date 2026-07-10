@@ -7,7 +7,7 @@
  * a failure rolls it back and surfaces the error — e.g. the 50-per-server
  * cap's 409 message).
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useFetch } from './useFetch'
 import { handle } from '../lib/api'
 import { toErrorMessage } from '../lib/errors'
@@ -30,12 +30,15 @@ export function useFavorite(name: string): UseFavoriteResult {
   const [status, setStatus] = useState<FavoriteStatus | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const mounted = useRef(true)
 
+  // Character pages remount on navigation (App.tsx keys routes by pathname),
+  // but don't depend on that remote detail: reset local state whenever the
+  // target character changes so a reused mount can never mutate the wrong
+  // character's favourite.
   useEffect(() => {
-    mounted.current = true
-    return () => { mounted.current = false }
-  }, [])
+    setStatus(null)
+    setError(null)
+  }, [url])
 
   // Mirror the initial fetch into local state (local state wins after toggles).
   useEffect(() => {
@@ -54,13 +57,12 @@ export function useFavorite(name: string): UseFavoriteResult {
     setPending(true)
     fetch(url, { method: prev.favorited_by_me ? 'DELETE' : 'PUT', credentials: 'include' })
       .then(r => handle<FavoriteStatus>(r))
-      .then(server => { if (mounted.current) setStatus(server) }) // reconcile
+      .then(server => setStatus(server)) // reconcile
       .catch(err => {
-        if (!mounted.current) return
         setStatus(prev) // rollback
         setError(toErrorMessage(err))
       })
-      .finally(() => { if (mounted.current) setPending(false) })
+      .finally(() => setPending(false))
   }
 
   return { status, pending, error, toggle }

@@ -5,12 +5,14 @@ carries no guild or claim implications. Reads/writes are scoped to the active
 server's world (``current_world()``).
 
 Caching: the favourited-by-N count is cached (``favorite_count_cache``) because
-character pages are hot — the win is skipping the per-request aiosqlite
-connection open. Writes invalidate the key exactly (single-process asyncio), so
-the TTL is only a backstop. ``favorited_by_me`` is never cached (a per-user
-point lookup on the UNIQUE index). ``GET /favorites`` is DB-direct — once per
-home-page load, enriched from the in-memory character cache and the local
-census store, never the network.
+character pages are hot — a cache hit skips the count query and its aiosqlite
+connection entirely (an anonymous GET on a warm key does zero DB work). Writes
+invalidate the key exactly (single-process asyncio), so the TTL is only a
+backstop — it also self-heals the one write path that bypasses this module
+(a user deletion's ON DELETE CASCADE). ``favorited_by_me`` is never cached (a
+per-user point lookup on the UNIQUE index). ``GET /favorites`` is DB-direct —
+once per home-page load, enriched from the in-memory character cache and the
+local census store, never the network.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_character_name
 from backend.server.db import favorites as favorites_db
+from backend.server.db import get_active_claims
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
 
@@ -80,15 +83,15 @@ def _count_key(name: str, world: str) -> str:
 
 
 async def _status(name: str, world: str, discord_id: str | None) -> FavoriteStatusResponse:
-    """Count (cache-aware) + per-user membership (always fresh)."""
+    """Count (cache-aside — a hit skips the query + connection entirely) +
+    per-user membership (always fresh, only when a session exists)."""
     key = _count_key(name, world)
-    cached_count = favorite_count_cache.get(key)
-    status = await favorites_db.get_favorite_status(name, world, discord_id)
-    if cached_count is None:
-        favorite_count_cache.set(key, status["count"])
-    else:
-        status["count"] = cached_count
-    return FavoriteStatusResponse(**status)
+    count = favorite_count_cache.get(key)
+    if count is None:
+        count = await favorites_db.count_favorites_for_character(name, world)
+        favorite_count_cache.set(key, count)
+    mine = discord_id is not None and await favorites_db.is_favorited(discord_id, name, world)
+    return FavoriteStatusResponse(count=count, favorited_by_me=mine)
 
 
 def _store_character_data(name: str, world: str) -> dict | None:
@@ -137,27 +140,42 @@ async def get_favorite_status(request: Request, name: str) -> FavoriteStatusResp
     return await _status(canonical, current_world(), user["id"] if user else None)
 
 
+async def _is_own_character(discord_id: str, name: str, world: str) -> bool:
+    """Does the user hold an APPROVED claim on this character? Favouriting your
+    own character is pointless and would inflate the public count."""
+    claims = await get_active_claims(discord_id, world)
+    return any((c.get("character_name") or "").lower() == name.lower() for c in claims["approved"])
+
+
 @router.put("/character/{name}/favorite", response_model=FavoriteStatusResponse)
 @limiter.limit("20/minute")
 async def add_favorite(request: Request, name: str) -> FavoriteStatusResponse:
     """Favourite a character. Idempotent (PUT, not toggle — safe under
-    double-click / optimistic retry)."""
+    double-click / optimistic retry). Own characters can't be favourited;
+    claim approval also removes any pre-existing own-favourite (see
+    db/claims.review_claim)."""
     canonical = _canonical_name(name)
     user = require_user_session(request)
     world = current_world()
 
     if not await _character_exists(canonical, world):
         raise HTTPException(status_code=404, detail=f"Character '{canonical}' not found on {world}.")
+    if await _is_own_character(user["id"], canonical, world):
+        raise HTTPException(status_code=400, detail="You can't favourite your own character.")
 
-    status = await favorites_db.get_favorite_status(canonical, world, user["id"])
-    if not status["favorited_by_me"]:
-        if await favorites_db.count_user_favorites(user["id"], world) >= MAX_FAVORITES_PER_WORLD:
+    if not await favorites_db.is_favorited(user["id"], canonical, world):
+        # Cap enforced atomically inside the INSERT — concurrent PUTs can't
+        # race a check-then-insert past it. rowcount 0 with the row still
+        # absent ⇒ the cap (not an idempotent replay) blocked the write.
+        added = await favorites_db.add_favorite(user["id"], canonical, world, cap=MAX_FAVORITES_PER_WORLD)
+        if added:
+            favorite_count_cache.delete(_count_key(canonical, world))
+            _log.info("[favorites] %s favorited %s on %s", user["id"], canonical, world)
+        elif not await favorites_db.is_favorited(user["id"], canonical, world):
             raise HTTPException(
                 status_code=409,
                 detail=f"Favourite limit reached ({MAX_FAVORITES_PER_WORLD} per server).",
             )
-        await favorites_db.add_favorite(user["id"], canonical, world)
-        favorite_count_cache.delete(_count_key(canonical, world))
     return await _status(canonical, world, user["id"])
 
 
@@ -170,6 +188,7 @@ async def remove_favorite(request: Request, name: str) -> FavoriteStatusResponse
     world = current_world()
     if await favorites_db.remove_favorite(user["id"], canonical, world):
         favorite_count_cache.delete(_count_key(canonical, world))
+        _log.info("[favorites] %s unfavorited %s on %s", user["id"], canonical, world)
     return await _status(canonical, world, user["id"])
 
 

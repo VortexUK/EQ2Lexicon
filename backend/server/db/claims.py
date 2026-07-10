@@ -225,7 +225,9 @@ async def review_claim(
     Approve or reject a claim.
     On approval, auto-assigns is_primary if this is the user's first approved
     character on this world (scoped to (discord_id, world) so each server has
-    an independent primary).
+    an independent primary), and removes the new owner's favourite of the
+    character if one exists — you can't favourite your own character, and this
+    is the single funnel every approval path (admin + officer) flows through.
     Returns the updated claim (with user info) or None if not found.
     """
     async with aiosqlite.connect(path) as db:
@@ -235,6 +237,7 @@ async def review_claim(
             return None
         discord_id = row[0]
         claim_world = row[1]
+        character_name = row[2]
 
         await db.execute(
             _SQL["review_claim"],
@@ -252,6 +255,12 @@ async def review_claim(
                     _SQL["set_primary_by_id"],
                     (claim_id,),
                 )
+            # The character is now theirs — drop their own-favourite of it.
+            # (The favourite count cache self-heals via TTL; see api/favorites.)
+            await db.execute(
+                _SQL["remove_new_owners_favorite"],
+                (discord_id, claim_world, character_name),
+            )
         await db.commit()
 
     return await get_claim_by_id(claim_id, path)
