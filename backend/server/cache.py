@@ -81,7 +81,7 @@ class TTLCache:
             self._update_size()
             self._inc_miss()
             return None
-        _log.debug("[cache] HIT   %s", key)
+        _log.debug("[cache] HIT   %s", scrub(key))
         self._inc_hit()
         return value
 

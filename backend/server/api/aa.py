@@ -330,7 +330,9 @@ async def get_spell_effects(spellcrc: int, tier: int = 0) -> SpellEffectsRespons
             try:
                 effects = json.loads(row.get("effects", "[]"))
             except Exception as exc:
-                _log.warning("[aa] Failed to parse effects JSON for crc=%s tier=%s: %s", spellcrc, tier, exc)
+                _log.warning(
+                    "[aa] Failed to parse effects JSON for crc=%s tier=%s: %s", scrub(spellcrc), scrub(tier), exc
+                )
                 effects = []
 
     return SpellEffectsResponse(
