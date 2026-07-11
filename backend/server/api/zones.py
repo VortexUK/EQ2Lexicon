@@ -21,7 +21,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.eq2db import zones as zones_db
+from backend.eq2db.zones import catalogue as zones_db
 from backend.server.auth_deps import require_user_session
 from backend.server.constants import SQLITE_VAR_CHUNK_SAFE
 from backend.server.core.executor import run_sync
@@ -266,7 +266,7 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
     and zones data live in separate SQLite files and we'd rather avoid
     cross-DB ATTACH.
     """
-    if not PARSES_DB_PATH.exists() or not zones_db.DB_PATH.exists():
+    if not PARSES_DB_PATH.exists() or not zones_db.path.exists():
         return {}
 
     # Pull every winning row for the guild as (id, title_lower, started_at).
@@ -287,7 +287,7 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
     # SQLite's variable limit is 999 by default; chunk to stay well clear.
     title_set = {t for _, t, _ in kills}
     mob_to_enc: dict[str, tuple[str, str]] = {}
-    with sqlite3.connect(zones_db.DB_PATH) as zconn:
+    with sqlite3.connect(zones_db.path) as zconn:
         zconn.execute("PRAGMA query_only = ON")
         zconn.row_factory = sqlite3.Row
         titles_list = list(title_set)

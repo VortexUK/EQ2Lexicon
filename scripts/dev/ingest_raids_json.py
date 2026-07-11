@@ -52,7 +52,7 @@ def _resolve_expansion_short(zone_name: str, default: str = "Unknown") -> str:
     The scrape JSON doesn't carry expansion (it's a wiki concept, not an EQ2i
     template field). We sync against zones.db so the raid_zones row mirrors
     the canonical record."""
-    z = zones_db.find_by_name(zone_name)
+    z = zones_db.catalogue.find_by_name(zone_name)
     if z is None:
         return default
     return z.get("expansion_short") or default

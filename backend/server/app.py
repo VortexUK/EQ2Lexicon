@@ -449,7 +449,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         # this is safe on populated zones.db files.
         from backend.eq2db import zones as zones_db
 
-        zones_db.init_db().close()
+        zones_db.catalogue.init_db().close()
         # Initialise recipes.db synchronously so the out_level column (and any
         # future migrations) exist BEFORE the first recipe read. The search and
         # eq2db find_* paths SELECT out_level directly and do not run init_db

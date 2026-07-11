@@ -143,7 +143,7 @@ def resolve_encounter(zone_name: str, position: int) -> tuple[int, str] | None:
     ``find_by_name`` which respects aliases."""
     import sqlite3
 
-    z = zones_db.find_by_name(zone_name)
+    z = zones_db.catalogue.find_by_name(zone_name)
     if z is None:
         return None
     canonical_zone = z["name"]

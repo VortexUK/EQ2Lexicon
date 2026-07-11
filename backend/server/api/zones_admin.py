@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.eq2db import zones as zones_db
+from backend.eq2db.zones import catalogue as zones_db
 from backend.server.api.rankings import invalidate_zones_cache
 from backend.server.auth_deps import require_admin, require_editor
 from backend.server.core.executor import run_sync

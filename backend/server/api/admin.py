@@ -674,7 +674,7 @@ async def list_expansions_admin(request: Request) -> list[dict]:
     Sourced from zones.db.  Returns [] (200) when zones.db is unavailable — never 500.
     """
     _require_admin(request)
-    from backend.eq2db import zones as zones_db
+    from backend.eq2db.zones import catalogue as zones_db
 
     return zones_db.list_expansions()
 

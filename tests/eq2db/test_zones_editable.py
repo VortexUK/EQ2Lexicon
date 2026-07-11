@@ -10,7 +10,7 @@ from backend.eq2db import zones as zones_db
 def _seed_legacy_zone(path) -> tuple[int, int]:
     """Build a minimal zones.db with one zone + one comma-joined encounter
     (two mobs at positions 0 + 1). Returns (zone_id, encounter_id)."""
-    conn = zones_db.init_db(path)
+    conn = zones_db.ZoneCatalogue(path).init_db()
     try:
         conn.execute(
             "INSERT INTO zones (name, name_lower, expansion_short, expansion_name, "
@@ -63,7 +63,7 @@ def test_init_db_normalizes_comma_joined_encounter_name(tmp_path):
         conn.commit()
 
     # Re-init to trigger normalization (init_db is idempotent).
-    conn = zones_db.init_db(p)
+    conn = zones_db.ZoneCatalogue(p).init_db()
     try:
         rows = {r[0]: r[1] for r in conn.execute("SELECT id, encounter_name FROM zone_encounters")}
         assert rows[enc_id] == "Ire"  # comma-joined collapsed to primary
@@ -72,7 +72,7 @@ def test_init_db_normalizes_comma_joined_encounter_name(tmp_path):
         conn.close()
 
     # Second run is a no-op (encounter_name no longer contains a comma).
-    conn = zones_db.init_db(p)
+    conn = zones_db.ZoneCatalogue(p).init_db()
     try:
         assert conn.execute("SELECT encounter_name FROM zone_encounters WHERE id = ?", (enc_id,)).fetchone()[0] == "Ire"
     finally:
@@ -84,7 +84,7 @@ def test_init_db_strips_zone_suffix_from_zone_names(tmp_path):
     name, and the parenthesised form is preserved as an alias so historic
     references still resolve. Non-suffixed names are left alone. Idempotent."""
     p = tmp_path / "zones.db"
-    conn = zones_db.init_db(p)
+    conn = zones_db.ZoneCatalogue(p).init_db()
     try:
         conn.execute(
             "INSERT INTO zones (name, name_lower, expansion_short, expansion_name, "
@@ -101,7 +101,7 @@ def test_init_db_strips_zone_suffix_from_zone_names(tmp_path):
         conn.close()
 
     # Re-init to trigger the cleanup.
-    conn = zones_db.init_db(p)
+    conn = zones_db.ZoneCatalogue(p).init_db()
     try:
         names = {r[0]: r[1] for r in conn.execute("SELECT name, name_lower FROM zones ORDER BY name")}
         assert "Kurn's Tower" in names, "suffix should be stripped"
@@ -118,15 +118,15 @@ def test_init_db_strips_zone_suffix_from_zone_names(tmp_path):
         assert alias_row[0] == "Kurn's Tower", "alias should resolve to cleaned zone"
 
         # find_by_name resolves both forms to the same canonical zone.
-        from_clean = zones_db.find_by_name("Kurn's Tower", path=p)
-        from_suffixed = zones_db.find_by_name("Kurn's Tower (Zone)", path=p)
+        from_clean = zones_db.ZoneCatalogue(p).find_by_name("Kurn's Tower")
+        from_suffixed = zones_db.ZoneCatalogue(p).find_by_name("Kurn's Tower (Zone)")
         assert from_clean is not None and from_suffixed is not None
         assert from_clean["name"] == from_suffixed["name"] == "Kurn's Tower"
     finally:
         conn.close()
 
     # Second run is a no-op (no rows match the LIKE filter anymore).
-    conn = zones_db.init_db(p)
+    conn = zones_db.ZoneCatalogue(p).init_db()
     try:
         cleaned_name = conn.execute("SELECT name FROM zones WHERE name_lower = 'kurn''s tower'").fetchone()
         assert cleaned_name is not None and cleaned_name[0] == "Kurn's Tower"
@@ -136,7 +136,7 @@ def test_init_db_strips_zone_suffix_from_zone_names(tmp_path):
 
 def _bootstrap_zone(p):
     """Single zone + zero encounters. Returns zone_id."""
-    conn = zones_db.init_db(p)
+    conn = zones_db.ZoneCatalogue(p).init_db()
     try:
         conn.execute(
             "INSERT INTO zones (name, name_lower, expansion_short, expansion_name, "
@@ -153,7 +153,7 @@ def _bootstrap_zone(p):
 def test_add_encounter_creates_row_and_position0_mob(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Adkar Vyx", path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Adkar Vyx")
     assert enc["encounter_name"] == "Adkar Vyx"
     assert enc["position"] == 1
     assert enc["mobs"] == [{"mob_name": "Adkar Vyx", "position": 0}]
@@ -162,16 +162,16 @@ def test_add_encounter_creates_row_and_position0_mob(tmp_path):
 def test_add_encounter_appends_after_existing(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    zones_db.add_encounter(zid, primary_mob="First", path=p)
-    enc2 = zones_db.add_encounter(zid, primary_mob="Second", path=p)
+    zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="First")
+    enc2 = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Second")
     assert enc2["position"] == 2
 
 
 def test_update_encounter_renames_primary_and_position0_mob(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Old Name", path=p)
-    updated = zones_db.update_encounter(enc["id"], primary_mob="New Name", path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Old Name")
+    updated = zones_db.ZoneCatalogue(p).update_encounter(enc["id"], primary_mob="New Name")
     assert updated["encounter_name"] == "New Name"
     assert updated["mobs"][0]["mob_name"] == "New Name"
 
@@ -179,8 +179,8 @@ def test_update_encounter_renames_primary_and_position0_mob(tmp_path):
 def test_update_encounter_stage_and_wiki(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Boss", path=p)
-    updated = zones_db.update_encounter(enc["id"], stage="Wing 1", wiki_url="http://x", path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Boss")
+    updated = zones_db.ZoneCatalogue(p).update_encounter(enc["id"], stage="Wing 1", wiki_url="http://x")
     assert updated["stage"] == "Wing 1"
     assert updated["wiki_url"] == "http://x"
     # primary unchanged
@@ -190,8 +190,8 @@ def test_update_encounter_stage_and_wiki(tmp_path):
 def test_delete_encounter_cascades_mobs(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Doomed", path=p)
-    assert zones_db.delete_encounter(enc["id"], path=p) is True
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Doomed")
+    assert zones_db.ZoneCatalogue(p).delete_encounter(enc["id"]) is True
     with sqlite3.connect(p) as c:
         assert c.execute("SELECT COUNT(*) FROM zone_encounters WHERE id = ?", (enc["id"],)).fetchone()[0] == 0
         assert (
@@ -202,18 +202,18 @@ def test_delete_encounter_cascades_mobs(tmp_path):
 
 def test_delete_encounter_missing_returns_false(tmp_path):
     p = tmp_path / "zones.db"
-    zones_db.init_db(p)
-    assert zones_db.delete_encounter(99999, path=p) is False
+    zones_db.ZoneCatalogue(p).init_db()
+    assert zones_db.ZoneCatalogue(p).delete_encounter(99999) is False
 
 
 def test_reorder_encounters_atomic_permutation(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    a = zones_db.add_encounter(zid, primary_mob="A", path=p)
-    b = zones_db.add_encounter(zid, primary_mob="B", path=p)
-    c = zones_db.add_encounter(zid, primary_mob="C", path=p)
+    a = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="A")
+    b = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="B")
+    c = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="C")
     # Reverse order: C, B, A
-    zones_db.reorder_encounters(zid, [c["id"], b["id"], a["id"]], path=p)
+    zones_db.ZoneCatalogue(p).reorder_encounters(zid, [c["id"], b["id"], a["id"]])
     with sqlite3.connect(p) as conn:
         positions = {
             r[0]: r[1] for r in conn.execute("SELECT id, position FROM zone_encounters WHERE zone_id = ?", (zid,))
@@ -228,12 +228,12 @@ def test_reorder_encounters_rejects_missing_id(tmp_path):
 
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    a = zones_db.add_encounter(zid, primary_mob="A", path=p)
-    b = zones_db.add_encounter(zid, primary_mob="B", path=p)
+    a = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="A")
+    b = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="B")
     with _pytest.raises(ValueError):
-        zones_db.reorder_encounters(zid, [a["id"]], path=p)  # missing b
+        zones_db.ZoneCatalogue(p).reorder_encounters(zid, [a["id"]])  # missing b
     with _pytest.raises(ValueError):
-        zones_db.reorder_encounters(zid, [a["id"], b["id"], 9999], path=p)  # extra
+        zones_db.ZoneCatalogue(p).reorder_encounters(zid, [a["id"], b["id"], 9999])  # extra
 
 
 def test_reorder_encounters_rejects_duplicates(tmp_path):
@@ -241,27 +241,27 @@ def test_reorder_encounters_rejects_duplicates(tmp_path):
 
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    a = zones_db.add_encounter(zid, primary_mob="A", path=p)
-    b = zones_db.add_encounter(zid, primary_mob="B", path=p)
+    a = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="A")
+    b = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="B")
     with _pytest.raises(ValueError):
-        zones_db.reorder_encounters(zid, [a["id"], a["id"], b["id"]], path=p)
+        zones_db.ZoneCatalogue(p).reorder_encounters(zid, [a["id"], a["id"], b["id"]])
 
 
 def test_add_mob_appends_sibling(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Primary", path=p)
-    sib = zones_db.add_mob(enc["id"], mob_name="Sibling", path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Primary")
+    sib = zones_db.ZoneCatalogue(p).add_mob(enc["id"], mob_name="Sibling")
     assert sib["position"] == 1
-    enc2 = zones_db.add_mob(enc["id"], mob_name="Third", path=p)
+    enc2 = zones_db.ZoneCatalogue(p).add_mob(enc["id"], mob_name="Third")
     assert enc2["position"] == 2
 
 
 def test_add_mob_make_primary_shifts_old_primary(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="OldPrimary", path=p)
-    zones_db.add_mob(enc["id"], mob_name="NewPrimary", make_primary=True, path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="OldPrimary")
+    zones_db.ZoneCatalogue(p).add_mob(enc["id"], mob_name="NewPrimary", make_primary=True)
     with sqlite3.connect(p) as conn:
         mobs = [
             (r[0], r[1])
@@ -280,10 +280,10 @@ def test_add_mob_make_primary_shifts_old_primary(tmp_path):
 def test_update_mob_renames_primary_updates_encounter_name(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Primary", path=p)
-    sib = zones_db.add_mob(enc["id"], mob_name="Sibling", path=p)
-    primary_id = next(m["id"] for m in zones_db.list_mobs(enc["id"], path=p) if m["position"] == 0)
-    zones_db.update_mob(primary_id, mob_name="Renamed", path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Primary")
+    sib = zones_db.ZoneCatalogue(p).add_mob(enc["id"], mob_name="Sibling")
+    primary_id = next(m["id"] for m in zones_db.ZoneCatalogue(p).list_mobs(enc["id"]) if m["position"] == 0)
+    zones_db.ZoneCatalogue(p).update_mob(primary_id, mob_name="Renamed")
     with sqlite3.connect(p) as conn:
         assert (
             conn.execute(
@@ -293,7 +293,7 @@ def test_update_mob_renames_primary_updates_encounter_name(tmp_path):
             == "Renamed"
         )
     # Renaming a sibling must NOT touch encounter_name
-    zones_db.update_mob(sib["id"], mob_name="SibRenamed", path=p)
+    zones_db.ZoneCatalogue(p).update_mob(sib["id"], mob_name="SibRenamed")
     with sqlite3.connect(p) as conn:
         assert (
             conn.execute(
@@ -307,9 +307,9 @@ def test_update_mob_renames_primary_updates_encounter_name(tmp_path):
 def test_promote_mob_swaps_with_primary(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Primary", path=p)
-    sib = zones_db.add_mob(enc["id"], mob_name="Sibling", path=p)
-    zones_db.promote_mob(sib["id"], path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Primary")
+    sib = zones_db.ZoneCatalogue(p).add_mob(enc["id"], mob_name="Sibling")
+    zones_db.ZoneCatalogue(p).promote_mob(sib["id"])
     with sqlite3.connect(p) as conn:
         mobs = [
             (r[0], r[1])
@@ -326,9 +326,9 @@ def test_promote_mob_swaps_with_primary(tmp_path):
 def test_promote_mob_noop_when_already_primary(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="OnlyOne", path=p)
-    primary_id = next(m["id"] for m in zones_db.list_mobs(enc["id"], path=p) if m["position"] == 0)
-    result = zones_db.promote_mob(primary_id, path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="OnlyOne")
+    primary_id = next(m["id"] for m in zones_db.ZoneCatalogue(p).list_mobs(enc["id"]) if m["position"] == 0)
+    result = zones_db.ZoneCatalogue(p).promote_mob(primary_id)
     assert result["position"] == 0
     assert result["mob_name"] == "OnlyOne"
 
@@ -338,10 +338,10 @@ def test_delete_mob_refuses_last_mob(tmp_path):
 
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Only", path=p)
-    only_id = next(m["id"] for m in zones_db.list_mobs(enc["id"], path=p) if m["position"] == 0)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Only")
+    only_id = next(m["id"] for m in zones_db.ZoneCatalogue(p).list_mobs(enc["id"]) if m["position"] == 0)
     with _pytest.raises(ValueError, match="last mob"):
-        zones_db.delete_mob(only_id, path=p)
+        zones_db.ZoneCatalogue(p).delete_mob(only_id)
 
 
 def test_delete_mob_refuses_primary_while_siblings_exist(tmp_path):
@@ -349,24 +349,24 @@ def test_delete_mob_refuses_primary_while_siblings_exist(tmp_path):
 
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Primary", path=p)
-    zones_db.add_mob(enc["id"], mob_name="Sibling", path=p)
-    primary_id = next(m["id"] for m in zones_db.list_mobs(enc["id"], path=p) if m["position"] == 0)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Primary")
+    zones_db.ZoneCatalogue(p).add_mob(enc["id"], mob_name="Sibling")
+    primary_id = next(m["id"] for m in zones_db.ZoneCatalogue(p).list_mobs(enc["id"]) if m["position"] == 0)
     with _pytest.raises(ValueError, match="primary"):
-        zones_db.delete_mob(primary_id, path=p)
+        zones_db.ZoneCatalogue(p).delete_mob(primary_id)
 
 
 def test_delete_mob_sibling_succeeds(tmp_path):
     p = tmp_path / "zones.db"
     zid = _bootstrap_zone(p)
-    enc = zones_db.add_encounter(zid, primary_mob="Primary", path=p)
-    sib = zones_db.add_mob(enc["id"], mob_name="Sibling", path=p)
-    assert zones_db.delete_mob(sib["id"], path=p) is True
-    mobs = zones_db.list_mobs(enc["id"], path=p)
+    enc = zones_db.ZoneCatalogue(p).add_encounter(zid, primary_mob="Primary")
+    sib = zones_db.ZoneCatalogue(p).add_mob(enc["id"], mob_name="Sibling")
+    assert zones_db.ZoneCatalogue(p).delete_mob(sib["id"]) is True
+    mobs = zones_db.ZoneCatalogue(p).list_mobs(enc["id"])
     assert [m["mob_name"] for m in mobs] == ["Primary"]
 
 
 def test_delete_mob_missing_returns_false(tmp_path):
     p = tmp_path / "zones.db"
-    zones_db.init_db(p)
-    assert zones_db.delete_mob(99999, path=p) is False
+    zones_db.ZoneCatalogue(p).init_db()
+    assert zones_db.ZoneCatalogue(p).delete_mob(99999) is False

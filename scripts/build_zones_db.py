@@ -128,9 +128,10 @@ def main() -> int:
     print(f"Loading {len(zones)} zones from {args.source.name}")
     print(f"Target DB:  {args.db}")
 
-    conn = zones_db.init_db(args.db)
+    cat = zones_db.ZoneCatalogue(args.db)
+    conn = cat.init_db()
     try:
-        n = zones_db.upsert_zones(zones, conn)
+        n = cat.upsert_zones(zones, conn)
         zones_db.set_meta(conn, "built_at", dt.datetime.now(dt.timezone.utc).isoformat())
         zones_db.set_meta(conn, "built_from", str(args.source))
         zones_db.set_meta(conn, "source_count", str(len(zones)))
@@ -159,7 +160,7 @@ def main() -> int:
     elif not args.dungeons.exists():
         print(f"No dungeons file at {args.dungeons} — no 'dungeon' tags added.")
     print()
-    counts = zones_db.expansion_counts(args.db)
+    counts = cat.expansion_counts()
     print(f"Zones per expansion ({len(counts)} expansions):")
     for short, count in counts.items():
         print(f"  {count:5d}  {short}")

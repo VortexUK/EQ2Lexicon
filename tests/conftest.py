@@ -114,6 +114,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     users_db.DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
     census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
     zones_db.DB_PATH = resolve_db_path("DB_ZONES_PATH", "zones", "zones.db")
+    zones_db.catalogue.path = zones_db.DB_PATH
     spells_db.DB_PATH = resolve_db_path("DB_SPELLS_PATH", "spells", "spells.db")
     spells_db.catalogue.path = spells_db.DB_PATH
     recipes_db.DB_PATH = resolve_db_path("DB_RECIPES_PATH", "recipes", "recipes.db")

@@ -105,7 +105,7 @@ check("find_by_name returns None for unknown", z is None, "")
 
 # ── list_by_expansion ────────────────────────────────────────────────
 print("\n--- list_by_expansion ---")
-eof_raids = zones_db.list_by_expansion("EoF", type_filter="raid_x4")
+eof_raids = zones_db.catalogue.list_by_expansion("EoF", type_filter="raid_x4")
 check("EoF raid_x4 returns 5 zones (matches the JSON smoke test)", len(eof_raids) == 5, f"got {len(eof_raids)}")
 names = sorted(z["name"] for z in eof_raids)
 expected_names = sorted(
@@ -119,10 +119,10 @@ expected_names = sorted(
 )
 check("EoF raid_x4 names match expected set", names == expected_names, f"got {names}")
 
-rok_groups = zones_db.list_by_expansion("RoK", type_filter="group")
+rok_groups = zones_db.catalogue.list_by_expansion("RoK", type_filter="group")
 check("RoK group returns 11 zones (matches JSON smoke test)", len(rok_groups) == 11, f"got {len(rok_groups)}")
 
-vanilla_all = zones_db.list_by_expansion("Vanilla")
+vanilla_all = zones_db.catalogue.list_by_expansion("Vanilla")
 # Count bumps when overrides reattribute a non-Vanilla zone back to Vanilla
 # (e.g. Deathfist Citadel — the standalone entry the wiki marks "introduced
 # in LU33" was actually a Vanilla zone with a LU33 revamp). Tweak the
@@ -131,7 +131,7 @@ check("Vanilla (no filter) returns 201 zones", len(vanilla_all) == 201, f"got {l
 
 # ── Dungeons overlay (max-level group instances per expansion) ────────
 print("\n--- 'dungeon' overlay ---")
-eof_dungeons = zones_db.list_by_expansion("EoF", type_filter="dungeon")
+eof_dungeons = zones_db.catalogue.list_by_expansion("EoF", type_filter="dungeon")
 eof_dungeon_names = sorted(z["name"] for z in eof_dungeons)
 expected_eof_dungeons = sorted(
     [
@@ -155,7 +155,7 @@ check(
 
 # ── list_by_event ─────────────────────────────────────────────────────
 print("\n--- list_by_event ---")
-tinkerfest = zones_db.list_by_event("Tinkerfest")
+tinkerfest = zones_db.catalogue.list_by_event("Tinkerfest")
 check("Tinkerfest returns >=5 zones", len(tinkerfest) >= 5, f"got {len(tinkerfest)}")
 for z in tinkerfest:
     if not z["is_live_event"]:
@@ -166,21 +166,21 @@ else:
 
 # ── list_by_type ──────────────────────────────────────────────────────
 print("\n--- list_by_type ---")
-contested = zones_db.list_by_type("contested_raid")
+contested = zones_db.catalogue.list_by_type("contested_raid")
 check(
     "contested_raid returns exactly 1 (The Temple of Scale)",
     len(contested) == 1 and contested[0]["name"] == "The Temple of Scale",
     f"got {[z['name'] for z in contested]}",
 )
 
-raid_x3 = zones_db.list_by_type("raid_x3")
+raid_x3 = zones_db.catalogue.list_by_type("raid_x3")
 check(
     "raid_x3 returns exactly 1 (A Meeting of the Minds)",
     len(raid_x3) == 1 and raid_x3[0]["name"] == "A Meeting of the Minds",
     f"got {[z['name'] for z in raid_x3]}",
 )
 
-cities = zones_db.list_by_type("city")
+cities = zones_db.catalogue.list_by_type("city")
 check("city type has 13 zones", len(cities) == 13, f"got {len(cities)}")
 
 # ── zone_encounters / zone_encounter_mobs ─────────────────────────────
@@ -207,7 +207,7 @@ if n_enc > 0:
     check("every encounter has at least one mob", n_mobs >= n_enc, f"{n_enc} enc, {n_mobs} mobs")
 
     # Spot-check Veeshan's Peak — canonical 13-boss roster
-    vp = zones_db.list_bosses_for_zone("Veeshan's Peak")
+    vp = zones_db.catalogue.list_bosses_for_zone("Veeshan's Peak")
     check("Veeshan's Peak has 13 encounters", len(vp) == 13, f"got {len(vp)}")
     # Stages: every encounter should be tagged with Wing 1/2/3
     stages = {b["stage"] for b in vp}
@@ -220,7 +220,7 @@ if n_enc > 0:
     # Multi-mob encounter shape: Temple of Kor-Sha's
     # "Uthtak the Cruel, Aktar the Dark" must come back as ONE encounter
     # with TWO mobs.
-    tks = zones_db.list_bosses_for_zone("The Temple of Kor-Sha")
+    tks = zones_db.catalogue.list_bosses_for_zone("The Temple of Kor-Sha")
     check("Temple of Kor-Sha has 5 encounters", len(tks) == 5, f"got {len(tks)}")
     group_enc = next((b for b in tks if "Uthtak" in b["encounter_name"]), None)
     check(
@@ -238,7 +238,7 @@ if n_enc > 0:
     )
 
     # Emerald Halls multi-stage: 13 encounters across 3 floors
-    eh = zones_db.list_bosses_for_zone("The Emerald Halls")
+    eh = zones_db.catalogue.list_bosses_for_zone("The Emerald Halls")
     check("Emerald Halls has 13 encounters", len(eh) == 13, f"got {len(eh)}")
     floors = {b["stage"] for b in eh}
     check(
@@ -256,14 +256,14 @@ if n_enc > 0:
     )
 
     # Reverse lookup: a mob in a 4-mob group should resolve to its zone
-    pr = zones_db.find_zones_by_boss("Adkar Vyx")
+    pr = zones_db.catalogue.find_zones_by_boss("Adkar Vyx")
     check(
         "find_zones_by_boss resolves single-mob name to its zone",
         len(pr) == 1 and pr[0]["name"] == "The Protector's Realm",
         f"got {[z['name'] for z in pr]}",
     )
     # Reverse lookup INSIDE a group encounter (Aktar is in a 2-mob group)
-    ak = zones_db.find_zones_by_boss("Aktar the Dark")
+    ak = zones_db.catalogue.find_zones_by_boss("Aktar the Dark")
     check(
         "find_zones_by_boss works on group-encounter mob",
         len(ak) == 1 and ak[0]["name"] == "The Temple of Kor-Sha",
@@ -271,7 +271,7 @@ if n_enc > 0:
     )
 
     # Position ordering is preserved as curator wrote it
-    fh = zones_db.list_bosses_for_zone("Freethinker Hideout")
+    fh = zones_db.catalogue.list_bosses_for_zone("Freethinker Hideout")
     expected_order = ["Zylphax the Shredder", "Othysis Muravian", "Treyloth D'Kulvith", "Malkonis D'Morte"]
     actual_order = [b["encounter_name"] for b in fh]
     check(
@@ -281,7 +281,7 @@ if n_enc > 0:
     )
 
     # Case-insensitive lookup
-    aliased = zones_db.list_bosses_for_zone("VEESHAN'S PEAK")
+    aliased = zones_db.catalogue.list_bosses_for_zone("VEESHAN'S PEAK")
     check(
         "list_bosses_for_zone is case-insensitive",
         len(aliased) == len(vp),
@@ -303,7 +303,7 @@ else:
 
 # ── expansion_counts ──────────────────────────────────────────────────
 print("\n--- expansion_counts ---")
-counts = zones_db.expansion_counts()
+counts = zones_db.catalogue.expansion_counts()
 check("expansion_counts returns 26 expansions", len(counts) == 26, f"got {len(counts)}")
 check(
     "Vanilla is the largest bucket",

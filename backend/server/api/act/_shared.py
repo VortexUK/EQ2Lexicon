@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from backend.eq2db import raids as raids_db
-from backend.eq2db import zones as zones_db
+from backend.eq2db.zones import catalogue as zones_db
 from backend.server.core.executor import run_sync
 
 # ---------------------------------------------------------------------------

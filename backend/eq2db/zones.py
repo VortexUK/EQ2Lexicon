@@ -25,8 +25,16 @@ Schema (five tables):
                                  row; a 4-mob group gets four. Indexed
                                  lowercased for fast reverse lookup.
 
-`find_by_name()` is the primary log-lookup entry point — it checks
-aliases before falling back to a fuzzy LIKE on the canonical name.
+``catalogue.find_by_name()`` is the primary log-lookup entry point — it
+checks aliases before falling back to a fuzzy LIKE on the canonical name.
+
+All entry-point behaviour lives on :class:`ZoneCatalogue` (the eq2db
+data-interface convention — see AACatalogue / SpellCatalogue): consumers
+import ONE name, the shared ``catalogue`` instance. The frozen dataclass
+models (Zone, ZoneEncounter, ZoneEncounterMob, FeaturedRaid*) stay as the
+typed active-record layer underneath; catalogue methods delegate to them
+with the instance's ``path`` and return the legacy dict shapes the routes
+consume.
 """
 
 from __future__ import annotations
@@ -54,150 +62,8 @@ DB_PATH: Path = resolve_db_path("DB_ZONES_PATH", "zones", "zones.db")
 _SELECT_COLS = _SQL["select_zone_cols"]
 
 
-# ---------------------------------------------------------------------------
-# Row conversion (cleaned JSON → DB row + type/alias side tables)
-# ---------------------------------------------------------------------------
-
-
-def zone_to_row(z: dict) -> dict:
-    """Flatten a cleaned-JSON zone record into the columns of the zones
-    table. `types` and `aliases` are handled separately by upsert_zones."""
-    name = z["name"]
-    cls = z["classification"]
-    exp = cls["expansion"]
-    return {
-        "name": name,
-        "name_lower": name.lower(),
-        "expansion_short": exp["short"],
-        "expansion_name": exp["name"],
-        "expansion_year": exp.get("year"),
-        "expansion_confidence": exp["confidence"],
-        "expansion_source": exp.get("source") or "",
-        "is_persistent_instance": int(bool(cls.get("is_persistent_instance"))),
-        "is_endless_persistent": int(bool(cls.get("is_endless_persistent"))),
-        "is_tradeskill": int(bool(cls.get("is_tradeskill"))),
-        "is_pvp": int(bool(cls.get("is_pvp"))),
-        "is_openworld": int(bool(cls.get("is_openworld"))),
-        "is_instance": int(bool(cls.get("is_instance"))),
-        "is_live_event": int(bool(cls.get("is_live_event"))),
-        "is_city": int(bool(cls.get("is_city"))),
-        "is_contested": int(bool(cls.get("is_contested"))),
-        "is_deprecated": int(bool(cls.get("is_deprecated"))),
-        "event_name": cls.get("event_name") or None,
-        # The first source_pages entry is the wiki URL for the canonical
-        # record (variants may have multiple — those go into aliases).
-        "wiki_url": (z.get("source_pages") or [None])[0],
-    }
-
-
-# ---------------------------------------------------------------------------
-# DB management
-# ---------------------------------------------------------------------------
-
-
-def init_db(path: Path = DB_PATH) -> sqlite3.Connection:
-    """Create tables/indexes if missing. Returns an open connection.
-
-    Foreign keys are enabled per-connection so ON DELETE CASCADE on the
-    zone_types / zone_aliases child tables actually fires.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous  = NORMAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
-    _meta_db.create_table(conn)
-    conn.execute(_SQL["schema_zones"])
-    conn.execute(_SQL["schema_zone_types"])
-    conn.execute(_SQL["schema_zone_aliases"])
-    conn.execute(_SQL["schema_zone_encounters"])
-    conn.execute(_SQL["schema_zone_encounter_mobs"])
-    conn.execute(_SQL["schema_featured_raid_expansions"])
-    conn.execute(_SQL["schema_featured_raid_zones"])
-    conn.execute(_SQL["schema_featured_raid_categories"])
-    # Migration: zone categories + position for drag-reorder.
-    # Idempotent — already-applied schemas raise OperationalError on the
-    # duplicate-column attempt, which we swallow.
-    for stmt in (_SQL["migrate_add_featured_position"], _SQL["migrate_add_featured_category"]):
-        try:
-            conn.execute(stmt)
-        except sqlite3.OperationalError:
-            pass  # column already exists
-    # Migration: drop the pre-v2 zone_bosses table if it lingers from
-    # an older DB build. No need to preserve data — bosses are always
-    # rebuilt from the curated source file.
-    conn.execute(_SQL["drop_legacy_zone_bosses"])
-    conn.executescript(_SQL["indexes_all"])
-    # One-time data normalization (idempotent): legacy `encounter_name`
-    # values were the comma-joined display of every mob in the encounter
-    # ("Ire, Malevolence"). The web roster editor treats encounter_name
-    # as the PRIMARY mob's name (kept in sync with the mob at
-    # position 0). Rewrite any comma-containing row to its position-0
-    # mob name; rows without any mobs are left untouched.
-    # NOTE: Not version-gated — this UPDATE is cheap (only touches rows
-    # with commas in the name) and must remain idempotent across multiple
-    # init_db calls (see test_init_db_normalizes_comma_joined_encounter_name).
-    conn.execute(_SQL["normalise_comma_joined_encounter_names"])
-    # One-time data normalization (idempotent): strip the wiki-import
-    # " (Zone)" disambiguator suffix from zone names (e.g. "Kurn's Tower
-    # (Zone)" → "Kurn's Tower"). EQ2i uses the parenthetical to
-    # disambiguate a wiki article from the in-game zone of the same name;
-    # the in-game logs and our UI both use the bare name. The old name
-    # is also inserted as an alias so anything historically referencing
-    # the parenthesised form still resolves via find_by_name. Idempotent:
-    # subsequent runs match zero rows (LIKE filter no longer hits the
-    # already-cleaned names).
-    conn.execute(_SQL["normalise_paren_zone_to_alias"])
-    conn.execute(_SQL["normalise_strip_paren_zone"])
-    conn.commit()
-    return conn
-
-
 # `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
 from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
-
-
-def upsert_zones(zones: list[dict], conn: sqlite3.Connection) -> int:
-    """Bulk upsert from cleaned-JSON zone records.
-
-    For each input zone:
-      * Insert/replace the row in `zones`.
-      * Replace its rows in `zone_types` (so removed types disappear).
-      * Replace its rows in `zone_aliases` (so removed aliases disappear).
-
-    Atomic per-zone within a single transaction. Re-runnable.
-    """
-    n = 0
-    with conn:  # single transaction for the whole batch
-        for z in zones:
-            row = zone_to_row(z)
-            conn.execute(_SQL["upsert_zone"], row)
-            zone_id = conn.execute(_SQL["select_zone_id_by_name"], (z["name"],)).fetchone()[0]
-
-            # Reset and repopulate types + aliases for this zone. Cheaper
-            # than diffing on every rebuild.
-            conn.execute(_SQL["delete_zone_types_for_zone"], (zone_id,))
-            types = z["classification"].get("types") or []
-            if types:
-                conn.executemany(
-                    _SQL["insert_zone_type"],
-                    [(zone_id, t) for t in types],
-                )
-
-            conn.execute(_SQL["delete_zone_aliases_for_zone"], (zone_id,))
-            aliases = z.get("aliases") or []
-            if aliases:
-                conn.executemany(
-                    _SQL["insert_zone_alias"],
-                    [(a, a.lower(), zone_id) for a in aliases],
-                )
-            n += 1
-    return n
-
-
-def zone_count(conn: sqlite3.Connection) -> int:
-    return conn.execute(_SQL["count_zones"]).fetchone()[0]
-
 
 # ---------------------------------------------------------------------------
 # Zone active-record model
@@ -468,12 +334,8 @@ class Zone:
 
 
 # ---------------------------------------------------------------------------
-# Back-compat free-function shims (Zone lookups + type mutations)
+# Internal hydration helper
 # ---------------------------------------------------------------------------
-# Routes + tests + featured-raid hydration paths call these directly with
-# the legacy dict / list[dict] contracts. They delegate to the Zone model
-# above and convert to the historical hydrated-dict shape. Once callers
-# migrate to the Zone instance API, these can be deleted.
 
 
 def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
@@ -484,96 +346,6 @@ def _hydrate_zone(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     (used by the featured-raid shims to share the same DB conn across
     multiple zones)."""
     return Zone._from_row(conn, row).to_dict()
-
-
-def find_by_name(name: str, path: Path = DB_PATH) -> dict | None:
-    """Resolve a zone by name (canonical → alias fallback). Returns the
-    legacy hydrated dict, or None on miss."""
-    z = Zone.find_by_name(name, path=path)
-    return z.to_dict() if z is not None else None
-
-
-def list_by_expansion(
-    short: str,
-    type_filter: str | None = None,
-    path: Path = DB_PATH,
-) -> list[dict]:
-    """All zones in an expansion as legacy hydrated dicts. ``type_filter``
-    stays positional for the existing call sites; the model exposes it as
-    a keyword-only argument."""
-    return [z.to_dict() for z in Zone.list_by_expansion(short, type_filter=type_filter, path=path)]
-
-
-def list_by_event(event_name: str, path: Path = DB_PATH) -> list[dict]:
-    return [z.to_dict() for z in Zone.list_by_event(event_name, path=path)]
-
-
-def list_by_type(type_token: str, path: Path = DB_PATH) -> list[dict]:
-    return [z.to_dict() for z in Zone.list_by_type(type_token, path=path)]
-
-
-# ---------------------------------------------------------------------------
-# Raid-encounter helpers
-# ---------------------------------------------------------------------------
-
-
-def replace_bosses_for_zone(
-    conn: sqlite3.Connection,
-    zone_id: int,
-    encounters: list[dict],
-) -> int:
-    """Replace the encounters list for a zone. Atomic per-zone.
-
-    Back-compat shim: delegates to ``ZoneEncounter.replace_all_for_zone``."""
-    return ZoneEncounter.replace_all_for_zone(conn, zone_id, encounters)
-
-
-def list_bosses_for_zone(zone_name: str, path: Path = DB_PATH) -> list[dict]:
-    """All raid encounters in a zone (looked up by canonical name OR alias).
-
-    Back-compat shim: delegates to ``ZoneEncounter.list_for_zone_name`` and
-    converts the typed results to the legacy dict shape (mob ids included
-    — the editor frontend targets individual mobs)."""
-    return [enc.to_dict(with_mob_ids=True) for enc in ZoneEncounter.list_for_zone_name(zone_name, path=path)]
-
-
-def find_zones_by_boss(mob_name: str, path: Path = DB_PATH) -> list[dict]:
-    """Reverse lookup: which zone(s) host a given raid boss?
-    Back-compat shim — see ``Zone.find_by_boss``."""
-    return [z.to_dict() for z in Zone.find_by_boss(mob_name, path=path)]
-
-
-def list_expansions(path: Path = DB_PATH) -> list[dict]:
-    """Return distinct expansions ordered newest first (by expansion_year DESC).
-
-    Each entry is ``{"short": expansion_short, "name": expansion_name}``.
-    Returns [] when zones.db is missing or the zones table does not yet exist
-    (graceful degradation — the admin endpoint must never 500 on a missing DB).
-    """
-    if not path.exists():
-        return []
-    try:
-        with sqlite3.connect(path) as conn:
-            rows = conn.execute(_SQL["list_distinct_expansions"]).fetchall()
-        # De-duplicate by short (same short can have multiple rows with the same year).
-        seen: set[str] = set()
-        result: list[dict] = []
-        for short, name, _year in rows:
-            if short not in seen:
-                seen.add(short)
-                result.append({"short": short, "name": name})
-        return result
-    except sqlite3.OperationalError:
-        # zones table may not exist yet (e.g. pre-seeded zones.db stub).
-        return []
-
-
-def expansion_counts(path: Path = DB_PATH) -> dict[str, int]:
-    """Diagnostic: zones per expansion short. Used by the build report."""
-    if not path.exists():
-        return {}
-    with sqlite3.connect(path) as conn:
-        return dict(conn.execute(_SQL["expansion_counts"]))
 
 
 # ---------------------------------------------------------------------------
@@ -1072,104 +844,6 @@ class ZoneEncounter:
 
 
 # ---------------------------------------------------------------------------
-# Back-compat free-function shims
-# ---------------------------------------------------------------------------
-# Routes + tests call these directly. They delegate to the model methods
-# above + convert the result to the legacy dict shape. Once all callers
-# migrate to the model, these can be deleted.
-
-
-def _row_to_encounter(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
-    """Legacy shim. New code should use ``ZoneEncounter._from_row().to_dict()``."""
-    return ZoneEncounter._from_row(conn, row).to_dict()
-
-
-def add_encounter(
-    zone_id: int,
-    *,
-    primary_mob: str,
-    position: int | None = None,
-    stage: str | None = None,
-    wiki_url: str | None = None,
-    path: Path = DB_PATH,
-) -> dict:
-    return ZoneEncounter.add_to_zone(
-        zone_id, primary_mob=primary_mob, position=position, stage=stage, wiki_url=wiki_url, path=path
-    ).to_dict()
-
-
-def update_encounter(
-    encounter_id: int,
-    *,
-    primary_mob: str | None = None,
-    stage: str | None = _UNSET,  # type: ignore[assignment]
-    wiki_url: str | None = _UNSET,  # type: ignore[assignment]
-    path: Path = DB_PATH,
-) -> dict:
-    enc = ZoneEncounter.find_by_id(encounter_id, path=path)
-    if enc is None:
-        raise LookupError(f"zone_encounter {encounter_id} not found")
-    return enc.update(primary_mob=primary_mob, stage=stage, wiki_url=wiki_url, path=path).to_dict()
-
-
-def reorder_encounters(zone_id: int, ordered_encounter_ids: list[int], path: Path = DB_PATH) -> None:
-    ZoneEncounter.reorder_in_zone(zone_id, ordered_encounter_ids, path=path)
-
-
-def list_mobs(encounter_id: int, path: Path = DB_PATH) -> list[dict]:
-    return [m.to_dict() for m in ZoneEncounterMob.list_for_encounter(encounter_id, path=path)]
-
-
-def add_mob(encounter_id: int, *, mob_name: str, make_primary: bool = False, path: Path = DB_PATH) -> dict:
-    return ZoneEncounterMob.add_to_encounter(
-        encounter_id, mob_name=mob_name, make_primary=make_primary, path=path
-    ).to_dict()
-
-
-def update_mob(mob_id: int, *, mob_name: str, path: Path = DB_PATH) -> dict:
-    mob = ZoneEncounterMob.find_by_id(mob_id, path=path)
-    if mob is None:
-        raise LookupError(f"zone_encounter_mob {mob_id} not found")
-    return mob.rename(mob_name, path=path).to_dict()
-
-
-def promote_mob(mob_id: int, path: Path = DB_PATH) -> dict:
-    mob = ZoneEncounterMob.find_by_id(mob_id, path=path)
-    if mob is None:
-        raise LookupError(f"zone_encounter_mob {mob_id} not found")
-    return mob.promote_to_primary(path=path).to_dict()
-
-
-def delete_mob(mob_id: int, path: Path = DB_PATH) -> bool:
-    mob = ZoneEncounterMob.find_by_id(mob_id, path=path)
-    if mob is None:
-        return False
-    return mob.delete(path=path)
-
-
-def delete_encounter(encounter_id: int, path: Path = DB_PATH) -> bool:
-    enc = ZoneEncounter.find_by_id(encounter_id, path=path)
-    if enc is None:
-        return False
-    return enc.delete(path=path)
-
-
-# ---------------------------------------------------------------------------
-# Zone-type tag helpers (used by the dungeon-curation UI on /raids)
-# ---------------------------------------------------------------------------
-
-
-def add_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict | None:
-    """Add a type tag (e.g. 'dungeon') to a zone. Back-compat shim —
-    see ``Zone.add_type``. Returns None if the zone_name doesn't resolve;
-    route layer is responsible for turning that into a 404."""
-    z = Zone.find_by_name(zone_name, path=path)
-    if z is None:
-        return None
-    return z.add_type(type_token, path=path).to_dict()
-
-
-# ---------------------------------------------------------------------------
 # FeaturedRaidExpansion / FeaturedRaidZone / FeaturedRaidCategory models
 # ---------------------------------------------------------------------------
 # Active-record CRUD for the /raids page admin curation: which expansions
@@ -1535,111 +1209,388 @@ class FeaturedRaidCategory:
 
 
 # ---------------------------------------------------------------------------
-# Back-compat free-function shims (featured-raid trio)
+# ZoneCatalogue — the single runtime entry point
 # ---------------------------------------------------------------------------
-# Routes call these directly with the legacy dict / bool / None contracts.
-# They delegate to the model methods above. Once the route layer migrates
-# to the models, these can be deleted.
 
 
-def list_featured_raid_expansions(path: Path = DB_PATH) -> list[dict]:
-    return [e.to_dict() for e in FeaturedRaidExpansion.list_active(path=path)]
+class ZoneCatalogue:
+    """Read (and build) access to one zones.db file.
+
+    The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
+    the DB path lives on the instance; the shared module-level ``catalogue``
+    is the runtime entry point, and tests construct ``ZoneCatalogue(tmp_db)``.
+
+    The frozen dataclass models above (Zone, ZoneEncounter, ZoneEncounterMob,
+    FeaturedRaid*) are the typed active-record layer — the catalogue methods
+    delegate to them with ``self.path`` and convert to the legacy dict shapes
+    the routes and scripts consume, so consumers never juggle paths or model
+    imports themselves.
+    """
+
+    def __init__(self, path: Path = DB_PATH) -> None:
+        self.path = Path(path)
+
+    def init_db(self) -> sqlite3.Connection:
+        """Create tables/indexes if missing. Returns an open connection.
+
+        Foreign keys are enabled per-connection so ON DELETE CASCADE on the
+        zone_types / zone_aliases child tables actually fires.
+        """
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.path)
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous  = NORMAL;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+        _meta_db.create_table(conn)
+        conn.execute(_SQL["schema_zones"])
+        conn.execute(_SQL["schema_zone_types"])
+        conn.execute(_SQL["schema_zone_aliases"])
+        conn.execute(_SQL["schema_zone_encounters"])
+        conn.execute(_SQL["schema_zone_encounter_mobs"])
+        conn.execute(_SQL["schema_featured_raid_expansions"])
+        conn.execute(_SQL["schema_featured_raid_zones"])
+        conn.execute(_SQL["schema_featured_raid_categories"])
+        # Migration: zone categories + position for drag-reorder.
+        # Idempotent — already-applied schemas raise OperationalError on the
+        # duplicate-column attempt, which we swallow.
+        for stmt in (_SQL["migrate_add_featured_position"], _SQL["migrate_add_featured_category"]):
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        # Migration: drop the pre-v2 zone_bosses table if it lingers from
+        # an older DB build. No need to preserve data — bosses are always
+        # rebuilt from the curated source file.
+        conn.execute(_SQL["drop_legacy_zone_bosses"])
+        conn.executescript(_SQL["indexes_all"])
+        # One-time data normalization (idempotent): legacy `encounter_name`
+        # values were the comma-joined display of every mob in the encounter
+        # ("Ire, Malevolence"). The web roster editor treats encounter_name
+        # as the PRIMARY mob's name (kept in sync with the mob at
+        # position 0). Rewrite any comma-containing row to its position-0
+        # mob name; rows without any mobs are left untouched.
+        # NOTE: Not version-gated — this UPDATE is cheap (only touches rows
+        # with commas in the name) and must remain idempotent across multiple
+        # init_db calls (see test_init_db_normalizes_comma_joined_encounter_name).
+        conn.execute(_SQL["normalise_comma_joined_encounter_names"])
+        # One-time data normalization (idempotent): strip the wiki-import
+        # " (Zone)" disambiguator suffix from zone names (e.g. "Kurn's Tower
+        # (Zone)" → "Kurn's Tower"). EQ2i uses the parenthetical to
+        # disambiguate a wiki article from the in-game zone of the same name;
+        # the in-game logs and our UI both use the bare name. The old name
+        # is also inserted as an alias so anything historically referencing
+        # the parenthesised form still resolves via find_by_name. Idempotent:
+        # subsequent runs match zero rows (LIKE filter no longer hits the
+        # already-cleaned names).
+        conn.execute(_SQL["normalise_paren_zone_to_alias"])
+        conn.execute(_SQL["normalise_strip_paren_zone"])
+        conn.commit()
+        return conn
+
+    # ── Build (scripts/build_zones_db.py) ────────────────────────────────────
+
+    @staticmethod
+    def zone_to_row(z: dict) -> dict:
+        """Flatten a cleaned-JSON zone record into the columns of the zones
+        table. `types` and `aliases` are handled separately by upsert_zones."""
+        name = z["name"]
+        cls = z["classification"]
+        exp = cls["expansion"]
+        return {
+            "name": name,
+            "name_lower": name.lower(),
+            "expansion_short": exp["short"],
+            "expansion_name": exp["name"],
+            "expansion_year": exp.get("year"),
+            "expansion_confidence": exp["confidence"],
+            "expansion_source": exp.get("source") or "",
+            "is_persistent_instance": int(bool(cls.get("is_persistent_instance"))),
+            "is_endless_persistent": int(bool(cls.get("is_endless_persistent"))),
+            "is_tradeskill": int(bool(cls.get("is_tradeskill"))),
+            "is_pvp": int(bool(cls.get("is_pvp"))),
+            "is_openworld": int(bool(cls.get("is_openworld"))),
+            "is_instance": int(bool(cls.get("is_instance"))),
+            "is_live_event": int(bool(cls.get("is_live_event"))),
+            "is_city": int(bool(cls.get("is_city"))),
+            "is_contested": int(bool(cls.get("is_contested"))),
+            "is_deprecated": int(bool(cls.get("is_deprecated"))),
+            "event_name": cls.get("event_name") or None,
+            # The first source_pages entry is the wiki URL for the canonical
+            # record (variants may have multiple — those go into aliases).
+            "wiki_url": (z.get("source_pages") or [None])[0],
+        }
+
+    def upsert_zones(self, zones: list[dict], conn: sqlite3.Connection) -> int:
+        """Bulk upsert from cleaned-JSON zone records.
+
+        For each input zone:
+          * Insert/replace the row in `zones`.
+          * Replace its rows in `zone_types` (so removed types disappear).
+          * Replace its rows in `zone_aliases` (so removed aliases disappear).
+
+        Atomic per-zone within a single transaction. Re-runnable.
+        """
+        n = 0
+        with conn:  # single transaction for the whole batch
+            for z in zones:
+                row = self.zone_to_row(z)
+                conn.execute(_SQL["upsert_zone"], row)
+                zone_id = conn.execute(_SQL["select_zone_id_by_name"], (z["name"],)).fetchone()[0]
+
+                # Reset and repopulate types + aliases for this zone. Cheaper
+                # than diffing on every rebuild.
+                conn.execute(_SQL["delete_zone_types_for_zone"], (zone_id,))
+                types = z["classification"].get("types") or []
+                if types:
+                    conn.executemany(
+                        _SQL["insert_zone_type"],
+                        [(zone_id, t) for t in types],
+                    )
+
+                conn.execute(_SQL["delete_zone_aliases_for_zone"], (zone_id,))
+                aliases = z.get("aliases") or []
+                if aliases:
+                    conn.executemany(
+                        _SQL["insert_zone_alias"],
+                        [(a, a.lower(), zone_id) for a in aliases],
+                    )
+                n += 1
+        return n
+
+    def zone_count(self, conn: sqlite3.Connection) -> int:
+        return conn.execute(_SQL["count_zones"]).fetchone()[0]
+
+    def replace_bosses_for_zone(self, conn: sqlite3.Connection, zone_id: int, encounters: list[dict]) -> int:
+        """Replace the encounters list for a zone. Atomic per-zone.
+        Delegates to ``ZoneEncounter.replace_all_for_zone`` (takes an open
+        conn because the build script wraps multiple zones in one
+        transaction)."""
+        return ZoneEncounter.replace_all_for_zone(conn, zone_id, encounters)
+
+    # ── Zone lookups (legacy hydrated-dict contracts) ────────────────────────
+
+    def find_by_name(self, name: str) -> dict | None:
+        """Resolve a zone by name (canonical → alias fallback). Returns the
+        legacy hydrated dict, or None on miss."""
+        z = Zone.find_by_name(name, path=self.path)
+        return z.to_dict() if z is not None else None
+
+    def list_by_expansion(self, short: str, type_filter: str | None = None) -> list[dict]:
+        """All zones in an expansion as legacy hydrated dicts. ``type_filter``
+        stays positional for the existing call sites; the model exposes it as
+        a keyword-only argument."""
+        return [z.to_dict() for z in Zone.list_by_expansion(short, type_filter=type_filter, path=self.path)]
+
+    def list_by_event(self, event_name: str) -> list[dict]:
+        return [z.to_dict() for z in Zone.list_by_event(event_name, path=self.path)]
+
+    def list_by_type(self, type_token: str) -> list[dict]:
+        return [z.to_dict() for z in Zone.list_by_type(type_token, path=self.path)]
+
+    def list_bosses_for_zone(self, zone_name: str) -> list[dict]:
+        """All raid encounters in a zone (looked up by canonical name OR alias).
+        Mob ids included — the editor frontend targets individual mobs."""
+        return [enc.to_dict(with_mob_ids=True) for enc in ZoneEncounter.list_for_zone_name(zone_name, path=self.path)]
+
+    def find_zones_by_boss(self, mob_name: str) -> list[dict]:
+        """Reverse lookup: which zone(s) host a given raid boss? See
+        ``Zone.find_by_boss``."""
+        return [z.to_dict() for z in Zone.find_by_boss(mob_name, path=self.path)]
+
+    def list_expansions(self) -> list[dict]:
+        """Return distinct expansions ordered newest first (by expansion_year DESC).
+
+        Each entry is ``{"short": expansion_short, "name": expansion_name}``.
+        Returns [] when zones.db is missing or the zones table does not yet exist
+        (graceful degradation — the admin endpoint must never 500 on a missing DB).
+        """
+        if not self.path.exists():
+            return []
+        try:
+            with sqlite3.connect(self.path) as conn:
+                rows = conn.execute(_SQL["list_distinct_expansions"]).fetchall()
+            # De-duplicate by short (same short can have multiple rows with the same year).
+            seen: set[str] = set()
+            result: list[dict] = []
+            for short, name, _year in rows:
+                if short not in seen:
+                    seen.add(short)
+                    result.append({"short": short, "name": name})
+            return result
+        except sqlite3.OperationalError:
+            # zones table may not exist yet (e.g. pre-seeded zones.db stub).
+            return []
+
+    def expansion_counts(self) -> dict[str, int]:
+        """Diagnostic: zones per expansion short. Used by the build report."""
+        if not self.path.exists():
+            return {}
+        with sqlite3.connect(self.path) as conn:
+            return dict(conn.execute(_SQL["expansion_counts"]))
+
+    # ── Editable encounter + mob CRUD (used by the zones-admin routes) ───────
+
+    def add_encounter(
+        self,
+        zone_id: int,
+        *,
+        primary_mob: str,
+        position: int | None = None,
+        stage: str | None = None,
+        wiki_url: str | None = None,
+    ) -> dict:
+        return ZoneEncounter.add_to_zone(
+            zone_id, primary_mob=primary_mob, position=position, stage=stage, wiki_url=wiki_url, path=self.path
+        ).to_dict()
+
+    def update_encounter(
+        self,
+        encounter_id: int,
+        *,
+        primary_mob: str | None = None,
+        stage: str | None = _UNSET,  # type: ignore[assignment]
+        wiki_url: str | None = _UNSET,  # type: ignore[assignment]
+    ) -> dict:
+        enc = ZoneEncounter.find_by_id(encounter_id, path=self.path)
+        if enc is None:
+            raise LookupError(f"zone_encounter {encounter_id} not found")
+        return enc.update(primary_mob=primary_mob, stage=stage, wiki_url=wiki_url, path=self.path).to_dict()
+
+    def reorder_encounters(self, zone_id: int, ordered_encounter_ids: list[int]) -> None:
+        ZoneEncounter.reorder_in_zone(zone_id, ordered_encounter_ids, path=self.path)
+
+    def delete_encounter(self, encounter_id: int) -> bool:
+        enc = ZoneEncounter.find_by_id(encounter_id, path=self.path)
+        if enc is None:
+            return False
+        return enc.delete(path=self.path)
+
+    def list_mobs(self, encounter_id: int) -> list[dict]:
+        return [m.to_dict() for m in ZoneEncounterMob.list_for_encounter(encounter_id, path=self.path)]
+
+    def add_mob(self, encounter_id: int, *, mob_name: str, make_primary: bool = False) -> dict:
+        return ZoneEncounterMob.add_to_encounter(
+            encounter_id, mob_name=mob_name, make_primary=make_primary, path=self.path
+        ).to_dict()
+
+    def update_mob(self, mob_id: int, *, mob_name: str) -> dict:
+        mob = ZoneEncounterMob.find_by_id(mob_id, path=self.path)
+        if mob is None:
+            raise LookupError(f"zone_encounter_mob {mob_id} not found")
+        return mob.rename(mob_name, path=self.path).to_dict()
+
+    def promote_mob(self, mob_id: int) -> dict:
+        mob = ZoneEncounterMob.find_by_id(mob_id, path=self.path)
+        if mob is None:
+            raise LookupError(f"zone_encounter_mob {mob_id} not found")
+        return mob.promote_to_primary(path=self.path).to_dict()
+
+    def delete_mob(self, mob_id: int) -> bool:
+        mob = ZoneEncounterMob.find_by_id(mob_id, path=self.path)
+        if mob is None:
+            return False
+        return mob.delete(path=self.path)
+
+    # ── Zone-type tag helpers (used by the dungeon-curation UI on /raids) ────
+
+    def add_zone_type(self, zone_name: str, type_token: str) -> dict | None:
+        """Add a type tag (e.g. 'dungeon') to a zone. Returns None if the
+        zone_name doesn't resolve; route layer is responsible for turning
+        that into a 404."""
+        z = Zone.find_by_name(zone_name, path=self.path)
+        if z is None:
+            return None
+        return z.add_type(type_token, path=self.path).to_dict()
+
+    def remove_zone_type(self, zone_name: str, type_token: str) -> dict | None:
+        """Remove a type tag from a zone. See ``Zone.remove_type``."""
+        z = Zone.find_by_name(zone_name, path=self.path)
+        if z is None:
+            return None
+        return z.remove_type(type_token, path=self.path).to_dict()
+
+    # ── Featured-raid curation (the /raids page admin UI) ────────────────────
+
+    def list_featured_raid_expansions(self) -> list[dict]:
+        return [e.to_dict() for e in FeaturedRaidExpansion.list_active(path=self.path)]
+
+    def list_available_raid_expansions(self) -> list[dict]:
+        return [e.to_dict() for e in FeaturedRaidExpansion.list_available(path=self.path)]
+
+    def add_featured_raid_expansion(self, expansion_short: str) -> bool:
+        return FeaturedRaidExpansion.create(expansion_short, path=self.path) is not None
+
+    def remove_featured_raid_expansion(self, expansion_short: str) -> bool:
+        # Key-only delete; the model.remove() only needs expansion_short
+        # and the stub instance carries that.
+        return FeaturedRaidExpansion(expansion_short=expansion_short, name="", year=None).remove(path=self.path)
+
+    def list_featured_raid_zones(self, expansion_short: str) -> list[dict]:
+        # Routes need the full hydrated zone shape (types/aliases/bosses)
+        # PLUS the featuring metadata (position + category). The model only
+        # carries the featuring metadata, so this joins via _hydrate_zone.
+        if not self.path.exists():
+            return []
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                _SQL["list_featured_raid_zones"].format(cols=_SELECT_COLS),
+                (expansion_short,),
+            ).fetchall()
+            result: list[dict] = []
+            for r in rows:
+                z = _hydrate_zone(conn, r)
+                z["position"] = r["featured_position"]
+                z["category"] = r["featured_category"]
+                result.append(z)
+            return result
+
+    def list_available_raid_zones(self, expansion_short: str) -> list[dict]:
+        # Returns hydrated zone dicts (the 'Add raid zone' admin picker shows
+        # full zone info). Not exposed via the FeaturedRaidZone model because
+        # the returned shape is Zone, not FeaturedRaidZone — they're not yet
+        # featured.
+        if not self.path.exists():
+            return []
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                _SQL["list_available_raid_zones"].format(cols=_SELECT_COLS),
+                (expansion_short,),
+            ).fetchall()
+            return [_hydrate_zone(conn, r) for r in rows]
+
+    def add_featured_raid_zone(self, zone_name: str) -> dict | None:
+        # Legacy contract: returns hydrated zone dict (NOT the FeaturedRaidZone
+        # shape). Re-hydrate by name after the model add() succeeds.
+        fz = FeaturedRaidZone.add(zone_name, path=self.path)
+        if fz is None:
+            return None
+        return self.find_by_name(fz.zone_name)
+
+    def remove_featured_raid_zone(self, zone_name: str) -> bool:
+        # Stub instance with name only — remove() uses .zone_name as the
+        # delete key; other fields are unused.
+        return FeaturedRaidZone(zone_id=0, zone_name=zone_name, expansion_short="", position=0, category=None).remove(
+            path=self.path
+        )
+
+    def reorder_featured_raid_zones(self, expansion_short: str, ordering: list[dict]) -> bool:
+        return FeaturedRaidZone.reorder_in_expansion(expansion_short, ordering, path=self.path)
+
+    def list_featured_raid_categories(self, expansion_short: str) -> list[dict]:
+        return [c.to_dict() for c in FeaturedRaidCategory.list_for_expansion(expansion_short, path=self.path)]
+
+    def create_featured_raid_category(self, expansion_short: str, name: str) -> bool:
+        return FeaturedRaidCategory.create(expansion_short, name, path=self.path) is not None
+
+    def delete_featured_raid_category(self, expansion_short: str, name: str) -> bool:
+        # Stub instance — delete() only needs expansion_short + name as keys.
+        return FeaturedRaidCategory(expansion_short=expansion_short, name=name, position=0).delete(path=self.path)
+
+    def reorder_featured_raid_categories(self, expansion_short: str, ordering: list[dict]) -> bool:
+        return FeaturedRaidCategory.reorder_in_expansion(expansion_short, ordering, path=self.path)
 
 
-def list_available_raid_expansions(path: Path = DB_PATH) -> list[dict]:
-    return [e.to_dict() for e in FeaturedRaidExpansion.list_available(path=path)]
-
-
-def add_featured_raid_expansion(expansion_short: str, path: Path = DB_PATH) -> bool:
-    return FeaturedRaidExpansion.create(expansion_short, path=path) is not None
-
-
-def remove_featured_raid_expansion(expansion_short: str, path: Path = DB_PATH) -> bool:
-    # The legacy contract is "key-only delete"; we don't go through
-    # find_by_short because the model.remove() only needs expansion_short
-    # and the stub instance carries that.
-    return FeaturedRaidExpansion(expansion_short=expansion_short, name="", year=None).remove(path=path)
-
-
-def list_featured_raid_zones(expansion_short: str, path: Path = DB_PATH) -> list[dict]:
-    # Routes need the full hydrated zone shape (types/aliases/bosses)
-    # PLUS the featuring metadata (position + category). The model only
-    # carries the featuring metadata, so the shim joins via _hydrate_zone.
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            _SQL["list_featured_raid_zones"].format(cols=_SELECT_COLS),
-            (expansion_short,),
-        ).fetchall()
-        result: list[dict] = []
-        for r in rows:
-            z = _hydrate_zone(conn, r)
-            z["position"] = r["featured_position"]
-            z["category"] = r["featured_category"]
-            result.append(z)
-        return result
-
-
-def list_available_raid_zones(expansion_short: str, path: Path = DB_PATH) -> list[dict]:
-    # Returns hydrated zone dicts (the 'Add raid zone' admin picker shows
-    # full zone info). Not exposed via the FeaturedRaidZone model because
-    # the returned shape is Zone, not FeaturedRaidZone — they're not yet
-    # featured.
-    if not path.exists():
-        return []
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            _SQL["list_available_raid_zones"].format(cols=_SELECT_COLS),
-            (expansion_short,),
-        ).fetchall()
-        return [_hydrate_zone(conn, r) for r in rows]
-
-
-def add_featured_raid_zone(zone_name: str, path: Path = DB_PATH) -> dict | None:
-    # Legacy contract: returns hydrated zone dict (NOT the FeaturedRaidZone
-    # shape). Re-hydrate by name after the model add() succeeds.
-    fz = FeaturedRaidZone.add(zone_name, path=path)
-    if fz is None:
-        return None
-    return find_by_name(fz.zone_name, path=path)
-
-
-def remove_featured_raid_zone(zone_name: str, path: Path = DB_PATH) -> bool:
-    # Stub instance with name only — remove() uses .zone_name as the
-    # delete key; other fields are unused.
-    return FeaturedRaidZone(zone_id=0, zone_name=zone_name, expansion_short="", position=0, category=None).remove(
-        path=path
-    )
-
-
-def reorder_featured_raid_zones(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
-    return FeaturedRaidZone.reorder_in_expansion(expansion_short, ordering, path=path)
-
-
-def list_featured_raid_categories(expansion_short: str, path: Path = DB_PATH) -> list[dict]:
-    return [c.to_dict() for c in FeaturedRaidCategory.list_for_expansion(expansion_short, path=path)]
-
-
-def create_featured_raid_category(expansion_short: str, name: str, path: Path = DB_PATH) -> bool:
-    return FeaturedRaidCategory.create(expansion_short, name, path=path) is not None
-
-
-def delete_featured_raid_category(expansion_short: str, name: str, path: Path = DB_PATH) -> bool:
-    # Stub instance — delete() only needs expansion_short + name as keys.
-    return FeaturedRaidCategory(expansion_short=expansion_short, name=name, position=0).delete(path=path)
-
-
-def reorder_featured_raid_categories(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
-    return FeaturedRaidCategory.reorder_in_expansion(expansion_short, ordering, path=path)
-
-
-def remove_zone_type(zone_name: str, type_token: str, path: Path = DB_PATH) -> dict | None:
-    """Remove a type tag from a zone. Back-compat shim — see
-    ``Zone.remove_type``."""
-    z = Zone.find_by_name(zone_name, path=path)
-    if z is None:
-        return None
-    return z.remove_type(type_token, path=path).to_dict()
+# The shared default instance — every runtime consumer goes through this.
+catalogue = ZoneCatalogue()
