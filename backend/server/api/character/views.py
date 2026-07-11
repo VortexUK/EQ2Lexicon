@@ -447,9 +447,9 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
         return cached
 
     # 2) Durable store.
-    from backend.census import store as census_store
+    from backend.census.store import store as census_store
 
-    conn = census_store.init_db(census_store.DB_PATH)
+    conn = census_store.init_db()
     try:
         rec = census_store.get_character(conn, name, current_world())
     finally:
@@ -493,7 +493,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
         # Best-effort; the user already has a correct response in hand
         # so a write failure doesn't degrade the visible behaviour.
         try:
-            conn2 = census_store.init_db(census_store.DB_PATH)
+            conn2 = census_store.init_db()
             try:
                 census_store.upsert_character(
                     conn2,
@@ -532,7 +532,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
         raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {current_world()}")
     resp = _build_char_response(char)
     data = resp.model_dump()
-    conn = census_store.init_db(census_store.DB_PATH)
+    conn = census_store.init_db()
     try:
         census_store.upsert_character(conn, name, current_world(), data, resolved=True, now=now)
     finally:

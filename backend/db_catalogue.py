@@ -1,6 +1,9 @@
-"""Shared base class for the eq2db catalogue classes.
+"""Shared base class for SQLite catalogue/store classes.
 
-Every data module under ``backend/eq2db/`` exposes one catalogue class
+Originally extracted from the eq2db data modules; now the base for every
+per-file SQLite data interface in the codebase (eq2db catalogues, the
+census store, ...). Every data module under ``backend/eq2db/`` exposes one
+catalogue class
 (AACatalogue, ClassCatalogue, SpellCatalogue, RecipeCatalogue,
 ZoneCatalogue, ItemCatalogue, RaidCatalogue) following the same
 convention:

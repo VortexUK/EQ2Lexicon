@@ -10,7 +10,7 @@ import asyncio
 import logging
 import time
 
-from backend.census import store as census_store
+from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _scrub
 from backend.server import census_events, census_health
 from backend.server.cache import character_cache
@@ -66,7 +66,7 @@ async def _run_character_refresh(name: str, key: str, world: str) -> None:
         resp = _build_char_response(char)  # CharacterResponse (pydantic)
         data = resp.model_dump()
         resolved = bool(data.get("cls") or data.get("level"))
-        conn = census_store.init_db(census_store.DB_PATH)
+        conn = census_store.init_db()
         try:
             census_store.upsert_character(conn, name, world, data, resolved=resolved)
         finally:

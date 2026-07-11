@@ -4,7 +4,7 @@ from backend.census import store as cs
 
 
 def test_init_db_creates_tables(tmp_path):
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"characters", "guilds"} <= tables
@@ -24,9 +24,9 @@ def test_init_db_creates_tables(tmp_path):
 
 
 def test_upsert_character_resolved_then_get(tmp_path):
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
-        cs.upsert_character(
+        cs.CensusStore.upsert_character(
             conn,
             "Menludiir",
             "Varsoon",
@@ -34,7 +34,7 @@ def test_upsert_character_resolved_then_get(tmp_path):
             resolved=True,
             now=1000,
         )
-        rec = cs.get_character(conn, "Menludiir", "Varsoon")
+        rec = cs.CensusStore.get_character(conn, "Menludiir", "Varsoon")
         assert rec is not None
         assert rec["data"]["level"] == 90
         assert rec["last_resolved_at"] == 1000
@@ -43,15 +43,15 @@ def test_upsert_character_resolved_then_get(tmp_path):
 
 
 def test_sparse_refresh_never_clobbers(tmp_path):
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
-        cs.upsert_character(
+        cs.CensusStore.upsert_character(
             conn, "Menludiir", "Varsoon", {"name": "Menludiir", "level": 90, "cls": "Templar"}, resolved=True, now=1000
         )
-        cs.upsert_character(
+        cs.CensusStore.upsert_character(
             conn, "Menludiir", "Varsoon", {"name": "Menludiir", "level": None, "cls": None}, resolved=False, now=2000
         )
-        rec = cs.get_character(conn, "Menludiir", "Varsoon")
+        rec = cs.CensusStore.get_character(conn, "Menludiir", "Varsoon")
         assert rec is not None
         assert rec["data"]["level"] == 90  # kept
         assert rec["last_resolved_at"] == 1000  # unchanged
@@ -63,10 +63,10 @@ def test_roster_overview_does_not_wipe_resolved_gear(tmp_path):
     """A guild-roster overview (no equipment key) must NOT null an individually
     resolved character's gear — it overlays its scalar fields and preserves the
     rest, without advancing the freshness clock."""
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
         # Full individual resolve: gear + id present.
-        cs.upsert_character(
+        cs.CensusStore.upsert_character(
             conn,
             "Menludiir",
             "Varsoon",
@@ -75,7 +75,7 @@ def test_roster_overview_does_not_wipe_resolved_gear(tmp_path):
             now=1000,
         )
         # Later guild-roster refresh: sparse overview, resolved=True, newer ts.
-        cs.upsert_character(
+        cs.CensusStore.upsert_character(
             conn,
             "Menludiir",
             "Varsoon",
@@ -83,7 +83,7 @@ def test_roster_overview_does_not_wipe_resolved_gear(tmp_path):
             resolved=True,
             now=2000,
         )
-        rec = cs.get_character(conn, "Menludiir", "Varsoon")
+        rec = cs.CensusStore.get_character(conn, "Menludiir", "Varsoon")
         assert rec is not None
         assert rec["data"]["equipment"] == [{"slot": "Head"}]  # gear preserved
         assert rec["data"]["id"] == "123"  # id preserved
@@ -97,9 +97,9 @@ def test_roster_overview_does_not_wipe_resolved_gear(tmp_path):
 def test_full_resolve_replaces_and_advances_freshness(tmp_path):
     """A full resolve (equipment key present) overlays gear and advances the
     freshness clock — genuine gear changes still take effect."""
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
-        cs.upsert_character(
+        cs.CensusStore.upsert_character(
             conn,
             "Menludiir",
             "Varsoon",
@@ -107,7 +107,7 @@ def test_full_resolve_replaces_and_advances_freshness(tmp_path):
             resolved=True,
             now=1000,
         )
-        cs.upsert_character(
+        cs.CensusStore.upsert_character(
             conn,
             "Menludiir",
             "Varsoon",
@@ -115,7 +115,7 @@ def test_full_resolve_replaces_and_advances_freshness(tmp_path):
             resolved=True,
             now=2000,
         )
-        rec = cs.get_character(conn, "Menludiir", "Varsoon")
+        rec = cs.CensusStore.get_character(conn, "Menludiir", "Varsoon")
         assert rec is not None
         assert rec["data"]["equipment"] == [{"slot": "Chest"}]  # replaced
         assert rec["last_resolved_at"] == 2000  # advanced
@@ -124,28 +124,28 @@ def test_full_resolve_replaces_and_advances_freshness(tmp_path):
 
 
 def test_unresolved_first_sight_is_not_stored(tmp_path):
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
-        cs.upsert_character(conn, "Ghost", "Varsoon", {"name": "Ghost"}, resolved=False, now=1000)
-        assert cs.get_character(conn, "Ghost", "Varsoon") is None
+        cs.CensusStore.upsert_character(conn, "Ghost", "Varsoon", {"name": "Ghost"}, resolved=False, now=1000)
+        assert cs.CensusStore.get_character(conn, "Ghost", "Varsoon") is None
     finally:
         conn.close()
 
 
 def test_get_missing_returns_none(tmp_path):
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
-        assert cs.get_character(conn, "Nobody", "Varsoon") is None
+        assert cs.CensusStore.get_character(conn, "Nobody", "Varsoon") is None
     finally:
         conn.close()
 
 
 def test_upsert_guild_then_get(tmp_path):
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
         blob = {"name": "Exordium", "members": [{"name": "Menludiir", "rank": "Leader"}]}
-        cs.upsert_guild(conn, "Exordium", "Varsoon", blob, now=1000)
-        rec = cs.get_guild(conn, "Exordium", "Varsoon")
+        cs.CensusStore.upsert_guild(conn, "Exordium", "Varsoon", blob, now=1000)
+        rec = cs.CensusStore.get_guild(conn, "Exordium", "Varsoon")
         assert rec is not None
         assert rec["data"]["members"][0]["name"] == "Menludiir"
         assert rec["last_resolved_at"] == 1000
@@ -154,8 +154,8 @@ def test_upsert_guild_then_get(tmp_path):
 
 
 def test_guild_get_missing_returns_none(tmp_path):
-    conn = cs.init_db(tmp_path / "backend.census.db")
+    conn = cs.CensusStore(tmp_path / "backend.census.db").init_db()
     try:
-        assert cs.get_guild(conn, "Nope", "Varsoon") is None
+        assert cs.CensusStore.get_guild(conn, "Nope", "Varsoon") is None
     finally:
         conn.close()

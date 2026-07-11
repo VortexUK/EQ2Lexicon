@@ -282,9 +282,9 @@ async def test_serve_path_self_heals_stored_placeholder(app, tmp_path, monkeypat
         }
     ]
     db_path = tmp_path / "backend.census.db"
-    conn = census_store.init_db(db_path)
+    conn = census_store.CensusStore(db_path).init_db()
     try:
-        census_store.upsert_character(
+        census_store.CensusStore.upsert_character(
             conn,
             "HealMe",
             _WORLD,
@@ -294,7 +294,7 @@ async def test_serve_path_self_heals_stored_placeholder(app, tmp_path, monkeypat
         )
     finally:
         conn.close()
-    monkeypatch.setattr(census_store, "DB_PATH", db_path)
+    monkeypatch.setattr(census_store.store, "path", db_path)
     character_cache.delete(f"healme:{_WORLD.lower()}")
 
     async def _fake_find(item_id, *args, **kwargs):
@@ -326,9 +326,9 @@ async def test_stored_data_served_without_census(app, tmp_path, monkeypatch):
 
     # Seed the census_store at an isolated tmp DB.
     db_path = tmp_path / "backend.census.db"
-    conn = census_store.init_db(db_path)
+    conn = census_store.CensusStore(db_path).init_db()
     try:
-        census_store.upsert_character(
+        census_store.CensusStore.upsert_character(
             conn,
             "Stored",
             _WORLD,
@@ -340,7 +340,7 @@ async def test_stored_data_served_without_census(app, tmp_path, monkeypatch):
         conn.close()
 
     # Point the module at the tmp DB so the endpoint reads from it.
-    monkeypatch.setattr(census_store, "DB_PATH", db_path)
+    monkeypatch.setattr(census_store.store, "path", db_path)
 
     # Ensure the in-memory cache is cold for this key.
     cache_key = f"stored:{_WORLD.lower()}"
@@ -375,12 +375,12 @@ async def test_partial_roster_record_served_without_500(app, tmp_path, monkeypat
     partial = {"name": "Verarec", "level": 90, "cls": "Wizard", "guild_name": "Test"}
 
     db_path = tmp_path / "backend.census.db"
-    conn = census_store.init_db(db_path)
+    conn = census_store.CensusStore(db_path).init_db()
     try:
-        census_store.upsert_character(conn, "Verarec", _WORLD, partial, resolved=True, now=1000)
+        census_store.CensusStore.upsert_character(conn, "Verarec", _WORLD, partial, resolved=True, now=1000)
     finally:
         conn.close()
-    monkeypatch.setattr(census_store, "DB_PATH", db_path)
+    monkeypatch.setattr(census_store.store, "path", db_path)
     character_cache.delete(f"verarec:{_WORLD.lower()}")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

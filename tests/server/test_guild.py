@@ -264,7 +264,7 @@ async def test_fetch_and_cache_guild_populates_roster_and_info(app):
 def tmp_census_db(tmp_path, monkeypatch):
     """Seed a temporary census.db with one guild row and redirect DB_PATH to it."""
     db_path = tmp_path / "backend.census.db"
-    monkeypatch.setattr(census_store, "DB_PATH", db_path)
+    monkeypatch.setattr(census_store.store, "path", db_path)
     monkeypatch.setenv("CENSUS_DB_PATH", str(db_path))
     roster_blob = GuildResponse(
         name="Exordium",
@@ -294,8 +294,8 @@ def tmp_census_db(tmp_path, monkeypatch):
         type=0,
     ).model_dump()
     combined_blob = {"roster": roster_blob, "info": info_blob}
-    conn = census_store.init_db(db_path)
-    census_store.upsert_guild(conn, "Exordium", "Varsoon", combined_blob, now=1000)
+    conn = census_store.CensusStore(db_path).init_db()
+    census_store.CensusStore.upsert_guild(conn, "Exordium", "Varsoon", combined_blob, now=1000)
     conn.close()
     return db_path
 
@@ -307,7 +307,7 @@ async def test_guild_roster_served_from_store_when_census_down(app, tmp_census_d
 
     monkeypatch.setattr(_health_mod, "is_down", lambda: True)
     # Redirect the module-level DB_PATH so the route's local init_db call uses the tmp db.
-    monkeypatch.setattr(census_store, "DB_PATH", tmp_census_db)
+    monkeypatch.setattr(census_store.store, "path", tmp_census_db)
 
     from backend.server.cache import guild_cache
 
@@ -329,7 +329,7 @@ async def test_guild_info_served_from_store_when_census_down(app, tmp_census_db,
     import backend.server.census_health as _health_mod
 
     monkeypatch.setattr(_health_mod, "is_down", lambda: True)
-    monkeypatch.setattr(census_store, "DB_PATH", tmp_census_db)
+    monkeypatch.setattr(census_store.store, "path", tmp_census_db)
 
     from backend.server.cache import guild_cache
 
@@ -362,12 +362,12 @@ async def test_persist_merges_offline_member_from_store(app, tmp_path, monkeypat
     from backend.server.cache import guild_cache
 
     db_path = tmp_path / "backend.census.db"
-    monkeypatch.setattr(census_store, "DB_PATH", db_path)
+    monkeypatch.setattr(census_store.store, "path", db_path)
     monkeypatch.setenv("CENSUS_DB_PATH", str(db_path))
 
     # Seed an offline alt that resolved in the PAST (now=1000).
-    conn = census_store.init_db(db_path)
-    census_store.upsert_character(
+    conn = census_store.CensusStore(db_path).init_db()
+    census_store.CensusStore.upsert_character(
         conn,
         "OfflineAlt",
         _WORLD,
@@ -442,9 +442,9 @@ async def test_persist_merges_offline_member_from_store(app, tmp_path, monkeypat
     ):
         await _persist_and_publish_guild("TestGuild")
 
-    conn = census_store.init_db(db_path)
+    conn = census_store.CensusStore(db_path).init_db()
     try:
-        guild_rec = census_store.get_guild(conn, "TestGuild", _WORLD)
+        guild_rec = census_store.CensusStore.get_guild(conn, "TestGuild", _WORLD)
         assert guild_rec is not None
         members = {m["name"]: m for m in guild_rec["data"]["roster"]["members"]}
 
@@ -463,12 +463,12 @@ async def test_persist_merges_offline_member_from_store(app, tmp_path, monkeypat
         assert "GhostNoData" not in members
 
         # OfflineAlt was carried-forward, NOT freshly resolved → timestamp unchanged.
-        alt_rec = census_store.get_character(conn, "OfflineAlt", _WORLD)
+        alt_rec = census_store.CensusStore.get_character(conn, "OfflineAlt", _WORLD)
         assert alt_rec is not None
         assert alt_rec["last_resolved_at"] == 1000
 
         # OnlineMain genuinely resolved this fetch → record now exists, freshly stamped.
-        main_rec = census_store.get_character(conn, "OnlineMain", _WORLD)
+        main_rec = census_store.CensusStore.get_character(conn, "OnlineMain", _WORLD)
         assert main_rec is not None
         assert main_rec["last_resolved_at"] > 1000
         # The stored member carries its guild, so a cache-miss lookup (e.g. a

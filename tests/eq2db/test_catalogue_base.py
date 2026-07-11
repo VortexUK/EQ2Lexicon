@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.eq2db._catalogue import BaseCatalogue
+from backend.db_catalogue import BaseCatalogue
 from backend.eq2db.raids import RaidCatalogue
 from backend.eq2db.spells import SpellCatalogue
 

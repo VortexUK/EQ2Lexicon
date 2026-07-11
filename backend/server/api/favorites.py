@@ -22,7 +22,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from backend.census import store as census_store
+from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _scrub
 from backend.server.auth_deps import require_user_session
 from backend.server.cache import character_cache, favorite_count_cache
@@ -106,7 +106,7 @@ def _store_character_data_many(names: list[str], world: str) -> dict[str, dict]:
     out: dict[str, dict] = {}
     if not names:
         return out
-    conn = census_store.init_db(census_store.DB_PATH)
+    conn = census_store.init_db()
     try:
         for name in names:
             rec = census_store.get_character(conn, name, world)
