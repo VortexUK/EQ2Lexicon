@@ -1,15 +1,13 @@
 """users.db users table + role / role_request / role_permission helpers.
 
 Carved out of the original 1309-line web/db.py. Async (aiosqlite) helpers
-for the users domain. ``path: Path = DB_PATH`` parameter on every public
-function so tests can inject a temp DB.
+for the users domain. Per-call connections open via the shared
+``AsyncStoreBase._db()``; tests re-point ``store.path``.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-
-import aiosqlite
 
 from backend.db_catalogue import AsyncStoreBase
 from backend.server.core.sql_helpers import build_where
@@ -51,8 +49,7 @@ class UsersStore(AsyncStoreBase):
         """
         is_admin = discord_id in admin_ids
         new_user_status = "approved" if (is_admin or open_signup) else "pending"
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             await db.execute(
                 _SQL["upsert_user"],
                 (
@@ -71,8 +68,7 @@ class UsersStore(AsyncStoreBase):
 
     async def get_user_access_status(self, discord_id: str) -> str:
         """Return the access_status for a user, or 'pending' if not found."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
                 row = await cur.fetchone()
         return row["access_status"] if row else "pending"
@@ -85,8 +81,7 @@ class UsersStore(AsyncStoreBase):
         callers handle the fallback display."""
         if not ids:
             return {}
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             placeholders = ",".join("?" for _ in ids)
             async with db.execute(
                 _SQL["select_display_names_by_ids"].format(placeholders=placeholders),
@@ -97,8 +92,7 @@ class UsersStore(AsyncStoreBase):
 
     async def list_pending_users(self) -> list[dict]:
         """Return all users with access_status = 'pending', newest first."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(_SQL["list_pending_users"]) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
@@ -108,22 +102,21 @@ class UsersStore(AsyncStoreBase):
         of rows updated. Used at startup when OPEN_SIGNUP is enabled to clear the
         pre-existing approval backlog. Idempotent — a no-op once nothing is pending.
         """
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(_SQL["approve_all_pending"])
             await db.commit()
             return cur.rowcount
 
     async def list_all_users(self) -> list[dict]:
         """Return all users with access_status and total claim count, newest first."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(_SQL["list_all_users_with_claim_count"]) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
     async def set_user_access(self, discord_id: str, status: str) -> bool:
         """Set access_status for a user. Returns True if a row was updated."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["update_user_access_status"],
                 (status, discord_id),
@@ -148,7 +141,7 @@ class UsersStore(AsyncStoreBase):
         """Grant a role to a user. Idempotent — re-granting an existing (user,
         role) pair is a no-op (returns False). Returns True when a new row was
         actually inserted."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["grant_role"],
                 (discord_id, role, granted_by),
@@ -158,7 +151,7 @@ class UsersStore(AsyncStoreBase):
 
     async def revoke_role(self, discord_id: str, role: str) -> bool:
         """Revoke a role. Returns True if a row was deleted (i.e. the user had it)."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["revoke_role"],
                 (discord_id, role),
@@ -168,7 +161,7 @@ class UsersStore(AsyncStoreBase):
 
     async def list_roles_for_user(self, discord_id: str) -> list[str]:
         """All roles assigned to a single user, sorted for stable display."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             async with db.execute(
                 _SQL["list_roles_for_user"],
                 (discord_id,),
@@ -179,7 +172,7 @@ class UsersStore(AsyncStoreBase):
     async def has_role(self, discord_id: str, role: str) -> bool:
         """Cheap (indexed) existence check — used on the hot path of the editor
         auth dep, so kept as a single-row SELECT rather than reusing list_roles."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             async with db.execute(
                 _SQL["check_has_role"],
                 (discord_id, role),
@@ -196,7 +189,7 @@ class UsersStore(AsyncStoreBase):
         user already has a pending request for this role (the partial unique index
         on (discord_id, role) WHERE status='pending' enforces it). Returns the new
         request's id."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["create_role_request"],
                 (discord_id, role, user_note),
@@ -231,8 +224,7 @@ class UsersStore(AsyncStoreBase):
             if status == "pending"
             else "ORDER BY rr.requested_at DESC, rr.id DESC"
         )
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(
                 _SQL["list_role_requests"].format(where_sql=where_sql, order_sql=order_sql),
                 params,
@@ -244,8 +236,7 @@ class UsersStore(AsyncStoreBase):
         """Single-row fetch, same shape as list_role_requests entries. Used by the
         admin approve/reject endpoints for the 404 check + the role/discord_id
         payload that the grant flow needs."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(
                 _SQL["get_role_request"],
                 (request_id,),
@@ -262,7 +253,7 @@ class UsersStore(AsyncStoreBase):
     ) -> dict | None:
         """Approve or reject a pending request. Returns the updated row, or None
         if no pending request with that id exists (already resolved, or unknown)."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["review_role_request"],
                 (status, reviewed_by, admin_note, request_id),
@@ -289,7 +280,7 @@ class UsersStore(AsyncStoreBase):
         directly between submit + approve), the INSERT OR IGNORE is a no-op and
         the request still transitions to approved.
         """
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["review_role_request"],
                 (status, admin_id, note, request_id),
@@ -319,7 +310,7 @@ class UsersStore(AsyncStoreBase):
         """User-initiated cancellation. Scoped to the requester so one user can't
         withdraw another's request. Only pending requests can be withdrawn —
         historical rows stay immutable. Returns True if a row transitioned."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["withdraw_role_request"],
                 (request_id, discord_id),
@@ -337,7 +328,7 @@ class UsersStore(AsyncStoreBase):
         Single JOIN'd EXISTS query — indexed on both join keys. Doesn't consider
         admin (synthetic) or officer (dynamic) — those live in the auth dep on
         top of this primitive."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             async with db.execute(
                 _SQL["check_user_has_capability"],
                 (discord_id, capability),
@@ -353,7 +344,7 @@ class UsersStore(AsyncStoreBase):
 
         Used by the auth dep to decide whether to bother running the dynamic
         officer check at all — if officers don't have the capability, no point."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             async with db.execute(
                 _SQL["check_role_has_capability"],
                 (role, capability),
@@ -365,7 +356,7 @@ class UsersStore(AsyncStoreBase):
 
         Used by the admin user-list endpoint to join roles in without N+1 queries
         against ``list_roles_for_user``."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             async with db.execute(_SQL["list_all_role_assignments"]) as cur:
                 rows = await cur.fetchall()
         out: dict[str, list[str]] = {}

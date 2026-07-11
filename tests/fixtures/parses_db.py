@@ -7,7 +7,7 @@ monkeypatch + init_db setup inline.
 Two fixtures are exposed:
 
   - parses_db_path: yields a tmp_path / "backend.server.parses.db" with the schema
-    pre-initialised, AND monkeypatches parses_db.DB_PATH to point at it
+    pre-initialised, AND re-points parses_db.DB_PATH + the shared store at it
     for the duration of the test. This is what the web tests need.
 
   - parses_db_conn: yields an in-memory connection, the schema applied.
@@ -30,7 +30,9 @@ from backend.server.parses import db as parses_db
 def parses_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Tmp-path-backed parses.db with schema initialised + store re-pointed."""
     db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(parses_db.store, "path", db_file)
+    # Re-point BOTH the module constant (metrics.py reads it dynamically)
+    # and the shared store instance (what the routes read).
+    monkeypatch.setattr(parses_db, "DB_PATH", db_file)
     monkeypatch.setattr(parses_db.store, "path", db_file)
     parses_db.ParsesStore(db_file).init_db().close()
     return db_file

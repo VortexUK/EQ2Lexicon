@@ -37,12 +37,9 @@ def _seed_tamper_reports(now: int = 1700000000) -> list[int]:
     """Drop a fixed set of reports into the test DB and return their ids,
     newest-first so tests can refer to them by index."""
     _wipe_tamper_reports()
-    # CRITICAL: pass the explicit path. init_db()'s `path: Path = DB_PATH`
-    # default arg is bound at function-definition time, so a later
-    # reassignment of parses_db.DB_PATH (which conftest does for test
-    # isolation) doesn't reach the no-arg call. The admin route uses
-    # `init_db(parses_db.DB_PATH)` (explicit), so the only way to read
-    # the same DB is to also pass explicit here.
+    # The shared store's `path` is re-pointed by conftest, and init_db()
+    # reads it at call time — so this argless call and the admin route's
+    # argless call hit the same (redirected) DB.
     conn = parses_db.store.init_db()
     ids: list[int] = []
     try:

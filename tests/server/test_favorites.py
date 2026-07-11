@@ -20,6 +20,7 @@ from httpx import ASGITransport, AsyncClient
 from backend.server.cache import favorite_count_cache
 from backend.server.db import init_db, review_claim, submit_claim
 from backend.server.db.favorites import store as fav
+from tests.fixtures.users_db import point_users_db_at
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
@@ -47,11 +48,8 @@ def users_db(tmp_path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point every users.db domain store at this test's temp DB."""
-    from backend.server import db as _db_pkg
-
-    for st in _db_pkg.ALL_STORES:
-        monkeypatch.setattr(st, "path", users_db)
+    """Point users.db (constant + every domain store) at this test's temp DB."""
+    point_users_db_at(monkeypatch, users_db)
 
 
 async def test_add_remove_round_trip(users_db):

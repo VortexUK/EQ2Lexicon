@@ -27,7 +27,7 @@ from backend.server.constants import SQLITE_VAR_CHUNK_SAFE
 from backend.server.core.executor import run_sync
 from backend.server.core.primary_guild import cached_primary_guild
 from backend.server.core.session_user import SessionUser
-from backend.server.parses.db import DB_PATH as PARSES_DB_PATH
+from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_world as _current_world
 from backend.sql_loader import load_sql
 
@@ -245,9 +245,9 @@ async def _resolve_primary_guild(discord_id: str) -> tuple[str | None, str | Non
 
 def _most_recent_parsed_guild_sync(discord_id: str) -> str | None:
     """Most recent non-null guild_name this user has uploaded a parse for."""
-    if not PARSES_DB_PATH.exists():
+    if not parses_db.path.exists():
         return None
-    with sqlite3.connect(PARSES_DB_PATH) as conn:
+    with sqlite3.connect(parses_db.path) as conn:
         conn.execute("PRAGMA query_only = ON")
         row = conn.execute(_SQL["most_recent_parsed_guild"], (discord_id,)).fetchone()
     return row[0] if row else None
@@ -266,13 +266,13 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
     and zones data live in separate SQLite files and we'd rather avoid
     cross-DB ATTACH.
     """
-    if not PARSES_DB_PATH.exists() or not zones_db.path.exists():
+    if not parses_db.path.exists() or not zones_db.path.exists():
         return {}
 
     # Pull every winning row for the guild as (id, title_lower, started_at).
     # We need the timestamp + id to surface "last kill" — a DISTINCT title pass
     # wouldn't be enough.
-    with sqlite3.connect(PARSES_DB_PATH) as pconn:
+    with sqlite3.connect(parses_db.path) as pconn:
         pconn.execute("PRAGMA query_only = ON")
         kills = [
             (row[0], row[1].lower(), row[2])

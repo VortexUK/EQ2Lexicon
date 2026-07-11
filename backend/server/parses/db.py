@@ -1,11 +1,11 @@
 """
 Normalized SQLite store for ingested ACT parses.
 
-Mirrors the layout pattern of `census/recipes_db.py`:
-  * `_CREATE_*` SQL constants
-  * `init_db(path)` returns a connection with WAL/foreign-keys enabled
-  * idempotent `_MIGRATIONS` list for future schema bumps
-  * thin sync helpers for insert / lookup
+All behaviour lives on :class:`ParsesStore` (the catalogue convention —
+see backend/db_catalogue.py): ``store.init_db()`` returns a connection
+with WAL/foreign-keys enabled (schema + idempotent ``_MIGRATIONS`` applied
+via the base template method); the conn-taking insert/lookup helpers are
+staticmethods — callers batch several operations per connection.
 
 Lives at `data/parses/parses.db` by default. Override with the
 `DB_PARSES_PATH` env var.
@@ -131,11 +131,7 @@ class ParsesStore(BaseCatalogue):
         conn.execute(_SQL["schema_attack_types"])
         conn.execute(_SQL["schema_ingest_log"])
         conn.execute(_SQL["schema_tamper_reports"])
-        for stmt in _MIGRATIONS:
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError:
-                pass
+        self._apply_migrations(conn, _MIGRATIONS)
         self._migrate_attack_types_unique(conn)
         self._migrate_encounters_add_world(conn)
         self._migrate_ingest_log_add_world(conn)

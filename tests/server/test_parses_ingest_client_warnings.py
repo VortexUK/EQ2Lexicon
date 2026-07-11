@@ -34,11 +34,10 @@ def _read_client_warnings(conn, encounter_id: int) -> str | None:
 
 def _ingest_and_get(payload: dict, *, tmp_path, monkeypatch) -> tuple[int, Path]:
     """Drive ``_ingest_payload_sync`` against a fresh tmp DB and return
-    (encounter_id, db_file). The db_file path MUST be passed explicitly
-    when reading back — ``parses_db.store.init_db()``'s ``path: Path = DB_PATH``
-    default arg captures DB_PATH at function-definition time, so
-    monkey-patching the module attribute doesn't affect the no-arg call.
-    All reads in these tests therefore go through ``init_db(db_file)``.
+    (encounter_id, db_file). The shared store's ``path`` is monkeypatched
+    to db_file below, so both the ingest write and the read-back go
+    through the same redirected DB; reads construct ``ParsesStore(db_file)``
+    where they want to be explicit.
     """
     from backend.server.api.parses import IngestRequest
     from backend.server.api.parses.ingest import _ingest_payload_sync

@@ -382,6 +382,7 @@ import pytest
 
 from backend.server.parses import db as pdb
 from backend.server.parses.models import Combatant, CombatantSnapshot, Encounter
+from tests.fixtures.users_db import point_users_db_at
 
 
 def _ins(conn, encid, title, *, success, players, guild, duration):
@@ -582,9 +583,7 @@ async def test_rankings_default_xpac_per_server(app, monkeypatch, tmp_path):
     # Point the DB at a temp file and seed a Wuoshi server row.
     p = tmp_path / "users.db"
     db.init_db(p)
-    monkeypatch.setattr(db, "DB_PATH", p)
-    for _st in db.ALL_STORES:
-        monkeypatch.setattr(_st, "path", p)
+    point_users_db_at(monkeypatch, p)
     ServersStore(p).upsert_server_settings_sync(
         "Wuoshi", max_level=70, current_xpac="Echoes of Faydwer", launch_dt=None
     )
@@ -627,9 +626,7 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
     # Register both servers so x-server: wuoshi resolves correctly.
     p = tmp_path / "users.db"
     db.init_db(p)
-    monkeypatch.setattr(db, "DB_PATH", p)
-    for _st in db.ALL_STORES:
-        monkeypatch.setattr(_st, "path", p)
+    point_users_db_at(monkeypatch, p)
     ServersStore(p).upsert_server_settings_sync("Varsoon", max_level=50, current_xpac=None, launch_dt=None)
     ServersStore(p).upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None)
     server_context.load_registry()

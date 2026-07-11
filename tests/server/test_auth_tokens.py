@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.users_db import point_users_db_at
+
 
 def _fake_session_user(request=None) -> dict:
     return {"id": "123456789", "username": "testuser"}
@@ -159,8 +161,7 @@ def tmp_users_db(tmp_path, monkeypatch):
 
     # init_db creates schema; point every domain store at the temp path.
     users_db.init_db(db_path)
-    for _st in users_db.ALL_STORES:
-        monkeypatch.setattr(_st, "path", db_path)
+    point_users_db_at(monkeypatch, db_path)
     # Seed a user row so the FK on api_tokens.user_id is satisfied.
     import sqlite3 as _sqlite3
 

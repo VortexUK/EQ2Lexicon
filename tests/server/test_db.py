@@ -7,8 +7,6 @@ import pytest
 from backend.server import db
 from backend.server.db import get_display_names_for_discord_ids, upsert_user
 
-_PATH = db.DB_PATH  # redirected to pytest tmpdir by conftest.py
-
 
 async def _seed(discord_id: str, discord_name: str) -> None:
     await upsert_user(

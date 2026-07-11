@@ -1,8 +1,8 @@
 """users.db character_claims table helpers.
 
 Carved out of the original 1309-line web/db.py. Async (aiosqlite) helpers
-for the character claims domain. ``path: Path = DB_PATH`` parameter on every
-public function so tests can inject a temp DB.
+for the character claims domain. Per-call connections open via the
+shared ``AsyncStoreBase._db()``; tests re-point ``store.path``.
 
 Claim statuses:
   pending    – submitted, awaiting admin review
@@ -15,8 +15,6 @@ Claim statuses:
 from __future__ import annotations
 
 from pathlib import Path
-
-import aiosqlite
 
 from backend.db_catalogue import AsyncStoreBase
 from backend.server.db import DB_PATH
@@ -45,8 +43,7 @@ class ClaimsStore(AsyncStoreBase):
         Claims are scoped to (discord_id, world) — a user's Varsoon and Wuoshi
         primaries are completely independent.
         """
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(
                 _SQL["list_active_claims"],
                 (discord_id, world),
@@ -70,8 +67,7 @@ class ClaimsStore(AsyncStoreBase):
         Already-approved claims for other characters are not affected.
         Raises ValueError if this character is already claimed on this world.
         """
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             # Reject if this character name is already claimed (approved or pending)
             # by anyone *on this world* (EQ2 names are unique only within a server)
             async with db.execute(
@@ -113,7 +109,7 @@ class ClaimsStore(AsyncStoreBase):
         character on the same world is automatically promoted to primary.
         Returns True if something changed.
         """
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             # Check if this claim is primary before withdrawing (and capture world from row)
             async with db.execute(
                 _SQL["select_primary_and_world"],
@@ -151,7 +147,7 @@ class ClaimsStore(AsyncStoreBase):
         Claims on other worlds are not affected.
         Returns True if the target claim exists and was updated.
         """
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             # Verify the claim belongs to this user, is approved, and is on the right world
             async with db.execute(
                 _SQL["find_approved_claim_for_user_on_world"],
@@ -177,8 +173,7 @@ class ClaimsStore(AsyncStoreBase):
         claim_id: int,
     ) -> dict | None:
         """Return a single claim joined with its submitting user's info."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(
                 _SQL["find_claim_with_user"],
                 (claim_id,),
@@ -198,8 +193,7 @@ class ClaimsStore(AsyncStoreBase):
         Pending claims are sorted oldest-first (queue order).
         All other statuses are sorted newest-first.
         """
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             where_parts: list[str] = []
             params: list = []
             if status:
@@ -233,7 +227,7 @@ class ClaimsStore(AsyncStoreBase):
         is the single funnel every approval path (admin + officer) flows through.
         Returns the updated claim (with user info) or None if not found.
         """
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             async with db.execute(_SQL["select_claim_user_and_world"], (claim_id,)) as cur:
                 row = await cur.fetchone()
             if not row:
@@ -273,7 +267,7 @@ class ClaimsStore(AsyncStoreBase):
         claim_id: int,
     ) -> bool:
         """Hard-delete a claim row. Returns True if a row was deleted."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(_SQL["delete_claim"], (claim_id,))
             deleted = cur.rowcount > 0
             await db.commit()
@@ -284,7 +278,7 @@ class ClaimsStore(AsyncStoreBase):
         discord_id: str,
     ) -> int:
         """Hard-delete all claim rows for a user. Returns the number of rows deleted."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(_SQL["delete_claims_for_user"], (discord_id,))
             count = cur.rowcount
             await db.commit()

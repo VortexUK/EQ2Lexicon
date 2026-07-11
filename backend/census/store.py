@@ -7,7 +7,8 @@ All behaviour lives on :class:`CensusStore` (the catalogue convention — see
 backend/db_catalogue.py): the shared module-level ``store`` instance is the
 runtime entry point (consumers alias it ``census_store``); the get/upsert
 helpers take an open conn (callers batch reads/writes per connection) and are
-staticmethods. Tests construct ``CensusStore(tmp_db)``.
+staticmethods. Tests construct ``CensusStore(tmp_db)``. SQL lives in the sibling
+store.sql (schema_* + DML blocks).
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from typing import Any, TypedDict
 
 from backend.db_catalogue import BaseCatalogue
 from backend.db_helpers import resolve_db_path
+from backend.sql_loader import load_sql
 
 
 class StoreRecord(TypedDict):
@@ -40,41 +42,7 @@ _log = logging.getLogger(__name__)
 
 DB_PATH: Path = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
 
-_CREATE_CHARACTERS = """
-CREATE TABLE IF NOT EXISTS characters (
-    name_lower       TEXT    NOT NULL,
-    world            TEXT    NOT NULL,
-    name             TEXT    NOT NULL,
-    level            INTEGER,
-    guild_name       TEXT,
-    data_json        TEXT    NOT NULL,
-    last_resolved_at INTEGER NOT NULL,
-    updated_at       INTEGER NOT NULL,
-    PRIMARY KEY (name_lower, world)
-);
-"""
-
-_CREATE_GUILDS = """
-CREATE TABLE IF NOT EXISTS guilds (
-    name_lower       TEXT    NOT NULL,
-    world            TEXT    NOT NULL,
-    name             TEXT    NOT NULL,
-    data_json        TEXT    NOT NULL,
-    last_resolved_at INTEGER NOT NULL,
-    updated_at       INTEGER NOT NULL,
-    PRIMARY KEY (name_lower, world)
-);
-"""
-
-_CREATE_CHARACTER_AAS = """
-CREATE TABLE IF NOT EXISTS character_aas (
-    name_lower         TEXT    NOT NULL,
-    world              TEXT    NOT NULL,
-    data_json          TEXT    NOT NULL,
-    last_resolved_at   INTEGER NOT NULL,
-    PRIMARY KEY (name_lower, world)
-);
-"""
+_SQL = load_sql(__file__)
 
 _MIGRATIONS: list[str] = []  # future schema bumps appended here
 
@@ -82,7 +50,9 @@ _MIGRATIONS: list[str] = []  # future schema bumps appended here
 class CensusStore(BaseCatalogue):
     """Read/write access to one census.db file (last-known Census lookups)."""
 
-    FOREIGN_KEYS = True
+    # The three tables declare no foreign keys — the old init set the pragma
+    # as boilerplate, not because anything relied on cascade.
+    FOREIGN_KEYS = False
 
     # census.db predates the shared _meta table and has no build provenance
     # to track — rows carry their own timestamps.
@@ -92,18 +62,10 @@ class CensusStore(BaseCatalogue):
         super().__init__(path)
 
     def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_CREATE_CHARACTERS)
-        conn.execute(_CREATE_GUILDS)
-        conn.execute(_CREATE_CHARACTER_AAS)
-        for stmt in _MIGRATIONS:
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError as exc:
-                _log.info(
-                    "[census-store] migration skipped (likely already applied): %s — %s",
-                    stmt,
-                    exc,
-                )
+        conn.execute(_SQL["schema_characters"])
+        conn.execute(_SQL["schema_guilds"])
+        conn.execute(_SQL["schema_character_aas"])
+        self._apply_migrations(conn, _MIGRATIONS)
 
     # ── Characters ───────────────────────────────────────────────────────────
 
@@ -143,14 +105,7 @@ class CensusStore(BaseCatalogue):
                 resolved_ts = existing["last_resolved_at"]  # sparse overlay — don't advance freshness
 
         conn.execute(
-            """
-            INSERT INTO characters (name_lower, world, name, level, guild_name, data_json, last_resolved_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name_lower, world) DO UPDATE SET
-                name=excluded.name, level=excluded.level, guild_name=excluded.guild_name,
-                data_json=excluded.data_json, last_resolved_at=excluded.last_resolved_at,
-                updated_at=excluded.updated_at
-            """,
+            _SQL["upsert_character"],
             (
                 name.lower(),
                 world,
@@ -167,10 +122,7 @@ class CensusStore(BaseCatalogue):
     @staticmethod
     def get_character(conn: sqlite3.Connection, name: str, world: str) -> StoreRecord | None:
         """Return {data, last_resolved_at} or None."""
-        row = conn.execute(
-            "SELECT data_json, last_resolved_at FROM characters WHERE name_lower=? AND world=?",
-            (name.lower(), world),
-        ).fetchone()
+        row = conn.execute(_SQL["select_character"], (name.lower(), world)).fetchone()
         if row is None:
             return None
         return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
@@ -183,23 +135,14 @@ class CensusStore(BaseCatalogue):
         the roster list is reliable from Census regardless of member login recency."""
         ts = int(time.time()) if now is None else now
         conn.execute(
-            """
-            INSERT INTO guilds (name_lower, world, name, data_json, last_resolved_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name_lower, world) DO UPDATE SET
-                name=excluded.name, data_json=excluded.data_json,
-                last_resolved_at=excluded.last_resolved_at, updated_at=excluded.updated_at
-            """,
+            _SQL["upsert_guild"],
             (name.lower(), world, name, json.dumps(data), ts, ts),
         )
         conn.commit()
 
     @staticmethod
     def get_guild(conn: sqlite3.Connection, name: str, world: str) -> StoreRecord | None:
-        row = conn.execute(
-            "SELECT data_json, last_resolved_at FROM guilds WHERE name_lower=? AND world=?",
-            (name.lower(), world),
-        ).fetchone()
+        row = conn.execute(_SQL["select_guild"], (name.lower(), world)).fetchone()
         if row is None:
             return None
         return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
@@ -212,10 +155,7 @@ class CensusStore(BaseCatalogue):
 
         The record carries the model_dump() of the response plus a
         last_resolved_at unix timestamp."""
-        row = conn.execute(
-            "SELECT data_json, last_resolved_at FROM character_aas WHERE name_lower = ? AND world = ?",
-            (name.lower(), world),
-        ).fetchone()
+        row = conn.execute(_SQL["select_character_aas"], (name.lower(), world)).fetchone()
         if row is None:
             return None
         return {
@@ -237,10 +177,7 @@ class CensusStore(BaseCatalogue):
         authoritative."""
         if now is None:
             now = int(time.time())
-        conn.execute(
-            "INSERT OR REPLACE INTO character_aas (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?)",
-            (name.lower(), world, json.dumps(data), now),
-        )
+        conn.execute(_SQL["upsert_character_aas"], (name.lower(), world, json.dumps(data), now))
         conn.commit()
 
 

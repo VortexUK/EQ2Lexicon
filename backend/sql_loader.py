@@ -30,9 +30,9 @@ Why a custom loader and not aiosql/yesql:
 Conventions:
   - One ``.sql`` file per Python module that has DML. Path mirrors the
     module: ``backend/eq2db/zones.py`` <-> ``backend/eq2db/zones.sql``.
-  - DDL (CREATE TABLE/INDEX) stays embedded in the ``.py`` next to the
-    ``init_db()`` migration code that runs it — keeping DDL and the
-    migrations that depend on it co-located beats hauling it out.
+  - DDL (CREATE TABLE/INDEX) lives in the ``.sql`` too, as ``schema_*``
+    and ``indexes_*`` blocks run by the store's ``_create_schema`` hook
+    (see backend/db_catalogue.py) — one grep target for all SQL.
   - Block names are valid Python identifiers ([a-z_][a-z0-9_]*). The
     loader raises on duplicates so a typo can't silently shadow.
 """

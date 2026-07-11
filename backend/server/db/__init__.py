@@ -28,7 +28,7 @@ from backend.server.db.schema import SCHEMA
 DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
 
 
-def init_db(path: Path = DB_PATH) -> None:
+def init_db(path: Path | None = None) -> None:
     """Create tables if they don't exist + apply migrations.
 
     Called once at startup. Idempotent. Order:
@@ -40,6 +40,10 @@ def init_db(path: Path = DB_PATH) -> None:
     (for existing DBs). Column-dependent indexes live in migrations.py
     AFTER the ADD COLUMN — never in SCHEMA.
     """
+    # Read DB_PATH at call time, not def time — the default-arg capture
+    # pattern is exactly what the store conversion eliminated everywhere
+    # else, and conftest re-points DB_PATH after import (BE-096 race).
+    path = Path(path) if path is not None else DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA)
@@ -81,15 +85,12 @@ remove_item_watch = item_watch_store.remove_item_watch
 update_item_watch_check = item_watch_store.update_item_watch_check
 
 # servers registry
-get_server_by_subdomain_sync = servers_store.get_server_by_subdomain_sync
 get_server_by_world_sync = servers_store.get_server_by_world_sync
 list_servers_sync = servers_store.list_servers_sync
 set_default_server_sync = servers_store.set_default_server_sync
 upsert_server_settings_sync = servers_store.upsert_server_settings_sync
 
 # api tokens
-generate_token = tokens_store.generate_token
-hash_token = tokens_store.hash_token
 list_api_tokens = tokens_store.list_api_tokens
 lookup_api_token = tokens_store.lookup_api_token
 mint_api_token = tokens_store.mint_api_token
