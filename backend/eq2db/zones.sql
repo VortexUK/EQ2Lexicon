@@ -220,9 +220,6 @@ SELECT name, expansion_short FROM zones WHERE id = ?;
 -- :name select_zone_name_by_id
 SELECT name FROM zones WHERE id = ?;
 
--- :name count_zones
-SELECT COUNT(*) FROM zones;
-
 -- :name find_zone_by_name_lower
 SELECT {cols} FROM zones WHERE name_lower = ? LIMIT 1;
 

@@ -298,26 +298,6 @@ VALUES (?, ?, ?, ?, ?, ?);
 -- Read helpers
 -- ---------------------------------------------------------------------------
 
--- Column-list fragments used by find_zone_by_name + list_zones_by_expansion.
--- :name select_zone_cols
-id, zone_name, zone_name_lower, expansion_short, wiki_url,
-access_md, background_md, overview_md,
-level_range, zdiff, lockout_min, lockout_max,
-source, last_synced_at, last_edited_at, last_edited_by
-
--- :name select_encounter_cols
-id, raid_zone_id, mob_name, mob_name_lower, position,
-strategy_md, wiki_url, source, last_synced_at, last_edited_at, last_edited_by
-
--- :name find_zone_by_name_ci
-SELECT {cols} FROM raid_zones WHERE zone_name_lower = ?;
-
--- :name list_encounters_for_zone
-SELECT {cols} FROM raid_encounters WHERE raid_zone_id = ? ORDER BY position, mob_name;
-
--- :name list_zones_by_expansion
-SELECT {cols} FROM raid_zones WHERE expansion_short = ? ORDER BY zone_name;
-
 -- :name list_encounter_revisions
 SELECT id, encounter_id, edited_at, edited_by, before_md, after_md, edit_note
 FROM raid_encounter_revisions
@@ -327,22 +307,3 @@ WHERE encounter_id = ? ORDER BY edited_at DESC, id DESC;
 SELECT id, edited_at, edited_by, before_md, after_md, edit_note
 FROM raid_zone_revisions WHERE raid_zone_id = ?
 ORDER BY edited_at DESC, id DESC;
-
--- ---------------------------------------------------------------------------
--- Stats
--- ---------------------------------------------------------------------------
-
--- :name stats_zones_count
-SELECT COUNT(*) FROM raid_zones;
-
--- :name stats_encounters_count
-SELECT COUNT(*) FROM raid_encounters;
-
--- :name stats_revisions_count
-SELECT COUNT(*) FROM raid_encounter_revisions;
-
--- :name stats_encounters_by_source
-SELECT source, COUNT(*) FROM raid_encounters GROUP BY source;
-
--- :name stats_zones_by_expansion
-SELECT expansion_short, COUNT(*) FROM raid_zones GROUP BY expansion_short ORDER BY 2 DESC;

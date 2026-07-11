@@ -180,19 +180,6 @@ class Zone:
     # -----------------------------------------------------------------
 
     @classmethod
-    def find_by_id(cls, zone_id: int, path: Path = DB_PATH) -> Zone | None:
-        """Single-zone fetch by primary key. None if not found."""
-        if not path.exists():
-            return None
-        with sqlite3.connect(path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                _SQL["find_zone_by_id"].format(cols=_SELECT_COLS),
-                (zone_id,),
-            ).fetchone()
-            return cls._from_row(conn, row) if row else None
-
-    @classmethod
     def find_by_name(cls, name: str, path: Path = DB_PATH) -> Zone | None:
         """Resolve a zone by name, falling back to the alias table.
 
@@ -1348,9 +1335,6 @@ class ZoneCatalogue(BaseCatalogue):
                 n += 1
         return n
 
-    def zone_count(self, conn: sqlite3.Connection) -> int:
-        return conn.execute(_SQL["count_zones"]).fetchone()[0]
-
     def replace_bosses_for_zone(self, conn: sqlite3.Connection, zone_id: int, encounters: list[dict]) -> int:
         """Replace the encounters list for a zone. Atomic per-zone.
         Delegates to ``ZoneEncounter.replace_all_for_zone`` (takes an open
@@ -1395,29 +1379,19 @@ class ZoneCatalogue(BaseCatalogue):
         Returns [] when zones.db is missing or the zones table does not yet exist
         (graceful degradation — the admin endpoint must never 500 on a missing DB).
         """
-        if not self.path.exists():
-            return []
-        try:
-            with sqlite3.connect(self.path) as conn:
-                rows = conn.execute(_SQL["list_distinct_expansions"]).fetchall()
-            # De-duplicate by short (same short can have multiple rows with the same year).
-            seen: set[str] = set()
-            result: list[dict] = []
-            for short, name, _year in rows:
-                if short not in seen:
-                    seen.add(short)
-                    result.append({"short": short, "name": name})
-            return result
-        except sqlite3.OperationalError:
-            # zones table may not exist yet (e.g. pre-seeded zones.db stub).
-            return []
+        rows = self._fetchall(_SQL["list_distinct_expansions"])
+        # De-duplicate by short (same short can have multiple rows with the same year).
+        seen: set[str] = set()
+        result: list[dict] = []
+        for short, name, _year in rows:
+            if short not in seen:
+                seen.add(short)
+                result.append({"short": short, "name": name})
+        return result
 
     def expansion_counts(self) -> dict[str, int]:
         """Diagnostic: zones per expansion short. Used by the build report."""
-        if not self.path.exists():
-            return {}
-        with sqlite3.connect(self.path) as conn:
-            return dict(conn.execute(_SQL["expansion_counts"]))
+        return {r[0]: r[1] for r in self._fetchall(_SQL["expansion_counts"])}
 
     # ── Editable encounter + mob CRUD (used by the zones-admin routes) ───────
 

@@ -288,29 +288,18 @@ class RecipeCatalogue(BaseCatalogue):
 
     def find_by_id(self, recipe_id: int) -> RecipeRow | None:
         """Return a recipe row dict for the given ID, or None."""
-        if not self.path.exists():
-            return None
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(_SQL["find_by_id"].format(cols=_SELECT_COLS), (recipe_id,)).fetchone()
+        row = self._fetchone(_SQL["find_by_id"].format(cols=_SELECT_COLS), (recipe_id,))
         return _row_to_dict(row) if row else None
 
     def find_by_name(self, name: str) -> list[RecipeRow]:
         """Return recipes whose name matches (exact then LIKE), ordered by name."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["find_by_name_exact"].format(cols=_SELECT_COLS),
-                (name.lower(),),
-            ).fetchall()
-            if not rows:
-                # LIKE fallback — escape user wildcards (BE-006).
-                rows = conn.execute(
-                    _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
-                    (f"%{like_escape(name.lower())}%",),
-                ).fetchall()
+        rows = self._fetchall(_SQL["find_by_name_exact"].format(cols=_SELECT_COLS), (name.lower(),))
+        if not rows:
+            # LIKE fallback — escape user wildcards (BE-006).
+            rows = self._fetchall(
+                _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
+                (f"%{like_escape(name.lower())}%",),
+            )
         return [_row_to_dict(r) for r in rows]
 
     def find_by_spell(self, spell_name: str, tier: str) -> list[RecipeRow]:
@@ -321,14 +310,10 @@ class RecipeCatalogue(BaseCatalogue):
                         Matched case-insensitively against base_name_lower.
             tier:       One of the SPELL_TIERS values, e.g. "Expert".
         """
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["find_by_spell"].format(cols=_SELECT_COLS),
-                (spell_name.lower(), tier),
-            ).fetchall()
+        rows = self._fetchall(
+            _SQL["find_by_spell"].format(cols=_SELECT_COLS),
+            (spell_name.lower(), tier),
+        )
         return [_row_to_dict(r) for r in rows]
 
     def find_spells_by_tier(self, spell_names: list[str], tier: str) -> dict[str, RecipeRow]:
@@ -338,28 +323,22 @@ class RecipeCatalogue(BaseCatalogue):
         Recipes not found in the DB are omitted from the result.  Designed for
         the spellcheck upgrade-path feature (one DB query for N spells).
         """
-        if not self.path.exists() or not spell_names:
+        if not spell_names:
             return {}
         placeholders = ",".join("?" * len(spell_names))
         params = [n.lower() for n in spell_names] + [tier]
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["find_spells_by_tier"].format(cols=_SELECT_COLS, placeholders=placeholders),
-                params,
-            ).fetchall()
+        rows = self._fetchall(
+            _SQL["find_spells_by_tier"].format(cols=_SELECT_COLS, placeholders=placeholders),
+            params,
+        )
         return {r["base_name_lower"]: _row_to_dict(r) for r in rows}
 
     def find_by_output_id(self, item_id: int) -> list[RecipeRow]:
         """Return all recipes that produce the given item ID at any quality tier."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["find_by_output_id"].format(cols=_SELECT_COLS),
-                {"id": item_id},
-            ).fetchall()
+        rows = self._fetchall(
+            _SQL["find_by_output_id"].format(cols=_SELECT_COLS),
+            {"id": item_id},
+        )
         return [_row_to_dict(r) for r in rows]
 
 

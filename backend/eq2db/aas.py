@@ -129,20 +129,10 @@ class AACatalogue(BaseCatalogue):
         conn.execute(_SQL["schema_aa_limits"])
         conn.executescript(_SQL["indexes_aas"])
 
-    def _query(self, name: str, params: tuple = (), *, row_factory: bool = False) -> list:
-        """Run one read query; [] when the DB is missing or unbuilt."""
-        if not self.path.exists():
-            return []
-        conn = sqlite3.connect(self.path)
-        if row_factory:
-            conn.row_factory = sqlite3.Row
-        try:
-            return conn.execute(_SQL[name], params).fetchall()
-        except sqlite3.OperationalError:
-            _log.exception("[aas-db] query %s failed (unbuilt db?)", name)
-            return []
-        finally:
-            conn.close()
+    def _query(self, name: str, params: tuple = ()) -> list:
+        """Run one read query by its _SQL block name; [] when the DB is
+        missing or unbuilt (see BaseCatalogue._fetchall)."""
+        return self._fetchall(_SQL[name], params)
 
     def clear_caches(self) -> None:
         """Reset every per-instance cache — used by tests and the build script."""
@@ -196,32 +186,26 @@ class AACatalogue(BaseCatalogue):
         if not tree_types:
             return 0
         if tree_types not in self._total_max_points:
-            if not self.path.exists():
-                return 0
-            conn = sqlite3.connect(self.path)
-            try:
-                placeholders = ",".join("?" * len(tree_types))
-                row = conn.execute(
-                    _SQL["sum_max_points_for_types"].format(placeholders=placeholders),
-                    sorted(tree_types),
-                ).fetchone()
-                self._total_max_points[tree_types] = int(row[0]) if row else 0
-            except sqlite3.OperationalError:
-                return 0
-            finally:
-                conn.close()
+            placeholders = ",".join("?" * len(tree_types))
+            row = self._fetchone(
+                _SQL["sum_max_points_for_types"].format(placeholders=placeholders),
+                sorted(tree_types),
+            )
+            if row is None:
+                return 0  # missing/unbuilt DB — don't cache the zero
+            self._total_max_points[tree_types] = int(row[0]) if row[0] is not None else 0
         return self._total_max_points[tree_types]
 
     def get_tree(self, tree_id: int) -> dict | None:
         """Full tree detail: the aa_trees row plus a ``nodes`` list of aa_nodes
         rows (dicts, DB column names) in tree reading order. None when unknown."""
         if tree_id not in self._trees:
-            trees = self._query("select_tree", (tree_id,), row_factory=True)
+            trees = self._query("select_tree", (tree_id,))
             if not trees:
                 self._trees[tree_id] = None
             else:
                 out = dict(trees[0])
-                nodes = self._query("select_nodes_for_tree", (tree_id,), row_factory=True)
+                nodes = self._query("select_nodes_for_tree", (tree_id,))
                 out["nodes"] = [dict(n) for n in nodes]
                 self._trees[tree_id] = out
         return self._trees[tree_id]
