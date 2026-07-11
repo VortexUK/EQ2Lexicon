@@ -20,16 +20,32 @@ WAL / synchronous / optional FK pragma / shared ``_meta`` table) and the
 no-op ``clear_caches``. Subclasses implement ``_create_schema`` (their
 CREATE TABLE / INDEX / migration statements — committed by the base)
 and optionally ``_post_init`` (post-commit backfills) or override
-``clear_caches`` when they hold per-instance caches.
+``clear_caches`` / ``_cache_info`` when they hold per-instance caches.
+
+Dunder surface (uniform across every catalogue):
+
+  * ``repr(cat)`` — class, path, provisioned-or-missing, cache sizes;
+    safe to drop into any log line.
+  * ``bool(cat)`` — True when the DB file exists (``if not catalogue:``
+    reads as "not provisioned").
+  * ``cat == other`` / ``hash(cat)`` — value semantics by (type, path).
+  * ``os.fspath(cat)`` — catalogues are path-like; ``sqlite3.connect(cat)``
+    and ``Path(cat)`` both work.
+  * ``with cat as conn:`` — init_db + guaranteed close (nest-safe).
+  * ``__init_subclass__`` — rejects a concrete subclass that forgets
+    ``_create_schema`` at class-definition time, not first call.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import ClassVar
 
 from backend.eq2db import _meta as _meta_db
+
+_log = logging.getLogger(__name__)
 
 
 class BaseCatalogue:
@@ -46,6 +62,76 @@ class BaseCatalogue:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        # Connections opened via the context-manager protocol; a stack so
+        # nested ``with cat as conn:`` blocks close their own connection.
+        self._ctx_conns: list[sqlite3.Connection] = []
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        """Fail at class-definition time when a subclass forgets
+        ``_create_schema`` — earlier and clearer than the first
+        ``init_db()`` call raising NotImplementedError at runtime."""
+        super().__init_subclass__(**kwargs)
+        if cls._create_schema is BaseCatalogue._create_schema:
+            raise TypeError(f"{cls.__name__} must implement _create_schema(conn)")
+
+    # ── Introspection / logging ──────────────────────────────────────────────
+
+    def __repr__(self) -> str:
+        """Debug/trace-friendly one-liner: class, path, whether the DB file
+        is provisioned, and any per-instance cache sizes."""
+        status = "ready" if self.path.exists() else "missing"
+        caches = ", ".join(f"{k}={v}" for k, v in self._cache_info().items())
+        extra = f", {caches}" if caches else ""
+        return f"{type(self).__name__}(path={str(self.path)!r}, {status}{extra})"
+
+    def _cache_info(self) -> dict[str, int]:
+        """Cache-name → entry-count map rendered into ``repr``. Default: no
+        caches. Subclasses holding caches override (see AACatalogue)."""
+        return {}
+
+    def __bool__(self) -> bool:
+        """Truthiness = "is the DB file provisioned". Every read path
+        already guards on ``self.path.exists()``; this gives callers and
+        log statements the same check as ``if not catalogue:``."""
+        return self.path.exists()
+
+    # ── Value semantics ──────────────────────────────────────────────────────
+
+    def __eq__(self, other: object) -> bool:
+        """Two catalogues are equal when they are the same class over the
+        same path — handy in tests (``assert cat == RaidCatalogue(p)``)."""
+        if not isinstance(other, BaseCatalogue):
+            return NotImplemented
+        return type(self) is type(other) and self.path == other.path
+
+    def __hash__(self) -> int:
+        """Hash by (type, path) to match ``__eq__``. Note: conftest
+        re-points ``catalogue.path`` at session start — don't put a
+        catalogue in a set/dict before mutating its path."""
+        return hash((type(self), self.path))
+
+    # ── Path-like protocol ───────────────────────────────────────────────────
+
+    def __fspath__(self) -> str:
+        """Catalogues are os.PathLike over their DB file: ``Path(cat)``,
+        ``os.path.getsize(cat)`` and ``sqlite3.connect(cat)`` all work."""
+        return str(self.path)
+
+    # ── Connection lifecycle ─────────────────────────────────────────────────
+
+    def __enter__(self) -> sqlite3.Connection:
+        """``with cat as conn:`` — open via init_db (schema guaranteed) and
+        close on exit. Unlike ``with cat.init_db() as conn:`` (sqlite3's
+        own CM, which commits but never closes), this releases the file
+        handle. Nest-safe; not thread-safe on a shared instance."""
+        conn = self.init_db()
+        self._ctx_conns.append(conn)
+        return conn
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._ctx_conns.pop().close()
+
+    # ── DB lifecycle ─────────────────────────────────────────────────────────
 
     def init_db(self) -> sqlite3.Connection:
         """Create tables/indexes if missing. Returns an open connection.
@@ -55,6 +141,7 @@ class BaseCatalogue:
         post-commit backfills from ``_post_init``. ``:memory:`` is
         supported for tests (skips mkdir + WAL).
         """
+        _log.debug("[eq2db] init_db %r", self)
         if str(self.path) == ":memory:":
             conn = sqlite3.connect(":memory:")
         else:

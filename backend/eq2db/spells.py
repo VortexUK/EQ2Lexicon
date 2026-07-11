@@ -178,6 +178,9 @@ class SpellCatalogue(BaseCatalogue):
         """Reset the per-instance caches — used by tests and upsert_spells."""
         self._crc_cache.clear()
 
+    def _cache_info(self) -> dict[str, int]:
+        return {"crc_cache": len(self._crc_cache)}
+
     # ── Pure helpers (no DB access — statics so the class is the ONE interface) ──
 
     @staticmethod

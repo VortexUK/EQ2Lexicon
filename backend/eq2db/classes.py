@@ -76,6 +76,9 @@ class ClassCatalogue(BaseCatalogue):
         self._rows = None
         self._derived.clear()
 
+    def _cache_info(self) -> dict[str, int]:
+        return {"rows": len(self._rows or ()), "derived": len(self._derived)}
+
     def _cached(self, key: str, build: Callable[[], _T]) -> _T:
         """Build-once cache for derived views. Callers across the codebase may
         compare results by identity (same object every call), so derived views
