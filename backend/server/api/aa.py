@@ -9,8 +9,8 @@ from functools import lru_cache
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.census import store as census_store
 from backend.census.store import StoreRecord
+from backend.census.store import store as census_store
 from backend.eq2db.aas import catalogue as aa_db
 from backend.eq2db.spells import catalogue as spells_db
 from backend.server.cache import aa_cache
@@ -216,7 +216,7 @@ async def _bg_refresh_aas(name: str, cache_key: str) -> None:
             now = int(time.time())
 
             def _write() -> None:
-                conn = census_store.init_db(census_store.DB_PATH)
+                conn = census_store.init_db()
                 try:
                     census_store.upsert_character_aas(conn, name, world, result.model_dump(), now=now)
                 finally:
@@ -251,7 +251,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
 
     # 2) Durable store — serve known-good data without a Census round-trip.
     def _read() -> StoreRecord | None:
-        conn = census_store.init_db(census_store.DB_PATH)
+        conn = census_store.init_db()
         try:
             return census_store.get_character_aas(conn, name, world)
         finally:
@@ -289,7 +289,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
     result = _aas_response_from_census(char_aas)
 
     def _write() -> None:
-        conn = census_store.init_db(census_store.DB_PATH)
+        conn = census_store.init_db()
         try:
             census_store.upsert_character_aas(conn, name, world, result.model_dump(), now=now)
         finally:

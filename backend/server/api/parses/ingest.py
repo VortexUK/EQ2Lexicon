@@ -16,7 +16,7 @@ import time
 
 from fastapi import BackgroundTasks, HTTPException, Request
 
-from backend.census import store as census_store
+from backend.census.store import store as census_store
 from backend.server.api.parses import router
 from backend.server.api.parses.list import _classify_zone
 from backend.server.api.parses.models import (
@@ -128,7 +128,7 @@ async def _resolve_uploader_guild_async(
     # Durable store — no Census. A known uploader (from any prior path) is
     # served from here forever; skip the prewarm since their roster is already
     # persisted and combatant resolution will hit the store.
-    store_conn = census_store.init_db(census_store.DB_PATH)
+    store_conn = census_store.init_db()
     try:
         rec = census_store.get_character(store_conn, uploader, effective_world)
     finally:
@@ -199,7 +199,7 @@ async def _resolve_combatant_snapshots(
     effective_world = _sanitize_world(world) or _WORLD
     world_lower = effective_world.lower()
     out: dict[str, CombatantSnapshot] = {}
-    store_conn = census_store.init_db(census_store.DB_PATH)
+    store_conn = census_store.init_db()
     try:
         async with shared_census_client() as client:
             for name in names:
@@ -292,7 +292,7 @@ def _cached_snapshots(names: list[str], world: str | None = None) -> dict[str, C
     effective_world = _sanitize_world(world) or _WORLD
     world_lower = effective_world.lower()
     out: dict[str, CombatantSnapshot] = {}
-    store_conn = census_store.init_db(census_store.DB_PATH)
+    store_conn = census_store.init_db()
     try:
         for name in names:
             cached, _ = character_cache.get_stale(f"{name.lower()}:{world_lower}")

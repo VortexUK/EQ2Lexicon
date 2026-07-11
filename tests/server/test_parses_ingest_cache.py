@@ -30,14 +30,14 @@ class _FakeResp:
 def store_db(tmp_path, monkeypatch):
     """Temp census_store wired into the ingest path via DB_PATH."""
     db = tmp_path / "census.db"
-    monkeypatch.setattr(census_store, "DB_PATH", db)
-    conn = census_store.init_db(db)
+    monkeypatch.setattr(census_store.store, "path", db)
+    conn = census_store.CensusStore(db).init_db()
     yield conn
     conn.close()
 
 
 def _seed(conn, name, **data):
-    census_store.upsert_character(conn, name, ingest._WORLD, data, resolved=True)
+    census_store.CensusStore.upsert_character(conn, name, ingest._WORLD, data, resolved=True)
 
 
 def _empty_cache():
@@ -117,7 +117,7 @@ async def test_ilvl_backfill_writes_through_to_store(store_db):
     assert out["Raider"].ilvl == 350.0
     client.get_character.assert_awaited_once()
     # Written through to the durable store.
-    rec = census_store.get_character(store_db, "Raider", ingest._WORLD)
+    rec = census_store.CensusStore.get_character(store_db, "Raider", ingest._WORLD)
     assert rec is not None
     assert rec["data"]["ilvl"] == 350.0
 

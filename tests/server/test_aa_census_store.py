@@ -63,7 +63,7 @@ async def test_cold_cache_calls_census_and_persists(app, tmp_path):
     fake_aas = _make_census_aas("Coldchar")
 
     with (
-        patch("backend.server.api.aa.census_store.DB_PATH", db_path),
+        patch("backend.server.api.aa.census_store.path", db_path),
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient") as MockCC,
     ):
@@ -80,9 +80,9 @@ async def test_cold_cache_calls_census_and_persists(app, tmp_path):
     assert data["total_spent"] == 5  # one node, tier=5
 
     # Verify persisted to the store.
-    conn = cs.init_db(db_path)
+    conn = cs.CensusStore(db_path).init_db()
     try:
-        rec = cs.get_character_aas(conn, "Coldchar", "Varsoon")
+        rec = cs.CensusStore.get_character_aas(conn, "Coldchar", "Varsoon")
         assert rec is not None
         assert rec["data"]["character_name"] == "Coldchar"
     finally:
@@ -99,18 +99,18 @@ async def test_warm_store_skips_census(app, tmp_path):
     """When census_store has a fresh record, Census is NOT called."""
     db_path = tmp_path / "backend.census.db"
     # Pre-seed the store with a recent timestamp.
-    conn = cs.init_db(db_path)
+    conn = cs.CensusStore(db_path).init_db()
     stored_data = {
         "character_name": "Stored",
         "total_spent": 10,
         "trees": [],
         "profiles": [],
     }
-    cs.upsert_character_aas(conn, "Stored", "Varsoon", stored_data, now=int(time.time()))
+    cs.CensusStore.upsert_character_aas(conn, "Stored", "Varsoon", stored_data, now=int(time.time()))
     conn.close()
 
     with (
-        patch("backend.server.api.aa.census_store.DB_PATH", db_path),
+        patch("backend.server.api.aa.census_store.path", db_path),
         patch("backend.server.api.aa.aa_cache") as mock_cache,
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient") as MockCC,
@@ -146,14 +146,14 @@ async def test_stale_store_returns_data_and_spawns_refresh(app, tmp_path):
 
     db_path = tmp_path / "backend.census.db"
     old_ts = int(time.time()) - CHARACTER_STALE_S - 60  # definitely stale
-    conn = cs.init_db(db_path)
+    conn = cs.CensusStore(db_path).init_db()
     stored_data = {
         "character_name": "Stalechar",
         "total_spent": 7,
         "trees": [],
         "profiles": [],
     }
-    cs.upsert_character_aas(conn, "Stalechar", "Varsoon", stored_data, now=old_ts)
+    cs.CensusStore.upsert_character_aas(conn, "Stalechar", "Varsoon", stored_data, now=old_ts)
     conn.close()
 
     tasks_created: list = []
@@ -164,7 +164,7 @@ async def test_stale_store_returns_data_and_spawns_refresh(app, tmp_path):
         return MagicMock()
 
     with (
-        patch("backend.server.api.aa.census_store.DB_PATH", db_path),
+        patch("backend.server.api.aa.census_store.path", db_path),
         patch("backend.server.api.aa.aa_cache") as mock_cache,
         patch("backend.server.api.aa.asyncio.create_task", side_effect=_fake_create_task),
         patch("backend.server.core.census_lifecycle._clients", {}),
@@ -202,7 +202,7 @@ def test_init_db_on_old_schema_adds_character_aas_table(tmp_path):
     conn.close()
 
     # Now run init_db — should add character_aas without raising.
-    conn = cs.init_db(db_path)
+    conn = cs.CensusStore(db_path).init_db()
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert "character_aas" in tables

@@ -24,9 +24,9 @@ import logging
 import time
 from collections import Counter
 
-from backend.census import store as census_store
 from backend.census.constants import SPELL_TIER_ORDER as _TIER_ORDER
 from backend.census.models import CharacterOverview, GuildData, SpellEntry
+from backend.census.store import store as census_store
 from backend.eq2db.spells import (
     DB_PATH as _SPELLS_DB,
 )
@@ -440,7 +440,7 @@ async def _persist_and_publish_guild(guild_name: str, world: str | None = None) 
 
     _member_fields = set(GuildMemberResponse.model_fields)
 
-    conn = census_store.init_db(census_store.DB_PATH)
+    conn = census_store.init_db()
     try:
         stored_by_lower: dict[str, dict] = {}
         for stub in roster_stubs:

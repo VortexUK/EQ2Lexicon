@@ -25,9 +25,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from backend.db_catalogue import BaseCatalogue
 from backend.db_helpers import resolve_db_path
 from backend.eq2db import _meta as _meta_db
-from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 _log = logging.getLogger(__name__)

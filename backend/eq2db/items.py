@@ -25,8 +25,8 @@ import aiosqlite
 from backend.census._coerce import coerce_int as _coerce_int
 from backend.census._coerce import coerce_str_or_none as _coerce_str
 from backend.census.item_level import compute_ilvl
+from backend.db_catalogue import BaseCatalogue
 from backend.db_helpers import like_escape, resolve_db_path
-from backend.eq2db._catalogue import BaseCatalogue
 from backend.eq2db.classes import catalogue as _classes
 from backend.sql_loader import load_sql
 

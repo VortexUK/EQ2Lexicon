@@ -8,7 +8,7 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from backend.census import store as census_store
+from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _scrub
 from backend.server.cache import guild_cache
 from backend.server.core.cache_keys import guild_adorns_key, guild_info_key, guild_roster_key, guild_spells_key
@@ -206,7 +206,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
         return cached
     # Fall through to the durable store (the stored blob is the roster shape;
     # derive a minimal GuildInfoResponse from it — name/world + member count).
-    conn = census_store.init_db(census_store.DB_PATH)
+    conn = census_store.init_db()
     try:
         rec = census_store.get_guild(conn, guild_name, current_world())
     finally:
@@ -268,7 +268,7 @@ async def get_guild(request: Request, guild_name: str) -> GuildResponse:
     cached, is_stale = guild_cache.get_stale(cache_key)
     if cached is not None and not is_stale:
         return cached
-    conn = census_store.init_db(census_store.DB_PATH)
+    conn = census_store.init_db()
     try:
         rec = census_store.get_guild(conn, guild_name, current_world())
     finally:

@@ -36,8 +36,8 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from backend.census._coerce import coerce_int as _int
+from backend.db_catalogue import BaseCatalogue
 from backend.db_helpers import resolve_db_path
-from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
