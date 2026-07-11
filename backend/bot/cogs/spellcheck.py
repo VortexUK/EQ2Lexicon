@@ -14,28 +14,20 @@ from backend.census.constants import SPELL_TIER_ORDER as _TIER_ORDER
 if TYPE_CHECKING:
     from backend.bot.bot import EQ2Bot
 from backend.census.models import CharacterSpells, SpellEntry
-from backend.eq2db.spells import (
-    load_blocklist as _load_spell_blocklist,
-)
-from backend.eq2db.spells import (
-    strip_roman as _base_name,
-)
-from backend.eq2db.spells import (
-    unique_highest_entries as _unique_highest,
-)
+from backend.eq2db.spells import catalogue as _spells
 
 _COL_SEP = "  "
 
 
 def _apply_blocklist(entries: list[SpellEntry]) -> list[SpellEntry]:
-    blocklist = _load_spell_blocklist()
+    blocklist = _spells.load_blocklist()
     if not blocklist:
         return entries
-    return [e for e in entries if _base_name(e.name).lower() not in blocklist]
+    return [e for e in entries if _spells.strip_roman(e.name).lower() not in blocklist]
 
 
 def _build_details(data: CharacterSpells) -> str:
-    entries = _unique_highest(_apply_blocklist(data.entries))
+    entries = _spells.unique_highest_entries(_apply_blocklist(data.entries))
     tier_order = {t: i for i, t in enumerate(_TIER_ORDER)}
     entries.sort(key=lambda e: (tier_order.get(e.tier, 99), e.level, e.name))
 
@@ -65,7 +57,7 @@ def _build_details(data: CharacterSpells) -> str:
 
 
 def _build_table(data: CharacterSpells) -> str:
-    entries = _unique_highest(_apply_blocklist(data.entries))
+    entries = _spells.unique_highest_entries(_apply_blocklist(data.entries))
 
     count: Counter[str] = Counter(e.tier for e in entries)
     all_tiers = [t for t in _TIER_ORDER if count[t]]

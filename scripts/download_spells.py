@@ -30,7 +30,7 @@ from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from backend.eq2db.spells import DB_PATH, get_meta, init_db, set_meta, spell_count, upsert_spells
+from backend.eq2db.spells import DB_PATH, catalogue, get_meta, set_meta
 
 BASE_URL = "https://census.daybreakgames.com"
 PAGE_SIZE = 100  # Census silently caps responses at 100 regardless of c:limit
@@ -114,8 +114,8 @@ async def main(restart: bool, spell_limit: int | None) -> None:
     if service_id == "example":
         print("WARNING: using 'example' service ID — rate limits will be low.")
 
-    conn = init_db(DB_PATH)
-    existing = spell_count(conn)
+    conn = catalogue.init_db(DB_PATH)
+    existing = catalogue.spell_count(conn)
     print(f"DB:            {DB_PATH}")
     print(f"Existing rows: {existing:,}")
 
@@ -178,17 +178,17 @@ async def main(restart: bool, spell_limit: int | None) -> None:
 
             if len(buffer) >= WRITE_EVERY or reached_end:
                 if buffer:
-                    upsert_spells(buffer, conn)
+                    catalogue.upsert_spells(buffer, conn)
                     written += len(buffer)
                     buffer = []
-                    total_in_db = spell_count(conn)
+                    total_in_db = catalogue.spell_count(conn)
                     print(f"  Written this run: {written:,}  |  Total in DB: {total_in_db:,}  |  Offset: {offset:,}")
 
             if reached_end:
                 break
 
     if buffer:
-        upsert_spells(buffer, conn)
+        catalogue.upsert_spells(buffer, conn)
         written += len(buffer)
 
     if reached_end:
@@ -196,7 +196,7 @@ async def main(restart: bool, spell_limit: int | None) -> None:
         print("\nReached end of Census data — offset reset for next run.")
 
     conn.close()
-    final = spell_count(init_db(DB_PATH))
+    final = catalogue.spell_count(catalogue.init_db(DB_PATH))
     print(f"\nDone. Written this run: {written:,}  |  Total in DB: {final:,}")
 
 

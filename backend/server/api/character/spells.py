@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from backend.census.constants import SPELL_TIER_ORDER as _TIER_ORDER
 from backend.eq2db.spells import DB_PATH as _SPELLS_DB
-from backend.eq2db.spells import character_upgradeable_spells as _character_upgradeable_spells
+from backend.eq2db.spells import catalogue as _spells
 from backend.server.api.character import router
 from backend.server.api.character.views import _build_char_response
 from backend.server.cache import character_cache
@@ -75,7 +75,7 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
     # Canonical "owned upgradeable spells at best tier" list — shared with the
     # upgrade-materials checker so the two never drift (see the helper's docstring
     # for the given_by-gate history). Sort by level for display.
-    rows = _character_upgradeable_spells(spell_ids)
+    rows = _spells.character_upgradeable_spells(spell_ids)
     rows.sort(key=lambda r: r.get("level") or 0)
 
     count = Counter(r.get("tier_name") or "Unknown" for r in rows)

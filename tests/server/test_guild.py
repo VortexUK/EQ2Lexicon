@@ -516,10 +516,10 @@ def test_guild_spell_check_includes_base_tier_apprentice():
 
     with (
         patch.object(guild_cache, "_SPELLS_DB", mock_db),
-        patch.object(guild_cache, "_spell_find_by_ids", return_value=spell_db),
-        patch.object(guild_cache, "_load_spell_blocklist", return_value=set()),
+        patch.object(guild_cache._spells, "find_by_ids", return_value=spell_db),
+        patch.object(guild_cache._spells, "load_blocklist", return_value=set()),
         # Catalogue says 101/102/103 span multiple tiers; the AA spell and "Cure" don't.
-        patch.object(guild_cache, "_upgradeable_crcs", return_value={101, 102, 103}),
+        patch.object(guild_cache._spells, "upgradeable_crcs", return_value={101, 102, 103}),
     ):
         resp = guild_cache._build_spell_check_from_overviews(
             "Exordium", "Varsoon", overviews, {"Healer": ("Leader", 0)}

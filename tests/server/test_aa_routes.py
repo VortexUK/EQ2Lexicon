@@ -445,7 +445,7 @@ class TestGetCharacterAas:
 class TestGetSpellEffects:
     async def test_no_row_found_returns_empty_effects(self, app) -> None:
         """When find_by_crc returns None, empty effects are returned."""
-        with patch("backend.server.api.aa.find_by_crc", return_value=None):
+        with patch("backend.server.api.aa.spells_db.find_by_crc", return_value=None):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/spell/99999")
 
@@ -464,7 +464,7 @@ class TestGetSpellEffects:
         )
         row = {"tier": 3, "effects": effects_json}
 
-        with patch("backend.server.api.aa.find_by_crc", return_value=row):
+        with patch("backend.server.api.aa.spells_db.find_by_crc", return_value=row):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/spell/12345?tier=3")
 
@@ -479,7 +479,7 @@ class TestGetSpellEffects:
         """When effects JSON is malformed, empty list is returned with a warning."""
         row = {"tier": 1, "effects": "not valid json {{{"}
 
-        with patch("backend.server.api.aa.find_by_crc", return_value=row):
+        with patch("backend.server.api.aa.spells_db.find_by_crc", return_value=row):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/spell/12345")
 
@@ -496,7 +496,7 @@ class TestGetSpellEffects:
             captured_args.append((spellcrc, tier))
             return None
 
-        with patch("backend.server.api.aa.find_by_crc", side_effect=_capture):
+        with patch("backend.server.api.aa.spells_db.find_by_crc", side_effect=_capture):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 await client.get("/api/aa/spell/12345")
 
@@ -511,7 +511,7 @@ class TestGetSpellEffects:
             captured_args.append((spellcrc, tier))
             return None
 
-        with patch("backend.server.api.aa.find_by_crc", side_effect=_capture):
+        with patch("backend.server.api.aa.spells_db.find_by_crc", side_effect=_capture):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 await client.get("/api/aa/spell/12345?tier=5")
 
@@ -520,7 +520,7 @@ class TestGetSpellEffects:
 
     async def test_requested_tier_zero_becomes_none_in_response(self, app) -> None:
         """When tier=0, requested_tier in response is None (not 0)."""
-        with patch("backend.server.api.aa.find_by_crc", return_value=None):
+        with patch("backend.server.api.aa.spells_db.find_by_crc", return_value=None):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/spell/12345?tier=0")
 

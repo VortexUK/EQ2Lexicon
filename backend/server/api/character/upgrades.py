@@ -15,7 +15,7 @@ from backend.eq2db.items import DB_PATH as _ITEMS_DB
 from backend.eq2db.recipes import DB_PATH as _RECIPES_DB
 from backend.eq2db.recipes import find_spells_by_tier as _find_spell_recipes
 from backend.eq2db.spells import DB_PATH as _SPELLS_DB
-from backend.eq2db.spells import character_upgradeable_spells as _character_upgradeable_spells
+from backend.eq2db.spells import catalogue as _spells
 from backend.server.api.character import router
 from backend.server.api.character.views import _build_char_response
 from backend.server.api.recipes import IngredientResponse as _RecipeIngredientResponse
@@ -158,7 +158,7 @@ async def get_upgrade_materials(request: Request, name: str) -> UpgradeMaterials
 
     # Same canonical spell list as the spells tab (scribed/trained/auto-granted
     # alike), then keep only the sub-Expert lines that still have an upgrade path.
-    rows = _character_upgradeable_spells(spell_ids)
+    rows = _spells.character_upgradeable_spells(spell_ids)
     sub_expert = [r for r in rows if (r.get("tier_name") or "") in _SUB_EXPERT_TIERS]
     if not sub_expert:
         return UpgradeMaterialsResponse(spells_needing_upgrade=0, spells_with_recipe=0, ingredients=[])
@@ -255,7 +255,7 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
 
     # Same canonical spell list as the spells tab (scribed/trained/auto-granted
     # alike), then keep only the sub-Expert lines that still have an upgrade path.
-    rows = _character_upgradeable_spells(spell_ids)
+    rows = _spells.character_upgradeable_spells(spell_ids)
     sub_expert = [r for r in rows if (r.get("tier_name") or "") in _SUB_EXPERT_TIERS]
     if not sub_expert:
         return UpgradeRecipesResponse(results=[], spells_needing_upgrade=0, spells_with_recipe=0)

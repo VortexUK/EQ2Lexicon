@@ -8,21 +8,16 @@ import time
 
 import pytest
 
-from backend.eq2db.spells import (
-    _passes_spellcheck,
-    character_upgradeable_spells,
-    find_by_crc,
-    find_by_id,
-    find_by_ids,
-    init_db,
-    load_blocklist,
-    spell_count,
-    spell_to_row,
-    strip_roman,
-    unique_highest_entries,
-    upgradeable_crcs,
-    upsert_spells,
-)
+from backend.eq2db.spells import SpellCatalogue
+
+_passes_spellcheck = SpellCatalogue._passes_spellcheck
+
+# The pure helpers live on the class as staticmethods (the class is the one
+# interface); alias them locally so the test bodies stay unchanged.
+strip_roman = SpellCatalogue.strip_roman
+spell_to_row = SpellCatalogue.spell_to_row
+unique_highest_entries = SpellCatalogue.unique_highest_entries
+load_blocklist = SpellCatalogue.load_blocklist
 
 # ---------------------------------------------------------------------------
 # strip_roman
@@ -292,10 +287,9 @@ class TestLoadBlocklist:
 
 @pytest.fixture
 def db(tmp_path):
-    path = tmp_path / "spells.db"
-    conn = init_db(path)
-    conn.close()
-    return path
+    cat = SpellCatalogue(tmp_path / "spells.db")
+    cat.init_db().close()
+    return cat
 
 
 def _make_spell(
@@ -322,8 +316,8 @@ def _make_spell(
 
 class TestUpgradeableCrcs:
     def test_multi_tier_crc_upgradeable_single_tier_not(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells(
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells(
             [
                 # crc 200 — a real spell line with two tiers → upgradeable
                 {**_make_spell(1, name="Restoration VI", crc=200, tier=1), "tier_name": "Apprentice"},
@@ -334,11 +328,11 @@ class TestUpgradeableCrcs:
             conn,
         )
         conn.close()
-        assert upgradeable_crcs({200, 300}, path=db) == {200}
+        assert db.upgradeable_crcs({200, 300}) == {200}
 
     def test_empty_input_and_missing_db(self, tmp_path):
-        assert upgradeable_crcs(set(), path=tmp_path / "spells.db") == set()
-        assert upgradeable_crcs({1, 2}, path=tmp_path / "does_not_exist.db") == set()
+        assert SpellCatalogue(tmp_path / "spells.db").upgradeable_crcs(set()) == set()
+        assert SpellCatalogue(tmp_path / "does_not_exist.db").upgradeable_crcs({1, 2}) == set()
 
 
 class TestCharacterUpgradeableSpells:
@@ -347,8 +341,8 @@ class TestCharacterUpgradeableSpells:
     abilities, single-tier utility casts, and level-0 rows."""
 
     def test_keeps_all_acquisition_paths_drops_aa_and_utility(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells(
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells(
             [
                 # Owned rows (in the character's spell_ids), one per line.
                 _make_spell(1, name="Scribed Line I", given_by="spellscroll", crc=201, level=30, tier=1),
@@ -378,7 +372,7 @@ class TestCharacterUpgradeableSpells:
         )
         conn.close()
 
-        rows = character_upgradeable_spells([1, 2, 3, 4, 5, 6], path=db)
+        rows = db.character_upgradeable_spells([1, 2, 3, 4, 5, 6])
         names = {r["name"] for r in rows}
         assert names == {"Scribed Line I", "Trained Line I", "Base Line I"}
         assert "AA Line I" not in names  # given_by=alternateadvancement → AA tab
@@ -386,8 +380,8 @@ class TestCharacterUpgradeableSpells:
         assert "Zero Line I" not in names  # level 0
 
     def test_deduplicates_to_highest_owned_tier(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells(
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells(
             [
                 {**_make_spell(1, name="Fireball I", crc=300, level=10), "tier_name": "Apprentice"},
                 {**_make_spell(2, name="Fireball II", crc=300, level=20), "tier_name": "Adept"},
@@ -395,39 +389,39 @@ class TestCharacterUpgradeableSpells:
             conn,
         )
         conn.close()
-        rows = character_upgradeable_spells([1, 2], path=db)
+        rows = db.character_upgradeable_spells([1, 2])
         assert len(rows) == 1
         assert rows[0]["level"] == 20  # highest owned rank kept
 
     def test_empty_and_missing_db(self, tmp_path):
-        assert character_upgradeable_spells([], path=tmp_path / "spells.db") == []
-        assert character_upgradeable_spells([1], path=tmp_path / "missing.db") == []
+        assert SpellCatalogue(tmp_path / "spells.db").character_upgradeable_spells([]) == []
+        assert SpellCatalogue(tmp_path / "missing.db").character_upgradeable_spells([1]) == []
 
 
 class TestFindById:
     def test_returns_none_when_db_missing(self, tmp_path):
         missing = tmp_path / "does_not_exist.db"
-        assert find_by_id(9999, path=missing) is None
+        assert SpellCatalogue(missing).find_by_id(9999) is None
 
     def test_returns_none_for_unknown_id(self, db):
-        assert find_by_id(9999, path=db) is None
+        assert db.find_by_id(9999) is None
 
     def test_returns_row_when_present(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells([_make_spell(id=1001, name="Firebolt I")], conn)
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells([_make_spell(id=1001, name="Firebolt I")], conn)
         conn.close()
 
-        row = find_by_id(1001, path=db)
+        row = db.find_by_id(1001)
         assert row is not None
         assert row["id"] == 1001
         assert row["name"] == "Firebolt I"
 
     def test_row_has_expected_keys(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells([_make_spell(id=2001)], conn)
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells([_make_spell(id=2001)], conn)
         conn.close()
 
-        row = find_by_id(2001, path=db)
+        row = db.find_by_id(2001)
         for key in ("id", "name", "level", "type", "given_by", "tier_name", "passes_spellcheck"):
             assert key in row
 
@@ -435,14 +429,14 @@ class TestFindById:
 class TestFindByIds:
     def test_returns_empty_dict_when_db_missing(self, tmp_path):
         missing = tmp_path / "does_not_exist.db"
-        assert find_by_ids([1, 2, 3], path=missing) == {}
+        assert SpellCatalogue(missing).find_by_ids([1, 2, 3]) == {}
 
     def test_returns_empty_dict_for_empty_list(self, db):
-        assert find_by_ids([], path=db) == {}
+        assert db.find_by_ids([]) == {}
 
     def test_returns_matched_ids_only(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells(
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells(
             [
                 _make_spell(id=10, name="Spell A"),
                 _make_spell(id=20, name="Spell B"),
@@ -451,25 +445,25 @@ class TestFindByIds:
         )
         conn.close()
 
-        result = find_by_ids([10, 20, 999], path=db)
+        result = db.find_by_ids([10, 20, 999])
         assert set(result.keys()) == {10, 20}
         assert result[10]["name"] == "Spell A"
         assert result[20]["name"] == "Spell B"
         assert 999 not in result
 
     def test_values_are_dicts(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells([_make_spell(id=50)], conn)
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells([_make_spell(id=50)], conn)
         conn.close()
 
-        result = find_by_ids([50], path=db)
+        result = db.find_by_ids([50])
         assert isinstance(result[50], dict)
 
 
 class TestUpsertSpellsAndCount:
     def test_inserts_rows(self, db):
-        conn = sqlite3.connect(db)
-        n = upsert_spells(
+        conn = sqlite3.connect(db.path)
+        n = db.upsert_spells(
             [
                 _make_spell(id=100, name="Spell One"),
                 _make_spell(id=101, name="Spell Two"),
@@ -477,42 +471,40 @@ class TestUpsertSpellsAndCount:
             conn,
         )
         assert n == 2
-        assert spell_count(conn) == 2
+        assert db.spell_count(conn) == 2
         conn.close()
 
     def test_upsert_replaces_existing(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells([_make_spell(id=200, name="Original")], conn)
-        upsert_spells([_make_spell(id=200, name="Updated")], conn)
-        assert spell_count(conn) == 1
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells([_make_spell(id=200, name="Original")], conn)
+        db.upsert_spells([_make_spell(id=200, name="Updated")], conn)
+        assert db.spell_count(conn) == 1
 
-        row = find_by_id(200, path=db)
+        row = db.find_by_id(200)
         assert row["name"] == "Updated"
         conn.close()
 
     def test_skips_rows_without_id(self, db):
-        conn = sqlite3.connect(db)
+        conn = sqlite3.connect(db.path)
         spell = _make_spell(id=300)
         del spell["id"]
-        n = upsert_spells([spell], conn)
+        n = db.upsert_spells([spell], conn)
         assert n == 0
-        assert spell_count(conn) == 0
+        assert db.spell_count(conn) == 0
         conn.close()
 
 
 class TestFindByCrc:
-    def setup_method(self):
-        # Clear the lru_cache before each test so results don't bleed
-        find_by_crc.cache_clear()
+    # Each test gets its own SpellCatalogue instance (the `db` fixture), so the
+    # per-instance crc cache can't bleed between tests — no cache_clear needed.
 
     def test_returns_none_when_db_missing(self, tmp_path):
         missing = tmp_path / "does_not_exist.db"
-        find_by_crc.cache_clear()
-        assert find_by_crc(crc=999, tier=3, path=missing) is None
+        assert SpellCatalogue(missing).find_by_crc(crc=999, tier=3) is None
 
     def test_returns_exact_tier(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells(
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells(
             [
                 _make_spell(id=1, name="Wound I", crc=555, tier=1),
                 _make_spell(id=2, name="Wound II", crc=555, tier=2),
@@ -522,7 +514,7 @@ class TestFindByCrc:
         )
         conn.close()
 
-        row = find_by_crc(crc=555, tier=2, path=db)
+        row = db.find_by_crc(crc=555, tier=2)
         assert row is not None
         assert row["tier"] == 2
 
@@ -532,8 +524,8 @@ class TestFindByCrc:
         and a level=0 row may exist too. The lookup must deterministically
         pick the lowest NON-ZERO level (the populated TLE-era row) — the
         'Increases Max Health by 0.0%' AA-tooltip regression."""
-        conn = sqlite3.connect(db)
-        upsert_spells(
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells(
             [
                 # Same crc + tier, three level variants (inserted worst-first
                 # so an ORDER BY-less LIMIT 1 would pick a placeholder).
@@ -546,15 +538,15 @@ class TestFindByCrc:
         )
         conn.close()
 
-        exact = find_by_crc(crc=888, tier=10, path=db)
+        exact = db.find_by_crc(crc=888, tier=10)
         assert exact is not None and exact["level"] == 70
-        find_by_crc.cache_clear()
-        fallback = find_by_crc(crc=888, tier=None, path=db)  # highest-tier path
+        db.clear_caches()
+        fallback = db.find_by_crc(crc=888, tier=None)  # highest-tier path
         assert fallback is not None and fallback["tier"] == 10 and fallback["level"] == 70
 
     def test_falls_back_to_highest_tier(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells(
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells(
             [
                 _make_spell(id=10, name="Bolt I", crc=777, tier=1),
                 _make_spell(id=11, name="Bolt III", crc=777, tier=3),
@@ -564,16 +556,18 @@ class TestFindByCrc:
         conn.close()
 
         # Request tier=2 which doesn't exist → should get tier=3 (highest)
-        row = find_by_crc(crc=777, tier=2, path=db)
+        row = db.find_by_crc(crc=777, tier=2)
         assert row is not None
         assert row["tier"] == 3
 
     def test_lru_cache_returns_same_result(self, db):
-        conn = sqlite3.connect(db)
-        upsert_spells([_make_spell(id=20, name="Cached Spell", crc=888, tier=1)], conn)
+        # Same instance across both lookups so the per-instance crc cache is
+        # actually exercised (the upsert clears this instance's cache first).
+        conn = sqlite3.connect(db.path)
+        db.upsert_spells([_make_spell(id=20, name="Cached Spell", crc=888, tier=1)], conn)
         conn.close()
 
-        result1 = find_by_crc(crc=888, tier=1, path=db)
-        result2 = find_by_crc(crc=888, tier=1, path=db)
+        result1 = db.find_by_crc(crc=888, tier=1)
+        result2 = db.find_by_crc(crc=888, tier=1)
         assert result1 == result2
         assert result1 is not None
