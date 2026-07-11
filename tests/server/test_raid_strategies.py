@@ -537,13 +537,11 @@ async def test_get_revisions_enriches_edited_by_name_for_known_user(app):
     """When the editor's discord_id is in the users table, edited_by_name is
     populated on every RevisionEntry for that user."""
     # Seed the user into the test DB so get_display_names_for_discord_ids finds them.
-    _path = users_db.DB_PATH
     await users_db.upsert_user(
         discord_id="admin-known",
         discord_name="Knowledgeable Admin",
         discord_username="kadmin",
         avatar=None,
-        path=_path,
     )
 
     fake_revisions = [
@@ -628,13 +626,11 @@ async def test_get_revisions_edited_by_name_none_for_unknown_id(app):
 @pytest.mark.asyncio
 async def test_get_strategy_response_includes_last_edited_by_name(app):
     """StrategyResponse now carries last_edited_by_name resolved from users."""
-    _path = users_db.DB_PATH
     await users_db.upsert_user(
         discord_id="editor-555",
         discord_name="Templar Guildmaster",
         discord_username="tguild",
         avatar=None,
-        path=_path,
     )
     with (
         patch("backend.server.api.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()),

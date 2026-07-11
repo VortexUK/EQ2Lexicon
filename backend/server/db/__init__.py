@@ -48,62 +48,83 @@ def init_db(path: Path = DB_PATH) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Re-export the per-domain helpers so the existing API shape is preserved.
-# Order matters: each domain only imports from web.db (this module) at the
-# helper level — no inter-domain imports.
+# Facade: re-export each domain store's bound methods so the existing
+# `users_db.get_active_claims(...)` API shape is preserved. The domains are
+# XStore(AsyncStoreBase) classes now (backend/db_catalogue.py) — the bound
+# methods read the shared instance's `path` dynamically, so conftest
+# re-points one attribute per store and every alias follows.
 # ---------------------------------------------------------------------------
 
-from backend.server.db.claims import (  # noqa: E402,F401
-    delete_claim,
-    delete_claims_for_user,
-    get_active_claims,
-    get_claim_by_id,
-    list_claims,
-    review_claim,
-    set_primary,
-    submit_claim,
-    withdraw_claim,
-)
-from backend.server.db.item_watch import (  # noqa: E402,F401
-    add_item_watch,
-    list_item_watches,
-    remove_item_watch,
-    update_item_watch_check,
-)
-from backend.server.db.servers import (  # noqa: E402,F401
-    get_server_by_subdomain_sync,
-    get_server_by_world_sync,
-    list_servers_sync,
-    set_default_server_sync,
-    upsert_server_settings_sync,
-)
-from backend.server.db.tokens import (  # noqa: E402,F401
-    generate_token,
-    hash_token,
-    list_api_tokens,
-    lookup_api_token,
-    mint_api_token,
-    revoke_api_token,
-)
-from backend.server.db.users import (  # noqa: E402,F401
-    approve_all_pending,
-    create_role_request,
-    get_display_names_for_discord_ids,
-    get_role_request,
-    get_user_access_status,
-    grant_role,
-    has_role,
-    list_all_users,
-    list_pending_users,
-    list_role_assignments,
-    list_role_requests,
-    list_roles_for_user,
-    review_and_grant_role,
-    review_role_request,
-    revoke_role,
-    role_has_capability,
-    set_user_access,
-    upsert_user,
-    user_has_capability_via_db,
-    withdraw_role_request,
+from backend.server.db.claims import store as claims_store  # noqa: E402
+from backend.server.db.favorites import store as favorites_store  # noqa: E402
+from backend.server.db.item_watch import store as item_watch_store  # noqa: E402
+from backend.server.db.raid_schedule import store as raid_schedule_store  # noqa: E402
+from backend.server.db.servers import store as servers_store  # noqa: E402
+from backend.server.db.tokens import store as tokens_store  # noqa: E402
+from backend.server.db.users import store as users_store  # noqa: E402
+
+# claims
+delete_claim = claims_store.delete_claim
+delete_claims_for_user = claims_store.delete_claims_for_user
+get_active_claims = claims_store.get_active_claims
+get_claim_by_id = claims_store.get_claim_by_id
+list_claims = claims_store.list_claims
+review_claim = claims_store.review_claim
+set_primary = claims_store.set_primary
+submit_claim = claims_store.submit_claim
+withdraw_claim = claims_store.withdraw_claim
+
+# item watch
+add_item_watch = item_watch_store.add_item_watch
+list_item_watches = item_watch_store.list_item_watches
+remove_item_watch = item_watch_store.remove_item_watch
+update_item_watch_check = item_watch_store.update_item_watch_check
+
+# servers registry
+get_server_by_subdomain_sync = servers_store.get_server_by_subdomain_sync
+get_server_by_world_sync = servers_store.get_server_by_world_sync
+list_servers_sync = servers_store.list_servers_sync
+set_default_server_sync = servers_store.set_default_server_sync
+upsert_server_settings_sync = servers_store.upsert_server_settings_sync
+
+# api tokens
+generate_token = tokens_store.generate_token
+hash_token = tokens_store.hash_token
+list_api_tokens = tokens_store.list_api_tokens
+lookup_api_token = tokens_store.lookup_api_token
+mint_api_token = tokens_store.mint_api_token
+revoke_api_token = tokens_store.revoke_api_token
+
+# users + roles
+approve_all_pending = users_store.approve_all_pending
+create_role_request = users_store.create_role_request
+get_display_names_for_discord_ids = users_store.get_display_names_for_discord_ids
+get_role_request = users_store.get_role_request
+get_user_access_status = users_store.get_user_access_status
+grant_role = users_store.grant_role
+has_role = users_store.has_role
+list_all_users = users_store.list_all_users
+list_pending_users = users_store.list_pending_users
+list_role_assignments = users_store.list_role_assignments
+list_role_requests = users_store.list_role_requests
+list_roles_for_user = users_store.list_roles_for_user
+review_and_grant_role = users_store.review_and_grant_role
+review_role_request = users_store.review_role_request
+revoke_role = users_store.revoke_role
+role_has_capability = users_store.role_has_capability
+set_user_access = users_store.set_user_access
+upsert_user = users_store.upsert_user
+user_has_capability_via_db = users_store.user_has_capability_via_db
+withdraw_role_request = users_store.withdraw_role_request
+
+#: Every domain store over users.db — conftest re-points `store.path` on
+#: each after re-resolving DB_PATH from the env.
+ALL_STORES = (
+    claims_store,
+    favorites_store,
+    item_watch_store,
+    raid_schedule_store,
+    servers_store,
+    tokens_store,
+    users_store,
 )

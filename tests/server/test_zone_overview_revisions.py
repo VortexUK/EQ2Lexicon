@@ -161,7 +161,6 @@ async def test_revisions_endpoint_returns_editor_display_name(app, raids_tmp):
         discord_name="Velious Raider",
         discord_username="vraider",
         avatar=None,
-        path=users_db.DB_PATH,
     )
 
     from backend.server.auth_deps import require_editor

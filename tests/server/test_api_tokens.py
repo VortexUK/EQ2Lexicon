@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from backend.server.db.tokens import TokensStore
+
 
 @pytest.fixture
 def tmp_users_db_for_coalesce(tmp_path):
@@ -31,16 +33,16 @@ async def test_lookup_api_token_coalesces_writes(tmp_users_db_for_coalesce) -> N
     db_path = tmp_users_db_for_coalesce
 
     # Mint a token for the user.
-    raw, _row = await users_db.mint_api_token("user-coalesce", "Test Token", path=db_path)
+    raw, _row = await TokensStore(db_path).mint_api_token("user-coalesce", "Test Token")
 
     # First lookup — should write last_used_at.
-    row1 = await users_db.lookup_api_token(raw, path=db_path)
+    row1 = await TokensStore(db_path).lookup_api_token(raw)
     assert row1 is not None
     last_after_first = row1["last_used_at"]
     assert last_after_first is not None
 
     # Second lookup immediately after — within 60 s, so should NOT write.
-    row2 = await users_db.lookup_api_token(raw, path=db_path)
+    row2 = await TokensStore(db_path).lookup_api_token(raw)
     assert row2 is not None
     # last_used_at returned by the second call is whatever's in the row;
     # since we didn't update, it equals what the first call wrote.

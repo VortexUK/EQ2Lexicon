@@ -55,7 +55,7 @@ def _to_server(row: dict) -> Server:
 
 def load_registry() -> None:
     """(Re)load the servers registry from the DB. Call at startup + after edits."""
-    rows = db.list_servers_sync(db.DB_PATH)
+    rows = db.list_servers_sync()
     _by_subdomain.clear()
     _by_world.clear()
     for row in rows:

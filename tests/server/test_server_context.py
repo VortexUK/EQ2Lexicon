@@ -9,6 +9,8 @@ def _seed(monkeypatch, tmp_path):
     p = tmp_path / "users.db"
     db.init_db(p)
     monkeypatch.setattr(db, "DB_PATH", p)
+    for _st in db.ALL_STORES:
+        monkeypatch.setattr(_st, "path", p)
     sc.load_registry()
     return p
 
@@ -60,10 +62,12 @@ def test_default_server_returns_is_default_server(monkeypatch, tmp_path):
 
     p = tmp_path / "users.db"
     db.init_db(p)
-    # Set Wuoshi as the default in the DB.
-    db.set_default_server_sync("Wuoshi", path=p)
-
     monkeypatch.setattr(db, "DB_PATH", p)
+    for _st in db.ALL_STORES:
+        monkeypatch.setattr(_st, "path", p)
+    # Set Wuoshi as the default in the DB.
+    db.set_default_server_sync("Wuoshi")
+
     sc.load_registry()
 
     assert sc.default_server().world == "Wuoshi"
