@@ -29,7 +29,7 @@ from backend.census.config import SERVICE_ID, WORLD
 load_dotenv(override=True)
 
 from backend.census.client import BASE_URL
-from backend.eq2db.items import DB_PATH, get_meta, init_db, item_count, set_meta, upsert_items
+from backend.eq2db.items import DB_PATH, catalogue, get_meta, set_meta
 
 PAGE_SIZE = 100  # items per request
 CONCURRENCY = 1  # parallel requests (sequential — most reliable against Census timeouts)
@@ -125,8 +125,8 @@ async def main(restart: bool, item_limit: int | None) -> None:
     if service_id == "example":
         print("WARNING: using 'example' service ID — rate limits will be low.")
 
-    conn = init_db(DB_PATH)
-    existing = item_count(conn)
+    conn = catalogue.init_db()
+    existing = catalogue.item_count(conn)
     print(f"DB: {DB_PATH}")
     print(f"Existing rows: {existing:,}")
 
@@ -215,10 +215,10 @@ async def main(restart: bool, item_limit: int | None) -> None:
             # Flush buffer to DB
             if len(buffer) >= WRITE_EVERY or reached_end:
                 if buffer:
-                    upsert_items(buffer, conn)
+                    catalogue.upsert_items(buffer, conn)
                     written += len(buffer)
                     buffer = []
-                    total_in_db = item_count(conn)
+                    total_in_db = catalogue.item_count(conn)
                     print(f"  Written this run: {written:,}  |  Total in DB: {total_in_db:,}  |  Offset: {offset:,}")
 
             if reached_end:
@@ -231,7 +231,7 @@ async def main(restart: bool, item_limit: int | None) -> None:
 
     # Flush remainder
     if buffer:
-        upsert_items(buffer, conn)
+        catalogue.upsert_items(buffer, conn)
         written += len(buffer)
 
     if reached_end:
@@ -239,7 +239,7 @@ async def main(restart: bool, item_limit: int | None) -> None:
         print("\nReached end of Census data — offset reset for next run.")
 
     conn.close()
-    final = item_count(init_db(DB_PATH))
+    final = catalogue.item_count(catalogue.init_db())
     print(f"\nDone. Written this run: {written:,}  |  Total in DB: {final:,}")
 
 

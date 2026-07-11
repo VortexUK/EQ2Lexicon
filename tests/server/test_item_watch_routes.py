@@ -215,7 +215,7 @@ class TestAddItemWatch:
                 "backend.server.api.item_watch._roster_rank_map",
                 new=AsyncMock(return_value={"sihtric": "Officer"}),
             ),
-            patch("backend.eq2db.items.find_by_name", new=AsyncMock(return_value=None)),
+            patch("backend.eq2db.items.catalogue.find_by_name", new=AsyncMock(return_value=None)),
             patch("backend.server.api.item_watch.shared_census_client") as mock_ctx,
         ):
             mock_client = AsyncMock()
@@ -247,7 +247,7 @@ class TestAddItemWatch:
                 "backend.server.api.item_watch._roster_rank_map",
                 new=AsyncMock(return_value={"sihtric": "Officer"}),
             ),
-            patch("backend.eq2db.items.find_by_name", new=AsyncMock(return_value=fake_item_raw)),
+            patch("backend.eq2db.items.catalogue.find_by_name", new=AsyncMock(return_value=fake_item_raw)),
             patch(
                 "backend.server.api.item_watch.get_active_claims",
                 new=AsyncMock(return_value=[]),
@@ -290,7 +290,7 @@ class TestAddItemWatch:
                 "backend.server.api.item_watch._roster_rank_map",
                 new=AsyncMock(return_value={"sihtric": "Officer"}),
             ),
-            patch("backend.eq2db.items.find_by_name", new=AsyncMock(return_value=fake_item_raw)),
+            patch("backend.eq2db.items.catalogue.find_by_name", new=AsyncMock(return_value=fake_item_raw)),
             patch(
                 "backend.server.api.item_watch.get_active_claims",
                 new=AsyncMock(return_value=[]),

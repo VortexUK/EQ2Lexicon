@@ -349,14 +349,14 @@ async def _fetch_and_cache_guild(
         )
 
         # Per-member average gear ilvl
-        from backend.eq2db.items import gear_for_ids  # noqa: PLC0415
+        from backend.eq2db.items import catalogue as _items  # noqa: PLC0415
         from backend.server.api.character import (  # noqa: PLC0415
             _equipment_lookup_ids,
             _ilvl_from_gear,
         )
 
         all_ids = list({i for ov in overviews for i in _equipment_lookup_ids(ov.equipment)})
-        gear = gear_for_ids(all_ids)
+        gear = _items.gear_for_ids(all_ids)
         ilvl_by_name = {ov.name.lower(): _ilvl_from_gear(ov.equipment, gear) for ov in overviews}
 
         # Roster (sorted by rank then level desc)

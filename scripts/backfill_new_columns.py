@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from backend.eq2db.items import DB_PATH, compute_class_label, init_db
+from backend.eq2db.items import DB_PATH, catalogue
 
 BATCH_SIZE = 5_000
 
@@ -61,13 +61,13 @@ def extract(raw: dict) -> dict:
         "typeinfo_name": name,
         "classes_json": json.dumps(classes) if classes is not None else None,
         "physical_damage_absorption": pda_int,
-        "class_label": compute_class_label(classes),
+        "class_label": catalogue.compute_class_label(classes),
         "class_count": len(classes) if classes else None,
     }
 
 
 def main() -> None:
-    conn = init_db(DB_PATH)  # also runs ALTER TABLE migrations if columns are missing
+    conn = catalogue.init_db()  # also runs ALTER TABLE migrations if columns are missing
 
     total = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
     print(f"Backfilling {total:,} rows…")

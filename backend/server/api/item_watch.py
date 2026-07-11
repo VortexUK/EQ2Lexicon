@@ -133,7 +133,7 @@ async def add_item_watch_entry(
     Officer access required.
     """
     _validate_guild_name(guild_name)
-    from backend.eq2db import items as item_db
+    from backend.eq2db.items import catalogue as item_db
 
     user = request.session.get("user")
     if not user:
