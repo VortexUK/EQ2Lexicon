@@ -14,7 +14,8 @@ upsert_raid_zone.
 
 from __future__ import annotations
 
-from backend.eq2db import raids as raids_db
+from backend.eq2db.raids import RaidCatalogue
+from backend.eq2db.raids import catalogue as raids_db
 
 
 def test_upsert_with_none_overview_preserves_existing_overview(tmp_path):
@@ -22,7 +23,7 @@ def test_upsert_with_none_overview_preserves_existing_overview(tmp_path):
     overview_md. A subsequent upsert_raid_zone call WITHOUT overview_md
     (the strategy-write path) must NOT wipe it to NULL."""
     db = tmp_path / "raids.db"
-    conn = raids_db.init_db(db)
+    conn = RaidCatalogue(db).init_db()
     try:
         # 1. Curator writes an overview — overview_md is set.
         raids_db.upsert_raid_zone(
@@ -63,7 +64,7 @@ def test_upsert_with_none_overview_preserves_existing_overview(tmp_path):
 def test_upsert_with_none_access_md_preserves_existing(tmp_path):
     """Same defensive contract for access_md."""
     db = tmp_path / "raids.db"
-    conn = raids_db.init_db(db)
+    conn = RaidCatalogue(db).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,
@@ -93,7 +94,7 @@ def test_upsert_with_non_none_overview_overwrites(tmp_path):
     source=SCRAPE row: the markdown should be refreshed with the latest
     wiki content."""
     db = tmp_path / "raids.db"
-    conn = raids_db.init_db(db)
+    conn = RaidCatalogue(db).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,

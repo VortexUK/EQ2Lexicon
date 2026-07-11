@@ -36,7 +36,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO))
 
-from backend.eq2db import raids as raids_db  # noqa: E402
+from backend.eq2db.raids import catalogue as raids_db  # noqa: E402
 
 _INBOX = _REPO / "data" / "raids" / "polish_inbox"
 
@@ -44,7 +44,7 @@ _INBOX = _REPO / "data" / "raids" / "polish_inbox"
 def _load_entries() -> list[dict]:
     """Pull every (zone, mob, current_md) with non-empty strategy from
     raids.db, sorted by zone then position for stable ordering."""
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """

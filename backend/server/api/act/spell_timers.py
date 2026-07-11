@@ -15,7 +15,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from backend.eq2db import raids as raids_db
+from backend.eq2db.raids import catalogue as raids_db
 from backend.server.api.act._shared import (
     SpellTimerEntry,
     _resolve_encounter,

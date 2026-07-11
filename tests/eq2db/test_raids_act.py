@@ -19,24 +19,20 @@ from pathlib import Path
 
 import pytest
 
-from backend.eq2db.raids import (
-    delete_act_spell_timer,
-    delete_act_trigger,
-    get_act_spell_timer,
-    get_act_trigger,
-    init_db,
-    list_act_spell_timers_for_encounter,
-    list_act_triggers_for_encounter,
-    upsert_act_spell_timer,
-    upsert_act_trigger,
-)
+from backend.eq2db.raids import RaidCatalogue
+
+# Conn-taking write helpers are staticmethods — alias for readable call sites.
+upsert_act_trigger = RaidCatalogue.upsert_act_trigger
+delete_act_trigger = RaidCatalogue.delete_act_trigger
+upsert_act_spell_timer = RaidCatalogue.upsert_act_spell_timer
+delete_act_spell_timer = RaidCatalogue.delete_act_spell_timer
 
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
     """A fresh raids.db (file-backed via tmp_path) with one zone + encounter."""
     p = tmp_path / "raids.db"
-    conn = init_db(p)
+    conn = RaidCatalogue(p).init_db()
     # Insert a seed raid_zone + encounter so FK-style references are valid
     conn.execute(
         "INSERT INTO raid_zones (zone_name, zone_name_lower, expansion_short, source) "
@@ -75,17 +71,17 @@ def db_conn(db_path: Path):
 class TestListActTriggersForEncounter:
     def test_returns_empty_when_path_missing(self, tmp_path: Path):
         missing = tmp_path / "nonexistent.db"
-        assert list_act_triggers_for_encounter(1, path=missing) == []
+        assert RaidCatalogue(missing).list_act_triggers_for_encounter(1) == []
 
     def test_returns_empty_for_unknown_encounter(self, db_path: Path):
-        assert list_act_triggers_for_encounter(9999, path=db_path) == []
+        assert RaidCatalogue(db_path).list_act_triggers_for_encounter(9999) == []
 
     def test_ordering_by_position_then_id(self, db_path: Path, db_conn, enc_id: int):
         # Insert triggers with shuffled positions
         upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="c", position=2)
         upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="a", position=0)
         upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="b", position=1)
-        rows = list_act_triggers_for_encounter(enc_id, path=db_path)
+        rows = RaidCatalogue(db_path).list_act_triggers_for_encounter(enc_id)
         assert len(rows) == 3
         assert rows[0]["regex"] == "a"
         assert rows[1]["regex"] == "b"
@@ -94,14 +90,14 @@ class TestListActTriggersForEncounter:
 
 class TestGetActTrigger:
     def test_returns_none_when_path_missing(self, tmp_path: Path):
-        assert get_act_trigger(1, path=tmp_path / "no.db") is None
+        assert RaidCatalogue(tmp_path / "no.db").get_act_trigger(1) is None
 
     def test_returns_none_for_unknown_id(self, db_path: Path):
-        assert get_act_trigger(9999, path=db_path) is None
+        assert RaidCatalogue(db_path).get_act_trigger(9999) is None
 
     def test_returns_dict_for_existing_trigger(self, db_path: Path, db_conn, enc_id: int):
         trigger_id = upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="test-regex", label="Boss Pull")
-        row = get_act_trigger(trigger_id, path=db_path)
+        row = RaidCatalogue(db_path).get_act_trigger(trigger_id)
         assert row is not None
         assert row["regex"] == "test-regex"
         assert row["label"] == "Boss Pull"
@@ -120,12 +116,12 @@ class TestUpsertActTrigger:
 
     def test_stamps_edited_by(self, db_path: Path, db_conn, enc_id: int):
         tid = upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="x", edited_by="user-123")
-        row = get_act_trigger(tid, path=db_path)
+        row = RaidCatalogue(db_path).get_act_trigger(tid)
         assert row["last_edited_by"] == "user-123"
 
     def test_stamps_last_edited_at(self, db_path: Path, db_conn, enc_id: int):
         tid = upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="x")
-        row = get_act_trigger(tid, path=db_path)
+        row = RaidCatalogue(db_path).get_act_trigger(tid)
         assert row["last_edited_at"] is not None and row["last_edited_at"] > 0
 
 
@@ -140,7 +136,7 @@ class TestDeleteActTrigger:
     def test_row_gone_after_delete(self, db_path: Path, db_conn, enc_id: int):
         tid = upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="gone")
         delete_act_trigger(db_conn, tid)
-        assert get_act_trigger(tid, path=db_path) is None
+        assert RaidCatalogue(db_path).get_act_trigger(tid) is None
 
 
 # ---------------------------------------------------------------------------
@@ -150,30 +146,30 @@ class TestDeleteActTrigger:
 
 class TestListActSpellTimersForEncounter:
     def test_returns_empty_when_path_missing(self, tmp_path: Path):
-        assert list_act_spell_timers_for_encounter(1, path=tmp_path / "no.db") == []
+        assert RaidCatalogue(tmp_path / "no.db").list_act_spell_timers_for_encounter(1) == []
 
     def test_returns_empty_for_unknown_encounter(self, db_path: Path):
-        assert list_act_spell_timers_for_encounter(9999, path=db_path) == []
+        assert RaidCatalogue(db_path).list_act_spell_timers_for_encounter(9999) == []
 
     def test_returns_inserted_timer(self, db_path: Path, db_conn, enc_id: int):
         upsert_act_spell_timer(db_conn, raid_encounter_id=enc_id, name="Deathmark", timer_duration_s=30)
-        rows = list_act_spell_timers_for_encounter(enc_id, path=db_path)
+        rows = RaidCatalogue(db_path).list_act_spell_timers_for_encounter(enc_id)
         assert len(rows) == 1
         assert rows[0]["name"] == "Deathmark"
 
 
 class TestGetActSpellTimer:
     def test_returns_none_when_path_missing(self, tmp_path: Path):
-        assert get_act_spell_timer(1, path=tmp_path / "no.db") is None
+        assert RaidCatalogue(tmp_path / "no.db").get_act_spell_timer(1) is None
 
     def test_returns_none_for_unknown_id(self, db_path: Path):
-        assert get_act_spell_timer(9999, path=db_path) is None
+        assert RaidCatalogue(db_path).get_act_spell_timer(9999) is None
 
     def test_returns_dict_for_existing_timer(self, db_path: Path, db_conn, enc_id: int):
         timer_id = upsert_act_spell_timer(
             db_conn, raid_encounter_id=enc_id, name="Arcane Distortion", timer_duration_s=60
         )
-        row = get_act_spell_timer(timer_id, path=db_path)
+        row = RaidCatalogue(db_path).get_act_spell_timer(timer_id)
         assert row is not None
         assert row["name"] == "Arcane Distortion"
         assert row["timer_duration_s"] == 60
@@ -196,12 +192,12 @@ class TestUpsertActSpellTimer:
         tid = upsert_act_spell_timer(
             db_conn, raid_encounter_id=enc_id, name="Spell Gamma", timer_duration_s=15, edited_by="officer-1"
         )
-        row = get_act_spell_timer(tid, path=db_path)
+        row = RaidCatalogue(db_path).get_act_spell_timer(tid)
         assert row["last_edited_by"] == "officer-1"
 
     def test_name_lower_stored_lowercase(self, db_path: Path, db_conn, enc_id: int):
         tid = upsert_act_spell_timer(db_conn, raid_encounter_id=enc_id, name="Camelcase Spell", timer_duration_s=5)
-        row = get_act_spell_timer(tid, path=db_path)
+        row = RaidCatalogue(db_path).get_act_spell_timer(tid)
         assert row["name_lower"] == "camelcase spell"
 
     def test_unique_collision_raises_integrity_error(self, db_conn, enc_id: int):

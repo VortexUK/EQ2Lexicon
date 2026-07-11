@@ -39,7 +39,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.eq2db import raids as raids_db
+from backend.eq2db.raids import catalogue as raids_db
 from backend.eq2db.zones import catalogue as zones_db
 from backend.server import db as users_db
 from backend.server.auth_deps import require_editor
@@ -176,9 +176,9 @@ def _read_revisions_sync(zone_name: str, encounter_name: str) -> list[dict]:
     Returns ``[]`` if the encounter doesn't exist in raids_db yet (never had a
     strategy written) — the route surfaces that as a 200 with an empty list,
     matching the "show history" disclosure's no-op state."""
-    if not raids_db.DB_PATH.exists():
+    if not raids_db.path.exists():
         return []
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         conn.row_factory = sqlite3.Row
         zrow = conn.execute(_SQL["select_raid_zone_id_by_name"], (zone_name.lower(),)).fetchone()
         if zrow is None:
@@ -200,9 +200,9 @@ def _read_overview_sync(zone_name: str) -> dict | None:
     None when no row exists yet OR when overview_md is empty — same semantics
     as the encounter helpers, lets the route 404 cleanly and the UI fall back
     to the empty state."""
-    if not raids_db.DB_PATH.exists():
+    if not raids_db.path.exists():
         return None
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             _SQL["select_raid_zone_overview"],
@@ -333,9 +333,9 @@ def _write_overview_sync(
 
 def _read_strategy_sync(zone_name: str, encounter_name: str) -> dict | None:
     """Look up an existing strategy row. Returns None if none exists yet."""
-    if not raids_db.DB_PATH.exists():
+    if not raids_db.path.exists():
         return None
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         conn.row_factory = sqlite3.Row
         # Find the raid_zones id (loose name match — the strategy DB stores
         # the canonical zone_name verbatim, so a case-insensitive lower-match
@@ -561,9 +561,9 @@ def _read_zone_revisions_sync(zone_name: str) -> list[dict]:
     """All revision rows for a zone's overview, newest first.
 
     Returns [] if the zone has no raid_zones row OR no revisions yet."""
-    if not raids_db.DB_PATH.exists():
+    if not raids_db.path.exists():
         return []
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         conn.row_factory = sqlite3.Row
         zrow = conn.execute(
             _SQL["select_raid_zone_id_by_name"],

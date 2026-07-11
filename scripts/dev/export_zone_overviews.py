@@ -28,7 +28,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO))
 
-from backend.eq2db import raids as raids_db  # noqa: E402
+from backend.eq2db.raids import catalogue as raids_db  # noqa: E402
 
 _INBOX = _REPO / "data" / "raids" / "zone_overview_inbox"
 
@@ -49,7 +49,7 @@ def _balanced_chunks(entries: list[dict], n: int) -> list[list[dict]]:
 
 def _load_entries() -> list[dict]:
     """Every raid_zones row with non-empty overview_md."""
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """

@@ -18,7 +18,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from backend.eq2db import raids as raids_db
+from backend.eq2db.raids import catalogue as raids_db
 from backend.server.api.act._shared import (
     SpellTimerEntry,
     TriggerEntry,
@@ -87,9 +87,9 @@ class ImportXmlResponse(BaseModel):
 def _trigger_already_exists_sync(encounter_id: int, regex: str, sound_data: str) -> int | None:
     """Idempotency: same (encounter, regex, sound) is treated as identity.
     Returns the existing row id, or None."""
-    if not raids_db.DB_PATH.exists():
+    if not raids_db.path.exists():
         return None
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         row = conn.execute(
             "SELECT id FROM act_triggers WHERE raid_encounter_id = ? AND regex = ? AND sound_data = ?",
             (encounter_id, regex, sound_data),
@@ -100,9 +100,9 @@ def _trigger_already_exists_sync(encounter_id: int, regex: str, sound_data: str)
 def _spell_timer_id_for_name_sync(encounter_id: int, name: str) -> int | None:
     """Find an existing spell timer's id by lowercase name within the
     encounter — UNIQUE (encounter_id, name_lower) makes this safe."""
-    if not raids_db.DB_PATH.exists():
+    if not raids_db.path.exists():
         return None
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         row = conn.execute(
             "SELECT id FROM act_spell_timers WHERE raid_encounter_id = ? AND name_lower = ?",
             (encounter_id, name.lower()),
