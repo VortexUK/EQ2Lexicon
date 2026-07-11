@@ -155,11 +155,7 @@ class RecipeCatalogue(BaseCatalogue):
         conn.execute(_SQL["schema_recipes"])
         conn.execute(_SQL["schema_recipe_classes"])
         # Migrate existing DBs that predate the spell-tier columns
-        for stmt in _MIGRATIONS:
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError:
-                pass  # column already exists
+        self._apply_migrations(conn, _MIGRATIONS)
         conn.executescript(_SQL["indexes_recipes"])
 
     def _post_init(self, conn: sqlite3.Connection) -> None:

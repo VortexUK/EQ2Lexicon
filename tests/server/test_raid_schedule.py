@@ -1,6 +1,7 @@
 """Raid-schedule DB layer + API tests.
 
-DB layer is exercised against a temp users.db (explicit ``path=``). The API is
+DB layer is exercised against a temp users.db (stores re-pointed by the
+autouse fixture). The API is
 tested with the ``app`` fixture: a signed session cookie for auth + mocked
 ``_officer_chars`` / db helpers (same pattern as test_item_watch_routes.py).
 """
@@ -19,6 +20,7 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.server.db import init_db
 from backend.server.db.raid_schedule import store as rs
+from tests.fixtures.users_db import point_users_db_at
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
@@ -48,11 +50,8 @@ def users_db(tmp_path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point every users.db domain store at this test's temp DB."""
-    from backend.server import db as _db_pkg
-
-    for st in _db_pkg.ALL_STORES:
-        monkeypatch.setattr(st, "path", users_db)
+    """Point users.db (constant + every domain store) at this test's temp DB."""
+    point_users_db_at(monkeypatch, users_db)
 
 
 async def test_replace_then_get_round_trips(users_db):

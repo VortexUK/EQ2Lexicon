@@ -1233,11 +1233,7 @@ class ZoneCatalogue(BaseCatalogue):
         # Migration: zone categories + position for drag-reorder.
         # Idempotent — already-applied schemas raise OperationalError on the
         # duplicate-column attempt, which we swallow.
-        for stmt in (_SQL["migrate_add_featured_position"], _SQL["migrate_add_featured_category"]):
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError:
-                pass  # column already exists
+        self._apply_migrations(conn, (_SQL["migrate_add_featured_position"], _SQL["migrate_add_featured_category"]))
         # Migration: drop the pre-v2 zone_bosses table if it lingers from
         # an older DB build. No need to preserve data — bosses are always
         # rebuilt from the curated source file.

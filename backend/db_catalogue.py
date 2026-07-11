@@ -43,9 +43,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
+
+if TYPE_CHECKING:
+    import aiosqlite
 
 from backend.db_helpers import like_escape
 from backend.eq2db import _meta as _meta_db
@@ -177,7 +181,7 @@ class BaseCatalogue(PathBound):
         except sqlite3.OperationalError as exc:
             if not _is_unbuilt_schema(exc):
                 raise
-            _log.warning("[eq2db] read on unbuilt db %r: %s", self, exc)
+            _log.warning("[db-catalogue] read on unbuilt db %r: %s", self, exc)
             return []
         finally:
             conn.close()
@@ -194,7 +198,7 @@ class BaseCatalogue(PathBound):
         except sqlite3.OperationalError as exc:
             if not _is_unbuilt_schema(exc):
                 raise
-            _log.warning("[eq2db] read on unbuilt db %r: %s", self, exc)
+            _log.warning("[db-catalogue] read on unbuilt db %r: %s", self, exc)
             return None
         finally:
             conn.close()
@@ -216,7 +220,7 @@ class BaseCatalogue(PathBound):
         except sqlite3.OperationalError as exc:
             if not _is_unbuilt_schema(exc):
                 raise
-            _log.warning("[eq2db] read on unbuilt db %r: %s", self, exc)
+            _log.warning("[db-catalogue] read on unbuilt db %r: %s", self, exc)
             return []
         finally:
             conn.close()
@@ -234,7 +238,7 @@ class BaseCatalogue(PathBound):
         its own connection against ``self.path``, so a memory DB would be a
         fresh empty database per read — tests use a tmp_path file instead.
         """
-        _log.debug("[eq2db] init_db %r", self)
+        _log.debug("[db-catalogue] init_db %r", self)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.path)
         conn.execute("PRAGMA journal_mode = WAL;")
@@ -254,6 +258,18 @@ class BaseCatalogue(PathBound):
         Runs inside init_db before the commit — don't commit here."""
         raise NotImplementedError
 
+    def _apply_migrations(self, conn: sqlite3.Connection, stmts: Sequence[str]) -> None:
+        """Run idempotent ALTER-style migrations, skipping already-applied
+        ones. The skip is logged at DEBUG (init_db runs per request on some
+        routes) so a genuinely broken statement — which raises the same
+        OperationalError as a duplicate column — at least leaves a trace,
+        unlike the silent per-store `pass` loops this replaces."""
+        for stmt in stmts:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError as exc:
+                _log.debug("[db-catalogue] migration skipped on %r (already applied?): %s", self, exc)
+
     def _post_init(self, conn: sqlite3.Connection) -> None:
         """Optional post-commit startup work (data backfills). Default: none."""
 
@@ -264,6 +280,24 @@ class AsyncStoreBase(PathBound):
     Unlike :class:`BaseCatalogue`, these stores do NOT own their schema:
     the whole users.db family shares one file whose tables/migrations are
     orchestrated by ``backend.server.db.init_db()`` at startup. Each domain
-    method opens its own aiosqlite connection against ``self.path`` —
-    exactly the per-call transaction shape the old free functions had,
-    minus the ``path: Path = DB_PATH`` threading."""
+    method opens its own connection via :meth:`_db` — exactly the per-call
+    transaction shape the old free functions had, minus the
+    ``path: Path = DB_PATH`` threading.
+
+    (ServersStore, the one synchronous domain store, inherits
+    :class:`PathBound` directly — it must never grow aiosqlite methods.)
+    """
+
+    @asynccontextmanager
+    async def _db(self, *, row_factory: bool = False) -> AsyncIterator[aiosqlite.Connection]:
+        """The one place a users.db domain connection is opened — future
+        connection-level policy (busy_timeout, a foreign_keys pragma once
+        the data is audited for violations) lands here, not at N call
+        sites. ``row_factory=True`` sets aiosqlite.Row for dict-shaped
+        reads."""
+        import aiosqlite  # deferred: sync-only consumers never pay the import
+
+        async with aiosqlite.connect(self.path) as db:
+            if row_factory:
+                db.row_factory = aiosqlite.Row
+            yield db

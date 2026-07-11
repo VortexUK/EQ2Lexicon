@@ -196,8 +196,8 @@ def test_init_db_on_old_schema_adds_character_aas_table(tmp_path):
     db_path = tmp_path / "backend.census.db"
     # Create the DB with only the original tables (no character_aas).
     conn = sqlite3.connect(db_path)
-    conn.execute(cs._CREATE_CHARACTERS)
-    conn.execute(cs._CREATE_GUILDS)
+    conn.execute(cs._SQL["schema_characters"])
+    conn.execute(cs._SQL["schema_guilds"])
     conn.commit()
     conn.close()
 

@@ -4,8 +4,7 @@ Carved out of the original 1309-line web/db.py. Synchronous (sqlite3) helpers
 for the servers domain — these are called at startup and from sync admin
 endpoints, so they use the stdlib driver directly.
 
-``path: Path = DB_PATH`` parameter on every public function so tests can
-inject a temp DB.
+Tests re-point ``store.path`` or construct ``ServersStore(tmp_db)``.
 """
 
 from __future__ import annotations
@@ -13,14 +12,14 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from backend.db_catalogue import AsyncStoreBase
+from backend.db_catalogue import PathBound
 from backend.server.db import DB_PATH
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class ServersStore(AsyncStoreBase):
+class ServersStore(PathBound):
     """users.db `servers` domain. Schema/migrations are owned by the package
     orchestrator (backend.server.db.init_db); methods open per-call
     connections against ``self.path``."""

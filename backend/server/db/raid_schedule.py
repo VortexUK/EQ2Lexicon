@@ -1,8 +1,8 @@
 """users.db raid_teams / raid_slots helpers (async aiosqlite).
 
 Officer-editable, publicly-viewable guild raid schedules. Mirrors the
-item_watch domain: ``path: Path = DB_PATH`` on every public function so tests
-can inject a temp DB. A team carries a ``raids`` list of its slots.
+item_watch domain: per-call connections via the shared ``AsyncStoreBase._db()``;
+tests re-point ``store.path``. A team carries a ``raids`` list of its slots.
 """
 
 from __future__ import annotations
@@ -36,8 +36,7 @@ class RaidScheduleStore(AsyncStoreBase):
 
     async def get_schedule(self, world: str, guild_name: str) -> list[dict]:
         """Return this guild's raid teams (ordered) each with a ``raids`` list."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(_SQL["select_teams"], (world, guild_name)) as cur:
                 teams = [dict(r) for r in await cur.fetchall()]
             return await RaidScheduleStore._teams_with_slots(db, teams)
@@ -56,7 +55,7 @@ class RaidScheduleStore(AsyncStoreBase):
         validated by the caller; this just persists. team_index / slot_index are
         assigned from list order.
         """
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             try:
                 await db.execute("BEGIN")
                 await db.execute(_SQL["delete_slots_for_guild"], (world, guild_name))
@@ -95,8 +94,7 @@ class RaidScheduleStore(AsyncStoreBase):
     async def list_all_teams_with_twitch(self) -> list[dict]:
         """Every team across all worlds/guilds that has a twitch_login, each with
         its raids. Used by the Twitch-live poller (Part 2)."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(_SQL["select_teams_with_twitch"]) as cur:
                 teams = [dict(r) for r in await cur.fetchall()]
             return await RaidScheduleStore._teams_with_slots(db, teams)

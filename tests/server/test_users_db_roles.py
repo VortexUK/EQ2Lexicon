@@ -38,6 +38,7 @@ from backend.server.db import (
     user_has_capability_via_db,
     withdraw_role_request,
 )
+from tests.fixtures.users_db import point_users_db_at
 
 
 @pytest.fixture
@@ -49,11 +50,8 @@ def db_path(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _stores_at_db_path(db_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point every users.db domain store at this test's temp DB."""
-    from backend.server import db as users_db
-
-    for st in users_db.ALL_STORES:
-        monkeypatch.setattr(st, "path", db_path)
+    """Point users.db (constant + every domain store) at this test's temp DB."""
+    point_users_db_at(monkeypatch, db_path)
 
 
 async def _seed_user(db_path: Path, discord_id: str = "user-1", name: str = "TestUser") -> None:

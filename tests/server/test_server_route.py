@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.users_db import point_users_db_at
+
 
 @pytest.mark.asyncio
 async def test_server_endpoint_reflects_subdomain(app, monkeypatch, tmp_path):
@@ -10,9 +12,7 @@ async def test_server_endpoint_reflects_subdomain(app, monkeypatch, tmp_path):
 
     p = tmp_path / "users.db"
     db.init_db(p)
-    monkeypatch.setattr(db, "DB_PATH", p)
-    for _st in db.ALL_STORES:
-        monkeypatch.setattr(_st, "path", p)
+    point_users_db_at(monkeypatch, p)
     server_context.load_registry()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/server", headers={"host": "wuoshi.eq2lexicon.com"})
@@ -30,9 +30,7 @@ async def test_server_endpoint_unknown_host_defaults(app, monkeypatch, tmp_path)
 
     p = tmp_path / "users.db"
     db.init_db(p)
-    monkeypatch.setattr(db, "DB_PATH", p)
-    for _st in db.ALL_STORES:
-        monkeypatch.setattr(_st, "path", p)
+    point_users_db_at(monkeypatch, p)
     server_context.load_registry()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/server", headers={"host": "localhost"})

@@ -1,8 +1,8 @@
 """users.db api_tokens table helpers.
 
 Carved out of the original 1309-line web/db.py. Async (aiosqlite) helpers
-for the API token domain. ``path: Path = DB_PATH`` parameter on every public
-function so tests can inject a temp DB.
+for the API token domain. Per-call connections open via the shared
+``AsyncStoreBase._db()``; tests re-point ``store.path``.
 
 Raw tokens are 'eq2c_' + 32 url-safe base64 chars (≈192 bits entropy).
 Only the SHA-256 hash is stored; the raw token is shown to the user once
@@ -15,8 +15,6 @@ import hashlib
 import secrets
 import time
 from pathlib import Path
-
-import aiosqlite
 
 from backend.db_catalogue import AsyncStoreBase
 from backend.server.db import DB_PATH
@@ -63,8 +61,7 @@ class TokensStore(AsyncStoreBase):
         immediately — it cannot be recovered later.
         """
         raw, h, prefix = TokensStore.generate_token()
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             cur = await db.execute(
                 _SQL["mint_token"],
                 (user_id, name, h, prefix),
@@ -78,8 +75,7 @@ class TokensStore(AsyncStoreBase):
 
     async def list_api_tokens(self, user_id: str) -> list[dict]:
         """All tokens for a user, newest first. Hash is omitted — UI doesn't need it."""
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(
                 _SQL["list_for_user"],
                 (user_id,),
@@ -94,7 +90,7 @@ class TokensStore(AsyncStoreBase):
     ) -> bool:
         """Mark a token revoked. Scoped to user_id so one user can't revoke another's.
         Returns True if a row was updated."""
-        async with aiosqlite.connect(self.path) as db:
+        async with self._db() as db:
             cur = await db.execute(
                 _SQL["revoke_token"],
                 (token_id, user_id),
@@ -109,8 +105,7 @@ class TokensStore(AsyncStoreBase):
         if not raw_token or not raw_token.startswith(TOKEN_PREFIX):
             return None
         h = TokensStore.hash_token(raw_token)
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        async with self._db(row_factory=True) as db:
             async with db.execute(
                 _SQL["lookup_by_hash"],
                 (h,),
