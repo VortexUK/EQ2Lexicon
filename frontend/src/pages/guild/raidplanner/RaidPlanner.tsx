@@ -105,6 +105,7 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
   const [selected, setSelected] = useState<string | null>(null)
   const [managing, setManaging] = useState(false)
   const [rosterFilter, setRosterFilter] = useState('')
+  const [rankFilter, setRankFilter] = useState<string>('all')
 
   const load = useCallback(() => {
     setError(null)
@@ -181,6 +182,14 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
     for (const r of roled) m.set(r.name.toLowerCase(), r.cls ? byName.get(r.cls) : undefined)
     return m
   }, [roled, byName])
+  const guildRanks = useMemo(() => {
+    const seen = new Map<string, number>()
+    for (const r of data?.roster ?? []) {
+      if (r.rank && !seen.has(r.rank)) seen.set(r.rank, r.rank_id ?? 99)
+    }
+    return [...seen.entries()].sort((a, b) => a[1] - b[1]).map(([name]) => name)
+  }, [data])
+
   const warnings = useMemo(
     () => (data ? computeWarnings(data, placements, classByChar) : []),
     [data, placements, classByChar],
@@ -416,16 +425,27 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
         <div className="border border-border rounded-md p-2 flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <SectionLabel variant="muted" className="mb-0">Roster designations</SectionLabel>
+            <select
+              value={rankFilter}
+              onChange={e => setRankFilter(e.target.value)}
+              className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem] ml-auto max-w-[150px]"
+            >
+              <option value="all">All ranks</option>
+              {guildRanks.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
             <input
               value={rosterFilter}
               onChange={e => setRosterFilter(e.target.value)}
-              placeholder="filter members…"
-              className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem] ml-auto w-[160px]"
+              placeholder="search members…"
+              className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem] w-[160px]"
             />
           </div>
           <div className="grid gap-x-3 gap-y-0.5 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 max-h-[320px] overflow-y-auto pr-1">
             {data.roster
               .filter(r => r.name.toLowerCase().includes(rosterFilter.toLowerCase()))
+              .filter(r => rankFilter === 'all' || r.rank === rankFilter)
               .map(r => (
                 <div key={r.name} className="flex items-center gap-2 py-0.5">
                   <span className="w-1 h-4 rounded-full shrink-0" style={{ background: colourFor(r.cls) }} />

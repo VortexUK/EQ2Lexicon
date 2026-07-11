@@ -19,15 +19,18 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.core.log_safety import scrub
 from backend.server.api.guild import _fetch_and_cache_guild, _officer_chars, _roster_rank_map
+from backend.server.auth_deps import is_admin
 from backend.server.cache import guild_cache
 from backend.server.core.audit_log import audit_log
 from backend.server.core.cache_keys import guild_roster_key
+from backend.server.core.session_user import SessionUser
 from backend.server.db import get_active_claims, get_display_names_for_discord_ids
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import VALID_ROLES
@@ -54,6 +57,8 @@ class RosterEntry(BaseModel):
     cls: str | None = None
     level: int | None = None
     role: str | None = None  # raider | raid_alt | None
+    rank: str | None = None  # guild rank name (Manage Raiders filter)
+    rank_id: int | None = None
 
 
 class PlacementModel(BaseModel):
@@ -96,11 +101,11 @@ class AvailabilityInput(BaseModel):
 # ── Gates ────────────────────────────────────────────────────────────────────
 
 
-def _require_session(request: Request) -> dict:
+def _require_session(request: Request) -> SessionUser:
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    return cast("SessionUser", user)
 
 
 async def _member_chars(discord_id: str, guild_name: str) -> set[str]:
@@ -113,20 +118,28 @@ async def _member_chars(discord_id: str, guild_name: str) -> set[str]:
     return {n for n in approved if n in rank_map}
 
 
-async def _require_member(request: Request, guild_name: str) -> tuple[dict, bool]:
+async def _can_edit(user: SessionUser, guild_name: str) -> bool:
+    """Officers edit; a site admin who is ALSO a member of this guild edits
+    too (admin alone is not enough — the planner belongs to the guild)."""
+    if await _officer_chars(user["id"], guild_name):
+        return True
+    return is_admin(user) and bool(await _member_chars(user["id"], guild_name))
+
+
+async def _require_member(request: Request, guild_name: str) -> tuple[SessionUser, bool]:
     """401 without a session; 403 unless the viewer has an approved claim on
-    a character in this guild. Returns (session_user, is_officer)."""
+    a character in this guild. Returns (session_user, can_edit)."""
     user = _require_session(request)
     members = await _member_chars(user["id"], guild_name)
     if not members:
         raise HTTPException(status_code=403, detail="Raid planning is visible to guild members only")
-    officers = await _officer_chars(user["id"], guild_name)
-    return user, bool(officers)
+    editor = bool(await _officer_chars(user["id"], guild_name)) or is_admin(user)
+    return user, editor
 
 
-async def _require_officer(request: Request, guild_name: str) -> dict:
+async def _require_officer(request: Request, guild_name: str) -> SessionUser:
     user = _require_session(request)
-    if not await _officer_chars(user["id"], guild_name):
+    if not await _can_edit(user, guild_name):
         raise HTTPException(status_code=403, detail="Officer access required")
     return user
 
@@ -179,7 +192,17 @@ async def get_planner(
 
     members = await _guild_roster(guild_name)
     roles = {r["character_name"].lower(): r["role"] for r in await planning_db.get_roles(world, guild_name)}
-    roster = [RosterEntry(name=m.name, cls=m.cls, level=m.level, role=roles.get(m.name.lower())) for m in members]
+    roster = [
+        RosterEntry(
+            name=m.name,
+            cls=m.cls,
+            level=m.level,
+            role=roles.get(m.name.lower()),
+            rank=getattr(m, "rank", None),
+            rank_id=getattr(m, "rank_id", None),
+        )
+        for m in members
+    ]
 
     placements = [PlacementModel(**p) for p in await planning_db.get_placements(world, guild_name, team_index)]
 
