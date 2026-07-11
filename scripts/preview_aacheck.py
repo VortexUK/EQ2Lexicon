@@ -26,20 +26,11 @@ load_dotenv()
 from backend.census.client import CensusClient
 from backend.image.aa_tree import render_tree
 
-_TREES_DIR = Path(__file__).resolve().parent.parent / "data" / "AAs" / "trees"
-
 
 def _load_tree_names() -> dict[int, str]:
-    names: dict[int, str] = {}
-    for path in _TREES_DIR.glob("*.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            aa_list = data.get("alternateadvancement_list") or []
-            if aa_list:
-                names[int(path.stem)] = aa_list[0].get("name", path.stem)
-        except Exception:
-            pass
-    return names
+    from backend.eq2db.aas import catalogue
+
+    return {tid: info["name"] for tid, info in catalogue.load_tree_index().items()}
 
 
 def _resolve_tree(query: str, available_ids: set[int], tree_names: dict[int, str]) -> list[int]:

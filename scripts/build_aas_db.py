@@ -1,13 +1,14 @@
-"""Build data/AAs/aas.db from the committed tree JSONs.
+"""Build data/AAs/aas.db from locally-downloaded tree JSONs + aa_limits.json.
 
     python scripts/build_aas_db.py                # data/AAs/trees → data/AAs/aas.db
     python scripts/build_aas_db.py --db /tmp/x.db
 
-Mirrors scripts/build_zones_db.py: reads every data/AAs/trees/{id}.json,
-upserts into aa_trees/aa_nodes (tree_type + max_points precomputed), and
-stamps _meta provenance. aas.db is committed (like classes.db) — rerun this
-after refreshing the tree JSONs via scripts/download_aa_trees.py, then commit
-the updated db.
+Mirrors scripts/build_zones_db.py: reads every data/AAs/trees/{id}.json
+(LOCAL census downloads — gitignored; fetch them first with
+scripts/download_aa_trees.py) plus the committed aa_limits.json, upserts into
+aa_trees/aa_nodes/aa_limits (tree_type + max_points precomputed), and stamps
+_meta provenance. aas.db is committed (like classes.db) — commit the updated
+db after a rebuild.
 """
 
 from __future__ import annotations

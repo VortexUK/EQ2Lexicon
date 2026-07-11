@@ -1,7 +1,7 @@
 """Local SQLite AA catalogue (aas.db) — the single source of AA reference data.
 
-Condenses the AA JSONs (``data/AAs/trees/{id}.json`` × 157 + ``aa_limits.json``)
-into ``aa_trees`` + ``aa_nodes`` + ``aa_limits``. ``tree_type`` (the structural
+Condenses the AA JSONs (census tree downloads + ``aa_limits.json``) into
+``aa_trees`` + ``aa_nodes`` + ``aa_limits``. ``tree_type`` (the structural
 detect_tree_type heuristic) and ``max_points`` (Σ maxtier × points_per_tier)
 are precomputed at build time by ``scripts/build_aas_db.py``, so runtime
 consumers do simple indexed reads.
@@ -12,7 +12,8 @@ is the shared default instance (committed ``data/AAs/aas.db``, like
 classes.db; ``DB_AAS_PATH`` env overrides). Tests construct their own
 ``AACatalogue(tmp_path)`` — every instance carries its own caches.
 
-The JSONs stay committed as the rebuild source:
+Rebuild flow (tree JSONs are LOCAL intermediates, gitignored — only aas.db
+and the hand-curated aa_limits.json are committed):
 ``scripts/download_aa_trees.py`` → ``scripts/build_aas_db.py`` → commit aas.db.
 """
 

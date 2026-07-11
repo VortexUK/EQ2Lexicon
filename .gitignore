@@ -328,6 +328,9 @@ data/classes/classes.db-wal
 data/classes/classes.db-shm
 data/AAs/aas.db-wal
 data/AAs/aas.db-shm
+# Census downloads — local build intermediates for scripts/build_aas_db.py
+data/AAs/trees/
+data/AAs/index.json
 
 # Census persistence (generated at runtime, copied to the Railway volume)
 data/census/census.db
