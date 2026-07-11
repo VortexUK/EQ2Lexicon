@@ -24,7 +24,7 @@ import aiosqlite
 
 from backend.census.item_level import compute_ilvl
 from backend.db_helpers import like_escape, resolve_db_path
-from backend.eq2db import _meta as _meta_db
+from backend.eq2db._catalogue import BaseCatalogue
 from backend.eq2db.classes import catalogue as _classes
 from backend.sql_loader import load_sql
 
@@ -168,7 +168,7 @@ class GearRow(NamedTuple):
     tier_display: str | None  # for adorn-bonus calc
 
 
-class ItemCatalogue:
+class ItemCatalogue(BaseCatalogue):
     """Read (and build) access to one items.db file.
 
     The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
@@ -179,15 +179,9 @@ class ItemCatalogue:
     """
 
     def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = Path(path)
+        super().__init__(path)
 
-    def init_db(self) -> sqlite3.Connection:
-        """Create (or open) the DB, create tables/indexes if missing. Returns connection."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        _meta_db.create_table(conn)
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["schema_items"])
         # Migrate existing DBs: add any columns introduced after initial creation.
         # Must run BEFORE index creation so new indexes on new columns don't fail.
@@ -199,7 +193,8 @@ class ItemCatalogue:
         # Stats side-table
         conn.execute(_SQL["schema_item_stats"])
         conn.executescript(_SQL["indexes_item_stats"])
-        conn.commit()
+
+    def _post_init(self, conn: sqlite3.Connection) -> None:
         # Backfill flag_pvp for items that predate this column.
         # Uses LOWER(raw_json) LIKE '%pvp%' — catches both pvp stats and effect text.
         # Safe to run every startup; is a no-op once all rows are set.
@@ -210,7 +205,6 @@ class ItemCatalogue:
         # Backfill classification_list for rows that predate this column.
         # Uses json_extract to pull the array out of raw_json; safe to re-run.
         self._backfill_classification_list(conn)
-        return conn
 
     # ── Pure helpers (no DB access — statics so the class is the ONE interface) ──
 

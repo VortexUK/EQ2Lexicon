@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from backend.db_helpers import resolve_db_path
-from backend.eq2db import _meta as _meta_db
+from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -1213,10 +1213,10 @@ class FeaturedRaidCategory:
 # ---------------------------------------------------------------------------
 
 
-class ZoneCatalogue:
+class ZoneCatalogue(BaseCatalogue):
     """Read (and build) access to one zones.db file.
 
-    The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
+    The eq2db data-interface convention (see :class:`BaseCatalogue`):
     the DB path lives on the instance; the shared module-level ``catalogue``
     is the runtime entry point, and tests construct ``ZoneCatalogue(tmp_db)``.
 
@@ -1227,21 +1227,14 @@ class ZoneCatalogue:
     imports themselves.
     """
 
+    # ON DELETE CASCADE on the zone_types / zone_aliases child tables
+    # only fires with the per-connection FK pragma.
+    FOREIGN_KEYS = True
+
     def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = Path(path)
+        super().__init__(path)
 
-    def init_db(self) -> sqlite3.Connection:
-        """Create tables/indexes if missing. Returns an open connection.
-
-        Foreign keys are enabled per-connection so ON DELETE CASCADE on the
-        zone_types / zone_aliases child tables actually fires.
-        """
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous  = NORMAL;")
-        conn.execute("PRAGMA foreign_keys = ON;")
-        _meta_db.create_table(conn)
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["schema_zones"])
         conn.execute(_SQL["schema_zone_types"])
         conn.execute(_SQL["schema_zone_aliases"])
@@ -1284,8 +1277,6 @@ class ZoneCatalogue:
         # already-cleaned names).
         conn.execute(_SQL["normalise_paren_zone_to_alias"])
         conn.execute(_SQL["normalise_strip_paren_zone"])
-        conn.commit()
-        return conn
 
     # ── Build (scripts/build_zones_db.py) ────────────────────────────────────
 

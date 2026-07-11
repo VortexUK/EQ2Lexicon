@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from backend.db_helpers import resolve_db_path
+from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 _T = TypeVar("_T")
@@ -49,7 +50,7 @@ _ADVENTURE_ARCHETYPES: tuple[str, ...] = ("Fighter", "Priest", "Scout", "Mage")
 _CRAFTER_ARCHETYPE: str = "Crafter"
 
 
-class ClassCatalogue:
+class ClassCatalogue(BaseCatalogue):
     """Read access to one classes.db file, with per-instance caching.
 
     Class data is static per deploy — every read is cached forever on the
@@ -57,26 +58,18 @@ class ClassCatalogue:
     shared cached objects: treat them as read-only.
     """
 
+    # classes.db is committed pre-populated — no download provenance to
+    # track, so skip the shared _meta table.
+    CREATE_META = False
+
     def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = Path(path)
+        super().__init__(path)
         self._rows: list[dict] | None = None
         self._derived: dict[str, Any] = {}
 
-    def init_db(self) -> sqlite3.Connection:
-        """Create the classes table/indexes if missing. Returns an open
-        connection. Used by tests (``:memory:`` supported) and as a safety net;
-        production never needs it — classes.db is committed pre-populated."""
-        if str(self.path) == ":memory:":
-            conn = sqlite3.connect(":memory:")
-        else:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(self.path)
-            conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["schema_classes"])
         conn.executescript(_SQL["indexes_classes"])
-        conn.commit()
-        return conn
 
     def clear_caches(self) -> None:
         """Reset the per-instance caches — used by tests."""

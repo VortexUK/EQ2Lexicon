@@ -27,6 +27,7 @@ from typing import Any
 
 from backend.db_helpers import resolve_db_path
 from backend.eq2db import _meta as _meta_db
+from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 _log = logging.getLogger(__name__)
@@ -102,15 +103,17 @@ def detect_tree_type(tree_data: dict) -> str:
     return "unknown"
 
 
-class AACatalogue:
+class AACatalogue(BaseCatalogue):
     """Read (and build) access to one aas.db file, with per-instance caching.
 
     AA data is static per deploy, so every read is cached forever on the
     instance; ``clear_caches()`` resets (tests + the build script).
     """
 
+    FOREIGN_KEYS = True
+
     def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = Path(path)
+        super().__init__(path)
         self._tree_index: dict[int, dict[str, str]] | None = None
         self._trees: dict[int, dict | None] = {}
         self._node_costs: dict[int, dict[int, int]] = {}
@@ -120,23 +123,11 @@ class AACatalogue:
 
     # ── Connection helpers ───────────────────────────────────────────────────
 
-    def init_db(self) -> sqlite3.Connection:
-        """Create the aas tables if missing. Returns an open connection."""
-        if str(self.path) == ":memory:":
-            conn = sqlite3.connect(":memory:")
-        else:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(self.path)
-            conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.execute("PRAGMA foreign_keys = ON;")
-        _meta_db.create_table(conn)
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["schema_aa_trees"])
         conn.execute(_SQL["schema_aa_nodes"])
         conn.execute(_SQL["schema_aa_limits"])
         conn.executescript(_SQL["indexes_aas"])
-        conn.commit()
-        return conn
 
     def _query(self, name: str, params: tuple = (), *, row_factory: bool = False) -> list:
         """Run one read query; [] when the DB is missing or unbuilt."""
