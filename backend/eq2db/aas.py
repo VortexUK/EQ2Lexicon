@@ -153,6 +153,16 @@ class AACatalogue(BaseCatalogue):
         self._total_max_points.clear()
         self._limits.clear()
 
+    def _cache_info(self) -> dict[str, int]:
+        return {
+            "tree_index": len(self._tree_index or ()),
+            "trees": len(self._trees),
+            "node_costs": len(self._node_costs),
+            "max_points": len(self._max_points),
+            "total_max_points": len(self._total_max_points),
+            "limits": len(self._limits),
+        }
+
     # ── Runtime accessors ────────────────────────────────────────────────────
 
     def load_tree_index(self) -> dict[int, dict[str, str]]:
