@@ -6,6 +6,7 @@ import type { Claim } from '../hooks/useClaim'
 import ServerLaunchTimer from '../components/ServerLaunchTimer'
 import CharacterSummaryCard from '../components/CharacterSummaryCard'
 import FavoritesSection from '../components/FavoritesSection'
+import RaidAvailability from '../components/RaidAvailability'
 import { Card } from '../components/ui'
 // logo.webp lives in frontend/public/ → served at site root by Vite
 const logo = '/logo.webp'
@@ -218,6 +219,7 @@ export default function HomePage() {
 
       {/* Characters */}
       {auth.status === 'authenticated' && <MyCharacters />}
+      {auth.status === 'authenticated' && <RaidAvailability />}
 
       {/* Favourites — bookmarks, independent of claims; hidden when empty */}
       {auth.status === 'authenticated' && (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Button, Card, SectionLabel, Badge } from '../../components/ui'
+import { RaidPlanner } from './raidplanner/RaidPlanner'
 import { toErrorMessage } from '../../lib/errors'
 import {
   WEEKDAYS,
@@ -50,6 +51,7 @@ function viewerRange(startMin: number, endMin: number, teamTz: string): string {
 
 export function GuildRaidScheduleTab({ guildName, isOfficer }: { guildName: string; isOfficer: boolean }) {
   const [teams, setTeams] = useState<RaidTeam[] | null>(null)
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -64,11 +66,23 @@ export function GuildRaidScheduleTab({ guildName, isOfficer }: { guildName: stri
     fetch(`/api/guild/${encodeURIComponent(guildName)}/raid-schedule`, { credentials: 'include' })
       .then(async res => {
         if (!res.ok) { setError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`); return }
-        setTeams((await res.json()).teams as RaidTeam[])
+        const loaded = (await res.json()).teams as RaidTeam[]
+        setTeams(loaded)
+        // A single team starts expanded; multiple teams start collapsed so
+        // the tab stays scannable.
+        setExpanded(loaded.length === 1 ? new Set([0]) : new Set())
       })
       .catch(err => setError(toErrorMessage(err)))
       .finally(() => setLoading(false))
   }, [guildName])
+
+  const toggleExpand = (i: number) =>
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
 
   function startEdit() {
     setDraft((teams ?? []).map(toEdit))
@@ -133,35 +147,52 @@ export function GuildRaidScheduleTab({ guildName, isOfficer }: { guildName: stri
           <div className="flex flex-col gap-3">
             {teams.map((t, i) => (
               <Card key={i} className="p-3">
-                <div className="flex items-baseline gap-2 flex-wrap mb-1.5">
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(i)}
+                  className="appearance-none border-0 bg-transparent w-full flex items-baseline gap-2 flex-wrap cursor-pointer text-left"
+                >
+                  <span className="text-gold text-[0.8rem] leading-none self-center select-none">
+                    {expanded.has(i) ? '▾' : '▸'}
+                  </span>
                   <span className="font-heading text-gold text-[1.05rem]">{t.name}</span>
                   <span className="text-[0.72rem] text-text-muted">{t.primary_tz}</span>
                   {t.twitch_url && (
                     <a href={t.twitch_url} target="_blank" rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
                       className="text-[0.75rem] text-gold underline decoration-dotted ml-auto">Twitch ↗</a>
                   )}
-                </div>
-                {t.raids.length === 0 ? (
-                  <p className="text-text-muted text-[0.82rem]">No raids set.</p>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {t.raids.map((r, j) => (
-                      <div key={j} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.85rem]">
-                        <span className="flex gap-0.5">
-                          {WEEKDAYS.map(d => (
-                            <span key={d.n}
-                              className={`text-[0.62rem] px-1 py-0.5 rounded-sm ${r.days.includes(d.n) ? 'bg-gold/20 text-gold' : 'text-text-muted/40'}`}>
-                              {d.label}
+                </button>
+                {expanded.has(i) && (
+                  <div className="mt-1.5">
+                    {t.raids.length === 0 ? (
+                      <p className="text-text-muted text-[0.82rem]">No raids set.</p>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        {t.raids.map((r, j) => (
+                          <div key={j} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.85rem]">
+                            <span className="flex gap-0.5">
+                              {WEEKDAYS.map(d => (
+                                <span key={d.n}
+                                  className={`text-[0.62rem] px-1 py-0.5 rounded-sm ${r.days.includes(d.n) ? 'bg-gold/20 text-gold' : 'text-text-muted/40'}`}>
+                                  {d.label}
+                                </span>
+                              ))}
                             </span>
-                          ))}
-                        </span>
-                        <span className="text-text font-medium tabular-nums">
-                          {minutesToHHMM(r.start_min)}–{minutesToHHMM(r.end_min)}
-                        </span>
-                        <span className="text-text-muted text-[0.78rem]">({viewerRange(r.start_min, r.end_min, t.primary_tz)})</span>
-                        {r.label && <Badge variant="muted">{r.label}</Badge>}
+                            <span className="text-text font-medium tabular-nums">
+                              {minutesToHHMM(r.start_min)}–{minutesToHHMM(r.end_min)}
+                            </span>
+                            <span className="text-text-muted text-[0.78rem]">({viewerRange(r.start_min, r.end_min, t.primary_tz)})</span>
+                            {r.label && <Badge variant="muted">{r.label}</Badge>}
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
+                    <RaidPlanner
+                      guildName={guildName}
+                      teamIndex={i}
+                      raidDays={t.raids.map(r => r.days)}
+                    />
                   </div>
                 )}
               </Card>

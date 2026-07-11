@@ -21,8 +21,11 @@ function loadClasses(): Promise<ClassInfo[]> {
     _inflight = fetch('/api/classes', { credentials: 'include' })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`/api/classes ${r.status}`))))
       .then((data: ClassInfo[]) => {
-        _cache = data
-        return data
+        // Defensive: a misbehaving proxy/mock returning a non-array must not
+        // crash every consumer with `classes.map is not a function`.
+        const safe = Array.isArray(data) ? data : []
+        _cache = safe
+        return safe
       })
       .catch(() => {
         _inflight = null // allow a retry on the next mount

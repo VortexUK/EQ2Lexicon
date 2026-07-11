@@ -39,6 +39,17 @@ _FACADE_EXEMPT = {
     "get_schedule",
     "replace_schedule",
     "list_all_teams_with_twitch",
+    # raid_planning + availability domains bypass the facade too
+    "get_roles",
+    "set_role",
+    "get_placements",
+    "replace_placements",
+    "prune_placements_beyond",
+    "claims_map",
+    "roles_for_world",
+    "get_range",
+    "set_days",
+    "statuses_for_day",
     # base-class surface
     "clear_caches",
 }

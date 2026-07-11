@@ -69,6 +69,7 @@ from backend.server.api.item import router as item_router
 from backend.server.api.item_watch import router as item_watch_router
 from backend.server.api.notifications import router as notifications_router
 from backend.server.api.parses import router as parses_router
+from backend.server.api.raid_planning import router as raid_planning_router
 from backend.server.api.raid_schedule import router as raid_schedule_router
 from backend.server.api.raid_strategies import router as raid_strategies_router
 from backend.server.api.rankings import router as rankings_router
@@ -603,6 +604,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         guild_router,
         guild_officer_router,
         item_watch_router,
+        raid_planning_router,
         raid_schedule_router,
         favorites_router,
         characters_router,
