@@ -224,3 +224,56 @@ CREATE TABLE IF NOT EXISTS character_favorites (
 -- Serves the public favourited-by-N count on character pages. The per-user
 -- list query is covered by the UNIQUE index prefix (discord_id first).
 CREATE INDEX IF NOT EXISTS idx_favorites_character ON character_favorites(character_name, world);
+
+-- ── Raid planning ────────────────────────────────────────────────────────────
+-- Officer-curated raid rosters + per-team group layouts + per-user availability.
+-- All three are brand-new tables so CREATE TABLE IF NOT EXISTS needs no
+-- migration. Names are stored as they appear in the Census roster; lookups
+-- lower-case both sides at the query layer.
+
+-- Which guild characters are on the raid roster and in what capacity.
+-- Guild-scoped (not team-scoped): a character is a raider for the guild and
+-- may then be placed into any team's layout.
+CREATE TABLE IF NOT EXISTS raid_roster_roles (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    world           TEXT    NOT NULL,
+    guild_name      TEXT    NOT NULL,
+    character_name  TEXT    NOT NULL,
+    role            TEXT    NOT NULL,             -- raider or raid_alt
+    updated_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    updated_by      TEXT,                         -- discord id of the officer
+    UNIQUE(world, guild_name, character_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_raid_roles_guild ON raid_roster_roles(world, guild_name);
+
+-- Where each rostered character sits in a team's 4x6 layout. Keyed by
+-- team_index (position in the guild's raid_teams list) rather than team id:
+-- replace_schedule regenerates team rows so ids are not stable across
+-- schedule edits. Placements for team indexes beyond the current team count
+-- are pruned when the schedule is saved.
+CREATE TABLE IF NOT EXISTS raid_placements (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    world           TEXT    NOT NULL,
+    guild_name      TEXT    NOT NULL,
+    team_index      INTEGER NOT NULL,             -- 0..3
+    character_name  TEXT    NOT NULL,
+    group_num       INTEGER,                      -- 1..4 and NULL when benched or sat out
+    slot            INTEGER,                      -- 0..5 within the group
+    sitout          INTEGER NOT NULL DEFAULT 0,   -- 1 = parked on the sitout strip
+    updated_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    updated_by      TEXT,
+    UNIQUE(world, guild_name, team_index, character_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_raid_place_team ON raid_placements(world, guild_name, team_index);
+
+-- Per-user raid availability calendar. Only non-default days are stored —
+-- an absent row means Available. Global per user (not per guild or world):
+-- a player is AFK on a date regardless of which character they bring.
+CREATE TABLE IF NOT EXISTS user_availability (
+    discord_id  TEXT NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
+    day         TEXT NOT NULL,                    -- ISO date YYYY-MM-DD
+    status      TEXT NOT NULL,                    -- tentative or afk
+    PRIMARY KEY (discord_id, day)
+);

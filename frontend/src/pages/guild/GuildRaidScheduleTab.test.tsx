@@ -6,7 +6,15 @@ import { GuildRaidScheduleTab } from './GuildRaidScheduleTab'
 function mockFetch(teams: unknown[]) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ teams }) })) as unknown as typeof fetch,
+    vi.fn(async (url: string) => {
+      if (String(url).includes('/api/classes')) {
+        return { ok: true, status: 200, json: async () => [] }
+      }
+      if (String(url).includes('/raid-planning/')) {
+        return { ok: false, status: 403, json: async () => ({ detail: 'members only' }) }
+      }
+      return { ok: true, status: 200, json: async () => ({ teams }) }
+    }) as unknown as typeof fetch,
   )
 }
 

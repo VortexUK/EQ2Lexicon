@@ -233,5 +233,10 @@ async def put_raid_schedule(guild_name: str, body: RaidScheduleInput, request: R
 
     world = current_world()
     await raid_schedule_db.replace_schedule(world, guild_name, db_teams, updated_by=user["id"])
+    # Raid-planning layouts are keyed by team_index; drop layouts for team
+    # indexes that no longer exist after this save.
+    from backend.server.db.raid_planning import store as raid_planning_db
+
+    await raid_planning_db.prune_placements_beyond(world, guild_name, len(db_teams))
     audit_log("raid_schedule_updated", actor=user["id"], guild=guild_name, teams=len(db_teams))
     return _fmt_schedule(await raid_schedule_db.get_schedule(world, guild_name))

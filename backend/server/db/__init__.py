@@ -59,9 +59,11 @@ def init_db(path: Path | None = None) -> None:
 # re-points one attribute per store and every alias follows.
 # ---------------------------------------------------------------------------
 
+from backend.server.db.availability import store as availability_store  # noqa: E402
 from backend.server.db.claims import store as claims_store  # noqa: E402
 from backend.server.db.favorites import store as favorites_store  # noqa: E402
 from backend.server.db.item_watch import store as item_watch_store  # noqa: E402
+from backend.server.db.raid_planning import store as raid_planning_store  # noqa: E402
 from backend.server.db.raid_schedule import store as raid_schedule_store  # noqa: E402
 from backend.server.db.servers import store as servers_store  # noqa: E402
 from backend.server.db.tokens import store as tokens_store  # noqa: E402
@@ -121,9 +123,11 @@ withdraw_role_request = users_store.withdraw_role_request
 #: Every domain store over users.db — conftest re-points `store.path` on
 #: each after re-resolving DB_PATH from the env.
 ALL_STORES = (
+    availability_store,
     claims_store,
     favorites_store,
     item_watch_store,
+    raid_planning_store,
     raid_schedule_store,
     servers_store,
     tokens_store,
