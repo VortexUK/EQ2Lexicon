@@ -15,7 +15,7 @@ from typing import Literal
 
 from fastapi import HTTPException, Request
 
-from backend.eq2db import zones as zones_db
+from backend.eq2db.zones import catalogue as zones_db
 from backend.server import db as users_db
 from backend.server.api.parses import router  # the package-level router
 from backend.server.api.parses.models import (

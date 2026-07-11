@@ -130,7 +130,7 @@ def _resolve_seed_targets() -> list[tuple[str, dict, tuple[int, int]]]:
     out: list[tuple[str, dict, tuple[int, int]]] = []
     for entry in SEED_PLAN:
         zone_name = entry["zone"]
-        bosses = zones_db.list_bosses_for_zone(zone_name)
+        bosses = zones_db.catalogue.list_bosses_for_zone(zone_name)
         if not bosses:
             print(f"  [warn] zone not in curated roster, skipping: {zone_name}")
             continue

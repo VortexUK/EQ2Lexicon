@@ -400,7 +400,7 @@ async def test_get_expansions_returns_list(app):
     mock_list = MagicMock(return_value=[])
     with (
         patch("backend.server.api.admin._require_admin", _fake_admin),
-        patch("backend.eq2db.zones.list_expansions", mock_list),
+        patch("backend.eq2db.zones.catalogue.list_expansions", mock_list),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/admin/expansions")
@@ -419,7 +419,7 @@ async def test_get_expansions_returns_expansion_data_when_zones_db_available(app
     mock_list = MagicMock(return_value=expansions)
     with (
         patch("backend.server.api.admin._require_admin", _fake_admin),
-        patch("backend.eq2db.zones.list_expansions", mock_list),
+        patch("backend.eq2db.zones.catalogue.list_expansions", mock_list),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/admin/expansions")

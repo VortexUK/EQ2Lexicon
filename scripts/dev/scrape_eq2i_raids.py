@@ -467,7 +467,7 @@ def _list_in_scope_raid_zones() -> list[str]:
     """
     names: list[str] = []
     for exp in IN_SCOPE_EXPANSIONS:
-        for z in zones_db.list_by_expansion(exp):
+        for z in zones_db.catalogue.list_by_expansion(exp):
             if z["is_deprecated"]:
                 continue
             if any(t in RAID_TYPE_TOKENS for t in z["types"]):

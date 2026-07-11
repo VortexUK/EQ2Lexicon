@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from backend.census.constants import FIGHTERS, MAGES, PRIESTS, SCOUTS
-from backend.eq2db import zones as zones_db
+from backend.eq2db.zones import catalogue as zones_db
 from backend.server.api.parses.list import _PLAYER_COUNT_SQL, _group_into_fights
 from backend.server.auth_deps import require_user_session as _require_user
 from backend.server.cache import TTLCache
@@ -306,7 +306,7 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
     assertion is ever loosened, swap this for an mtime-based reload (compare
     ``zones.db.stat().st_mtime`` against the cached value on each call) or
     move invalidation to a Redis-backed fan-out."""
-    path = zones_db.DB_PATH
+    path = zones_db.path
     if not path.exists():
         return {}, [], []
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)

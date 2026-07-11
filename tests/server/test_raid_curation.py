@@ -246,7 +246,7 @@ def _seed_zones(db_path):
     """Insert a representative set of zones into a fresh zones.db."""
     from backend.eq2db import zones as zdb
 
-    conn = zdb.init_db(db_path)
+    conn = zdb.ZoneCatalogue(db_path).init_db()
     try:
         # RoK raid + RoK non-raid + EoF raid (raid_x2) + TSO raid.
         conn.executemany(
@@ -279,28 +279,28 @@ def test_add_then_list_then_remove_expansion_roundtrip(tmp_path):
     _seed_zones(db)
 
     # Initially nothing featured.
-    assert zdb.list_featured_raid_expansions(db) == []
-    assert {e["short"] for e in zdb.list_available_raid_expansions(db)} == {"RoK", "EoF", "TSO"}
+    assert zdb.ZoneCatalogue(db).list_featured_raid_expansions() == []
+    assert {e["short"] for e in zdb.ZoneCatalogue(db).list_available_raid_expansions()} == {"RoK", "EoF", "TSO"}
 
     # Add TSO as a featured (empty) expansion.
-    assert zdb.add_featured_raid_expansion("TSO", db) is True
-    featured = zdb.list_featured_raid_expansions(db)
+    assert zdb.ZoneCatalogue(db).add_featured_raid_expansion("TSO") is True
+    featured = zdb.ZoneCatalogue(db).list_featured_raid_expansions()
     assert [e["short"] for e in featured] == ["TSO"]
     # No longer in available.
-    assert "TSO" not in {e["short"] for e in zdb.list_available_raid_expansions(db)}
+    assert "TSO" not in {e["short"] for e in zdb.ZoneCatalogue(db).list_available_raid_expansions()}
 
     # Idempotent re-add returns True (already present is OK).
-    assert zdb.add_featured_raid_expansion("TSO", db) is True
+    assert zdb.ZoneCatalogue(db).add_featured_raid_expansion("TSO") is True
 
     # Unknown expansion returns False.
-    assert zdb.add_featured_raid_expansion("NOPE", db) is False
+    assert zdb.ZoneCatalogue(db).add_featured_raid_expansion("NOPE") is False
 
     # Remove brings it back to available.
-    assert zdb.remove_featured_raid_expansion("TSO", db) is True
-    assert "TSO" in {e["short"] for e in zdb.list_available_raid_expansions(db)}
+    assert zdb.ZoneCatalogue(db).remove_featured_raid_expansion("TSO") is True
+    assert "TSO" in {e["short"] for e in zdb.ZoneCatalogue(db).list_available_raid_expansions()}
 
     # Idempotent re-remove returns False (nothing to delete).
-    assert zdb.remove_featured_raid_expansion("TSO", db) is False
+    assert zdb.ZoneCatalogue(db).remove_featured_raid_expansion("TSO") is False
 
 
 def test_add_zone_validates_raid_type(tmp_path):
@@ -311,19 +311,19 @@ def test_add_zone_validates_raid_type(tmp_path):
     _seed_zones(db)
 
     # raid_x4 → OK
-    z = zdb.add_featured_raid_zone("Veeshan's Peak", db)
+    z = zdb.ZoneCatalogue(db).add_featured_raid_zone("Veeshan's Peak")
     assert z is not None
     assert z["name"] == "Veeshan's Peak"
 
     # raid_x2 → OK
-    z2 = zdb.add_featured_raid_zone("Mistmoore Catacombs", db)
+    z2 = zdb.ZoneCatalogue(db).add_featured_raid_zone("Mistmoore Catacombs")
     assert z2 is not None
 
     # Non-raid zone (Karnor's Castle has no type tags) → None
-    assert zdb.add_featured_raid_zone("Karnor's Castle", db) is None
+    assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Karnor's Castle") is None
 
     # Unknown zone → None
-    assert zdb.add_featured_raid_zone("Imaginary", db) is None
+    assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Imaginary") is None
 
 
 def test_featured_zones_imply_expansion_in_list(tmp_path):
@@ -336,14 +336,14 @@ def test_featured_zones_imply_expansion_in_list(tmp_path):
     _seed_zones(db)
 
     # No featured_raid_expansions rows, but feature a RoK raid zone.
-    assert zdb.add_featured_raid_zone("Veeshan's Peak", db) is not None
+    assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Veeshan's Peak") is not None
 
-    expansions = zdb.list_featured_raid_expansions(db)
+    expansions = zdb.ZoneCatalogue(db).list_featured_raid_expansions()
     shorts = [e["short"] for e in expansions]
     assert "RoK" in shorts
 
     # And RoK no longer appears in the "available" list (it's implicitly featured).
-    available = {e["short"] for e in zdb.list_available_raid_expansions(db)}
+    available = {e["short"] for e in zdb.ZoneCatalogue(db).list_available_raid_expansions()}
     assert "RoK" not in available
 
 
@@ -367,13 +367,13 @@ def test_remove_expansion_cascades_to_featured_zones(tmp_path):
         conn.commit()
 
     # Feature the expansion + zone.
-    assert zdb.add_featured_raid_expansion("RoK", db) is True
-    assert zdb.add_featured_raid_zone("Veeshan's Peak", db) is not None
-    assert len(zdb.list_featured_raid_zones("RoK", db)) == 1
+    assert zdb.ZoneCatalogue(db).add_featured_raid_expansion("RoK") is True
+    assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Veeshan's Peak") is not None
+    assert len(zdb.ZoneCatalogue(db).list_featured_raid_zones("RoK")) == 1
 
     # Remove the expansion → zone disappears from the featured list.
-    assert zdb.remove_featured_raid_expansion("RoK", db) is True
-    assert zdb.list_featured_raid_zones("RoK", db) == []
+    assert zdb.ZoneCatalogue(db).remove_featured_raid_expansion("RoK") is True
+    assert zdb.ZoneCatalogue(db).list_featured_raid_zones("RoK") == []
 
     # But the underlying zone_encounters / mobs row is preserved.
     with sqlite3.connect(db) as conn:
@@ -390,12 +390,12 @@ def test_available_zones_excludes_featured(tmp_path):
     db = tmp_path / "zones.db"
     _seed_zones(db)
 
-    before = {z["name"] for z in zdb.list_available_raid_zones("RoK", db)}
+    before = {z["name"] for z in zdb.ZoneCatalogue(db).list_available_raid_zones("RoK")}
     assert "Veeshan's Peak" in before
     assert "Karnor's Castle" not in before  # not raid-tagged
 
-    assert zdb.add_featured_raid_zone("Veeshan's Peak", db) is not None
-    after = {z["name"] for z in zdb.list_available_raid_zones("RoK", db)}
+    assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Veeshan's Peak") is not None
+    after = {z["name"] for z in zdb.ZoneCatalogue(db).list_available_raid_zones("RoK")}
     assert "Veeshan's Peak" not in after
 
 
@@ -419,8 +419,8 @@ def test_remove_zone_preserves_encounters(tmp_path):
         )
         conn.commit()
 
-    assert zdb.add_featured_raid_zone("Veeshan's Peak", db) is not None
-    assert zdb.remove_featured_raid_zone("Veeshan's Peak", db) is True
+    assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Veeshan's Peak") is not None
+    assert zdb.ZoneCatalogue(db).remove_featured_raid_zone("Veeshan's Peak") is True
 
     with sqlite3.connect(db) as conn:
         n = conn.execute("SELECT COUNT(*) FROM zone_encounters WHERE id = 11").fetchone()[0]
@@ -438,7 +438,7 @@ def _seed_multi_raid_expansion(db_path):
 
     _seed_zones(db_path)
     # Add three more RoK raid_x4 zones so we have 4 to permute.
-    conn = zdb.init_db(db_path)
+    conn = zdb.ZoneCatalogue(db_path).init_db()
     try:
         conn.executemany(
             "INSERT INTO zones (id, name, name_lower, expansion_short, expansion_name, "
@@ -458,7 +458,7 @@ def _seed_multi_raid_expansion(db_path):
         conn.close()
     # Feature all four (each lands at next position in the NULL lane).
     for n in ("Veeshan's Peak", "Trakanon's Lair", "Chardok: The Bloodied Halls", "Sebilis"):
-        assert zdb.add_featured_raid_zone(n, db_path) is not None
+        assert zdb.ZoneCatalogue(db_path).add_featured_raid_zone(n) is not None
 
 
 def test_add_featured_raid_zone_assigns_increasing_positions_in_null_lane(tmp_path):
@@ -467,7 +467,7 @@ def test_add_featured_raid_zone_assigns_increasing_positions_in_null_lane(tmp_pa
 
     db = tmp_path / "zones.db"
     _seed_multi_raid_expansion(db)
-    rows = zdb.list_featured_raid_zones("RoK", db)
+    rows = zdb.ZoneCatalogue(db).list_featured_raid_zones("RoK")
     positions = [(r["name"], r["position"], r["category"]) for r in rows]
     # Sorted by (category, position) so NULL-category goes first in insertion order.
     assert positions == [
@@ -487,7 +487,7 @@ def test_list_featured_raid_zones_sorted_by_category_then_position(tmp_path):
     _seed_multi_raid_expansion(db)
 
     # Put VP + Chardok in "Wing A" (positions 0, 1), leave the rest NULL.
-    ok = zdb.reorder_featured_raid_zones(
+    ok = zdb.ZoneCatalogue(db).reorder_featured_raid_zones(
         "RoK",
         [
             {"name": "Trakanon's Lair", "category": None, "position": 0},
@@ -495,10 +495,9 @@ def test_list_featured_raid_zones_sorted_by_category_then_position(tmp_path):
             {"name": "Veeshan's Peak", "category": "Wing A", "position": 0},
             {"name": "Chardok: The Bloodied Halls", "category": "Wing A", "position": 1},
         ],
-        db,
     )
     assert ok is True
-    rows = zdb.list_featured_raid_zones("RoK", db)
+    rows = zdb.ZoneCatalogue(db).list_featured_raid_zones("RoK")
     seq = [(r["name"], r["category"], r["position"]) for r in rows]
     # NULL first (positions 0,1) then "Wing A" (positions 0,1).
     assert seq == [
@@ -516,9 +515,9 @@ def test_reorder_zones_autocreates_missing_categories(tmp_path):
 
     db = tmp_path / "zones.db"
     _seed_multi_raid_expansion(db)
-    assert zdb.list_featured_raid_categories("RoK", db) == []
+    assert zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK") == []
 
-    ok = zdb.reorder_featured_raid_zones(
+    ok = zdb.ZoneCatalogue(db).reorder_featured_raid_zones(
         "RoK",
         [
             {"name": "Veeshan's Peak", "category": "Wing A", "position": 0},
@@ -526,10 +525,9 @@ def test_reorder_zones_autocreates_missing_categories(tmp_path):
             {"name": "Chardok: The Bloodied Halls", "category": None, "position": 0},
             {"name": "Sebilis", "category": None, "position": 1},
         ],
-        db,
     )
     assert ok is True
-    cats = zdb.list_featured_raid_categories("RoK", db)
+    cats = zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK")
     names = sorted(c["name"] for c in cats)
     assert names == ["Wing A", "Wing B"]
     # Each has a distinct position (auto-create assigns MAX+1).
@@ -545,10 +543,9 @@ def test_reorder_zones_returns_false_for_unfeatured_zone(tmp_path):
     db = tmp_path / "zones.db"
     _seed_multi_raid_expansion(db)
 
-    ok = zdb.reorder_featured_raid_zones(
+    ok = zdb.ZoneCatalogue(db).reorder_featured_raid_zones(
         "RoK",
         [{"name": "Imaginary Zone", "category": None, "position": 0}],
-        db,
     )
     assert ok is False
 
@@ -562,7 +559,7 @@ def test_reorder_categories_atomic_two_phase(tmp_path):
     _seed_multi_raid_expansion(db)
 
     # Create three categories at positions 0, 1, 2.
-    zdb.reorder_featured_raid_zones(
+    zdb.ZoneCatalogue(db).reorder_featured_raid_zones(
         "RoK",
         [
             {"name": "Veeshan's Peak", "category": "A", "position": 0},
@@ -570,23 +567,21 @@ def test_reorder_categories_atomic_two_phase(tmp_path):
             {"name": "Chardok: The Bloodied Halls", "category": "C", "position": 0},
             {"name": "Sebilis", "category": None, "position": 0},
         ],
-        db,
     )
-    cats_before = {c["name"]: c["position"] for c in zdb.list_featured_raid_categories("RoK", db)}
+    cats_before = {c["name"]: c["position"] for c in zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK")}
     assert len(cats_before) == 3
 
     # Reverse the order: C → 0, B → 1, A → 2.
-    ok = zdb.reorder_featured_raid_categories(
+    ok = zdb.ZoneCatalogue(db).reorder_featured_raid_categories(
         "RoK",
         [
             {"name": "C", "position": 0},
             {"name": "B", "position": 1},
             {"name": "A", "position": 2},
         ],
-        db,
     )
     assert ok is True
-    cats_after = sorted(zdb.list_featured_raid_categories("RoK", db), key=lambda r: r["position"])
+    cats_after = sorted(zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK"), key=lambda r: r["position"])
     assert [c["name"] for c in cats_after] == ["C", "B", "A"]
 
 
@@ -595,10 +590,9 @@ def test_reorder_categories_returns_false_for_missing_category(tmp_path):
 
     db = tmp_path / "zones.db"
     _seed_multi_raid_expansion(db)
-    ok = zdb.reorder_featured_raid_categories(
+    ok = zdb.ZoneCatalogue(db).reorder_featured_raid_categories(
         "RoK",
         [{"name": "DoesNotExist", "position": 0}],
-        db,
     )
     assert ok is False
 
@@ -852,19 +846,19 @@ def test_create_featured_raid_category_roundtrip(tmp_path):
 
     db = tmp_path / "zones.db"
     _seed_zones(db)
-    assert zdb.add_featured_raid_expansion("RoK", db) is True
+    assert zdb.ZoneCatalogue(db).add_featured_raid_expansion("RoK") is True
 
     # Create a new category.
-    assert zdb.create_featured_raid_category("RoK", "Tier 1", db) is True
-    cats = zdb.list_featured_raid_categories("RoK", db)
+    assert zdb.ZoneCatalogue(db).create_featured_raid_category("RoK", "Tier 1") is True
+    cats = zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK")
     assert any(c["name"] == "Tier 1" for c in cats)
 
     # Duplicate returns False.
-    assert zdb.create_featured_raid_category("RoK", "Tier 1", db) is False
+    assert zdb.ZoneCatalogue(db).create_featured_raid_category("RoK", "Tier 1") is False
 
     # Second category gets MAX+1 position.
-    assert zdb.create_featured_raid_category("RoK", "Tier 2", db) is True
-    cats2 = zdb.list_featured_raid_categories("RoK", db)
+    assert zdb.ZoneCatalogue(db).create_featured_raid_category("RoK", "Tier 2") is True
+    cats2 = zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK")
     tier1_pos = next(c["position"] for c in cats2 if c["name"] == "Tier 1")
     tier2_pos = next(c["position"] for c in cats2 if c["name"] == "Tier 2")
     assert tier2_pos > tier1_pos
@@ -877,7 +871,7 @@ def test_delete_featured_raid_category_moves_zones_to_null(tmp_path):
     _seed_multi_raid_expansion(db)
 
     # Put VP in "Wing A".
-    zdb.reorder_featured_raid_zones(
+    zdb.ZoneCatalogue(db).reorder_featured_raid_zones(
         "RoK",
         [
             {"name": "Veeshan's Peak", "category": "Wing A", "position": 0},
@@ -885,21 +879,20 @@ def test_delete_featured_raid_category_moves_zones_to_null(tmp_path):
             {"name": "Chardok: The Bloodied Halls", "category": None, "position": 1},
             {"name": "Sebilis", "category": None, "position": 2},
         ],
-        db,
     )
-    assert any(c["name"] == "Wing A" for c in zdb.list_featured_raid_categories("RoK", db))
+    assert any(c["name"] == "Wing A" for c in zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK"))
 
     # Delete the category.
-    assert zdb.delete_featured_raid_category("RoK", "Wing A", db) is True
+    assert zdb.ZoneCatalogue(db).delete_featured_raid_category("RoK", "Wing A") is True
     # Category row is gone.
-    assert not any(c["name"] == "Wing A" for c in zdb.list_featured_raid_categories("RoK", db))
+    assert not any(c["name"] == "Wing A" for c in zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK"))
     # VP is now in the NULL lane.
-    rows = zdb.list_featured_raid_zones("RoK", db)
+    rows = zdb.ZoneCatalogue(db).list_featured_raid_zones("RoK")
     vp = next(r for r in rows if r["name"] == "Veeshan's Peak")
     assert vp["category"] is None
 
     # Idempotent re-delete returns False.
-    assert zdb.delete_featured_raid_category("RoK", "Wing A", db) is False
+    assert zdb.ZoneCatalogue(db).delete_featured_raid_category("RoK", "Wing A") is False
 
 
 def test_delete_featured_raid_category_nonexistent_returns_false(tmp_path):
@@ -907,5 +900,5 @@ def test_delete_featured_raid_category_nonexistent_returns_false(tmp_path):
 
     db = tmp_path / "zones.db"
     _seed_zones(db)
-    zdb.init_db(db)
-    assert zdb.delete_featured_raid_category("RoK", "DoesNotExist", db) is False
+    zdb.ZoneCatalogue(db).init_db()
+    assert zdb.ZoneCatalogue(db).delete_featured_raid_category("RoK", "DoesNotExist") is False

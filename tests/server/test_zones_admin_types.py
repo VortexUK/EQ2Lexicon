@@ -252,7 +252,7 @@ def test_add_then_remove_roundtrip_via_real_helpers(tmp_path):
     from backend.eq2db import zones as zones_db
 
     db_path = tmp_path / "zones.db"
-    conn = zones_db.init_db(db_path)
+    conn = zones_db.ZoneCatalogue(db_path).init_db()
     try:
         conn.execute(
             "INSERT INTO zones (id, name, name_lower, expansion_short, expansion_name, "
@@ -264,27 +264,27 @@ def test_add_then_remove_roundtrip_via_real_helpers(tmp_path):
         conn.close()
 
     # Add
-    r1 = zones_db.add_zone_type("Crushbone Keep", "dungeon", path=db_path)
+    r1 = zones_db.ZoneCatalogue(db_path).add_zone_type("Crushbone Keep", "dungeon")
     assert r1 is not None
     assert "dungeon" in r1["types"]
 
     # Idempotent re-add — no duplicate rows.
-    r2 = zones_db.add_zone_type("Crushbone Keep", "dungeon", path=db_path)
+    r2 = zones_db.ZoneCatalogue(db_path).add_zone_type("Crushbone Keep", "dungeon")
     assert r2 is not None
     assert r2["types"].count("dungeon") == 1
 
     # Unknown zone → None (route layer turns this into a 404).
-    assert zones_db.add_zone_type("Imaginary Zone", "dungeon", path=db_path) is None
+    assert zones_db.ZoneCatalogue(db_path).add_zone_type("Imaginary Zone", "dungeon") is None
 
     # Remove
-    r3 = zones_db.remove_zone_type("Crushbone Keep", "dungeon", path=db_path)
+    r3 = zones_db.ZoneCatalogue(db_path).remove_zone_type("Crushbone Keep", "dungeon")
     assert r3 is not None
     assert "dungeon" not in r3["types"]
 
     # Idempotent re-remove (no-op).
-    r4 = zones_db.remove_zone_type("Crushbone Keep", "dungeon", path=db_path)
+    r4 = zones_db.ZoneCatalogue(db_path).remove_zone_type("Crushbone Keep", "dungeon")
     assert r4 is not None
     assert "dungeon" not in r4["types"]
 
     # Unknown zone → None
-    assert zones_db.remove_zone_type("Imaginary Zone", "dungeon", path=db_path) is None
+    assert zones_db.ZoneCatalogue(db_path).remove_zone_type("Imaginary Zone", "dungeon") is None
