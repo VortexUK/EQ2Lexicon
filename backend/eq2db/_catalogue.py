@@ -44,9 +44,19 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar
 
+from backend.db_helpers import like_escape
 from backend.eq2db import _meta as _meta_db
 
 _log = logging.getLogger(__name__)
+
+
+def _is_unbuilt_schema(exc: sqlite3.OperationalError) -> bool:
+    """True for the "DB file exists but the schema hasn't been created yet"
+    class of errors the read helpers degrade gracefully on (fresh volume,
+    pre-seeded stub file). Anything else — locked database, disk I/O, SQL
+    syntax — is a real fault and must propagate."""
+    msg = str(exc)
+    return "no such table" in msg or "no such column" in msg
 
 
 class BaseCatalogue:
@@ -138,31 +148,59 @@ class BaseCatalogue:
         """Run one read query with Row factory; the connection is opened and
         closed per call. Returns [] when the DB file is missing or the table
         isn't built yet — eq2db read paths degrade gracefully on an
-        unprovisioned DB rather than 500."""
+        unprovisioned DB rather than 500. Other OperationalErrors (locked DB,
+        disk I/O) propagate: a transient failure must surface as an error,
+        not be served — and possibly cached — as an empty result."""
         if not self.path.exists():
             return []
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         try:
             return conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError:
-            _log.exception("[eq2db] read failed on %r (unbuilt db?)", self)
+        except sqlite3.OperationalError as exc:
+            if not _is_unbuilt_schema(exc):
+                raise
+            _log.warning("[eq2db] read on unbuilt db %r: %s", self, exc)
             return []
         finally:
             conn.close()
 
     def _fetchone(self, sql: str, params: Sequence | Mapping = ()) -> sqlite3.Row | None:
         """Single-row variant of :meth:`_fetchall`. None on missing DB,
-        unbuilt table, or no match."""
+        unbuilt table, or no match; other OperationalErrors propagate."""
         if not self.path.exists():
             return None
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         try:
             return conn.execute(sql, params).fetchone()
-        except sqlite3.OperationalError:
-            _log.exception("[eq2db] read failed on %r (unbuilt db?)", self)
+        except sqlite3.OperationalError as exc:
+            if not _is_unbuilt_schema(exc):
+                raise
+            _log.warning("[eq2db] read on unbuilt db %r: %s", self, exc)
             return None
+        finally:
+            conn.close()
+
+    def _find_exact_then_like(self, exact_sql: str, like_sql: str, name: str) -> list[sqlite3.Row]:
+        """The shared name-search protocol: exact lowercased match first, then
+        a LIKE fallback with user wildcards escaped (BE-006) — both queries on
+        ONE connection. ``exact_sql`` takes the lowercased name; ``like_sql``
+        takes the escaped %-wrapped pattern with ``ESCAPE '\\'`` semantics."""
+        if not self.path.exists():
+            return []
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(exact_sql, (name.lower(),)).fetchall()
+            if not rows:
+                rows = conn.execute(like_sql, (f"%{like_escape(name.lower())}%",)).fetchall()
+            return rows
+        except sqlite3.OperationalError as exc:
+            if not _is_unbuilt_schema(exc):
+                raise
+            _log.warning("[eq2db] read on unbuilt db %r: %s", self, exc)
+            return []
         finally:
             conn.close()
 
@@ -173,16 +211,16 @@ class BaseCatalogue:
 
         Template method: the connection preamble and commit live here;
         the module-specific schema comes from ``_create_schema`` and any
-        post-commit backfills from ``_post_init``. ``:memory:`` is
-        supported for tests (skips mkdir + WAL).
+        post-commit backfills from ``_post_init``.
+
+        ``:memory:`` is deliberately NOT supported: every read helper opens
+        its own connection against ``self.path``, so a memory DB would be a
+        fresh empty database per read — tests use a tmp_path file instead.
         """
         _log.debug("[eq2db] init_db %r", self)
-        if str(self.path) == ":memory:":
-            conn = sqlite3.connect(":memory:")
-        else:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(self.path)
-            conn.execute("PRAGMA journal_mode = WAL;")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.path)
+        conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         if self.FOREIGN_KEYS:
             conn.execute("PRAGMA foreign_keys = ON;")

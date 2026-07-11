@@ -22,6 +22,8 @@ from typing import Any, NamedTuple
 
 import aiosqlite
 
+from backend.census._coerce import coerce_int as _coerce_int
+from backend.census._coerce import coerce_str_or_none as _coerce_str
 from backend.census.item_level import compute_ilvl
 from backend.db_helpers import like_escape, resolve_db_path
 from backend.eq2db._catalogue import BaseCatalogue
@@ -135,30 +137,18 @@ def _flag(flags: dict, key: str) -> int:
 
 
 def _str_field(item: dict, key: str) -> str | None:
-    v = item.get(key)
-    if v is None or isinstance(v, dict):
-        return None
-    s = str(v).strip()
-    return s if s else None
+    """Stripped string or None — shared Census coercion semantics
+    (backend.census._coerce), applied to a dict field."""
+    return _coerce_str(item.get(key))
 
 
 def _int_field(v: Any) -> int | None:
-    if v is None:
-        return None
-    try:
-        return int(v) or None  # treat 0 as NULL for quest IDs etc.
-    except (ValueError, TypeError):
-        return None
+    """coerce_int with 0 treated as NULL (quest IDs etc.)."""
+    return _coerce_int(v) or None
 
 
-def _int_field_zero(v: Any) -> int | None:
-    """Like _int_field but keeps 0."""
-    if v is None:
-        return None
-    try:
-        return int(v)
-    except (ValueError, TypeError):
-        return None
+# Keeps 0 — exactly the shared coercer.
+_int_field_zero = _coerce_int
 
 
 class GearRow(NamedTuple):
@@ -505,7 +495,7 @@ class ItemCatalogue(BaseCatalogue):
             try:
                 raw = json.loads(raw_json_str)
             except Exception as exc:
-                _log.warning("[db] Failed to parse effect_stats JSON for item_id=%s: %s", item_id, exc)
+                _log.warning("[items-db] Failed to parse effect_stats JSON for item_id=%s: %s", item_id, exc)
                 continue
             for stat_name, value in ItemCatalogue.extract_effect_stats(raw).items():
                 stat_rows.append((item_id, stat_name, value))

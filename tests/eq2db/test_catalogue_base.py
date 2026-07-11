@@ -149,6 +149,30 @@ class TestContextManager:
 
 
 # ---------------------------------------------------------------------------
+# _fetchall / _fetchone error handling
+# ---------------------------------------------------------------------------
+
+
+class TestReadHelperErrors:
+    def test_unbuilt_schema_degrades_to_empty(self, tmp_path: Path):
+        """File exists but tables don't (fresh volume / stub) -> [] not raise."""
+        db = tmp_path / "stub.db"
+        sqlite3.connect(db).close()  # zero-byte real file, no schema
+        cat = RaidCatalogue(db)
+        assert cat._fetchall("SELECT * FROM raid_zones") == []
+        assert cat._fetchone("SELECT * FROM raid_zones") is None
+
+    def test_other_operational_errors_propagate(self, tmp_path: Path):
+        """Non-schema faults (here: SQL syntax) must NOT be swallowed as empty."""
+        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat.init_db().close()
+        with pytest.raises(sqlite3.OperationalError):
+            cat._fetchall("SELEKT broken")
+        with pytest.raises(sqlite3.OperationalError):
+            cat._fetchone("SELEKT broken")
+
+
+# ---------------------------------------------------------------------------
 # __init_subclass__
 # ---------------------------------------------------------------------------
 

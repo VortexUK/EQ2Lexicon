@@ -34,7 +34,7 @@ from typing import TypedDict
 from backend.census._coerce import coerce_float as _float
 from backend.census._coerce import coerce_int as _int
 from backend.census._coerce import coerce_str_or_none as _str
-from backend.db_helpers import like_escape, resolve_db_path
+from backend.db_helpers import resolve_db_path
 from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
@@ -162,6 +162,11 @@ class SpellCatalogue(BaseCatalogue):
     changed; stale CRC lookups would lie).
     """
 
+    # Cache bound — parity with the pre-catalogue @lru_cache(maxsize=4096).
+    # The route feeding this (GET /aa/spell/{crc}?tier=N) takes arbitrary
+    # client ints, so an unbounded dict would grow until process restart.
+    _CRC_CACHE_MAX = 4096
+
     def __init__(self, path: Path = DB_PATH) -> None:
         super().__init__(path)
         self._crc_cache: dict[tuple[int, int | None], SpellRow | None] = {}
@@ -252,7 +257,7 @@ class SpellCatalogue(BaseCatalogue):
 
             return Blocklist(frozenset(exact), patterns)
         except Exception as exc:
-            _log.warning("[spells_db] Failed to load blocklist: %s", exc)
+            _log.warning("[spells-db] Failed to load blocklist: %s", exc)
             return Blocklist(frozenset(), [])
 
     @staticmethod
@@ -282,7 +287,7 @@ class SpellCatalogue(BaseCatalogue):
             return "[]"
         if not isinstance(raw, list):
             _log.warning(
-                "[spells_db] effect_list for spell %s has unexpected shape %s — returning empty",
+                "[spells-db] effect_list for spell %s has unexpected shape %s — returning empty",
                 spell.get("id"),
                 type(raw).__name__,
             )
@@ -414,18 +419,20 @@ class SpellCatalogue(BaseCatalogue):
             # Fallback: highest available tier
             row = self._fetchone(_SQL["find_by_crc_highest_tier"].format(cols=_SELECT_COLS), (crc,))
         result = _row_to_dict(row) if row else None
+        if len(self._crc_cache) >= self._CRC_CACHE_MAX:
+            # FIFO eviction (dicts preserve insertion order) — cheap and
+            # good enough for a cache that upsert_spells fully clears anyway.
+            self._crc_cache.pop(next(iter(self._crc_cache)))
         self._crc_cache[key] = result
         return result
 
     def find_by_name(self, name: str) -> list[SpellRow]:
         """Return all spell rows whose name matches (exact, then LIKE). Ordered by level."""
-        rows = self._fetchall(_SQL["find_by_name_exact"].format(cols=_SELECT_COLS), (name.lower(),))
-        if not rows:
-            # LIKE fallback — escape user wildcards (BE-006).
-            rows = self._fetchall(
-                _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
-                (f"%{like_escape(name.lower())}%",),
-            )
+        rows = self._find_exact_then_like(
+            _SQL["find_by_name_exact"].format(cols=_SELECT_COLS),
+            _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
+            name,
+        )
         return [_row_to_dict(r) for r in rows]
 
     def character_upgradeable_spells(self, spell_ids: list[int]) -> list[SpellRow]:

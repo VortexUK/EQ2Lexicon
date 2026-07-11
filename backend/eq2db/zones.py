@@ -180,7 +180,7 @@ class Zone:
     # -----------------------------------------------------------------
 
     @classmethod
-    def find_by_name(cls, name: str, path: Path = DB_PATH) -> Zone | None:
+    def find_by_name(cls, name: str, *, path: Path) -> Zone | None:
         """Resolve a zone by name, falling back to the alias table.
 
         Lookup order:
@@ -215,7 +215,7 @@ class Zone:
         expansion_short: str,
         *,
         type_filter: str | None = None,
-        path: Path = DB_PATH,
+        path: Path,
     ) -> list[Zone]:
         """All zones in an expansion, ordered by name. Optionally filter
         to a single type token (e.g. 'raid_x4', 'group', 'tradeskill')."""
@@ -236,7 +236,7 @@ class Zone:
             return [cls._from_row(conn, r) for r in rows]
 
     @classmethod
-    def list_by_event(cls, event_name: str, path: Path = DB_PATH) -> list[Zone]:
+    def list_by_event(cls, event_name: str, *, path: Path) -> list[Zone]:
         """All zones for a recurring in-game event (Tinkerfest, Frostfell)."""
         if not path.exists():
             return []
@@ -249,7 +249,7 @@ class Zone:
             return [cls._from_row(conn, r) for r in rows]
 
     @classmethod
-    def list_by_type(cls, type_token: str, path: Path = DB_PATH) -> list[Zone]:
+    def list_by_type(cls, type_token: str, *, path: Path) -> list[Zone]:
         """All zones tagged with a given type token across all expansions."""
         if not path.exists():
             return []
@@ -262,7 +262,7 @@ class Zone:
             return [cls._from_row(conn, r) for r in rows]
 
     @classmethod
-    def find_by_boss(cls, mob_name: str, path: Path = DB_PATH) -> list[Zone]:
+    def find_by_boss(cls, mob_name: str, *, path: Path) -> list[Zone]:
         """Reverse lookup: which zone(s) host a given raid boss?
 
         Joins through zone_encounter_mobs so individual mob names inside
@@ -285,7 +285,7 @@ class Zone:
     # zone_types mutations
     # -----------------------------------------------------------------
 
-    def add_type(self, type_token: str, path: Path = DB_PATH) -> Zone:
+    def add_type(self, type_token: str, *, path: Path) -> Zone:
         """Add a type tag (e.g. 'dungeon') to this zone. Idempotent —
         adding the same tag twice is a no-op (INSERT OR IGNORE against
         the PK). Returns a freshly-loaded Zone reflecting the new tag
@@ -304,7 +304,7 @@ class Zone:
             # we just held it in memory; nothing deletes it concurrently.
             return Zone._from_row(conn, row)
 
-    def remove_type(self, type_token: str, path: Path = DB_PATH) -> Zone:
+    def remove_type(self, type_token: str, *, path: Path) -> Zone:
         """Remove a type tag from this zone. Idempotent — a no-op when
         the tag isn't present. Returns a freshly-loaded Zone reflecting
         the updated tag list."""
@@ -406,7 +406,7 @@ class ZoneEncounterMob:
         *,
         mob_name: str,
         make_primary: bool = False,
-        path: Path = DB_PATH,
+        path: Path,
     ) -> ZoneEncounterMob:
         """Add a mob to an encounter. By default appends as a sibling at the
         next available position. With ``make_primary=True``, shifts every
@@ -446,7 +446,7 @@ class ZoneEncounterMob:
         return cls._from_row(row, encounter_id=encounter_id)
 
     @classmethod
-    def find_by_id(cls, mob_id: int, path: Path = DB_PATH) -> ZoneEncounterMob | None:
+    def find_by_id(cls, mob_id: int, *, path: Path) -> ZoneEncounterMob | None:
         """Single-mob fetch by id. Returns None if not found."""
         with sqlite3.connect(path) as conn:
             conn.row_factory = sqlite3.Row
@@ -458,7 +458,7 @@ class ZoneEncounterMob:
         )
 
     @classmethod
-    def list_for_encounter(cls, encounter_id: int, path: Path = DB_PATH) -> list[ZoneEncounterMob]:
+    def list_for_encounter(cls, encounter_id: int, *, path: Path) -> list[ZoneEncounterMob]:
         """All mobs for an encounter, ordered by position."""
         with sqlite3.connect(path) as conn:
             conn.row_factory = sqlite3.Row
@@ -467,7 +467,7 @@ class ZoneEncounterMob:
                 for r in conn.execute(_SQL["list_mobs_for_encounter_asc"], (encounter_id,))
             ]
 
-    def rename(self, new_mob_name: str, path: Path = DB_PATH) -> ZoneEncounterMob:
+    def rename(self, new_mob_name: str, *, path: Path) -> ZoneEncounterMob:
         """Rename. If this mob is at position 0 (the primary), also updates
         the parent encounter_name so the two stay in sync, and mirrors the
         rename onto raids_db.raid_encounters (if a row exists there).
@@ -487,7 +487,7 @@ class ZoneEncounterMob:
             id=self.id, encounter_id=self.encounter_id, mob_name=new_mob_name, position=self.position
         )
 
-    def promote_to_primary(self, path: Path = DB_PATH) -> ZoneEncounterMob:
+    def promote_to_primary(self, *, path: Path) -> ZoneEncounterMob:
         """Swap this mob (a sibling) with the current primary (position 0).
         No-op if already primary. Updates the parent encounter_name and
         mirrors the rename onto raids_db. Returns the promoted instance."""
@@ -517,7 +517,7 @@ class ZoneEncounterMob:
         )
         return ZoneEncounterMob(id=self.id, encounter_id=self.encounter_id, mob_name=self.mob_name, position=0)
 
-    def delete(self, path: Path = DB_PATH) -> bool:
+    def delete(self, *, path: Path) -> bool:
         """Delete this mob. Refuses with ValueError when it's the only mob
         in the encounter (an encounter needs ≥ 1 mob) or when it's the
         primary while siblings exist (caller must promote a sibling first).
@@ -612,7 +612,7 @@ class ZoneEncounter:
         }
 
     @classmethod
-    def find_by_id(cls, encounter_id: int, path: Path = DB_PATH) -> ZoneEncounter | None:
+    def find_by_id(cls, encounter_id: int, *, path: Path) -> ZoneEncounter | None:
         """Single-encounter fetch by id, with mobs. None if not found."""
         with sqlite3.connect(path) as conn:
             conn.row_factory = sqlite3.Row
@@ -629,7 +629,7 @@ class ZoneEncounter:
         return [cls._from_row(conn, r) for r in conn.execute(_SQL["list_encounters_for_zone"], (zone_id,)).fetchall()]
 
     @classmethod
-    def list_for_zone_name(cls, zone_name: str, path: Path = DB_PATH) -> list[ZoneEncounter]:
+    def list_for_zone_name(cls, zone_name: str, *, path: Path) -> list[ZoneEncounter]:
         """All raid encounters in a zone, resolving the zone by canonical
         name OR alias. Empty list if zone unknown or has no encounters."""
         if not path.exists() or not zone_name:
@@ -713,7 +713,7 @@ class ZoneEncounter:
         position: int | None = None,
         stage: str | None = None,
         wiki_url: str | None = None,
-        path: Path = DB_PATH,
+        path: Path,
     ) -> ZoneEncounter:
         """Append a new encounter to a zone with a single primary mob at
         position 0. If ``position`` is None, appends after the current max;
@@ -738,7 +738,7 @@ class ZoneEncounter:
         primary_mob: str | None = None,
         stage: str | None = _UNSET,  # type: ignore[assignment]
         wiki_url: str | None = _UNSET,  # type: ignore[assignment]
-        path: Path = DB_PATH,
+        path: Path,
     ) -> ZoneEncounter:
         """Edit encounter metadata. When ``primary_mob`` is given, also
         renames the position-0 mob in zone_encounter_mobs and mirrors the
@@ -763,7 +763,7 @@ class ZoneEncounter:
             _mirror_primary_rename_in_raids_db(self.zone_id, self.encounter_name, primary_mob, path)
         return result
 
-    def delete(self, path: Path = DB_PATH) -> bool:
+    def delete(self, *, path: Path) -> bool:
         """Delete this encounter. Cascades zone_encounter_mobs via FK and
         the matching raids_db row (which itself cascades triggers / timers
         / strategies). Returns True if a row was deleted."""
@@ -783,7 +783,7 @@ class ZoneEncounter:
         return True
 
     @staticmethod
-    def reorder_in_zone(zone_id: int, ordered_ids: list[int], path: Path = DB_PATH) -> None:
+    def reorder_in_zone(zone_id: int, ordered_ids: list[int], *, path: Path) -> None:
         """Atomically renumber the zone's encounters to 1..N matching the
         given order. ``ordered_ids`` MUST be a complete permutation of the
         zone's current encounter ids — raises ValueError otherwise. The
@@ -875,7 +875,7 @@ class FeaturedRaidExpansion:
         return {"short": self.expansion_short, "name": self.name, "year": self.year}
 
     @classmethod
-    def list_active(cls, path: Path = DB_PATH) -> list[FeaturedRaidExpansion]:
+    def list_active(cls, *, path: Path) -> list[FeaturedRaidExpansion]:
         """Featured expansions (explicit + implicit-via-zones), newest first."""
         if not path.exists():
             return []
@@ -885,7 +885,7 @@ class FeaturedRaidExpansion:
         return _dedup_expansion_rows(rows)
 
     @classmethod
-    def list_available(cls, path: Path = DB_PATH) -> list[FeaturedRaidExpansion]:
+    def list_available(cls, *, path: Path) -> list[FeaturedRaidExpansion]:
         """Expansions in zones.db NOT yet featured (neither explicit row nor
         any zone of theirs featured). The admin 'Add expansion' picker."""
         if not path.exists():
@@ -896,7 +896,7 @@ class FeaturedRaidExpansion:
         return _dedup_expansion_rows(rows)
 
     @classmethod
-    def create(cls, expansion_short: str, path: Path = DB_PATH) -> FeaturedRaidExpansion | None:
+    def create(cls, expansion_short: str, *, path: Path) -> FeaturedRaidExpansion | None:
         """Mark an expansion as featured. Validates that the expansion is
         known to zones.db (returns None otherwise — route layer maps to
         404). Idempotent for already-featured expansions: returns the
@@ -912,7 +912,7 @@ class FeaturedRaidExpansion:
             conn.commit()
         return cls(expansion_short=expansion_short, name=meta["name"], year=meta["year"])
 
-    def remove(self, path: Path = DB_PATH) -> bool:
+    def remove(self, *, path: Path) -> bool:
         """Remove from featured AND cascade-remove this expansion's
         featured raid zones. Preserves the underlying zone_encounters
         data — just hides everything from /raids until re-added.
@@ -954,7 +954,7 @@ class FeaturedRaidZone:
     category: str | None
 
     @classmethod
-    def list_for_expansion(cls, expansion_short: str, path: Path = DB_PATH) -> list[FeaturedRaidZone]:
+    def list_for_expansion(cls, expansion_short: str, *, path: Path) -> list[FeaturedRaidZone]:
         """All featured raid zones for an expansion, sorted by
         (category, position). NULL categories sort first (SQLite default),
         which lands the implicit Uncategorised lane at the top."""
@@ -978,7 +978,7 @@ class FeaturedRaidZone:
             ]
 
     @classmethod
-    def add(cls, zone_name: str, path: Path = DB_PATH) -> FeaturedRaidZone | None:
+    def add(cls, zone_name: str, *, path: Path) -> FeaturedRaidZone | None:
         """Mark a raid zone as featured. Validates that the zone exists
         AND is tagged raid_x4 or raid_x2 — we don't want random zones
         surfacing on /raids just because admin typed a name. Lands in
@@ -1017,7 +1017,7 @@ class FeaturedRaidZone:
                 category=None,
             )
 
-    def remove(self, path: Path = DB_PATH) -> bool:
+    def remove(self, *, path: Path) -> bool:
         """Remove from featured. Preserves zone_encounters boss data so
         re-adding restores the lane. Returns True if a row was removed."""
         if not path.exists():
@@ -1031,7 +1031,7 @@ class FeaturedRaidZone:
             return cur.rowcount > 0
 
     @staticmethod
-    def reorder_in_expansion(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
+    def reorder_in_expansion(expansion_short: str, ordering: list[dict], *, path: Path) -> bool:
         """Atomically rewrite category + position for every zone in ``ordering``.
 
         Each entry: ``{"name": str, "category": str | None, "position": int}``.
@@ -1108,7 +1108,7 @@ class FeaturedRaidCategory:
         return {"name": self.name, "position": self.position}
 
     @classmethod
-    def list_for_expansion(cls, expansion_short: str, path: Path = DB_PATH) -> list[FeaturedRaidCategory]:
+    def list_for_expansion(cls, expansion_short: str, *, path: Path) -> list[FeaturedRaidCategory]:
         """Admin-defined categories in saved order."""
         if not path.exists():
             return []
@@ -1121,7 +1121,7 @@ class FeaturedRaidCategory:
             return [cls(expansion_short=expansion_short, name=r["name"], position=r["position"]) for r in rows]
 
     @classmethod
-    def create(cls, expansion_short: str, name: str, path: Path = DB_PATH) -> FeaturedRaidCategory | None:
+    def create(cls, expansion_short: str, name: str, *, path: Path) -> FeaturedRaidCategory | None:
         """Create an empty category lane at MAX+1 position. Returns None
         if a category by this name already exists for the expansion."""
         if not path.exists():
@@ -1145,7 +1145,7 @@ class FeaturedRaidCategory:
             conn.commit()
             return cls(expansion_short=expansion_short, name=name, position=new_pos)
 
-    def delete(self, path: Path = DB_PATH) -> bool:
+    def delete(self, *, path: Path) -> bool:
         """Delete this category. Zones currently in it have their category
         set to NULL (move to Uncategorised). Returns True if a row was
         deleted."""
@@ -1164,7 +1164,7 @@ class FeaturedRaidCategory:
                 return cur.rowcount > 0
 
     @staticmethod
-    def reorder_in_expansion(expansion_short: str, ordering: list[dict], path: Path = DB_PATH) -> bool:
+    def reorder_in_expansion(expansion_short: str, ordering: list[dict], *, path: Path) -> bool:
         """Atomic two-phase position rewrite for category lanes.
 
         Each entry: ``{"name": str, "position": int}``. Returns False if

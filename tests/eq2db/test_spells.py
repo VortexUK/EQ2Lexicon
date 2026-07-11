@@ -571,3 +571,14 @@ class TestFindByCrc:
         result2 = db.find_by_crc(crc=888, tier=1)
         assert result1 == result2
         assert result1 is not None
+
+    def test_crc_cache_is_bounded(self, db):
+        """The cache evicts past _CRC_CACHE_MAX — arbitrary client (crc, tier)
+        pairs (the /aa/spell route) must not grow memory without bound."""
+        db._CRC_CACHE_MAX = 4  # shadow the class bound on this instance
+        for crc in range(10):
+            db.find_by_crc(crc=crc, tier=1)  # misses — None results still cached
+        assert len(db._crc_cache) <= 4
+        # Newest keys survive, oldest evicted (FIFO)
+        assert (9, 1) in db._crc_cache
+        assert (0, 1) not in db._crc_cache
