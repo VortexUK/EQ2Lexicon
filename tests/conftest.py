@@ -112,6 +112,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     from backend.server.parses import db as parses_db
 
     parses_db.DB_PATH = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
+    parses_db.store.path = parses_db.DB_PATH
     users_db.DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
     census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
     census_store.store.path = census_store.DB_PATH
@@ -133,7 +134,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     # step API-token / parses tests would hit a missing-table OperationalError
     # the first time they read from the DB.
     users_db.init_db()
-    parses_db.init_db()
+    parses_db.store.init_db()
 
 
 from unittest.mock import AsyncMock, MagicMock  # noqa: E402

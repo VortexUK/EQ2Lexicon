@@ -473,7 +473,7 @@ async def test_admin_parses_scoped_to_current_world(app):
         patch("backend.server.api.admin.current_world", return_value="Wuoshi"),
         patch("backend.server.api.admin.parses_db.list_encounters_for_admin", _mock_admin_list),
         patch("backend.server.api.admin.parses_db.init_db", MagicMock(return_value=MagicMock())),
-        patch("backend.server.api.admin.parses_db.DB_PATH") as mock_path,
+        patch("backend.server.api.admin.parses_db.path") as mock_path,
     ):
         mock_path.exists.return_value = True
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

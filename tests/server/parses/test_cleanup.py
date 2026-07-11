@@ -24,8 +24,8 @@ def seeded_db(tmp_path, monkeypatch):
     """Temp parses DB wired into both the seeding conn and the sweep (via
     DB_PATH). Returns the seed connection."""
     db_path = tmp_path / "parses.db"
-    monkeypatch.setattr(parses_db, "DB_PATH", db_path)
-    conn = parses_db.init_db(db_path)
+    monkeypatch.setattr(parses_db.store, "path", db_path)
+    conn = parses_db.ParsesStore(db_path).init_db()
     yield conn
     conn.close()
 

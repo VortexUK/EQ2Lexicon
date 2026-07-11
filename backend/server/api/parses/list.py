@@ -45,7 +45,7 @@ from backend.server.constants import (
 )
 from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
-from backend.server.parses import db as parses_db
+from backend.server.parses.db import store as parses_db
 from backend.server.parses.pet_detection import classify_combatants
 from backend.server.server_context import current_world
 from backend.sql_loader import load_sql
@@ -230,7 +230,7 @@ def _list_encounters_sync(
 
     ``world`` scopes results to the active server so a Varsoon viewer only
     sees Varsoon parses."""
-    if not parses_db.DB_PATH.exists():
+    if not parses_db.path.exists():
         return []
 
     # Soft-deleted parses are hidden from the list (but still feed rankings).
@@ -258,7 +258,7 @@ def _list_encounters_sync(
 
     list_sql = _SQL["list_encounters_recent"].format(where_sql=where_sql, player_count_sql=_PLAYER_COUNT_SQL)
 
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
         return [dict(r) for r in conn.execute(list_sql, [*params, inner_cap]).fetchall()]
@@ -374,7 +374,7 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, wo
 
     ``world`` is used to scope the lookup so a viewer on one server can't
     read another server's encounter by guessing its integer id."""
-    if not parses_db.DB_PATH.exists():
+    if not parses_db.path.exists():
         return None
     conn = parses_db.init_db()
     try:
@@ -498,7 +498,7 @@ async def list_parses(
         rows = _list_encounters_sync(inner_cap, zone, size, active_world, search)
         if not rows:
             return rows, [], 0
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             # Phase 4 lazy backfill: any encounter inserted before the
             # pet-detection pipeline shipped has is_player=NULL on its

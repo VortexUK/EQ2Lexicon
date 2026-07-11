@@ -43,7 +43,7 @@ def _seed_tamper_reports(now: int = 1700000000) -> list[int]:
     # isolation) doesn't reach the no-arg call. The admin route uses
     # `init_db(parses_db.DB_PATH)` (explicit), so the only way to read
     # the same DB is to also pass explicit here.
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.store.init_db()
     ids: list[int] = []
     try:
         # Newest first (descending reported_at)
@@ -55,7 +55,7 @@ def _seed_tamper_reports(now: int = 1700000000) -> list[int]:
                 "title_enemy_mismatch",
             ]
         ):
-            rid = parses_db.insert_tamper_report(
+            rid = parses_db.store.insert_tamper_report(
                 conn,
                 world="Varsoon",
                 act_encid=f"ENC{i:04d}",
@@ -82,7 +82,7 @@ def _seed_tamper_reports(now: int = 1700000000) -> list[int]:
 
 
 def _wipe_tamper_reports() -> None:
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.store.init_db()
     try:
         conn.execute("DELETE FROM tamper_reports")
         conn.commit()
@@ -93,9 +93,9 @@ def _wipe_tamper_reports() -> None:
 def _acknowledge_row(report_id: int, actor: str = "admin-prev") -> None:
     """Mark a row acknowledged at the DB layer — used to seed the "ack"
     state before testing the listing filters."""
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.store.init_db()
     try:
-        parses_db.acknowledge_tamper_report(
+        parses_db.store.acknowledge_tamper_report(
             conn,
             report_id,
             acknowledged_at=1700000999,
@@ -222,7 +222,7 @@ async def test_acknowledge_flips_pending_row(app):
     assert r.json() == {"acknowledged": True}
 
     # And the DB-side flag was actually set, with the admin's id recorded.
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.store.init_db()
     try:
         row = conn.execute(
             "SELECT acknowledged_at, acknowledged_by FROM tamper_reports WHERE id = ?",
@@ -251,7 +251,7 @@ async def test_acknowledge_idempotent_on_already_ack(app):
     assert r.json() == {"acknowledged": False}
 
     # The original acknowledged_by is preserved — second ack does not overwrite.
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.store.init_db()
     try:
         row = conn.execute(
             "SELECT acknowledged_by FROM tamper_reports WHERE id = ?",
@@ -294,7 +294,7 @@ def test_tamper_reports_never_touch_encounters_table():
     ids = _seed_tamper_reports()
     assert len(ids) > 0  # baseline: rows actually landed
 
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.store.init_db()
     try:
         # Use the same act_encids the seed inserted into tamper_reports —
         # if any of them showed up in encounters that's the bug.

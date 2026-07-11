@@ -43,7 +43,7 @@ from backend.server.core.session_user import TokenUser
 from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
 from backend.server.limiter import limiter
-from backend.server.parses import db as parses_db
+from backend.server.parses.db import store as parses_db
 
 _log = logging.getLogger(__name__)
 

@@ -46,9 +46,9 @@ def _read_tamper_rows() -> list[dict]:
     Used by the assertions below to check the persisted side-effects
     rather than mocking the DB layer (which would obscure the SQL
     interaction with the new columns)."""
-    conn = parses_db.init_db()
+    conn = parses_db.store.init_db()
     try:
-        return parses_db.list_tamper_reports(conn, status="all")
+        return parses_db.store.list_tamper_reports(conn, status="all")
     finally:
         conn.close()
 
@@ -56,7 +56,7 @@ def _read_tamper_rows() -> list[dict]:
 def _read_encounter_count() -> int:
     """Verify the tamper-report endpoint NEVER writes to encounters —
     the whole reason this endpoint exists separately."""
-    conn = parses_db.init_db()
+    conn = parses_db.store.init_db()
     try:
         row = conn.execute("SELECT COUNT(*) FROM encounters").fetchone()
         return int(row[0]) if row else 0
@@ -68,7 +68,7 @@ def _wipe_tamper_reports() -> None:
     """Per-test isolation. The session-scoped tmp DB is shared across
     tests, but each tamper-report test starts with an empty table so
     assertion counts don't drift across runs."""
-    conn = parses_db.init_db()
+    conn = parses_db.store.init_db()
     try:
         conn.execute("DELETE FROM tamper_reports")
         conn.commit()

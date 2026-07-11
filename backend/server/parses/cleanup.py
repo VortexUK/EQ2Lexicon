@@ -28,8 +28,8 @@ import os
 import sqlite3
 import time
 
-from backend.server.parses import db as parses_db
 from backend.server.parses.boss import is_boss
+from backend.server.parses.db import store as parses_db
 
 _log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def run_parse_cleanup(now: int | None = None, retention_days: int | None = None)
 
     Returns ``{"trash_deleted": n, "dup_uploads_deleted": m}``. Safe to call
     repeatedly (idempotent once nothing is past the cutoff)."""
-    if not parses_db.DB_PATH.exists():
+    if not parses_db.path.exists():
         return {"trash_deleted": 0, "dup_uploads_deleted": 0}
 
     now = int(time.time()) if now is None else now
@@ -66,7 +66,7 @@ def run_parse_cleanup(now: int | None = None, retention_days: int | None = None)
 
     trash_deleted = 0
     dup_deleted = 0
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
         worlds = [r[0] for r in conn.execute("SELECT DISTINCT world FROM encounters").fetchall()]

@@ -270,18 +270,19 @@ from backend.server.parses import db as parses_db
 
 
 @pytest.fixture
-def parses_db_in_memory(monkeypatch):
+def parses_db_in_memory(monkeypatch, tmp_path):
     """Shared in-memory parses DB for the duration of the test.
 
     Patches invalidate_is_player_cache so it operates on the in-memory
     connection rather than opening a new connection to DB_PATH."""
-    conn = parses_db.init_db(Path(":memory:"))
-    monkeypatch.setattr(parses_db, "DB_PATH", Path(":memory:"))
-    monkeypatch.setattr(parses_db, "init_db", lambda *a, **k: conn)
+    db_file = tmp_path / "parses.db"
+    conn = parses_db.ParsesStore(db_file).init_db()
+    monkeypatch.setattr(parses_db.store, "path", db_file)
+    monkeypatch.setattr(parses_db.store, "init_db", lambda *a, **k: conn)
     monkeypatch.setattr(
-        parses_db,
+        parses_db.store,
         "invalidate_is_player_cache",
-        lambda *a, **k: parses_db.invalidate_is_player_cache_with_conn(conn),
+        lambda *a, **k: parses_db.store.invalidate_is_player_cache_with_conn(conn),
     )
     try:
         yield conn

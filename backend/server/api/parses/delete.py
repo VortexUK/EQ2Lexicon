@@ -26,8 +26,8 @@ from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
 from backend.server.core.session_user import SessionUser
 from backend.server.limiter import limiter
-from backend.server.parses import db as parses_db
 from backend.server.parses.boss import is_boss
+from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_world
 
 _log = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ def _fetch_encounter_auth_rows(ids: list[int], world: str) -> list[dict]:
     """Fetch the (id, guild_name, source_dsn, title, hidden_at) rows needed to
     authorise a delete, scoped to *world* so a cross-server id returns nothing.
     Runs in an executor."""
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
         placeholders = ",".join("?" * len(ids))
@@ -127,7 +127,7 @@ async def delete_parses_batch(
     now = int(time.time())
 
     def _delete_many() -> int:
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             return sum(1 for enc in allowed_rows if _apply_delete(conn, enc, purge=purge, hidden_at=now))
         finally:
@@ -169,7 +169,7 @@ async def delete_parse(
     now = int(time.time())
 
     def _delete_sync() -> bool:
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             return _apply_delete(conn, enc, purge=purge, hidden_at=now)
         finally:
@@ -226,7 +226,7 @@ async def delete_parses_bulk(
     _world = current_world()
 
     def _delete_sync() -> int:
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             matches = parses_db.find_encounters_by_filter(
                 conn,

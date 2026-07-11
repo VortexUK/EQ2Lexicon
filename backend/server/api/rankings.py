@@ -26,8 +26,8 @@ from backend.server.auth_deps import require_user_session as _require_user
 from backend.server.cache import TTLCache
 from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
-from backend.server.parses import db as parses_db
 from backend.server.parses.boss import is_boss
+from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_server, current_world
 from backend.sql_loader import load_sql
 
@@ -272,7 +272,7 @@ def invalidate_zones_cache() -> None:
     # from this module, and parses.db is a deeper dependency. Local
     # imports keep the module-load DAG cycle-free.
     from backend.server.api.parses.list import _classifier_cache_clear
-    from backend.server.parses import db as parses_db
+    from backend.server.parses.db import store as parses_db
 
     _classifier_cache_clear()
     parses_db.invalidate_is_player_cache()
@@ -470,9 +470,9 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
 
     ``world`` scopes to the active server so each server sees only its own
     leaderboard data."""
-    if not parses_db.DB_PATH.exists():
+    if not parses_db.path.exists():
         return []
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(

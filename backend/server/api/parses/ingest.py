@@ -37,7 +37,7 @@ from backend.server.core.session_user import TokenUser
 from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
 from backend.server.limiter import limiter
-from backend.server.parses import db as parses_db
+from backend.server.parses.db import store as parses_db
 from backend.server.parses.models import (
     AttackType,
     Combatant,
@@ -308,7 +308,7 @@ def _cached_snapshots(names: list[str], world: str | None = None) -> dict[str, C
 
 
 def _update_snapshots_sync(encounter_id: int, snapshots: dict[str, CombatantSnapshot]) -> None:
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.init_db()
     try:
         parses_db.update_combatant_snapshots(conn, encounter_id, snapshots)
         # Phase 3 (pet detection): re-classify because cls just changed. The
@@ -354,7 +354,7 @@ async def _backfill_encounter_guild(encounter_id: int, uploader: str, world: str
                 encounter_id,
             )
             return
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             parses_db.set_encounter_guild_name(conn, encounter_id, result)
             _log.info("Background guild backfill set encounter %s guild_name=%r", encounter_id, result)
@@ -672,7 +672,7 @@ def _ingest_payload_sync(
     damage_types = _damage_types_from_payload(payload.damage_types, enc.encid)
     attack_types = _attack_types_from_payload(payload.attack_types, enc.encid)
 
-    conn = parses_db.init_db(parses_db.DB_PATH)
+    conn = parses_db.init_db()
     try:
         terminal = _check_idempotency_sync(conn, enc.encid, world)
         if terminal is not None:

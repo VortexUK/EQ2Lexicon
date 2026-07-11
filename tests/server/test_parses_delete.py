@@ -418,8 +418,8 @@ async def test_list_excludes_hidden_rows(app, tmp_path, monkeypatch):
     from backend.server.parses.models import Encounter
 
     db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb, "DB_PATH", db_file)
-    conn = pdb.init_db(db_file)
+    monkeypatch.setattr(pdb.store, "path", db_file)
+    conn = pdb.ParsesStore(db_file).init_db()
     for encid, title in [("AAA", "Tarinax"), ("BBB", "Venekor")]:
         enc = Encounter(
             encid=encid,
@@ -434,9 +434,9 @@ async def test_list_excludes_hidden_rows(app, tmp_path, monkeypatch):
             deaths=0,
             success_level=1,
         )
-        eid = pdb.insert_encounter(conn, enc, source_dsn="eq2act", ingested_at=int(_t.time()))
+        eid = pdb.store.insert_encounter(conn, enc, source_dsn="eq2act", ingested_at=int(_t.time()))
         if encid == "BBB":
-            pdb.soft_delete_encounter(conn, eid, hidden_at=int(_t.time()))
+            pdb.store.soft_delete_encounter(conn, eid, hidden_at=int(_t.time()))
     conn.close()
 
     with patch("backend.server.api.parses.list._require_user", _fake_user):

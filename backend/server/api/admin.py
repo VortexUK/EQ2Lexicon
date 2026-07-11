@@ -35,7 +35,7 @@ from backend.server.db import (
     set_user_access,
     upsert_server_settings_sync,
 )
-from backend.server.parses import db as parses_db
+from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_world
 
 _log = logging.getLogger(__name__)
@@ -423,9 +423,9 @@ async def list_parses_admin(
     world = current_world()
 
     def _query() -> list[dict]:
-        if not parses_db.DB_PATH.exists():
+        if not parses_db.path.exists():
             return []
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             return parses_db.list_encounters_for_admin(conn, search=search, limit=limit, world=world)
         finally:
@@ -506,9 +506,9 @@ async def list_tamper_reports_admin(
     world = current_world()
 
     def _query() -> tuple[list[dict], int]:
-        if not parses_db.DB_PATH.exists():
+        if not parses_db.path.exists():
             return [], 0
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             rows = parses_db.list_tamper_reports(
                 conn,
@@ -571,9 +571,9 @@ async def acknowledge_tamper_report(
     now_unix = int(datetime.now().timestamp())
 
     def _ack() -> bool:
-        if not parses_db.DB_PATH.exists():
+        if not parses_db.path.exists():
             return False
-        conn = parses_db.init_db(parses_db.DB_PATH)
+        conn = parses_db.init_db()
         try:
             return parses_db.acknowledge_tamper_report(
                 conn,

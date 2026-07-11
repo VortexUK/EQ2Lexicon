@@ -145,9 +145,9 @@ async def test_reupload_of_soft_deleted_parse_revives_it(tmp_path, monkeypatch):
     from backend.server.parses import db as pdb
 
     db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb, "DB_PATH", db_file)
+    monkeypatch.setattr(pdb.store, "path", db_file)
     # init the schema
-    pdb.init_db(db_file).close()
+    pdb.ParsesStore(db_file).init_db().close()
 
     payload = IngestRequest(**_minimal_payload())
 
@@ -156,19 +156,19 @@ async def test_reupload_of_soft_deleted_parse_revives_it(tmp_path, monkeypatch):
     assert status == "inserted" and eid is not None
 
     # Soft-delete it (as the delete route does for a boss kill).
-    conn = pdb.init_db(db_file)
+    conn = pdb.ParsesStore(db_file).init_db()
     try:
-        pdb.soft_delete_encounter(conn, eid, hidden_at=1700000000)
-        assert pdb.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is not None
+        pdb.store.soft_delete_encounter(conn, eid, hidden_at=1700000000)
+        assert pdb.store.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is not None
     finally:
         conn.close()
 
     # Re-upload the same encounter → revived + un-hidden.
     status2, eid2, *_ = _ingest_payload_sync(payload, "Menludiir", "Exordium", "plugin:123", {})
     assert status2 == "revived" and eid2 == eid
-    conn = pdb.init_db(db_file)
+    conn = pdb.ParsesStore(db_file).init_db()
     try:
-        assert pdb.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is None
+        assert pdb.store.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is None
     finally:
         conn.close()
 

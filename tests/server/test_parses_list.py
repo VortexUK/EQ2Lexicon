@@ -399,8 +399,8 @@ def test_list_encounters_search_filters_title_zone_uploader(tmp_path, monkeypatc
     from backend.server.parses import db as parses_db
 
     db_path = tmp_path / "parses.db"
-    monkeypatch.setattr(parses_db, "DB_PATH", db_path)
-    conn = parses_db.init_db(db_path)
+    monkeypatch.setattr(parses_db.store, "path", db_path)
+    conn = parses_db.ParsesStore(db_path).init_db()
     try:
         _seed_search_db(conn)
     finally:
