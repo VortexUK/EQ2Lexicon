@@ -2,7 +2,7 @@
 
 Audit BE-080: 22 ``except Exception: pass`` sites. About half are intentional
 (metrics increments / cache-write best-effort), half are bugs hiding behind
-the silent swallow (a malformed JSON in data/AAs/trees silently disappears
+the silent swallow (a malformed row in a reference DB silently disappears
 from the index; a Pydantic error in _overview_to_char_response silently drops
 a guild member from the cache).
 

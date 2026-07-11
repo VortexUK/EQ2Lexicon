@@ -2,7 +2,7 @@
 """
 Download AA node icon PNGs from eq2wire for all tree files.
 
-Scans every file in data/AAs/trees/, collects unique icon IDs, then
+Scans every tree in data/AAs/aas.db, collects unique icon IDs, then
 fetches https://u.eq2wire.com/images/aa/{id}.png into data/AAs/icons/.
 Files that already exist are skipped.
 
@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import aiohttp
 
-TREES_DIR = Path(__file__).resolve().parent.parent / "data" / "AAs" / "trees"
 ICONS_DIR = Path(__file__).resolve().parent.parent / "data" / "AAs" / "icons"
 ICON_BASE = "https://u.eq2wire.com/images/aa/{id}.png"
 
@@ -28,17 +27,14 @@ _CONCURRENCY = 10
 
 
 def _collect_icon_ids() -> set[int]:
+    from backend.eq2db.aas import catalogue
+
     ids: set[int] = set()
-    for path in TREES_DIR.glob("*.json"):
-        with path.open(encoding="utf-8") as f:
-            data = json.load(f)
-        for tree in data.get("alternateadvancement_list") or []:
-            for node in tree.get("alternateadvancementnode_list") or []:
-                icon = node.get("icon")
-                if isinstance(icon, dict) and icon.get("id") is not None:
-                    icon_id = int(icon["id"])
-                    if icon_id > 0:
-                        ids.add(icon_id)
+    for tree_id in catalogue.load_tree_index():
+        tree = catalogue.get_tree(tree_id) or {"nodes": []}
+        for node in tree["nodes"]:
+            if node["icon_id"] > 0:
+                ids.add(node["icon_id"])
     return ids
 
 
