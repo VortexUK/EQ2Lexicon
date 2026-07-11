@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from backend.eq2db import classes as classes_db
+from backend.eq2db.classes import catalogue as classes_db
 from backend.server.core.executor import run_sync
 
 router = APIRouter(tags=["classes"])

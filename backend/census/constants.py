@@ -1,21 +1,18 @@
 """Mappings for Census API field names → display names and groupings.
 
 Class-group membership and archetype colours are OWNED by the committed
-classes.db (read at module-import time via backend.eq2db.classes, which
-exposes SUBCLASS_GROUPS + ARCHETYPE_GROUPS + CRAFTER_NAMES + ARCHETYPE_COLOURS
-derived from the DB rows). Anything defined here that names classes is
-derived from that source. Don't redefine class groupings or colours here —
-edit the row in classes.db and commit the file.
+classes.db (read via backend.eq2db.classes.catalogue at this module's import,
+so a broken classes.db still fails fast at process start). Anything defined
+here that names classes is derived from that source. Don't redefine class
+groupings or colours here — edit the row in classes.db and commit the file.
 """
 
-from backend.eq2db.classes import (
-    ARCHETYPE_COLOURS as _SEED_ARCHETYPE_COLOURS,
-)
-from backend.eq2db.classes import (
-    ARCHETYPE_GROUPS,
-    CRAFTER_NAMES,
-    SUBCLASS_GROUPS,
-)
+from backend.eq2db.classes import catalogue as _classes
+
+_SEED_ARCHETYPE_COLOURS = _classes.archetype_colours()
+ARCHETYPE_GROUPS = _classes.archetype_groups()
+CRAFTER_NAMES = _classes.crafter_names()
+SUBCLASS_GROUPS = _classes.subclass_groups()
 
 # Maps lowercase Census API stat type names to (display_name, group)
 # group is 'primary' (green) or 'secondary' (cyan)

@@ -12,15 +12,7 @@ import aiosqlite
 from backend.census.item_level import compute_ilvl
 from backend.db_helpers import like_escape, resolve_db_path
 from backend.eq2db import _meta as _meta_db
-from backend.eq2db.classes import (
-    ARCHETYPE_GROUPS as _ARCHETYPE_GROUPS_SRC,
-)
-from backend.eq2db.classes import (
-    CRAFTER_NAMES as _CRAFTER_NAMES_TITLE,
-)
-from backend.eq2db.classes import (
-    SUBCLASS_GROUPS as _SUBCLASS_GROUPS_SRC,
-)
+from backend.eq2db.classes import catalogue as _classes
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -49,23 +41,23 @@ SERVER_MAX_LEVEL: int | None = _resolve_max_level()
 # EQ2 class-group label helper
 # ---------------------------------------------------------------------------
 # Class-group membership is OWNED by the committed classes.db, accessed via
-# the derived constants exported by backend.eq2db.classes (ARCHETYPE_GROUPS +
-# SUBCLASS_GROUPS + CRAFTER_NAMES). Census API item rows use lowercase
+# backend.eq2db.classes.catalogue (archetype_groups / subclass_groups /
+# crafter_names). Census API item rows use lowercase
 # class-name keys ({"guardian": {...}}), so the tables below lowercase the
 # canonical TitleCase names from the DB rows.
 #
 # DO NOT redefine class groupings here — edit the row in classes.db.
 
-_CRAFTERS: frozenset[str] = frozenset(name.lower() for name in _CRAFTER_NAMES_TITLE)
-_ALL_ADVENTURERS: frozenset[str] = frozenset(n.lower() for _, members in _ARCHETYPE_GROUPS_SRC for n in members)
+_CRAFTERS: frozenset[str] = frozenset(name.lower() for name in _classes.crafter_names())
+_ALL_ADVENTURERS: frozenset[str] = frozenset(n.lower() for _, members in _classes.archetype_groups() for n in members)
 
 # Groups checked in priority order: full archetypes first ("All Fighters"…),
 # then subclasses ("All Warriors"…). The algorithm in compute_class_label
 # removes matched classes from `remaining` as it goes, so a complete archetype
 # is consumed before its constituent subclasses are tested.
 _ARCHETYPES: list[tuple[str, frozenset[str]]] = [
-    (f"All {archetype}s", frozenset(n.lower() for n in members)) for archetype, members in _ARCHETYPE_GROUPS_SRC
-] + [(f"All {subclass}s", frozenset(n.lower() for n in members)) for subclass, members in _SUBCLASS_GROUPS_SRC]
+    (f"All {archetype}s", frozenset(n.lower() for n in members)) for archetype, members in _classes.archetype_groups()
+] + [(f"All {subclass}s", frozenset(n.lower() for n in members)) for subclass, members in _classes.subclass_groups()]
 
 
 def compute_class_label(classes: dict | None) -> str | None:
