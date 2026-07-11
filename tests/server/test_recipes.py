@@ -182,11 +182,10 @@ def _recipes_db_with_level(tmp_path):
     """A 1-row recipes.db where the recipe makes a level-75 item (→ T8)."""
     import sqlite3
 
-    from backend.eq2db.recipes import DB_PATH as _real  # noqa: F401  (ensures module import)
-    from backend.eq2db.recipes import init_db as recipes_init_db
+    from backend.eq2db.recipes import RecipeCatalogue
 
     db_path = tmp_path / "recipes.db"
-    recipes_init_db(db_path).close()  # creates schema incl. out_level column
+    RecipeCatalogue(db_path).init_db().close()  # creates schema incl. out_level column
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO recipes (id, name, name_lower, secondary_comps, out_level) VALUES (?, ?, ?, '[]', ?)",

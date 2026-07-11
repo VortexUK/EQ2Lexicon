@@ -169,13 +169,13 @@ def _ensure_recipe_levels() -> None:
 
     from backend.eq2db.items import DB_PATH as items_db_path
     from backend.eq2db.recipes import DB_PATH as recipes_db_path
-    from backend.eq2db.recipes import init_db as recipes_init_db
+    from backend.eq2db.recipes import catalogue as recipes_catalogue
 
     if not recipes_db_path.exists() or not items_db_path.exists():
         return  # need both DBs to resolve levels
 
     try:
-        recipes_init_db(recipes_db_path).close()  # ensures out_level column exists
+        recipes_catalogue.init_db().close()  # ensures out_level column exists
 
         conn = sqlite3.connect(recipes_db_path)
         missing = conn.execute("SELECT COUNT(*) FROM recipes WHERE out_level IS NULL").fetchone()[0]
@@ -460,7 +460,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         # the background thread below.
         from backend.eq2db import recipes as recipes_db
 
-        recipes_db.init_db().close()
+        recipes_db.catalogue.init_db().close()
         # Run the item-stats check in a background thread so it never blocks
         # startup or Railway health checks.  On a fresh deployment the backfill
         # may take ~60–90 s; stat-filter searches will return 0 results until it

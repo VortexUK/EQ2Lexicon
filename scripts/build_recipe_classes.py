@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend.census.constants import FIGHTERS, MAGES, PRIESTS, SCOUTS  # noqa: E402
 from backend.eq2db.items import DB_PATH as ITEMS_DB  # noqa: E402
 from backend.eq2db.recipes import DB_PATH as RECIPES_DB  # noqa: E402
-from backend.eq2db.recipes import init_db  # noqa: E402
+from backend.eq2db.recipes import RecipeCatalogue  # noqa: E402
 
 PRIMARY_CLASSES = frozenset(
     {"Armorer", "Weaponsmith", "Tailor", "Carpenter", "Provisioner", "Woodworker", "Sage", "Alchemist", "Jeweler"}
@@ -176,7 +176,7 @@ def build(items_db: str, recipes_db: str) -> None:
 
     pairs = sorted((rid, cls) for rid, classes in authoritative.items() for cls in classes)
 
-    conn = init_db(Path(recipes_db))
+    conn = RecipeCatalogue(Path(recipes_db)).init_db()
     try:
         conn.execute("DELETE FROM recipe_classes")
         conn.executemany("INSERT OR IGNORE INTO recipe_classes (recipe_id, class) VALUES (?, ?)", pairs)

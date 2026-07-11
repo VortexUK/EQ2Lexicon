@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from backend.eq2db.items import DB_PATH as _ITEMS_DB
 from backend.eq2db.recipes import DB_PATH as _RECIPES_DB
-from backend.eq2db.recipes import find_spells_by_tier as _find_spell_recipes
+from backend.eq2db.recipes import catalogue as _recipes
 from backend.eq2db.spells import DB_PATH as _SPELLS_DB
 from backend.eq2db.spells import catalogue as _spells
 from backend.server.api.character import router
@@ -165,7 +165,7 @@ async def get_upgrade_materials(request: Request, name: str) -> UpgradeMaterials
 
     # Bulk recipe lookup: one DB query for all spell names
     spell_names = [r.get("name") or "" for r in sub_expert]
-    recipes = _find_spell_recipes(spell_names, "Expert", path=_RECIPES_DB)
+    recipes = _recipes.find_spells_by_tier(spell_names, "Expert")
 
     # Aggregate ingredients across all matched recipes
     totals: dict[str, int] = defaultdict(int)
@@ -262,7 +262,7 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
 
     # Bulk recipe lookup
     spell_names = [r.get("name") or "" for r in sub_expert]
-    recipes = _find_spell_recipes(spell_names, "Expert", path=_RECIPES_DB)
+    recipes = _recipes.find_spells_by_tier(spell_names, "Expert")
 
     results = [
         _RecipeResult(
