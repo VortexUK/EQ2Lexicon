@@ -35,7 +35,7 @@ sys.path.insert(0, str(ROOT))
 
 from backend.eq2db.items import DB_PATH as ITEMS_DB_PATH  # noqa: E402
 from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH  # noqa: E402
-from backend.eq2db.recipes import init_db  # noqa: E402
+from backend.eq2db.recipes import RecipeCatalogue  # noqa: E402
 
 BATCH = 5000
 
@@ -68,7 +68,7 @@ def run(
 
     levels = _load_item_levels(items_path)
 
-    conn = init_db(recipes_path)  # runs the out_level migration if needed
+    conn = RecipeCatalogue(recipes_path).init_db()  # runs the out_level migration if needed
     try:
         cols = ", ".join(_OUTPUT_COLS)
         where = "" if rebuild else " WHERE out_level IS NULL"

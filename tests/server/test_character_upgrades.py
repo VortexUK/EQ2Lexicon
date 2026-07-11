@@ -195,7 +195,7 @@ class TestGetUpgradeMaterials:
                 return_value=[adept_row],
             ),
             patch(
-                "backend.server.api.character.upgrades._find_spell_recipes",
+                "backend.server.api.character.upgrades._recipes.find_spells_by_tier",
                 return_value={"Divine Favor": fake_recipe},
             ),
             patch(
@@ -257,7 +257,7 @@ class TestGetUpgradeMaterials:
                 "backend.server.api.character.upgrades._spells.character_upgradeable_spells",
                 return_value=list(rows.values()),
             ),
-            patch("backend.server.api.character.upgrades._find_spell_recipes", return_value=recipes),
+            patch("backend.server.api.character.upgrades._recipes.find_spells_by_tier", return_value=recipes),
             patch("backend.server.api.character.upgrades._lookup_items_by_name", return_value={}),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -355,7 +355,7 @@ class TestGetUpgradeRecipes:
                 return_value=[adept_row],
             ),
             patch(
-                "backend.server.api.character.upgrades._find_spell_recipes",
+                "backend.server.api.character.upgrades._recipes.find_spells_by_tier",
                 return_value={"Divine Favor": fake_recipe},
             ),
         ):

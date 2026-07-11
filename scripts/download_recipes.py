@@ -32,7 +32,7 @@ from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from backend.eq2db.recipes import DB_PATH, get_meta, init_db, recipe_count, set_meta, upsert_recipes
+from backend.eq2db.recipes import DB_PATH, catalogue, get_meta, set_meta
 
 BASE_URL = "https://census.daybreakgames.com"
 PAGE_SIZE = 100  # Census silently caps responses at 100 regardless of c:limit
@@ -116,8 +116,8 @@ async def main(restart: bool, recipe_limit: int | None) -> None:
     if service_id == "example":
         print("WARNING: using 'example' service ID — rate limits will be low.")
 
-    conn = init_db(DB_PATH)
-    existing = recipe_count(conn)
+    conn = catalogue.init_db()
+    existing = catalogue.recipe_count(conn)
     print(f"DB:            {DB_PATH}")
     print(f"Existing rows: {existing:,}")
 
@@ -180,17 +180,17 @@ async def main(restart: bool, recipe_limit: int | None) -> None:
 
             if len(buffer) >= WRITE_EVERY or reached_end:
                 if buffer:
-                    upsert_recipes(buffer, conn)
+                    catalogue.upsert_recipes(buffer, conn)
                     written += len(buffer)
                     buffer = []
-                    total_in_db = recipe_count(conn)
+                    total_in_db = catalogue.recipe_count(conn)
                     print(f"  Written this run: {written:,}  |  Total in DB: {total_in_db:,}  |  Offset: {offset:,}")
 
             if reached_end:
                 break
 
     if buffer:
-        upsert_recipes(buffer, conn)
+        catalogue.upsert_recipes(buffer, conn)
         written += len(buffer)
 
     if reached_end:
@@ -198,8 +198,8 @@ async def main(restart: bool, recipe_limit: int | None) -> None:
         print("\nReached end of Census data — offset reset for next run.")
 
     conn.close()
-    final_conn = init_db(DB_PATH)
-    final = recipe_count(final_conn)
+    final_conn = catalogue.init_db()
+    final = catalogue.recipe_count(final_conn)
     spell_rows = final_conn.execute("SELECT COUNT(*) FROM recipes WHERE crafted_tier IS NOT NULL").fetchone()[0]
     final_conn.close()
     print(f"\nDone. Written this run: {written:,}  |  Total in DB: {final:,}  |  Spell-scroll recipes: {spell_rows:,}")

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from backend.census.constants import ARCHETYPES, CLASS_GROUPS
 from backend.eq2db.items import DB_PATH
 from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
-from backend.eq2db.recipes import find_by_spell
+from backend.eq2db.recipes import catalogue as _recipes
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.server_context import current_server
 
@@ -506,7 +506,7 @@ async def get_spell_scroll(name: str, tier: str) -> SpellScrollResult:
 
     # Look up the recipe if craftable
     if craftable and RECIPES_DB_PATH.exists():
-        recipes = find_by_spell(name, tier)
+        recipes = _recipes.find_by_spell(name, tier)
         if recipes:
             r = recipes[0]
             sec = [

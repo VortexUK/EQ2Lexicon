@@ -407,7 +407,7 @@ async def test_spell_scroll_expert_returns_recipe_when_found(app, tmp_path):
     }
 
     with (
-        patch("backend.server.api.item.find_by_spell", return_value=[fake_recipe]),
+        patch("backend.server.api.item._recipes.find_by_spell", return_value=[fake_recipe]),
         patch("backend.server.api.item.DB_PATH", Path("/nonexistent/items.db")),
         patch("backend.server.api.item.RECIPES_DB_PATH", fake_recipes_db),
     ):
