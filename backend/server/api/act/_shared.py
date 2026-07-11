@@ -9,7 +9,7 @@ import sqlite3
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from backend.eq2db import raids as raids_db
+from backend.eq2db.raids import catalogue as raids_db
 from backend.eq2db.zones import catalogue as zones_db
 from backend.server.core.executor import run_sync
 
@@ -124,7 +124,7 @@ def _resolve_encounter_sync(zone_name: str, position: int) -> tuple[str, str, in
     # After the first call per process it is a no-op (module-level flag).
     _ensure_raids_db_inited()
 
-    with sqlite3.connect(raids_db.DB_PATH) as conn:
+    with sqlite3.connect(raids_db.path) as conn:
         conn.row_factory = sqlite3.Row
         zrow = conn.execute(
             "SELECT id FROM raid_zones WHERE zone_name_lower = ?",

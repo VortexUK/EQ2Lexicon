@@ -369,7 +369,7 @@ def _mirror_primary_rename_in_raids_db(zone_id: int, old_name: str, new_name: st
     zone_name, _exp = _zone_name_and_expansion(zone_id, path)
     if zone_name is None:
         return
-    from backend.eq2db import raids as _raids_db
+    from backend.eq2db.raids import catalogue as _raids_db
 
     # init_db is idempotent and self-heals a fresh raids.db (CI/test env).
     with _raids_db.init_db() as rconn:
@@ -788,7 +788,7 @@ class ZoneEncounter:
             if cur.rowcount == 0:
                 return False
         if zone_name is not None:
-            from backend.eq2db import raids as _raids_db
+            from backend.eq2db.raids import catalogue as _raids_db
 
             with _raids_db.init_db() as rconn:
                 _raids_db.delete_raid_encounter_by_zone_mob(rconn, zone_name=zone_name, mob_name=self.encounter_name)
@@ -834,7 +834,7 @@ class ZoneEncounter:
         # Mirror onto raids_db: for each encounter whose primary mob has a
         # raid_encounters row, update its position. Lookup uses the CURRENT
         # encounter_name (which is the primary mob name post-normalization).
-        from backend.eq2db import raids as _raids_db
+        from backend.eq2db.raids import catalogue as _raids_db
 
         with _raids_db.init_db() as rconn:
             for new_pos, enc_id in enumerate(ordered_ids, start=1):

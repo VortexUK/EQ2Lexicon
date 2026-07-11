@@ -11,13 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from backend.eq2db import raids as raids_db
+from backend.eq2db.raids import RaidCatalogue
+from backend.eq2db.raids import catalogue as raids_db
 
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
     """Per-test DB so writes don't leak. Returns the file path; callers open
-    + close their own connection via raids_db.init_db(path)."""
+    + close their own connection via RaidCatalogue(path).init_db()."""
     return tmp_path / "raids.db"
 
 
@@ -30,7 +31,7 @@ def test_rescrape_preserves_manual_zone_markdown(db_path: Path):
     """A human-edited zone (overview/background/access) survives a later
     SOURCE_SCRAPE upsert intact. Wiki-owned fields (expansion, wiki_url,
     level_range, last_synced_at) do get refreshed."""
-    conn = raids_db.init_db(db_path)
+    conn = RaidCatalogue(db_path).init_db()
     try:
         # First write: simulate a route-level manual edit.
         raids_db.upsert_raid_zone(
@@ -77,7 +78,7 @@ def test_rescrape_preserves_manual_zone_markdown(db_path: Path):
 def test_rescrape_refreshes_when_existing_is_also_scrape(db_path: Path):
     """When the existing row is itself a scrape, a fresh scrape overwrites
     its markdown — that's how wiki edits propagate."""
-    conn = raids_db.init_db(db_path)
+    conn = RaidCatalogue(db_path).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,
@@ -105,7 +106,7 @@ def test_rescrape_refreshes_when_existing_is_also_scrape(db_path: Path):
 def test_manual_upsert_creates_new_row(db_path: Path):
     """A first-write with SOURCE_MANUAL inserts cleanly (no existing row to
     protect). Used by the lazy-create path in _write_overview_sync."""
-    conn = raids_db.init_db(db_path)
+    conn = RaidCatalogue(db_path).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,
@@ -130,7 +131,7 @@ def test_manual_upsert_creates_new_row(db_path: Path):
 
 
 def test_rescrape_preserves_manual_encounter_strategy(db_path: Path):
-    conn = raids_db.init_db(db_path)
+    conn = RaidCatalogue(db_path).init_db()
     try:
         zone_id = raids_db.upsert_raid_zone(
             conn,
