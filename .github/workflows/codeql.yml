@@ -15,6 +15,9 @@ on:
   schedule:
     # Mondays at 06:00 UTC.
     - cron: '0 6 * * 1'
+  # Manual refresh of the main-branch alert set (e.g. right after merging
+  # security fixes) — dispatch runs don't gate Railway deploys.
+  workflow_dispatch:
 
 permissions:
   actions: read

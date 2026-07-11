@@ -9,6 +9,7 @@ import logging
 import time
 from typing import Any, Literal
 
+from backend.core.log_safety import scrub
 from backend.server.constants import CACHE_MAX_AGE_S, CACHE_STALE_TTL_S
 from backend.server.core.silent_swallow import swallow
 
@@ -103,11 +104,11 @@ class TTLCache:
         if self._max_age is not None and age > self._max_age:
             del self._store[key]
             self._update_size()
-            _log.debug("[cache] EXPIRED %s (%.1f min old)", key, age / 60)
+            _log.debug("[cache] EXPIRED %s (%.1f min old)", scrub(key), age / 60)
             self._inc_miss()
             return None, False
         is_stale = age > self._ttl
-        _log.debug("[cache] %s %s", "STALE" if is_stale else "HIT  ", key)
+        _log.debug("[cache] %s %s", "STALE" if is_stale else "HIT  ", scrub(key))
         if is_stale:
             self._inc_stale()
         else:
@@ -115,7 +116,7 @@ class TTLCache:
         return value, is_stale
 
     def set(self, key: str, value: Any) -> None:
-        _log.debug("[cache] SET   %s", key)
+        _log.debug("[cache] SET   %s", scrub(key))
         # Evict oldest entry if we're at capacity and this is a new key.
         if key not in self._store and len(self._store) >= self._maxsize:
             oldest_key = next(iter(self._store))
@@ -148,7 +149,7 @@ class TTLCache:
 
     def delete(self, key: str) -> None:
         self._store.pop(key, None)
-        _log.debug("[cache] DEL   %s", key)
+        _log.debug("[cache] DEL   %s", scrub(key))
         self._update_size()
 
 

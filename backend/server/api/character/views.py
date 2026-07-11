@@ -14,6 +14,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
 from backend.census.item_level import adorn_bonus, character_ilvl
+from backend.core.log_safety import scrub
 from backend.eq2db.items import GearRow
 from backend.eq2db.items import catalogue as _items
 from backend.server.api.character import router  # the package-level router
@@ -506,7 +507,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
             finally:
                 conn2.close()
         except Exception as exc:
-            _log.debug("[character] self-heal cache write skipped for %s: %s", name, exc)
+            _log.debug("[character] self-heal cache write skipped for %s: %s", scrub(name), exc)
         character_cache.set(cache_key, resp)
         return resp
 
@@ -515,7 +516,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
     from backend.server import census_health
 
     if census_health.is_down():
-        _log.debug("[character] Skipping live fetch — census_health=down (name=%s)", name)
+        _log.debug("[character] Skipping live fetch — census_health=down (name=%s)", scrub(name))
         raise HTTPException(
             status_code=503,
             detail=f"'{name}' not cached yet and Census is unavailable. Try again shortly.",

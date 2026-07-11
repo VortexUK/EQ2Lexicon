@@ -90,10 +90,10 @@ def audit_log(action: str, actor: str | None, **fields: Any) -> None:
     """
     safe_fields: dict[str, Any] = {(f"{k}_" if k in _LOGRECORD_RESERVED else k): scrub(v) for k, v in fields.items()}
     safe_fields["action"] = action
-    safe_fields["actor"] = actor or "-"
+    safe_fields["actor"] = scrub(actor) if actor else "-"
     safe_fields["request_id"] = request_id_var.get() or "-"
     safe_fields["world"] = world_var.get() or "-"
     # The message string is intentionally short — dashboards filter on
     # extra= fields, not on message body. Keep the human-readable part
     # action + actor so text logs are still grep-friendly.
-    _log.info("audit: %s actor=%s", action, actor or "-", extra=safe_fields)
+    _log.info("audit: %s actor=%s", action, scrub(actor) if actor else "-", extra=safe_fields)

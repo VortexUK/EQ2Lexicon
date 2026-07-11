@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from backend.census.store import StoreRecord
 from backend.census.store import store as census_store
+from backend.core.log_safety import scrub
 from backend.eq2db.aas import catalogue as aa_db
 from backend.eq2db.spells import catalogue as spells_db
 from backend.server.cache import aa_cache
@@ -225,7 +226,7 @@ async def _bg_refresh_aas(name: str, cache_key: str) -> None:
             await run_sync(_write)
             aa_cache.set(cache_key, result)
     except Exception as exc:
-        _log.warning("[cache] Background AA refresh failed for %s: %s", name, exc)
+        _log.warning("[cache] Background AA refresh failed for %s: %s", scrub(name), exc)
 
 
 @router.get("/character/{name}/aas", response_model=CharAAsResponse)
@@ -270,7 +271,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
     from backend.server import census_health
 
     if census_health.is_down():
-        _log.debug("[aa] Skipping live fetch — census_health=down (name=%s)", name)
+        _log.debug("[aa] Skipping live fetch — census_health=down (name=%s)", scrub(name))
         raise HTTPException(
             status_code=503,
             detail=f"'{name}' AA data not cached yet and Census is unavailable. Try again shortly.",
