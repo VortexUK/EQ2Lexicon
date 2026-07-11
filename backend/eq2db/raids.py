@@ -86,9 +86,6 @@ from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 # Column lists
 # ---------------------------------------------------------------------------
 
-_ZONE_SELECT_COLS = _SQL["select_zone_cols"]
-_ENC_SELECT_COLS = _SQL["select_encounter_cols"]
-
 _ACT_TRIGGER_COLS = (
     "id, raid_encounter_id, position, label, notes, "
     "active, regex, sound_data, sound_type, "
@@ -398,105 +395,28 @@ class RaidCatalogue(BaseCatalogue):
 
     # ── Read helpers (path-based) ────────────────────────────────────────────
 
-    def find_zone_by_name(self, name: str) -> dict | None:
-        """Look up a raid zone by name (case-insensitive)."""
-        if not self.path.exists() or not name:
-            return None
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                _SQL["find_zone_by_name_ci"].format(cols=_ZONE_SELECT_COLS),
-                (name.lower(),),
-            ).fetchone()
-            return dict(row) if row else None
-
-    def list_encounters_for_zone(self, zone_id: int) -> list[dict]:
-        """All encounters in a raid zone, ordered by position then name."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["list_encounters_for_zone"].format(cols=_ENC_SELECT_COLS),
-                (zone_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
-
-    def list_zones_by_expansion(self, short: str) -> list[dict]:
-        """All raid zones in an expansion."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["list_zones_by_expansion"].format(cols=_ZONE_SELECT_COLS),
-                (short,),
-            ).fetchall()
-            return [dict(r) for r in rows]
-
     def encounter_revisions(self, encounter_id: int) -> list[dict]:
         """Full revision history for an encounter, newest first."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["list_encounter_revisions"],
-                (encounter_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
+        return [dict(r) for r in self._fetchall(_SQL["list_encounter_revisions"], (encounter_id,))]
 
     def list_zone_revisions(self, zone_id: int) -> list[dict]:
         """All revision rows for a zone's overview, newest first.
         Each row: {id, edited_at, edited_by, before_md, after_md, edit_note}."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["list_zone_revisions"],
-                (zone_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
-
-    def stats(self) -> dict:
-        """Diagnostic — counts by table + source."""
-        if not self.path.exists():
-            return {}
-        with sqlite3.connect(self.path) as conn:
-            out = {
-                "zones": conn.execute(_SQL["stats_zones_count"]).fetchone()[0],
-                "encounters": conn.execute(_SQL["stats_encounters_count"]).fetchone()[0],
-                "revisions": conn.execute(_SQL["stats_revisions_count"]).fetchone()[0],
-                "encounters_by_source": dict(conn.execute(_SQL["stats_encounters_by_source"])),
-                "zones_by_expansion": dict(conn.execute(_SQL["stats_zones_by_expansion"])),
-            }
-            return out
+        return [dict(r) for r in self._fetchall(_SQL["list_zone_revisions"], (zone_id,))]
 
     # ── ACT trigger helpers (formerly backend/eq2db/raids_act.py) ────────────
 
     def list_act_triggers_for_encounter(self, encounter_id: int) -> list[dict]:
         """Every ACT trigger row for an encounter, ordered by position then id."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE raid_encounter_id = ? ORDER BY position, id",
-                (encounter_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
+        rows = self._fetchall(
+            f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE raid_encounter_id = ? ORDER BY position, id",
+            (encounter_id,),
+        )
+        return [dict(r) for r in rows]
 
     def get_act_trigger(self, trigger_id: int) -> dict | None:
-        if not self.path.exists():
-            return None
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE id = ?",
-                (trigger_id,),
-            ).fetchone()
-            return dict(row) if row else None
+        row = self._fetchone(f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE id = ?", (trigger_id,))
+        return dict(row) if row else None
 
     @staticmethod
     def upsert_act_trigger(
@@ -574,26 +494,15 @@ class RaidCatalogue(BaseCatalogue):
 
     def list_act_spell_timers_for_encounter(self, encounter_id: int) -> list[dict]:
         """Every spell-timer row for an encounter, alphabetical by name."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE raid_encounter_id = ? ORDER BY name",
-                (encounter_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
+        rows = self._fetchall(
+            f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE raid_encounter_id = ? ORDER BY name",
+            (encounter_id,),
+        )
+        return [dict(r) for r in rows]
 
     def get_act_spell_timer(self, timer_id: int) -> dict | None:
-        if not self.path.exists():
-            return None
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE id = ?",
-                (timer_id,),
-            ).fetchone()
-            return dict(row) if row else None
+        row = self._fetchone(f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE id = ?", (timer_id,))
+        return dict(row) if row else None
 
     @staticmethod
     def upsert_act_spell_timer(

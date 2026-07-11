@@ -114,18 +114,18 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     parses_db.DB_PATH = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
     users_db.DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
     census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
-    zones_db.DB_PATH = resolve_db_path("DB_ZONES_PATH", "zones", "zones.db")
-    zones_db.catalogue.path = zones_db.DB_PATH
-    spells_db.DB_PATH = resolve_db_path("DB_SPELLS_PATH", "spells", "spells.db")
-    spells_db.catalogue.path = spells_db.DB_PATH
-    recipes_db.DB_PATH = resolve_db_path("DB_RECIPES_PATH", "recipes", "recipes.db")
-    recipes_db.catalogue.path = recipes_db.DB_PATH
-    raids_db.DB_PATH = resolve_db_path("DB_RAIDS_PATH", "raids", "raids.db")
-    raids_db.catalogue.path = raids_db.DB_PATH
-    items_db.DB_PATH = resolve_db_path("DB_ITEMS_PATH", "items", "items.db")
-    items_db.catalogue.path = items_db.DB_PATH
-    classes_db.DB_PATH = resolve_db_path("DB_CLASSES_PATH", "classes", "classes.db")
-    classes_db.catalogue.path = classes_db.DB_PATH
+    # eq2db catalogue modules: re-point both the module constant AND the
+    # shared catalogue instance (its path was captured at import time).
+    for mod, env_var, subdir, filename in (
+        (zones_db, "DB_ZONES_PATH", "zones", "zones.db"),
+        (spells_db, "DB_SPELLS_PATH", "spells", "spells.db"),
+        (recipes_db, "DB_RECIPES_PATH", "recipes", "recipes.db"),
+        (raids_db, "DB_RAIDS_PATH", "raids", "raids.db"),
+        (items_db, "DB_ITEMS_PATH", "items", "items.db"),
+        (classes_db, "DB_CLASSES_PATH", "classes", "classes.db"),
+    ):
+        mod.DB_PATH = resolve_db_path(env_var, subdir, filename)
+        mod.catalogue.path = mod.DB_PATH
 
     # Create both schemas immediately. FastAPI's startup hooks (which would
     # normally call init_db) don't fire under ASGITransport, so without this

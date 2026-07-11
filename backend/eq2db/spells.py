@@ -363,24 +363,18 @@ class SpellCatalogue(BaseCatalogue):
 
     def find_by_id(self, spell_id: int) -> SpellRow | None:
         """Return a spell row dict for the given ID, or None."""
-        if not self.path.exists():
-            return None
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(_SQL["find_by_id"].format(cols=_SELECT_COLS), (spell_id,)).fetchone()
+        row = self._fetchone(_SQL["find_by_id"].format(cols=_SELECT_COLS), (spell_id,))
         return _row_to_dict(row) if row else None
 
     def find_by_ids(self, spell_ids: list[int]) -> dict[int, SpellRow]:
         """Return {spell_id: row_dict} for all matching IDs. Missing IDs are omitted."""
-        if not spell_ids or not self.path.exists():
+        if not spell_ids:
             return {}
         placeholders = ",".join("?" * len(spell_ids))
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["find_by_ids"].format(cols=_SELECT_COLS, placeholders=placeholders),
-                spell_ids,
-            ).fetchall()
+        rows = self._fetchall(
+            _SQL["find_by_ids"].format(cols=_SELECT_COLS, placeholders=placeholders),
+            spell_ids,
+        )
         return {row["id"]: _row_to_dict(row) for row in rows}
 
     def upgradeable_crcs(self, crcs: Iterable[int | None]) -> set[int]:
@@ -396,11 +390,10 @@ class SpellCatalogue(BaseCatalogue):
         Empty input (or a missing DB) → empty set.
         """
         ids = [c for c in {*crcs} if c is not None]
-        if not ids or not self.path.exists():
+        if not ids:
             return set()
         placeholders = ",".join("?" * len(ids))
-        with sqlite3.connect(self.path) as conn:
-            rows = conn.execute(_SQL["upgradeable_crcs"].format(placeholders=placeholders), ids).fetchall()
+        rows = self._fetchall(_SQL["upgradeable_crcs"].format(placeholders=placeholders), ids)
         return {r[0] for r in rows}
 
     def find_by_crc(self, crc: int, tier: int | None = None) -> SpellRow | None:
@@ -414,42 +407,25 @@ class SpellCatalogue(BaseCatalogue):
         key = (crc, tier)
         if key in self._crc_cache:
             return self._crc_cache[key]
-        result: SpellRow | None = None
-        if self.path.exists():
-            with sqlite3.connect(self.path) as conn:
-                conn.row_factory = sqlite3.Row
-                row = None
-                if tier is not None:
-                    row = conn.execute(
-                        _SQL["find_by_crc_and_tier"].format(cols=_SELECT_COLS),
-                        (crc, tier),
-                    ).fetchone()
-                if row is None:
-                    # Fallback: highest available tier
-                    row = conn.execute(
-                        _SQL["find_by_crc_highest_tier"].format(cols=_SELECT_COLS),
-                        (crc,),
-                    ).fetchone()
-                result = _row_to_dict(row) if row else None
+        row = None
+        if tier is not None:
+            row = self._fetchone(_SQL["find_by_crc_and_tier"].format(cols=_SELECT_COLS), (crc, tier))
+        if row is None:
+            # Fallback: highest available tier
+            row = self._fetchone(_SQL["find_by_crc_highest_tier"].format(cols=_SELECT_COLS), (crc,))
+        result = _row_to_dict(row) if row else None
         self._crc_cache[key] = result
         return result
 
     def find_by_name(self, name: str) -> list[SpellRow]:
         """Return all spell rows whose name matches (exact, then LIKE). Ordered by level."""
-        if not self.path.exists():
-            return []
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                _SQL["find_by_name_exact"].format(cols=_SELECT_COLS),
-                (name.lower(),),
-            ).fetchall()
-            if not rows:
-                # LIKE fallback — escape user wildcards (BE-006).
-                rows = conn.execute(
-                    _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
-                    (f"%{like_escape(name.lower())}%",),
-                ).fetchall()
+        rows = self._fetchall(_SQL["find_by_name_exact"].format(cols=_SELECT_COLS), (name.lower(),))
+        if not rows:
+            # LIKE fallback — escape user wildcards (BE-006).
+            rows = self._fetchall(
+                _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
+                (f"%{like_escape(name.lower())}%",),
+            )
         return [_row_to_dict(r) for r in rows]
 
     def character_upgradeable_spells(self, spell_ids: list[int]) -> list[SpellRow]:

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar
 
@@ -130,6 +131,40 @@ class BaseCatalogue:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self._ctx_conns.pop().close()
+
+    # ── Read helpers ─────────────────────────────────────────────────────────
+
+    def _fetchall(self, sql: str, params: Sequence | Mapping = ()) -> list[sqlite3.Row]:
+        """Run one read query with Row factory; the connection is opened and
+        closed per call. Returns [] when the DB file is missing or the table
+        isn't built yet — eq2db read paths degrade gracefully on an
+        unprovisioned DB rather than 500."""
+        if not self.path.exists():
+            return []
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        try:
+            return conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError:
+            _log.exception("[eq2db] read failed on %r (unbuilt db?)", self)
+            return []
+        finally:
+            conn.close()
+
+    def _fetchone(self, sql: str, params: Sequence | Mapping = ()) -> sqlite3.Row | None:
+        """Single-row variant of :meth:`_fetchall`. None on missing DB,
+        unbuilt table, or no match."""
+        if not self.path.exists():
+            return None
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        try:
+            return conn.execute(sql, params).fetchone()
+        except sqlite3.OperationalError:
+            _log.exception("[eq2db] read failed on %r (unbuilt db?)", self)
+            return None
+        finally:
+            conn.close()
 
     # ── DB lifecycle ─────────────────────────────────────────────────────────
 
