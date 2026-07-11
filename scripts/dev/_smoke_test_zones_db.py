@@ -80,18 +80,18 @@ with sqlite3.connect(DB) as conn:
 
 # ── find_by_name: canonical match ─────────────────────────────────────
 print("\n--- find_by_name ---")
-z = zones_db.find_by_name("Sebilis")
+z = zones_db.catalogue.find_by_name("Sebilis")
 check(
     "find_by_name('Sebilis') returns RoK openworld",
     z and z["expansion_short"] == "RoK",
     f"got {z['expansion_short'] if z else None}, types={z['types'] if z else None}",
 )
 
-z = zones_db.find_by_name("SEBILIS")
+z = zones_db.catalogue.find_by_name("SEBILIS")
 check("find_by_name case-insensitive", z is not None and z["name"] == "Sebilis", f"got {z['name'] if z else None}")
 
 # ── find_by_name: alias resolution ────────────────────────────────────
-z = zones_db.find_by_name("The Fabled Deathtoll")
+z = zones_db.catalogue.find_by_name("The Fabled Deathtoll")
 check(
     "alias 'The Fabled Deathtoll' resolves to canonical 'Fabled Deathtoll'",
     z is not None and z["name"] == "Fabled Deathtoll",
@@ -100,7 +100,7 @@ check(
 if z:
     check("resolved canonical has alias listed", "The Fabled Deathtoll" in z["aliases"], f"aliases={z['aliases']}")
 
-z = zones_db.find_by_name("not a real zone")
+z = zones_db.catalogue.find_by_name("not a real zone")
 check("find_by_name returns None for unknown", z is None, "")
 
 # ── list_by_expansion ────────────────────────────────────────────────
@@ -248,7 +248,7 @@ if n_enc > 0:
     )
 
     # find_by_name hydrates the bosses array on every zone fetch
-    vp_zone = zones_db.find_by_name("Veeshan's Peak")
+    vp_zone = zones_db.catalogue.find_by_name("Veeshan's Peak")
     check(
         "find_by_name('Veeshan's Peak') hydrates 13 bosses",
         vp_zone is not None and len(vp_zone["bosses"]) == 13,

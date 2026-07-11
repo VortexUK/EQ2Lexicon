@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from backend.census._coerce import coerce_int as _int
-from backend.db_helpers import like_escape, resolve_db_path
+from backend.db_helpers import resolve_db_path
 from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
@@ -133,7 +133,7 @@ def _row_to_dict(row: sqlite3.Row) -> RecipeRow:
     try:
         d["secondary_comps"] = json.loads(d.get("secondary_comps") or "[]")
     except Exception as exc:
-        _log.warning("[recipes_db] Failed to parse secondary_comps for recipe id=%s: %s", d.get("id"), exc)
+        _log.warning("[recipes-db] Failed to parse secondary_comps for recipe id=%s: %s", d.get("id"), exc)
         d["secondary_comps"] = []
     return cast(RecipeRow, d)
 
@@ -293,13 +293,11 @@ class RecipeCatalogue(BaseCatalogue):
 
     def find_by_name(self, name: str) -> list[RecipeRow]:
         """Return recipes whose name matches (exact then LIKE), ordered by name."""
-        rows = self._fetchall(_SQL["find_by_name_exact"].format(cols=_SELECT_COLS), (name.lower(),))
-        if not rows:
-            # LIKE fallback — escape user wildcards (BE-006).
-            rows = self._fetchall(
-                _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
-                (f"%{like_escape(name.lower())}%",),
-            )
+        rows = self._find_exact_then_like(
+            _SQL["find_by_name_exact"].format(cols=_SELECT_COLS),
+            _SQL["find_by_name_like"].format(cols=_SELECT_COLS),
+            name,
+        )
         return [_row_to_dict(r) for r in rows]
 
     def find_by_spell(self, spell_name: str, tier: str) -> list[RecipeRow]:

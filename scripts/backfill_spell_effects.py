@@ -77,7 +77,7 @@ async def main(dry_run: bool) -> None:
     if service_id == "example":
         print("WARNING: using 'example' service ID — rate limits will be low.")
 
-    conn = catalogue.init_db(DB_PATH)
+    conn = catalogue.init_db()
 
     null_rows = conn.execute("SELECT id FROM spells WHERE effects IS NULL ORDER BY id").fetchall()
     ids = [r[0] for r in null_rows]

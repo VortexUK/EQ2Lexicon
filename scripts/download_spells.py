@@ -114,7 +114,7 @@ async def main(restart: bool, spell_limit: int | None) -> None:
     if service_id == "example":
         print("WARNING: using 'example' service ID — rate limits will be low.")
 
-    conn = catalogue.init_db(DB_PATH)
+    conn = catalogue.init_db()
     existing = catalogue.spell_count(conn)
     print(f"DB:            {DB_PATH}")
     print(f"Existing rows: {existing:,}")
@@ -196,7 +196,7 @@ async def main(restart: bool, spell_limit: int | None) -> None:
         print("\nReached end of Census data — offset reset for next run.")
 
     conn.close()
-    final = catalogue.spell_count(catalogue.init_db(DB_PATH))
+    final = catalogue.spell_count(catalogue.init_db())
     print(f"\nDone. Written this run: {written:,}  |  Total in DB: {final:,}")
 
 
