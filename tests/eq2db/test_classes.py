@@ -199,42 +199,56 @@ class TestComputeClassLabelParity:
     with, so any regression breaks search results until re-backfill."""
 
     def test_all_classes_label(self):
-        from backend.eq2db.items import compute_class_label
+        from backend.eq2db.items import ItemCatalogue
+
+        compute_class_label = ItemCatalogue.compute_class_label
 
         all_advs = {name.lower(): {} for name in iter_adventure_class_names()}
         assert compute_class_label(all_advs) == "All Classes"
 
     def test_archetype_label(self):
-        from backend.eq2db.items import compute_class_label
+        from backend.eq2db.items import ItemCatalogue
+
+        compute_class_label = ItemCatalogue.compute_class_label
 
         fighters = {n: {} for n in ["guardian", "berserker", "monk", "bruiser", "shadowknight", "paladin"]}
         assert compute_class_label(fighters) == "All Fighters"
 
     def test_subclass_label(self):
-        from backend.eq2db.items import compute_class_label
+        from backend.eq2db.items import ItemCatalogue
+
+        compute_class_label = ItemCatalogue.compute_class_label
 
         assert compute_class_label({"guardian": {}, "berserker": {}}) == "All Warriors"
         assert compute_class_label({"templar": {}, "inquisitor": {}}) == "All Clerics"
 
     def test_single_class_label(self):
-        from backend.eq2db.items import compute_class_label
+        from backend.eq2db.items import ItemCatalogue
+
+        compute_class_label = ItemCatalogue.compute_class_label
 
         assert compute_class_label({"guardian": {"displayname": "Guardian"}}) == "Guardian"
 
     def test_crafters_only(self):
-        from backend.eq2db.items import compute_class_label
+        from backend.eq2db.items import ItemCatalogue
+
+        compute_class_label = ItemCatalogue.compute_class_label
 
         all_crafters = {n.lower(): {} for n in CRAFTER_NAMES}
         assert compute_class_label(all_crafters) == "Crafters"
 
     def test_empty_or_none(self):
-        from backend.eq2db.items import compute_class_label
+        from backend.eq2db.items import ItemCatalogue
+
+        compute_class_label = ItemCatalogue.compute_class_label
 
         assert compute_class_label({}) is None
         assert compute_class_label(None) is None
 
     def test_mixed_archetype_plus_individual(self):
-        from backend.eq2db.items import compute_class_label
+        from backend.eq2db.items import ItemCatalogue
+
+        compute_class_label = ItemCatalogue.compute_class_label
 
         # All Fighters + one extra Priest → "All Fighters / Templar"
         d = {n: {} for n in ["guardian", "berserker", "monk", "bruiser", "shadowknight", "paladin", "templar"]}

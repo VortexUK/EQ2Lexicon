@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from backend.eq2db.items import DB_PATH, init_db
+from backend.eq2db.items import DB_PATH, catalogue
 
 BATCH = 5_000
 
@@ -37,7 +37,7 @@ def _int(v) -> int | None:
 
 
 def main() -> None:
-    conn = init_db(DB_PATH)
+    conn = catalogue.init_db()
     total = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
     print(f"Backfilling {total:,} rows…")
 

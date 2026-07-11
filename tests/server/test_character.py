@@ -147,7 +147,7 @@ async def test_heal_equipment_placeholders_resolves_from_items_db(monkeypatch):
             "iconid": 4242,
         }
 
-    monkeypatch.setattr(charmodule, "_item_find_by_id", _fake_find)
+    monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
     slot = EquipmentSlotResponse(
         slot="Head",
@@ -175,7 +175,7 @@ async def test_heal_equipment_placeholders_skips_real_names(monkeypatch):
         calls.append(item_id)
         return {"displayname": "REPLACED", "tier": "MYTHICAL", "iconid": 1}
 
-    monkeypatch.setattr(charmodule, "_item_find_by_id", _fake_find)
+    monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
     slot = EquipmentSlotResponse(
         slot="Chest",
@@ -205,7 +205,7 @@ async def test_heal_equipment_placeholders_keeps_placeholder_on_db_miss(monkeypa
     async def _fake_find(item_id, *args, **kwargs):
         return None  # cold items.db
 
-    monkeypatch.setattr(charmodule, "_item_find_by_id", _fake_find)
+    monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
     slot = EquipmentSlotResponse(
         slot="Feet",
@@ -238,7 +238,7 @@ async def test_heal_equipment_placeholders_fills_empty_adorn_names(monkeypatch):
             return {"displayname": "Adornment of Things", "tier": None, "iconid": None}
         return None
 
-    monkeypatch.setattr(charmodule, "_item_find_by_id", _fake_find)
+    monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
     slot = EquipmentSlotResponse(
         slot="Chest",
@@ -301,7 +301,7 @@ async def test_serve_path_self_heals_stored_placeholder(app, tmp_path, monkeypat
         assert item_id == 99999
         return {"displayname": "Cowl of Repair", "tier": "MYTHICAL", "iconid": 7777}
 
-    monkeypatch.setattr(charmodule, "_item_find_by_id", _fake_find)
+    monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
     # shared_census_client must not be touched on the cached-serve path.
     # (No explicit guard needed — the stored data is served directly.)

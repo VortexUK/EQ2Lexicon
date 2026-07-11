@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import json
 import sqlite3
 
-from backend.eq2db.items import DB_PATH, extract_item_stats, init_db
+from backend.eq2db.items import DB_PATH, catalogue
 
 
 def run(rebuild: bool = False) -> None:
@@ -31,7 +31,7 @@ def run(rebuild: bool = False) -> None:
         return
 
     print(f"Opening {DB_PATH}")
-    conn = init_db(DB_PATH)  # ensures item_stats table + indexes exist
+    conn = catalogue.init_db()  # ensures item_stats table + indexes exist
 
     if rebuild:
         print("Rebuilding: dropping existing item_stats rows…")
@@ -62,7 +62,7 @@ def run(rebuild: bool = False) -> None:
                 raw = json.loads(raw_text)
             except Exception:
                 continue
-            for stat_name, value in extract_item_stats(raw).items():
+            for stat_name, value in catalogue.extract_item_stats(raw).items():
                 stat_rows.append((item_id, stat_name, value))
 
         if stat_rows:

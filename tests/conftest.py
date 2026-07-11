@@ -103,6 +103,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     # same env-var override convention.
     from backend.db_helpers import resolve_db_path  # noqa: PLC0415
     from backend.eq2db import classes as classes_db
+    from backend.eq2db import items as items_db
     from backend.eq2db import raids as raids_db
     from backend.eq2db import recipes as recipes_db
     from backend.eq2db import spells as spells_db
@@ -120,6 +121,8 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     recipes_db.DB_PATH = resolve_db_path("DB_RECIPES_PATH", "recipes", "recipes.db")
     recipes_db.catalogue.path = recipes_db.DB_PATH
     raids_db.DB_PATH = resolve_db_path("DB_RAIDS_PATH", "raids", "raids.db")
+    items_db.DB_PATH = resolve_db_path("DB_ITEMS_PATH", "items", "items.db")
+    items_db.catalogue.path = items_db.DB_PATH
     classes_db.DB_PATH = resolve_db_path("DB_CLASSES_PATH", "classes", "classes.db")
     classes_db.catalogue.path = classes_db.DB_PATH
 

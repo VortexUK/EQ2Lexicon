@@ -14,8 +14,8 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
 from backend.census.item_level import adorn_bonus, character_ilvl
-from backend.eq2db.items import GearRow, gear_for_ids
-from backend.eq2db.items import find_by_id as _item_find_by_id
+from backend.eq2db.items import GearRow
+from backend.eq2db.items import catalogue as _items
 from backend.server.api.character import router  # the package-level router
 from backend.server.cache import character_cache
 from backend.server.constants import CHARACTER_STALE_S
@@ -74,7 +74,7 @@ async def _heal_equipment_placeholders(slots: list[EquipmentSlotResponse]) -> No
                 item_id = int(m.group(1))
             except ValueError:
                 continue
-            row = await _item_find_by_id(item_id)
+            row = await _items.find_by_id(item_id)
             if row:
                 resolved = row.get("displayname")
                 if resolved:
@@ -94,7 +94,7 @@ async def _heal_equipment_placeholders(slots: list[EquipmentSlotResponse]) -> No
                 adorn_id = int(adorn.adorn_id)
             except ValueError:
                 continue
-            row = await _item_find_by_id(adorn_id)
+            row = await _items.find_by_id(adorn_id)
             if row:
                 name = row.get("displayname")
                 if name:
@@ -316,7 +316,7 @@ def _build_char_response(char) -> CharacterResponse:
     """Convert a CharacterOverview into a CharacterResponse (shared by endpoint + guild pre-warming)."""
     # One items.db query covers worn items + adorns; reused for the character
     # ilvl and the per-adorn bonus surfaced on each equipment slot.
-    gear = gear_for_ids(_equipment_lookup_ids(char.equipment))
+    gear = _items.gear_for_ids(_equipment_lookup_ids(char.equipment))
     return CharacterResponse(
         ilvl=_ilvl_from_gear(char.equipment, gear),
         id=char.id,

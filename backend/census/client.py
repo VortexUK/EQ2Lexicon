@@ -24,7 +24,7 @@ from backend.census.models import (
     NodeAA,
     SpellEntry,
 )
-from backend.eq2db import items as item_db
+from backend.eq2db.items import catalogue as item_db
 
 _log = logging.getLogger(__name__)
 

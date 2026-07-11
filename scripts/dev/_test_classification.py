@@ -4,10 +4,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from backend.eq2db.items import DB_PATH, init_db
+from backend.eq2db.items import DB_PATH, catalogue
 
 print("Running init_db (will trigger backfill)...")
-conn = init_db(DB_PATH)
+conn = catalogue.init_db()
 
 cols = [r[1] for r in conn.execute("PRAGMA table_info(items)")]
 print("classification_list in schema:", "classification_list" in cols)

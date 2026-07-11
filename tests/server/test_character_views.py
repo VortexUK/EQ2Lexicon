@@ -150,7 +150,7 @@ class TestHealEquipmentPlaceholdersValueError:
             calls.append(item_id)
             return {"displayname": "Something", "tier": None, "iconid": None}
 
-        monkeypatch.setattr(charmodule, "_item_find_by_id", _fake_find)
+        monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
         # Construct a slot whose name matches the pattern but has a non-numeric id
         # The regex _ITEM_PLACEHOLDER_RE = re.compile(r"^Item #(-?\d+)$") only
@@ -183,7 +183,7 @@ class TestHealEquipmentPlaceholdersValueError:
             calls.append(item_id)
             return None
 
-        monkeypatch.setattr(charmodule, "_item_find_by_id", _fake_find)
+        monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
         slot = EquipmentSlotResponse(
             slot="Head",

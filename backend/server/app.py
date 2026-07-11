@@ -118,13 +118,13 @@ def _ensure_item_stats() -> None:
     import sqlite3
 
     from backend.eq2db.items import DB_PATH as items_db_path
-    from backend.eq2db.items import init_db as items_init_db
+    from backend.eq2db.items import catalogue as items_catalogue
 
     if not items_db_path.exists():
         return  # No items DB yet — nothing to initialise
 
     try:
-        items_init_db(items_db_path)  # creates tables/indexes if missing
+        items_catalogue.init_db()  # creates tables/indexes if missing
 
         conn = sqlite3.connect(items_db_path)
         stat_count = conn.execute(_SQL["count_item_stats"]).fetchone()[0]
