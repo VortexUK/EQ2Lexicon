@@ -30,14 +30,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.eq2db.spells import (
-    _CREATE_INDEXES,
-    _CREATE_META,
-    _CREATE_TABLE,
-    DB_PATH,
-    _passes_spellcheck,
-    strip_roman,
-)
+from backend.eq2db._meta import create_table as _create_meta_table
+from backend.eq2db.spells import _SQL, DB_PATH, SpellCatalogue
+
+strip_roman = SpellCatalogue.strip_roman
+_passes_spellcheck = SpellCatalogue._passes_spellcheck
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -89,7 +86,7 @@ def migrate(db_path: Path) -> None:
     # ---- 1. Create the new table ----------------------------------------
     print("Step 1/4  Creating spells_new …")
     conn.execute("DROP TABLE IF EXISTS spells_new;")
-    conn.execute(_CREATE_TABLE.replace("spells", "spells_new", 1))
+    conn.execute(_SQL["schema_spells"].replace("spells", "spells_new", 1))
     conn.commit()
 
     # ---- 2. Migrate rows in batches ---------------------------------------
@@ -239,9 +236,8 @@ def migrate(db_path: Path) -> None:
 
     # ---- 4. Rebuild indexes + meta table ---------------------------------
     print("Step 4/4  Building indexes …")
-    conn.execute(_CREATE_META)
-    for idx_sql in _CREATE_INDEXES:
-        conn.execute(idx_sql)
+    _create_meta_table(conn)
+    conn.executescript(_SQL["indexes_spells"])
     conn.commit()
 
     # VACUUM to reclaim space freed by raw_json removal

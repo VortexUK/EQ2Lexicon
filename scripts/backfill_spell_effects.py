@@ -27,7 +27,7 @@ from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from backend.eq2db.spells import DB_PATH, init_db, spell_to_row
+from backend.eq2db.spells import DB_PATH, catalogue
 
 BASE_URL = "https://census.daybreakgames.com"
 BATCH_SIZE = 50  # IDs per Census request (well within URL limits)
@@ -77,7 +77,7 @@ async def main(dry_run: bool) -> None:
     if service_id == "example":
         print("WARNING: using 'example' service ID — rate limits will be low.")
 
-    conn = init_db(DB_PATH)
+    conn = catalogue.init_db(DB_PATH)
 
     null_rows = conn.execute("SELECT id FROM spells WHERE effects IS NULL ORDER BY id").fetchall()
     ids = [r[0] for r in null_rows]
@@ -109,7 +109,7 @@ async def main(dry_run: bool) -> None:
                 print(f"  [skip] id={spell_id} — no data from Census")
                 continue
 
-            row = spell_to_row(spell)
+            row = catalogue.spell_to_row(spell)
             conn.execute(
                 "UPDATE spells SET effects = :effects WHERE id = :id",
                 {"effects": row["effects"], "id": row["id"]},

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from backend.census import store as census_store
 from backend.census.store import StoreRecord
 from backend.eq2db.aas import catalogue as aa_db
-from backend.eq2db.spells import find_by_crc
+from backend.eq2db.spells import catalogue as spells_db
 from backend.server.cache import aa_cache
 from backend.server.constants import CHARACTER_STALE_S
 from backend.server.core.cache_keys import aa_cache_key
@@ -317,9 +317,9 @@ async def get_spell_effects(spellcrc: int, tier: int = 0) -> SpellEffectsRespons
 
     Pass ?tier=N to get effects for the character's actual spent rank.
     tier=0 (default) falls back to the highest available tier.
-    find_by_crc is lru_cache'd so repeated lookups are free.
+    find_by_crc is cached on the catalogue so repeated lookups are free.
     """
-    row = await asyncio.to_thread(find_by_crc, spellcrc, tier or None)
+    row = await asyncio.to_thread(spells_db.find_by_crc, spellcrc, tier or None)
 
     effects: list[dict] = []
     matched_tier: int | None = None

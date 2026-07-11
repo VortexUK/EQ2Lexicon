@@ -151,7 +151,7 @@ class TestGetUpgradeMaterials:
                 return_value=(cached, True),
             ),
             patch(
-                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                "backend.server.api.character.upgrades._spells.character_upgradeable_spells",
                 return_value=[expert_row],
             ),
         ):
@@ -191,7 +191,7 @@ class TestGetUpgradeMaterials:
                 return_value=(cached, True),
             ),
             patch(
-                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                "backend.server.api.character.upgrades._spells.character_upgradeable_spells",
                 return_value=[adept_row],
             ),
             patch(
@@ -254,7 +254,7 @@ class TestGetUpgradeMaterials:
                 return_value=(cached, True),
             ),
             patch(
-                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                "backend.server.api.character.upgrades._spells.character_upgradeable_spells",
                 return_value=list(rows.values()),
             ),
             patch("backend.server.api.character.upgrades._find_spell_recipes", return_value=recipes),
@@ -351,7 +351,7 @@ class TestGetUpgradeRecipes:
                 return_value=(cached, True),
             ),
             patch(
-                "backend.server.api.character.upgrades._character_upgradeable_spells",
+                "backend.server.api.character.upgrades._spells.character_upgradeable_spells",
                 return_value=[adept_row],
             ),
             patch(

@@ -34,19 +34,7 @@ from backend.eq2db.spells import (
     SpellRow as _SpellRow,
 )
 from backend.eq2db.spells import (
-    find_by_ids as _spell_find_by_ids,
-)
-from backend.eq2db.spells import (
-    load_blocklist as _load_spell_blocklist,
-)
-from backend.eq2db.spells import (
-    strip_roman as _strip_roman,
-)
-from backend.eq2db.spells import (
-    unique_highest_entries as _unique_highest,
-)
-from backend.eq2db.spells import (
-    upgradeable_crcs as _upgradeable_crcs,
+    catalogue as _spells,
 )
 from backend.server.cache import character_cache, guild_cache
 from backend.server.core.cache_keys import census_refresh_guild_key, guild_info_key, guild_roster_key
@@ -175,8 +163,8 @@ def _build_spell_check_from_overviews(
     if not all_ids:
         return None
 
-    spell_db: dict[int, _SpellRow] = _spell_find_by_ids(list(set(all_ids)))
-    blocklist = _load_spell_blocklist()
+    spell_db: dict[int, _SpellRow] = _spells.find_by_ids(list(set(all_ids)))
+    blocklist = _spells.load_blocklist()
 
     # Show every *upgradeable* spell a member owns (a line with a tier ladder),
     # regardless of how it was acquired. The old `given_by=='spellscroll'` gate
@@ -184,14 +172,14 @@ def _build_spell_check_from_overviews(
     # trainer-granted spells (given_by='classtraining'), so those tiers — most
     # visibly Apprentice — never appeared as columns. Mirrors the character
     # spells path; AA abilities (given_by='alternateadvancement') stay excluded.
-    upgradeable = _upgradeable_crcs(
+    upgradeable = _spells.upgradeable_crcs(
         {
             row.get("crc")
             for row in spell_db.values()
             if (row.get("level") or 0) > 0
             and row.get("type") in ("spells", "arts")
             and row.get("given_by") != "alternateadvancement"
-            and _strip_roman(row.get("name") or "").lower() not in blocklist
+            and _spells.strip_roman(row.get("name") or "").lower() not in blocklist
         }
     )
 
@@ -212,7 +200,7 @@ def _build_spell_check_from_overviews(
                 continue
             if row.get("crc") not in upgradeable:
                 continue
-            if _strip_roman(row.get("name") or "").lower() in blocklist:
+            if _spells.strip_roman(row.get("name") or "").lower() in blocklist:
                 continue
             entries.append(
                 SpellEntry(
@@ -223,7 +211,7 @@ def _build_spell_check_from_overviews(
                 )
             )
 
-        entries = _unique_highest(entries)
+        entries = _spells.unique_highest_entries(entries)
         count = Counter(e.tier for e in entries)
         tiers_with_data.update(count.keys())
 
