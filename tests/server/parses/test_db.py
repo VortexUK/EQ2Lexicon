@@ -35,7 +35,7 @@ class TestInitDb:
         for idx in parses_db._CREATE_INDEXES:
             parses_db_conn.execute(idx)
         # Migration runner is also idempotent on an already-migrated DB.
-        parses_db._migrate_attack_types_unique(parses_db_conn)
+        parses_db.store._migrate_attack_types_unique(parses_db_conn)
 
     def test_encounters_has_hidden_at_column(self, parses_db_conn):
         cols = [r[1] for r in parses_db_conn.execute("PRAGMA table_info(encounters)").fetchall()]
@@ -107,7 +107,7 @@ class TestInitDb:
                 (cid,),
             )
             # Run the migration.
-            parses_db._migrate_attack_types_unique(conn)
+            parses_db.store._migrate_attack_types_unique(conn)
             # Existing row survived.
             assert conn.execute("SELECT damage FROM attack_types WHERE attack_name = 'Smite'").fetchone()[0] == 500
             # New constraint now allows same-name across swing types.
@@ -175,7 +175,7 @@ def _sample_combatant(name: str, *, ally: bool, damage: int) -> Combatant:
 
 class TestInsertHelpers:
     def test_insert_encounter_returns_id(self, parses_db_conn):
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -184,7 +184,7 @@ class TestInsertHelpers:
         assert eid >= 1
 
     def test_insert_encounter_writes_uploaded_by(self, parses_db_conn):
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -198,7 +198,7 @@ class TestInsertHelpers:
         assert row[0] == "Menludiir"
 
     def test_insert_encounter_defaults_uploaded_by_to_local(self, parses_db_conn):
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -211,7 +211,7 @@ class TestInsertHelpers:
         assert row[0] == "local"
 
     def test_insert_encounter_writes_guild_name(self, parses_db_conn):
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -226,7 +226,7 @@ class TestInsertHelpers:
         assert row[0] == "Exordium"
 
     def test_insert_encounter_defaults_guild_to_null(self, parses_db_conn):
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -242,15 +242,15 @@ class TestInsertHelpers:
         from backend.server.parses.models import CombatantSnapshot
 
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
+        eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
         combatants = [
             _sample_combatant("Menludiir", ally=True, damage=500000),
             _sample_combatant("a krait patriarch", ally=False, damage=5716),
         ]
         snapshots = {"Menludiir": CombatantSnapshot(level=90, guild_name="Exordium", cls="Templar", ilvl=372.2)}
-        parses_db.insert_combatants_bulk(parses_db_conn, eid, combatants, snapshots)
+        parses_db.store.insert_combatants_bulk(parses_db_conn, eid, combatants, snapshots)
 
-        rows = {r["name"]: r for r in parses_db.get_combatants_for_encounter(parses_db_conn, eid)}
+        rows = {r["name"]: r for r in parses_db.store.get_combatants_for_encounter(parses_db_conn, eid)}
         assert (
             rows["Menludiir"]["level"],
             rows["Menludiir"]["guild_name"],
@@ -265,48 +265,52 @@ class TestInsertHelpers:
     def test_insert_combatants_snapshot_optional(self, parses_db_conn):
         # Back-compat: omitting snapshots leaves the columns NULL.
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
-        parses_db.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Solo", ally=True, damage=1)])
-        row = parses_db.get_combatants_for_encounter(parses_db_conn, eid)[0]
+        eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
+        parses_db.store.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Solo", ally=True, damage=1)])
+        row = parses_db.store.get_combatants_for_encounter(parses_db_conn, eid)[0]
         assert row["level"] is None and row["cls"] is None
 
     def test_update_combatant_snapshots_fills_rows(self, parses_db_conn):
         from backend.server.parses.models import CombatantSnapshot
 
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
-        parses_db.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)])
-        n = parses_db.update_combatant_snapshots(
+        eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
+        parses_db.store.insert_combatants_bulk(
+            parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)]
+        )
+        n = parses_db.store.update_combatant_snapshots(
             parses_db_conn,
             eid,
             {"Menludiir": CombatantSnapshot(level=90, guild_name="Exordium", cls="Templar", ilvl=372.2)},
         )
         assert n == 1
-        row = next(c for c in parses_db.get_combatants_for_encounter(parses_db_conn, eid) if c["name"] == "Menludiir")
+        row = next(
+            c for c in parses_db.store.get_combatants_for_encounter(parses_db_conn, eid) if c["name"] == "Menludiir"
+        )
         assert (row["level"], row["guild_name"], row["cls"], row["ilvl"]) == (90, "Exordium", "Templar", 372.2)
 
     def test_soft_delete_sets_hidden_at(self, parses_db_conn):
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
-        assert parses_db.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111) is True
-        row = parses_db.find_encounter_by_act_encid(parses_db_conn, enc.encid)
+        eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
+        assert parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111) is True
+        row = parses_db.store.find_encounter_by_act_encid(parses_db_conn, enc.encid)
         assert row["hidden_at"] == 1700001111
         # Idempotent: re-soft-deleting an already-hidden row is a no-op (returns False).
-        assert parses_db.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700002222) is False
+        assert parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700002222) is False
 
     def test_unhide_encounter_clears_marker(self, parses_db_conn):
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
-        parses_db.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111)
-        assert parses_db.unhide_encounter(parses_db_conn, eid) is True
-        row = parses_db.find_encounter_by_act_encid(parses_db_conn, enc.encid)
+        eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
+        parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111)
+        assert parses_db.store.unhide_encounter(parses_db_conn, eid) is True
+        row = parses_db.store.find_encounter_by_act_encid(parses_db_conn, enc.encid)
         assert row["hidden_at"] is None
         # Already-visible row → no-op, returns False.
-        assert parses_db.unhide_encounter(parses_db_conn, eid) is False
+        assert parses_db.store.unhide_encounter(parses_db_conn, eid) is False
 
     def test_full_ingest_chain(self, parses_db_conn):
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             enc,
             source_dsn="eq2act",
@@ -316,7 +320,7 @@ class TestInsertHelpers:
             _sample_combatant("Menludiir", ally=True, damage=502718),
             _sample_combatant("a krait patriarch", ally=False, damage=5716),
         ]
-        name_to_id = parses_db.insert_combatants_bulk(parses_db_conn, eid, combatants)
+        name_to_id = parses_db.store.insert_combatants_bulk(parses_db_conn, eid, combatants)
         assert set(name_to_id) == {"Menludiir", "a krait patriarch"}
 
         damage_types = [
@@ -347,7 +351,7 @@ class TestInsertHelpers:
                 crit_types="0.8%L - 0.0%F - 0.0%M",
             ),
         ]
-        n = parses_db.insert_damage_types_bulk(parses_db_conn, name_to_id, damage_types)
+        n = parses_db.store.insert_damage_types_bulk(parses_db_conn, name_to_id, damage_types)
         assert n == 1
 
         attacks = [
@@ -380,29 +384,33 @@ class TestInsertHelpers:
                 crit_types="0.8%L - 0.0%F - 0.0%M",
             ),
         ]
-        n = parses_db.insert_attack_types_bulk(parses_db_conn, name_to_id, attacks)
+        n = parses_db.store.insert_attack_types_bulk(parses_db_conn, name_to_id, attacks)
         assert n == 1
 
-        parses_db.mark_ingested(
+        parses_db.store.mark_ingested(
             parses_db_conn,
             enc.encid,
             eid,
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        assert parses_db.is_ingested(parses_db_conn, enc.encid)
-        assert not parses_db.is_ingested(parses_db_conn, "NOTREAL")
+        assert parses_db.store.is_ingested(parses_db_conn, enc.encid)
+        assert not parses_db.store.is_ingested(parses_db_conn, "NOTREAL")
 
     def test_list_encounters_for_admin_includes_hidden_and_search(self, parses_db_conn):
         from dataclasses import replace
 
         a = _sample_encounter()  # title "a krait patriarch", encid "18cf3eb9"
         b = replace(a, encid="boss01", title="Wuoshi")
-        aid = parses_db.insert_encounter(parses_db_conn, a, source_dsn="eq2act", ingested_at=1, guild_name="Exordium")
-        bid = parses_db.insert_encounter(parses_db_conn, b, source_dsn="eq2act", ingested_at=2, guild_name="Exordium")
-        parses_db.soft_delete_encounter(parses_db_conn, bid, hidden_at=99)  # hide the boss one
+        aid = parses_db.store.insert_encounter(
+            parses_db_conn, a, source_dsn="eq2act", ingested_at=1, guild_name="Exordium"
+        )
+        bid = parses_db.store.insert_encounter(
+            parses_db_conn, b, source_dsn="eq2act", ingested_at=2, guild_name="Exordium"
+        )
+        parses_db.store.soft_delete_encounter(parses_db_conn, bid, hidden_at=99)  # hide the boss one
 
-        rows = parses_db.list_encounters_for_admin(parses_db_conn)
+        rows = parses_db.store.list_encounters_for_admin(parses_db_conn)
         ids = {r["id"] for r in rows}
         assert aid in ids and bid in ids  # hidden row still listed for admin
         by_id = {r["id"]: r for r in rows}
@@ -410,20 +418,20 @@ class TestInsertHelpers:
         assert "player_count" in by_id[aid]
 
         # Search narrows by title.
-        hits = parses_db.list_encounters_for_admin(parses_db_conn, search="wuoshi")
+        hits = parses_db.store.list_encounters_for_admin(parses_db_conn, search="wuoshi")
         assert [r["id"] for r in hits] == [bid]
 
 
 class TestUniqueConstraints:
     def test_duplicate_act_encid_rejected(self, parses_db_conn):
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
         with pytest.raises(sqlite3.IntegrityError):
-            parses_db.insert_encounter(
+            parses_db.store.insert_encounter(
                 parses_db_conn,
                 _sample_encounter(),
                 source_dsn="eq2act",
@@ -432,28 +440,30 @@ class TestUniqueConstraints:
 
     def test_duplicate_combatant_in_encounter_rejected(self, parses_db_conn):
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             enc,
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
         cs = [_sample_combatant("Menludiir", ally=True, damage=1)]
-        parses_db.insert_combatants_bulk(parses_db_conn, eid, cs)
+        parses_db.store.insert_combatants_bulk(parses_db_conn, eid, cs)
         with pytest.raises(sqlite3.IntegrityError):
-            parses_db.insert_combatants_bulk(parses_db_conn, eid, cs)
+            parses_db.store.insert_combatants_bulk(parses_db_conn, eid, cs)
 
     def test_same_attack_name_across_swing_types_allowed(self, parses_db_conn):
         """Cleanse-style spells deal damage (swing_type=2) AND heal (swing_type=3)
         — both rows must coexist for the same combatant. Old UNIQUE
         constraint of (combatant_id, attack_name) blocked this."""
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        parses_db.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)])
+        parses_db.store.insert_combatants_bulk(
+            parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)]
+        )
         cid = parses_db_conn.execute(
             "SELECT id FROM combatants WHERE encounter_id = ? AND name = ?",
             (eid, "Menludiir"),
@@ -474,13 +484,15 @@ class TestUniqueConstraints:
     def test_duplicate_attack_within_same_swing_type_rejected(self, parses_db_conn):
         """The new tuple is (combatant_id, swing_type, attack_name) — same
         attack twice at the same swing type still collides."""
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        parses_db.insert_combatants_bulk(parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)])
+        parses_db.store.insert_combatants_bulk(
+            parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)]
+        )
         cid = parses_db_conn.execute(
             "SELECT id FROM combatants WHERE encounter_id = ? AND name = ?",
             (eid, "Menludiir"),
@@ -515,9 +527,9 @@ class TestLookupHelpers:
             kills=1,
             deaths=0,
         )
-        parses_db.insert_encounter(parses_db_conn, e1, source_dsn="eq2act", ingested_at=1)
-        parses_db.insert_encounter(parses_db_conn, e2, source_dsn="eq2act", ingested_at=2)
-        rows = parses_db.recent_encounters(parses_db_conn, limit=10)
+        parses_db.store.insert_encounter(parses_db_conn, e1, source_dsn="eq2act", ingested_at=1)
+        parses_db.store.insert_encounter(parses_db_conn, e2, source_dsn="eq2act", ingested_at=2)
+        rows = parses_db.store.recent_encounters(parses_db_conn, limit=10)
         assert [r["act_encid"] for r in rows] == ["2B3C4D5E", "18cf3eb9"]
 
     def test_recent_encounters_zone_filter(self, parses_db_conn):
@@ -534,24 +546,24 @@ class TestLookupHelpers:
             kills=0,
             deaths=0,
         )
-        parses_db.insert_encounter(parses_db_conn, e1, source_dsn="eq2act", ingested_at=1)
-        parses_db.insert_encounter(parses_db_conn, e2, source_dsn="eq2act", ingested_at=2)
-        rows = parses_db.recent_encounters(parses_db_conn, zone="Great Divide")
+        parses_db.store.insert_encounter(parses_db_conn, e1, source_dsn="eq2act", ingested_at=1)
+        parses_db.store.insert_encounter(parses_db_conn, e2, source_dsn="eq2act", ingested_at=2)
+        rows = parses_db.store.recent_encounters(parses_db_conn, zone="Great Divide")
         assert [r["act_encid"] for r in rows] == ["18cf3eb9"]
 
     def test_find_encounter_by_act_encid(self, parses_db_conn):
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        row = parses_db.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9")
+        row = parses_db.store.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9")
         assert row is not None
         assert row["title"] == "a krait patriarch"
 
     def test_find_encounter_missing_returns_none(self, parses_db_conn):
-        assert parses_db.find_encounter_by_act_encid(parses_db_conn, "NOPE") is None
+        assert parses_db.store.find_encounter_by_act_encid(parses_db_conn, "NOPE") is None
 
 
 class TestSwingTypeSplit:
@@ -561,13 +573,13 @@ class TestSwingTypeSplit:
 
     def _seed(self, parses_db_conn):
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             enc,
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        name_to_id = parses_db.insert_combatants_bulk(
+        name_to_id = parses_db.store.insert_combatants_bulk(
             parses_db_conn,
             eid,
             [_sample_combatant("Menludiir", ally=True, damage=10000)],
@@ -596,13 +608,13 @@ class TestSwingTypeSplit:
 
     def test_top_attacks_excludes_heals_and_rollups(self, parses_db_conn):
         cid = self._seed(parses_db_conn)
-        attacks = parses_db.get_top_attacks_for_combatant(parses_db_conn, cid)
+        attacks = parses_db.store.get_top_attacks_for_combatant(parses_db_conn, cid)
         names = [a["attack_name"] for a in attacks]
         assert names == ["crush", "Smite"]  # heals + rollup absent
 
     def test_top_heals_only_swing_type_3(self, parses_db_conn):
         cid = self._seed(parses_db_conn)
-        heals = parses_db.get_top_heals_for_combatant(parses_db_conn, cid)
+        heals = parses_db.store.get_top_heals_for_combatant(parses_db_conn, cid)
         names = [h["attack_name"] for h in heals]
         # Sorted by damage DESC
         assert names == ["Reverence", "Stonewill"]
@@ -613,7 +625,7 @@ class TestSwingTypeSplit:
 
     def test_top_cures_only_swing_type_20(self, parses_db_conn):
         cid = self._seed(parses_db_conn)
-        cures = parses_db.get_top_cures_for_combatant(parses_db_conn, cid)
+        cures = parses_db.store.get_top_cures_for_combatant(parses_db_conn, cid)
         assert [c["attack_name"] for c in cures] == ["Cure"]
         assert cures[0]["resist"] == "relieves"
 
@@ -628,25 +640,25 @@ class TestSwingTypeSplit:
             "VALUES (?, '', 100, 'All', 999999, 999, 999, 0, 0, 'All')",
             (cid,),
         )
-        threats = parses_db.get_top_threats_for_combatant(parses_db_conn, cid)
+        threats = parses_db.store.get_top_threats_for_combatant(parses_db_conn, cid)
         names = [t["attack_name"] for t in threats]
         assert names == ["Undeniable Malice"]
         assert threats[0]["resist"] == "Increase"
 
     def test_no_heals_returns_empty(self, parses_db_conn):
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             enc,
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        name_to_id = parses_db.insert_combatants_bulk(
+        name_to_id = parses_db.store.insert_combatants_bulk(
             parses_db_conn,
             eid,
             [_sample_combatant("Sihtric", ally=True, damage=5000)],
         )
-        assert parses_db.get_top_heals_for_combatant(parses_db_conn, name_to_id["Sihtric"]) == []
+        assert parses_db.store.get_top_heals_for_combatant(parses_db_conn, name_to_id["Sihtric"]) == []
 
 
 class TestDeleteHelpers:
@@ -654,7 +666,7 @@ class TestDeleteHelpers:
         from dataclasses import replace
 
         enc = replace(_sample_encounter(), encid=encid)
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             conn,
             enc,
             source_dsn="eq2act",
@@ -662,21 +674,21 @@ class TestDeleteHelpers:
             uploaded_by=uploaded_by,
             guild_name=guild_name,
         )
-        parses_db.insert_combatants_bulk(
+        parses_db.store.insert_combatants_bulk(
             conn,
             eid,
             [_sample_combatant("Menludiir", ally=True, damage=1000)],
         )
-        parses_db.mark_ingested(conn, encid, eid, source_dsn="eq2act", ingested_at=1700000000)
+        parses_db.store.mark_ingested(conn, encid, eid, source_dsn="eq2act", ingested_at=1700000000)
         return eid
 
     def test_delete_encounter_removes_row(self, parses_db_conn):
         eid = self._seed(parses_db_conn, encid="enc1", guild_name="Exordium")
-        assert parses_db.delete_encounter(parses_db_conn, eid) is True
+        assert parses_db.store.delete_encounter(parses_db_conn, eid) is True
         assert parses_db_conn.execute("SELECT COUNT(*) FROM encounters").fetchone()[0] == 0
 
     def test_delete_encounter_returns_false_when_missing(self, parses_db_conn):
-        assert parses_db.delete_encounter(parses_db_conn, 99999) is False
+        assert parses_db.store.delete_encounter(parses_db_conn, 99999) is False
 
     def test_delete_encounter_cascades_children(self, parses_db_conn):
         eid = self._seed(parses_db_conn, encid="enc2", guild_name="Exordium")
@@ -687,7 +699,7 @@ class TestDeleteHelpers:
         assert (
             parses_db_conn.execute("SELECT COUNT(*) FROM ingest_log WHERE encounter_id = ?", (eid,)).fetchone()[0] == 1
         )
-        parses_db.delete_encounter(parses_db_conn, eid)
+        parses_db.store.delete_encounter(parses_db_conn, eid)
         # All children gone via FK cascade.
         assert (
             parses_db_conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = ?", (eid,)).fetchone()[0] == 0
@@ -700,14 +712,14 @@ class TestDeleteHelpers:
 class TestFindByFilter:
     def test_find_encounters_by_filter_returns_id_and_title(self, parses_db_conn):
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn,
             enc,
             source_dsn="eq2act",
             ingested_at=1700000000,
             guild_name="Exordium",
         )
-        rows = parses_db.find_encounters_by_filter(parses_db_conn, guild_name="Exordium")
+        rows = parses_db.store.find_encounters_by_filter(parses_db_conn, guild_name="Exordium")
         assert {"id", "title"} <= set(rows[0].keys())
         assert rows[0]["id"] == eid
 
@@ -730,7 +742,7 @@ class TestWorldScoping:
         assert "world" in cols
 
     def test_world_stored_on_encounter(self, parses_db_conn):
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -743,14 +755,14 @@ class TestWorldScoping:
     def test_same_act_encid_different_world_both_insert(self, parses_db_conn):
         """The UNIQUE constraint is (world, act_encid), so the same encid
         from two different servers must coexist without a collision."""
-        eid_v = parses_db.insert_encounter(
+        eid_v = parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
             ingested_at=1700000000,
             world="Varsoon",
         )
-        eid_w = parses_db.insert_encounter(
+        eid_w = parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -766,7 +778,7 @@ class TestWorldScoping:
     def test_same_world_same_encid_still_collides(self, parses_db_conn):
         """Duplicate (world, act_encid) within the same server must still
         raise an IntegrityError."""
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -774,7 +786,7 @@ class TestWorldScoping:
             world="Varsoon",
         )
         with pytest.raises(sqlite3.IntegrityError):
-            parses_db.insert_encounter(
+            parses_db.store.insert_encounter(
                 parses_db_conn,
                 _sample_encounter(),
                 source_dsn="eq2act",
@@ -786,10 +798,10 @@ class TestWorldScoping:
         """is_ingested(world='Varsoon') must NOT report True just because
         the same encid is ingested under 'Wuoshi'."""
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000, world="Wuoshi"
         )
-        parses_db.mark_ingested(
+        parses_db.store.mark_ingested(
             parses_db_conn,
             enc.encid,
             eid,
@@ -798,17 +810,17 @@ class TestWorldScoping:
             world="Wuoshi",
         )
         # On the ingest world → True.
-        assert parses_db.is_ingested(parses_db_conn, enc.encid, "Wuoshi") is True
+        assert parses_db.store.is_ingested(parses_db_conn, enc.encid, "Wuoshi") is True
         # On a different world → False.
-        assert parses_db.is_ingested(parses_db_conn, enc.encid, "Varsoon") is False
+        assert parses_db.store.is_ingested(parses_db_conn, enc.encid, "Varsoon") is False
 
     def test_ingest_log_world_stored(self, parses_db_conn):
         """mark_ingested must write the world column into ingest_log."""
         enc = _sample_encounter()
-        eid = parses_db.insert_encounter(
+        eid = parses_db.store.insert_encounter(
             parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000, world="Kaladim"
         )
-        parses_db.mark_ingested(
+        parses_db.store.mark_ingested(
             parses_db_conn,
             enc.encid,
             eid,
@@ -822,29 +834,29 @@ class TestWorldScoping:
     def test_find_encounter_by_act_encid_world_scoped(self, parses_db_conn):
         """find_encounter_by_act_encid must only return the row for the
         requested world."""
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
             ingested_at=1700000000,
             world="Varsoon",
         )
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
             ingested_at=1700000001,
             world="Wuoshi",
         )
-        v_row = parses_db.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9", "Varsoon")
-        w_row = parses_db.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9", "Wuoshi")
+        v_row = parses_db.store.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9", "Varsoon")
+        w_row = parses_db.store.find_encounter_by_act_encid(parses_db_conn, "18cf3eb9", "Wuoshi")
         assert v_row is not None and v_row["world"] == "Varsoon"
         assert w_row is not None and w_row["world"] == "Wuoshi"
         assert v_row["id"] != w_row["id"]
 
     def test_recent_encounters_world_filter(self, parses_db_conn):
         """recent_encounters(world='Varsoon') must exclude Wuoshi rows."""
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -854,21 +866,21 @@ class TestWorldScoping:
         from dataclasses import replace
 
         enc2 = replace(_sample_encounter(), encid="WUOSHI01")
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             enc2,
             source_dsn="eq2act",
             ingested_at=1700000001,
             world="Wuoshi",
         )
-        v_rows = parses_db.recent_encounters(parses_db_conn, world="Varsoon")
+        v_rows = parses_db.store.recent_encounters(parses_db_conn, world="Varsoon")
         assert [r["act_encid"] for r in v_rows] == ["18cf3eb9"]
-        w_rows = parses_db.recent_encounters(parses_db_conn, world="Wuoshi")
+        w_rows = parses_db.store.recent_encounters(parses_db_conn, world="Wuoshi")
         assert [r["act_encid"] for r in w_rows] == ["WUOSHI01"]
 
     def test_encounters_default_world_is_varsoon(self, parses_db_conn):
         """insert_encounter with no explicit world stores 'Varsoon'."""
-        parses_db.insert_encounter(
+        parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
             source_dsn="eq2act",
@@ -980,8 +992,8 @@ class TestWorldScoping:
             )
             conn.commit()
             # Run the migration (same logic init_db calls).
-            parses_db._migrate_encounters_add_world(conn)
-            parses_db._migrate_ingest_log_add_world(conn)
+            parses_db.store._migrate_encounters_add_world(conn)
+            parses_db.store._migrate_ingest_log_add_world(conn)
             conn.commit()
             # Encounter id preserved, world backfilled.
             row = conn.execute("SELECT id, world FROM encounters WHERE act_encid = 'legacy01'").fetchone()
@@ -1007,7 +1019,7 @@ class TestWorldScoping:
             child_count = conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = 42").fetchone()[0]
             assert child_count == 0, "cascade delete must remove child combatants"
             # Migrations are idempotent (re-running is a no-op).
-            parses_db._migrate_encounters_add_world(conn)
-            parses_db._migrate_ingest_log_add_world(conn)
+            parses_db.store._migrate_encounters_add_world(conn)
+            parses_db.store._migrate_ingest_log_add_world(conn)
         finally:
             conn.close()

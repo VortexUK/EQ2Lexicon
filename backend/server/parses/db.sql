@@ -198,20 +198,14 @@ CREATE INDEX IF NOT EXISTS idx_tamper_reports_world_reported ON tamper_reports (
 -- PRAGMAs (connection setup + introspection + migration toggles)
 -- ---------------------------------------------------------------------------
 
--- :name pragma_journal_mode_wal
-PRAGMA journal_mode = WAL;
-
--- :name pragma_synchronous_normal
-PRAGMA synchronous = NORMAL;
-
--- :name pragma_foreign_keys_on
-PRAGMA foreign_keys = ON;
-
 -- :name pragma_foreign_keys_off
 PRAGMA foreign_keys = OFF;
 
 -- :name pragma_legacy_alter_table_on
 PRAGMA legacy_alter_table = ON;
+
+-- :name pragma_foreign_keys_on
+PRAGMA foreign_keys = ON;
 
 -- :name pragma_legacy_alter_table_off
 PRAGMA legacy_alter_table = OFF;

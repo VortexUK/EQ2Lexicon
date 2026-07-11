@@ -35,7 +35,7 @@ def _read_client_warnings(conn, encounter_id: int) -> str | None:
 def _ingest_and_get(payload: dict, *, tmp_path, monkeypatch) -> tuple[int, Path]:
     """Drive ``_ingest_payload_sync`` against a fresh tmp DB and return
     (encounter_id, db_file). The db_file path MUST be passed explicitly
-    when reading back — ``parses_db.init_db()``'s ``path: Path = DB_PATH``
+    when reading back — ``parses_db.store.init_db()``'s ``path: Path = DB_PATH``
     default arg captures DB_PATH at function-definition time, so
     monkey-patching the module attribute doesn't affect the no-arg call.
     All reads in these tests therefore go through ``init_db(db_file)``.
@@ -44,8 +44,8 @@ def _ingest_and_get(payload: dict, *, tmp_path, monkeypatch) -> tuple[int, Path]
     from backend.server.api.parses.ingest import _ingest_payload_sync
 
     db_file: Path = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-    parses_db.init_db(db_file).close()
+    monkeypatch.setattr(parses_db.store, "path", db_file)
+    parses_db.ParsesStore(db_file).init_db().close()
 
     req = IngestRequest(**payload)
     status, eid, *_ = _ingest_payload_sync(req, "Menludiir", "Exordium", "plugin:123", {})
@@ -60,7 +60,7 @@ def test_client_warnings_persisted_as_json(tmp_path, monkeypatch):
 
     eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
 
-    conn = parses_db.init_db(db_file)
+    conn = parses_db.ParsesStore(db_file).init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:
@@ -81,7 +81,7 @@ def test_client_warnings_absent_leaves_column_null(tmp_path, monkeypatch):
 
     eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
 
-    conn = parses_db.init_db(db_file)
+    conn = parses_db.ParsesStore(db_file).init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:
@@ -99,7 +99,7 @@ def test_client_warnings_empty_list_stored_as_null(tmp_path, monkeypatch):
 
     eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
 
-    conn = parses_db.init_db(db_file)
+    conn = parses_db.ParsesStore(db_file).init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:
@@ -128,7 +128,7 @@ def test_client_warnings_sanitises_entries(tmp_path, monkeypatch):
 
     eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
 
-    conn = parses_db.init_db(db_file)
+    conn = parses_db.ParsesStore(db_file).init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:

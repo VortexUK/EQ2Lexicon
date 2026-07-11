@@ -28,16 +28,20 @@ from backend.server.parses import db as parses_db
 
 @pytest.fixture
 def parses_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Tmp-path-backed parses.db with schema initialised + DB_PATH patched."""
+    """Tmp-path-backed parses.db with schema initialised + store re-pointed."""
     db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-    parses_db.init_db(db_file).close()
+    monkeypatch.setattr(parses_db.store, "path", db_file)
+    monkeypatch.setattr(parses_db.store, "path", db_file)
+    parses_db.ParsesStore(db_file).init_db().close()
     return db_file
 
 
 @pytest.fixture
-def parses_db_conn() -> Generator[sqlite3.Connection]:
-    """In-memory parses DB connection (schema already applied)."""
-    conn = parses_db.init_db(":memory:")  # type: ignore[arg-type]
+def parses_db_conn(tmp_path: Path) -> Generator[sqlite3.Connection]:
+    """Throwaway parses DB connection (schema already applied).
+
+    File-backed (BaseCatalogue dropped :memory: support — per-read
+    connections would each see a fresh empty memory DB)."""
+    conn = parses_db.ParsesStore(tmp_path / "conn_parses.db").init_db()
     yield conn
     conn.close()

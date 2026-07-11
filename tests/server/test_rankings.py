@@ -397,7 +397,7 @@ def _ins(conn, encid, title, *, success, players, guild, duration):
         deaths=0,
         success_level=success,
     )
-    eid = pdb.insert_encounter(
+    eid = pdb.store.insert_encounter(
         conn, enc, source_dsn="eq2act", ingested_at=int(_time.time()), uploaded_by="Up", guild_name=guild
     )
     combs = [
@@ -439,7 +439,7 @@ def _ins(conn, encid, title, *, success, players, guild, duration):
         for i in range(players)
     ]
     snaps = {f"P{i}": CombatantSnapshot(level=95, guild_name=guild, cls="Wizard") for i in range(players)}
-    pdb.insert_combatants_bulk(conn, eid, combs, snaps)
+    pdb.store.insert_combatants_bulk(conn, eid, combs, snaps)
     # Phase 4 (2026-05-30): the rankings loader's player_count subquery
     # now filters on is_player=1, and insert_combatants_bulk doesn't
     # populate that column (the classifier runs in the ingest path, not
@@ -453,8 +453,8 @@ def _ins(conn, encid, title, *, success, players, guild, duration):
 @pytest.fixture()
 def rankings_db(tmp_path, monkeypatch):
     db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb, "DB_PATH", db_file)
-    conn = pdb.init_db(db_file)
+    monkeypatch.setattr(pdb.store, "path", db_file)
+    conn = pdb.ParsesStore(db_file).init_db()
     _ins(conn, "WIN", "Tarinax", success=1, players=8, guild="Exordium", duration=60)  # boss, raid
     _ins(conn, "TRASH", "a krait", success=1, players=8, guild="Exordium", duration=30)  # not boss
     _ins(conn, "LOSS", "Cazel", success=2, players=8, guild="Exordium", duration=90)  # not a win
@@ -629,8 +629,8 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
 
     # Seed a Varsoon boss kill and a distinct Wuoshi boss kill.
     db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb, "DB_PATH", db_file)
-    conn = pdb.init_db(db_file)
+    monkeypatch.setattr(pdb.store, "path", db_file)
+    conn = pdb.ParsesStore(db_file).init_db()
     _ins(conn, "V-WIN", "Tarinax", success=1, players=8, guild="Exordium", duration=60)  # defaults to Varsoon
     # Wuoshi kill uses a different boss title so results are unambiguous.
     enc_w = Encounter(
@@ -646,7 +646,7 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
         deaths=0,
         success_level=1,
     )
-    weid = pdb.insert_encounter(
+    weid = pdb.store.insert_encounter(
         conn,
         enc_w,
         source_dsn="eq2act",
@@ -655,7 +655,7 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
         guild_name="DragonSlayers",
         world="Wuoshi",
     )
-    pdb.insert_combatants_bulk(
+    pdb.store.insert_combatants_bulk(
         conn,
         weid,
         [

@@ -93,14 +93,14 @@ class TestIngestPayloadSyncWorldAttribution:
         """When ingest is called with world='Wuoshi', the encounter row has
         world='Wuoshi'."""
         db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-        parses_db.init_db(db_file).close()
+        monkeypatch.setattr(parses_db.store, "path", db_file)
+        parses_db.ParsesStore(db_file).init_db().close()
 
         payload = IngestRequest(**_minimal_payload())
         status, eid, *_ = _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Wuoshi")
         assert status == "inserted"
 
-        conn = parses_db.init_db(db_file)
+        conn = parses_db.ParsesStore(db_file).init_db()
         try:
             row = conn.execute("SELECT world FROM encounters WHERE id = ?", (eid,)).fetchone()
             assert row[0] == "Wuoshi"
@@ -110,13 +110,13 @@ class TestIngestPayloadSyncWorldAttribution:
     def test_ingest_log_world_matches_encounter(self, tmp_path, monkeypatch):
         """ingest_log.world must match the encounter's world."""
         db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-        parses_db.init_db(db_file).close()
+        monkeypatch.setattr(parses_db.store, "path", db_file)
+        parses_db.ParsesStore(db_file).init_db().close()
 
         payload = IngestRequest(**_minimal_payload())
         _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Kaladim")
 
-        conn = parses_db.init_db(db_file)
+        conn = parses_db.ParsesStore(db_file).init_db()
         try:
             row = conn.execute(
                 "SELECT world FROM ingest_log WHERE act_encid = ?", (payload.encounter.encid,)
@@ -129,8 +129,8 @@ class TestIngestPayloadSyncWorldAttribution:
         """Two ingest calls with the same act_encid but different worlds must
         both succeed (no UNIQUE collision)."""
         db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-        parses_db.init_db(db_file).close()
+        monkeypatch.setattr(parses_db.store, "path", db_file)
+        parses_db.ParsesStore(db_file).init_db().close()
 
         payload = IngestRequest(**_minimal_payload())
         status_v, eid_v, *_ = _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Varsoon")
@@ -139,7 +139,7 @@ class TestIngestPayloadSyncWorldAttribution:
         assert status_w == "inserted"
         assert eid_v != eid_w
 
-        conn = parses_db.init_db(db_file)
+        conn = parses_db.ParsesStore(db_file).init_db()
         try:
             count = conn.execute(
                 "SELECT COUNT(*) FROM encounters WHERE act_encid = ?", (payload.encounter.encid,)
@@ -152,8 +152,8 @@ class TestIngestPayloadSyncWorldAttribution:
         """Re-uploading the same (world, act_encid) returns 'skipped'; uploading
         the same act_encid under a DIFFERENT world is NOT skipped."""
         db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-        parses_db.init_db(db_file).close()
+        monkeypatch.setattr(parses_db.store, "path", db_file)
+        parses_db.ParsesStore(db_file).init_db().close()
 
         payload = IngestRequest(**_minimal_payload())
         _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Varsoon")
@@ -177,8 +177,8 @@ class TestListEncountersSyncWorldScoping:
         """_list_encounters_sync(world='Varsoon') must not return encounters
         stored under 'Wuoshi'."""
         db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-        parses_db.init_db(db_file).close()
+        monkeypatch.setattr(parses_db.store, "path", db_file)
+        parses_db.ParsesStore(db_file).init_db().close()
 
         payload_v = IngestRequest(**_minimal_payload("VARSOON1"))
         payload_w = IngestRequest(**_minimal_payload("WUOSHI01"))
@@ -218,8 +218,8 @@ class TestDeleteCrossServerIsolation:
         DELETE /api/parses/{B} under Varsoon context → 404, B still in DB.
         DELETE /api/parses/{A} under Varsoon context → 200, A gone."""
         db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-        parses_db.init_db(db_file).close()
+        monkeypatch.setattr(parses_db.store, "path", db_file)
+        parses_db.ParsesStore(db_file).init_db().close()
 
         # Seed two encounters in different worlds.
         payload_a = IngestRequest(**_minimal_payload("AAAAAA"))
@@ -243,7 +243,7 @@ class TestDeleteCrossServerIsolation:
         assert r_same.json() == {"deleted": 1}
 
         # Verify B still exists in the DB; A is gone.
-        conn = parses_db.init_db(db_file)
+        conn = parses_db.ParsesStore(db_file).init_db()
         try:
             b_row = conn.execute("SELECT id FROM encounters WHERE id = ?", (id_b,)).fetchone()
             a_row = conn.execute("SELECT id FROM encounters WHERE id = ?", (id_a,)).fetchone()
@@ -338,8 +338,8 @@ async def test_http_ingest_attributes_encounter_world_from_logger_server(tmp_pat
     introduced in the merge of feature/per-server-urls (replacing the
     old _resolve_parse_world + current_world() fallback)."""
     db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(parses_db, "DB_PATH", db_file)
-    parses_db.init_db(db_file).close()
+    monkeypatch.setattr(parses_db.store, "path", db_file)
+    parses_db.ParsesStore(db_file).init_db().close()
 
     token = "eq2c_e2e_test_token"
 
@@ -379,7 +379,7 @@ async def test_http_ingest_attributes_encounter_world_from_logger_server(tmp_pat
     encounter_id = r.json()["encounter_id"]
     assert encounter_id is not None
 
-    conn = parses_db.init_db(db_file)
+    conn = parses_db.ParsesStore(db_file).init_db()
     try:
         row = conn.execute("SELECT world FROM encounters WHERE id = ?", (encounter_id,)).fetchone()
     finally:

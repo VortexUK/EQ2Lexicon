@@ -91,7 +91,7 @@ def _encounter_id_for(conn: sqlite3.Connection, act_encid: str) -> int:
 class _NoCloseConn:
     """Thin proxy around a sqlite3.Connection that makes close() a no-op.
 
-    _update_snapshots_sync opens a connection via parses_db.init_db() and
+    _update_snapshots_sync opens a connection via parses_db.store.init_db() and
     always calls conn.close() in its finally block. By wrapping the shared
     in-memory connection in this proxy, we keep the underlying connection
     alive for assertions after the helper returns.
@@ -124,11 +124,11 @@ class _NoCloseConn:
 
 
 @pytest.fixture
-def parses_db_in_memory(monkeypatch):
+def parses_db_in_memory(monkeypatch, tmp_path):
     """Point parses_db.DB_PATH at an in-memory DB for the duration of the test.
 
     Both _insert_encounter_rows_sync (caller-supplied conn) and
-    _update_snapshots_sync (opens its own via parses_db.init_db(DB_PATH))
+    _update_snapshots_sync (opens its own via parses_db.ParsesStore(DB_PATH).init_db())
     need to share state, so we hand the same connection back across both
     calls.
 
@@ -136,10 +136,11 @@ def parses_db_in_memory(monkeypatch):
     the real connection in _NoCloseConn so close() is a no-op and the shared
     in-memory connection stays alive for assertions after the helper returns.
     """
-    real_conn = parses_db.init_db(Path(":memory:"))
+    db_file = tmp_path / "parses.db"
+    real_conn = parses_db.ParsesStore(db_file).init_db()
     conn = _NoCloseConn(real_conn)
-    monkeypatch.setattr(parses_db, "DB_PATH", Path(":memory:"))
-    monkeypatch.setattr(parses_db, "init_db", lambda *a, **k: conn)
+    monkeypatch.setattr(parses_db.store, "path", db_file)
+    monkeypatch.setattr(parses_db.store, "init_db", lambda *a, **k: conn)
     try:
         yield conn
     finally:

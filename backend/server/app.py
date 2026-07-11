@@ -439,7 +439,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         # Initialise the parses DB too so the schema + migrations are in place
         # before the first /api/parses/ingest hits — otherwise the first
         # upload's request pays that cost on the request thread.
-        from backend.server.parses import db as parses_db
+        from backend.server.parses.db import store as parses_db
 
         parses_db.init_db()
         # Initialise zones.db on startup too so admin-curation tables

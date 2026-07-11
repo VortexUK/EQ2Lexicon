@@ -26,7 +26,7 @@ _fake_user = make_fake_require_user(make_fake_user(id="123456789"))
 def parses_db_in_memory(tmp_path, monkeypatch):
     """Point parses_db.DB_PATH at a tmp-path-backed DB. The schema is
     pre-initialised by opening + closing a connection; subsequent
-    ``parses_db.init_db()`` calls (from the route handler in another
+    ``parses_db.store.init_db()`` calls (from the route handler in another
     thread) open a fresh connection against the same file, which is
     safe with sqlite3 + WAL.
 
@@ -34,12 +34,12 @@ def parses_db_in_memory(tmp_path, monkeypatch):
     path early-returns when ``DB_PATH.exists()`` is False, and
     ``Path(':memory:').exists()`` is always False."""
     db_file = tmp_path / "backend.server.parses.db"
-    parses_db.init_db(db_file).close()
-    monkeypatch.setattr(parses_db, "DB_PATH", db_file)
+    parses_db.ParsesStore(db_file).init_db().close()
+    monkeypatch.setattr(parses_db.store, "path", db_file)
     # The test body needs an open connection to seed + assert against.
     # The route handler opens its OWN connection via the unpatched
     # init_db(path) — same file, separate handle, no thread issues.
-    conn = parses_db.init_db(db_file)
+    conn = parses_db.ParsesStore(db_file).init_db()
     try:
         yield conn
     finally:
