@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.server.api.rankings import _apply_percentiles, _scope_for
+from backend.server.db.servers import ServersStore
 
 
 class TestApplyPercentiles:
@@ -582,7 +583,11 @@ async def test_rankings_default_xpac_per_server(app, monkeypatch, tmp_path):
     p = tmp_path / "users.db"
     db.init_db(p)
     monkeypatch.setattr(db, "DB_PATH", p)
-    db.upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac="Echoes of Faydwer", launch_dt=None, path=p)
+    for _st in db.ALL_STORES:
+        monkeypatch.setattr(_st, "path", p)
+    ServersStore(p).upsert_server_settings_sync(
+        "Wuoshi", max_level=70, current_xpac="Echoes of Faydwer", launch_dt=None
+    )
     server_context.load_registry()
 
     raid_tree = [
@@ -623,8 +628,10 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
     p = tmp_path / "users.db"
     db.init_db(p)
     monkeypatch.setattr(db, "DB_PATH", p)
-    db.upsert_server_settings_sync("Varsoon", max_level=50, current_xpac=None, launch_dt=None, path=p)
-    db.upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None, path=p)
+    for _st in db.ALL_STORES:
+        monkeypatch.setattr(_st, "path", p)
+    ServersStore(p).upsert_server_settings_sync("Varsoon", max_level=50, current_xpac=None, launch_dt=None)
+    ServersStore(p).upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None)
     server_context.load_registry()
 
     # Seed a Varsoon boss kill and a distinct Wuoshi boss kill.

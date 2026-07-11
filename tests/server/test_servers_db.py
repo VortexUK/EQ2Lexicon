@@ -3,28 +3,29 @@ from __future__ import annotations
 import sqlite3
 
 from backend.server import db
+from backend.server.db.servers import ServersStore
 
 
 def test_servers_seeded_and_lookups(tmp_path):
     p = tmp_path / "users.db"
     db.init_db(p)
-    rows = db.list_servers_sync(p)
+    rows = ServersStore(p).list_servers_sync()
     worlds = {r["world"] for r in rows}
     assert {"Varsoon", "Wuoshi"} <= worlds
-    v = db.get_server_by_subdomain_sync("varsoon", p)
+    v = ServersStore(p).get_server_by_subdomain_sync("varsoon")
     assert v is not None and v["world"] == "Varsoon"
-    w = db.get_server_by_world_sync("Wuoshi", p)
+    w = ServersStore(p).get_server_by_world_sync("Wuoshi")
     assert w is not None and w["subdomain"] == "wuoshi"
-    assert db.get_server_by_subdomain_sync("nope", p) is None
+    assert ServersStore(p).get_server_by_subdomain_sync("nope") is None
 
 
 def test_upsert_server_updates_settings(tmp_path):
     p = tmp_path / "users.db"
     db.init_db(p)
-    db.upsert_server_settings_sync(
-        "Wuoshi", max_level=70, current_xpac="Sentinel's Fate", launch_dt="2026-07-01T18:00:00Z", path=p
+    ServersStore(p).upsert_server_settings_sync(
+        "Wuoshi", max_level=70, current_xpac="Sentinel's Fate", launch_dt="2026-07-01T18:00:00Z"
     )
-    w = db.get_server_by_world_sync("Wuoshi", p)
+    w = ServersStore(p).get_server_by_world_sync("Wuoshi")
     assert w["max_level"] == 70
     assert w["current_xpac"] == "Sentinel's Fate"
     assert w["launch_dt"] == "2026-07-01T18:00:00Z"
@@ -33,10 +34,10 @@ def test_upsert_server_updates_settings(tmp_path):
 def test_second_init_db_preserves_upserted_settings(tmp_path):
     p = tmp_path / "users.db"
     db.init_db(p)
-    db.upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac="Sentinel's Fate", launch_dt=None, path=p)
+    ServersStore(p).upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac="Sentinel's Fate", launch_dt=None)
     # A second init_db (e.g. container restart) must not reset the admin edit.
     db.init_db(p)
-    w = db.get_server_by_world_sync("Wuoshi", p)
+    w = ServersStore(p).get_server_by_world_sync("Wuoshi")
     assert w["max_level"] == 70
     assert w["current_xpac"] == "Sentinel's Fate"
 
@@ -182,33 +183,33 @@ def test_set_default_server_clears_others(tmp_path):
     db.init_db(p)
 
     # After init the default should be Varsoon (EQ2_WORLD default).
-    rows = db.list_servers_sync(p)
+    rows = ServersStore(p).list_servers_sync()
     defaults = [r for r in rows if r["is_default"]]
     assert len(defaults) == 1
 
     # Set Wuoshi as default — Varsoon must flip to 0.
-    result = db.set_default_server_sync("Wuoshi", path=p)
+    result = ServersStore(p).set_default_server_sync("Wuoshi")
     assert result is True
 
-    rows = db.list_servers_sync(p)
+    rows = ServersStore(p).list_servers_sync()
     wuoshi = next(r for r in rows if r["world"] == "Wuoshi")
     varsoon = next(r for r in rows if r["world"] == "Varsoon")
     assert wuoshi["is_default"] is True
     assert varsoon["is_default"] is False
 
     # Flip back to Varsoon.
-    result = db.set_default_server_sync("Varsoon", path=p)
+    result = ServersStore(p).set_default_server_sync("Varsoon")
     assert result is True
 
-    rows = db.list_servers_sync(p)
+    rows = ServersStore(p).list_servers_sync()
     wuoshi = next(r for r in rows if r["world"] == "Wuoshi")
     varsoon = next(r for r in rows if r["world"] == "Varsoon")
     assert varsoon["is_default"] is True
     assert wuoshi["is_default"] is False
 
     # Unknown world: returns False and does NOT leave zero defaults.
-    result = db.set_default_server_sync("Nope", path=p)
+    result = ServersStore(p).set_default_server_sync("Nope")
     assert result is False
-    rows = db.list_servers_sync(p)
+    rows = ServersStore(p).list_servers_sync()
     defaults = [r for r in rows if r["is_default"]]
     assert len(defaults) == 1, "Must always have exactly one default even after failed set"

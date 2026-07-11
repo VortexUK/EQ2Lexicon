@@ -27,8 +27,8 @@ def _both_servers_registered():
     the cross-world tests collapse. Re-register both worlds + reload before
     every test; restoring the original registry isn't strictly necessary
     because conftest tears the test DB down between sessions."""
-    upsert_server_settings_sync("Varsoon", max_level=50, current_xpac=None, launch_dt=None, path=db.DB_PATH)
-    upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None, path=db.DB_PATH)
+    upsert_server_settings_sync("Varsoon", max_level=50, current_xpac=None, launch_dt=None)
+    upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None)
     server_context.load_registry()
     yield
 
@@ -39,7 +39,6 @@ async def _seed_user(discord_id: str) -> None:
         discord_name=discord_id,
         discord_username=discord_id,
         avatar=None,
-        path=db.DB_PATH,
     )
 
 
@@ -92,10 +91,10 @@ async def test_varsoon_subdomain_returns_only_varsoon_claims(app, monkeypatch):
     uid = "csu-varsoon-only"
     await _seed_user(uid)
 
-    v = await submit_claim(uid, "VarcharA", world="Varsoon", path=db.DB_PATH)
-    await review_claim(v["id"], "approved", "admin", path=db.DB_PATH)
-    w = await submit_claim(uid, "WuocharA", world="Wuoshi", path=db.DB_PATH)
-    await review_claim(w["id"], "approved", "admin", path=db.DB_PATH)
+    v = await submit_claim(uid, "VarcharA", world="Varsoon")
+    await review_claim(v["id"], "approved", "admin")
+    w = await submit_claim(uid, "WuocharA", world="Wuoshi")
+    await review_claim(w["id"], "approved", "admin")
 
     monkeypatch.setattr(claim_mod, "_require_user", _fake_user_for(uid))
     monkeypatch.setattr("backend.server.core.census_lifecycle._clients", {})
@@ -125,10 +124,10 @@ async def test_wuoshi_subdomain_after_varsoon_hit_serves_own_data(app, monkeypat
     uid = "csu-crossover"
     await _seed_user(uid)
 
-    v = await submit_claim(uid, "VarcharB", world="Varsoon", path=db.DB_PATH)
-    await review_claim(v["id"], "approved", "admin", path=db.DB_PATH)
-    w = await submit_claim(uid, "WuocharB", world="Wuoshi", path=db.DB_PATH)
-    await review_claim(w["id"], "approved", "admin", path=db.DB_PATH)
+    v = await submit_claim(uid, "VarcharB", world="Varsoon")
+    await review_claim(v["id"], "approved", "admin")
+    w = await submit_claim(uid, "WuocharB", world="Wuoshi")
+    await review_claim(w["id"], "approved", "admin")
 
     monkeypatch.setattr(claim_mod, "_require_user", _fake_user_for(uid))
     monkeypatch.setattr("backend.server.core.census_lifecycle._clients", {})

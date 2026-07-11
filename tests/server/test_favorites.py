@@ -18,9 +18,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.cache import favorite_count_cache
-from backend.server.db import favorites as fav
-from backend.server.db import init_db
-from backend.server.db.claims import review_claim, submit_claim
+from backend.server.db import init_db, review_claim, submit_claim
+from backend.server.db.favorites import store as fav
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
@@ -46,64 +45,73 @@ def users_db(tmp_path) -> Path:
     return db
 
 
+@pytest.fixture(autouse=True)
+def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
+    """Point every users.db domain store at this test's temp DB."""
+    from backend.server import db as _db_pkg
+
+    for st in _db_pkg.ALL_STORES:
+        monkeypatch.setattr(st, "path", users_db)
+
+
 async def test_add_remove_round_trip(users_db):
-    assert await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP, path=users_db) is True
-    assert await fav.count_favorites_for_character("Menludiir", "Varsoon", path=users_db) == 1
-    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon", path=users_db) is True
-    assert await fav.remove_favorite("disc1", "Menludiir", "Varsoon", path=users_db) is True
-    assert await fav.count_favorites_for_character("Menludiir", "Varsoon", path=users_db) == 0
-    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon", path=users_db) is False
+    assert await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP) is True
+    assert await fav.count_favorites_for_character("Menludiir", "Varsoon") == 1
+    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon") is True
+    assert await fav.remove_favorite("disc1", "Menludiir", "Varsoon") is True
+    assert await fav.count_favorites_for_character("Menludiir", "Varsoon") == 0
+    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon") is False
 
 
 async def test_add_is_idempotent(users_db):
-    assert await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP, path=users_db) is True
-    assert await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP, path=users_db) is False
-    assert await fav.count_favorites_for_character("Menludiir", "Varsoon", path=users_db) == 1
+    assert await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP) is True
+    assert await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP) is False
+    assert await fav.count_favorites_for_character("Menludiir", "Varsoon") == 1
 
 
 async def test_add_enforces_cap_atomically(users_db):
     """The cap guard lives inside the INSERT itself, so it can't be raced."""
-    assert await fav.add_favorite("disc1", "Alpha", "Varsoon", cap=2, path=users_db) is True
-    assert await fav.add_favorite("disc1", "Bravo", "Varsoon", cap=2, path=users_db) is True
-    assert await fav.add_favorite("disc1", "Charlie", "Varsoon", cap=2, path=users_db) is False  # cap hit
-    assert await fav.is_favorited("disc1", "Charlie", "Varsoon", path=users_db) is False
+    assert await fav.add_favorite("disc1", "Alpha", "Varsoon", cap=2) is True
+    assert await fav.add_favorite("disc1", "Bravo", "Varsoon", cap=2) is True
+    assert await fav.add_favorite("disc1", "Charlie", "Varsoon", cap=2) is False  # cap hit
+    assert await fav.is_favorited("disc1", "Charlie", "Varsoon") is False
     # Cap is per-world: the same user can still favourite on another world.
-    assert await fav.add_favorite("disc1", "Charlie", "Wuoshi", cap=2, path=users_db) is True
+    assert await fav.add_favorite("disc1", "Charlie", "Wuoshi", cap=2) is True
 
 
 async def test_remove_missing_is_noop(users_db):
-    assert await fav.remove_favorite("disc1", "Ghost", "Varsoon", path=users_db) is False
+    assert await fav.remove_favorite("disc1", "Ghost", "Varsoon") is False
 
 
 async def test_count_across_users(users_db):
-    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP, path=users_db)
-    await fav.add_favorite("disc2", "Menludiir", "Varsoon", cap=_CAP, path=users_db)
-    assert await fav.count_favorites_for_character("Menludiir", "Varsoon", path=users_db) == 2
-    assert await fav.is_favorited("disc3", "Menludiir", "Varsoon", path=users_db) is False
+    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP)
+    await fav.add_favorite("disc2", "Menludiir", "Varsoon", cap=_CAP)
+    assert await fav.count_favorites_for_character("Menludiir", "Varsoon") == 2
+    assert await fav.is_favorited("disc3", "Menludiir", "Varsoon") is False
 
 
 async def test_world_scoping(users_db):
     """The same character name on two worlds is two independent favourites."""
-    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP, path=users_db)
-    await fav.add_favorite("disc1", "Menludiir", "Wuoshi", cap=_CAP, path=users_db)
-    assert await fav.count_favorites_for_character("Menludiir", "Varsoon", path=users_db) == 1
-    assert await fav.count_user_favorites("disc1", "Varsoon", path=users_db) == 1
-    assert await fav.count_user_favorites("disc1", "Wuoshi", path=users_db) == 1
-    varsoon = await fav.list_favorites("disc1", "Varsoon", path=users_db)
+    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP)
+    await fav.add_favorite("disc1", "Menludiir", "Wuoshi", cap=_CAP)
+    assert await fav.count_favorites_for_character("Menludiir", "Varsoon") == 1
+    assert await fav.count_user_favorites("disc1", "Varsoon") == 1
+    assert await fav.count_user_favorites("disc1", "Wuoshi") == 1
+    varsoon = await fav.list_favorites("disc1", "Varsoon")
     assert [r["character_name"] for r in varsoon] == ["Menludiir"]
 
 
 async def test_list_newest_first(users_db):
     import aiosqlite
 
-    await fav.add_favorite("disc1", "Alpha", "Varsoon", cap=_CAP, path=users_db)
-    await fav.add_favorite("disc1", "Bravo", "Varsoon", cap=_CAP, path=users_db)
+    await fav.add_favorite("disc1", "Alpha", "Varsoon", cap=_CAP)
+    await fav.add_favorite("disc1", "Bravo", "Varsoon", cap=_CAP)
     # Force distinct created_at so ordering is deterministic.
     async with aiosqlite.connect(users_db) as db:
         await db.execute("UPDATE character_favorites SET created_at = 100 WHERE character_name = 'Alpha'")
         await db.execute("UPDATE character_favorites SET created_at = 200 WHERE character_name = 'Bravo'")
         await db.commit()
-    rows = await fav.list_favorites("disc1", "Varsoon", path=users_db)
+    rows = await fav.list_favorites("disc1", "Varsoon")
     assert [r["character_name"] for r in rows] == ["Bravo", "Alpha"]
 
 
@@ -111,19 +119,19 @@ async def test_claim_approval_removes_own_favorite(users_db):
     """When a claim is approved the new owner's favourite of that character is
     removed (case-insensitively) in the same transaction — you can't favourite
     your own character. Other users' favourites are untouched."""
-    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP, path=users_db)
-    await fav.add_favorite("disc2", "Menludiir", "Varsoon", cap=_CAP, path=users_db)
-    claim = await submit_claim("disc1", "menludiir", "Varsoon", path=users_db)  # different casing
-    await review_claim(claim["id"], "approved", "admin-1", path=users_db)
-    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon", path=users_db) is False  # removed
-    assert await fav.is_favorited("disc2", "Menludiir", "Varsoon", path=users_db) is True  # untouched
+    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP)
+    await fav.add_favorite("disc2", "Menludiir", "Varsoon", cap=_CAP)
+    claim = await submit_claim("disc1", "menludiir", "Varsoon")  # different casing
+    await review_claim(claim["id"], "approved", "admin-1")
+    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon") is False  # removed
+    assert await fav.is_favorited("disc2", "Menludiir", "Varsoon") is True  # untouched
 
 
 async def test_claim_rejection_keeps_favorite(users_db):
-    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP, path=users_db)
-    claim = await submit_claim("disc1", "Menludiir", "Varsoon", path=users_db)
-    await review_claim(claim["id"], "rejected", "admin-1", path=users_db)
-    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon", path=users_db) is True
+    await fav.add_favorite("disc1", "Menludiir", "Varsoon", cap=_CAP)
+    claim = await submit_claim("disc1", "Menludiir", "Varsoon")
+    await review_claim(claim["id"], "rejected", "admin-1")
+    assert await fav.is_favorited("disc1", "Menludiir", "Varsoon") is True
 
 
 # ---------------------------------------------------------------------------

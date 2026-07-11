@@ -18,7 +18,7 @@ from better_profanity import profanity
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.db import init_db
-from backend.server.db import raid_schedule as rs
+from backend.server.db.raid_schedule import store as rs
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
@@ -46,6 +46,15 @@ def users_db(tmp_path) -> Path:
     return db
 
 
+@pytest.fixture(autouse=True)
+def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
+    """Point every users.db domain store at this test's temp DB."""
+    from backend.server import db as _db_pkg
+
+    for st in _db_pkg.ALL_STORES:
+        monkeypatch.setattr(st, "path", users_db)
+
+
 async def test_replace_then_get_round_trips(users_db):
     teams = [
         {
@@ -55,8 +64,8 @@ async def test_replace_then_get_round_trips(users_db):
             "raids": [{"days": "2,4", "start_min": 1200, "end_min": 1380, "label": "Prog"}],
         }
     ]
-    await rs.replace_schedule("Varsoon", "Exordium", teams, "disc1", path=users_db)
-    got = await rs.get_schedule("Varsoon", "Exordium", path=users_db)
+    await rs.replace_schedule("Varsoon", "Exordium", teams, "disc1")
+    got = await rs.get_schedule("Varsoon", "Exordium")
     assert len(got) == 1
     assert got[0]["name"] == "Team 1"
     assert got[0]["twitch_login"] == "foochan"
@@ -70,7 +79,6 @@ async def test_replace_is_a_full_replace_and_scoped(users_db):
         "Exordium",
         [{"name": "T", "primary_tz": "UTC", "twitch_login": None, "raids": []}],
         "disc1",
-        path=users_db,
     )
     # A different guild is untouched by Exordium's replace.
     await rs.replace_schedule(
@@ -78,14 +86,13 @@ async def test_replace_is_a_full_replace_and_scoped(users_db):
         "Other",
         [{"name": "O", "primary_tz": "UTC", "twitch_login": "otherchan", "raids": []}],
         "disc1",
-        path=users_db,
     )
     # Replacing Exordium with an empty schedule clears its rows only.
-    await rs.replace_schedule("Varsoon", "Exordium", [], "disc1", path=users_db)
-    assert await rs.get_schedule("Varsoon", "Exordium", path=users_db) == []
-    assert len(await rs.get_schedule("Varsoon", "Other", path=users_db)) == 1
+    await rs.replace_schedule("Varsoon", "Exordium", [], "disc1")
+    assert await rs.get_schedule("Varsoon", "Exordium") == []
+    assert len(await rs.get_schedule("Varsoon", "Other")) == 1
     # list_all_teams_with_twitch spans guilds/worlds, twitch-only.
-    with_tw = await rs.list_all_teams_with_twitch(path=users_db)
+    with_tw = await rs.list_all_teams_with_twitch()
     assert {t["twitch_login"] for t in with_tw} == {"otherchan"}
 
 
@@ -121,8 +128,8 @@ async def _put(app, body, *, officer=True, admin=False, cookies=True):
     with (
         patch("backend.server.api.raid_schedule._officer_chars", new=AsyncMock(return_value=officer_ret)),
         patch("backend.server.api.raid_schedule.is_admin", return_value=admin),
-        patch("backend.server.api.raid_schedule.replace_schedule", new=AsyncMock()) as rep,
-        patch("backend.server.api.raid_schedule.get_schedule", new=AsyncMock(return_value=[])),
+        patch("backend.server.api.raid_schedule.raid_schedule_db.replace_schedule", new=AsyncMock()) as rep,
+        patch("backend.server.api.raid_schedule.raid_schedule_db.get_schedule", new=AsyncMock(return_value=[])),
         patch("backend.server.api.raid_schedule.audit_log") as audit,
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -135,7 +142,7 @@ async def _put(app, body, *, officer=True, admin=False, cookies=True):
 
 
 async def test_get_is_public(app):
-    with patch("backend.server.api.raid_schedule.get_schedule", new=AsyncMock(return_value=[])):
+    with patch("backend.server.api.raid_schedule.raid_schedule_db.get_schedule", new=AsyncMock(return_value=[])):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/guild/Exordium/raid-schedule")
     assert r.status_code == 200

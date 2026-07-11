@@ -62,31 +62,13 @@ def _is_unbuilt_schema(exc: sqlite3.OperationalError) -> bool:
     return "no such table" in msg or "no such column" in msg
 
 
-class BaseCatalogue:
-    """Read (and build) access to one eq2db SQLite file."""
-
-    #: Enable ``PRAGMA foreign_keys`` per connection — set True when the
-    #: schema relies on ON DELETE CASCADE (aas, zones, raids).
-    FOREIGN_KEYS: ClassVar[bool] = False
-
-    #: Create the shared ``_meta`` provenance table in init_db. Every
-    #: module uses it except classes.db (committed pre-populated, no
-    #: download provenance to track).
-    CREATE_META: ClassVar[bool] = True
+class PathBound:
+    """The path-bound identity + dunder surface shared by every SQLite data
+    interface: sync catalogues/stores (:class:`BaseCatalogue`) and the async
+    users.db domain stores (:class:`AsyncStoreBase`)."""
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
-        # Connections opened via the context-manager protocol; a stack so
-        # nested ``with cat as conn:`` blocks close their own connection.
-        self._ctx_conns: list[sqlite3.Connection] = []
-
-    def __init_subclass__(cls, **kwargs) -> None:
-        """Fail at class-definition time when a subclass forgets
-        ``_create_schema`` — earlier and clearer than the first
-        ``init_db()`` call raising NotImplementedError at runtime."""
-        super().__init_subclass__(**kwargs)
-        if cls._create_schema is BaseCatalogue._create_schema:
-            raise TypeError(f"{cls.__name__} must implement _create_schema(conn)")
 
     # ── Introspection / logging ──────────────────────────────────────────────
 
@@ -114,7 +96,7 @@ class BaseCatalogue:
     def __eq__(self, other: object) -> bool:
         """Two catalogues are equal when they are the same class over the
         same path — handy in tests (``assert cat == RaidCatalogue(p)``)."""
-        if not isinstance(other, BaseCatalogue):
+        if not isinstance(other, PathBound):
             return NotImplemented
         return type(self) is type(other) and self.path == other.path
 
@@ -130,6 +112,38 @@ class BaseCatalogue:
         """Catalogues are os.PathLike over their DB file: ``Path(cat)``,
         ``os.path.getsize(cat)`` and ``sqlite3.connect(cat)`` all work."""
         return str(self.path)
+
+    def clear_caches(self) -> None:
+        """Reset per-instance caches — used by tests and build scripts.
+
+        Default: no caches. Subclasses holding caches override."""
+
+
+class BaseCatalogue(PathBound):
+    """Read (and build) access to one SQLite file via synchronous sqlite3."""
+
+    #: Enable ``PRAGMA foreign_keys`` per connection — set True when the
+    #: schema relies on ON DELETE CASCADE (aas, zones, raids).
+    FOREIGN_KEYS: ClassVar[bool] = False
+
+    #: Create the shared ``_meta`` provenance table in init_db. Every
+    #: module uses it except classes.db (committed pre-populated, no
+    #: download provenance to track).
+    CREATE_META: ClassVar[bool] = True
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        # Connections opened via the context-manager protocol; a stack so
+        # nested ``with cat as conn:`` blocks close their own connection.
+        self._ctx_conns: list[sqlite3.Connection] = []
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        """Fail at class-definition time when a subclass forgets
+        ``_create_schema`` — earlier and clearer than the first
+        ``init_db()`` call raising NotImplementedError at runtime."""
+        super().__init_subclass__(**kwargs)
+        if cls._create_schema is BaseCatalogue._create_schema:
+            raise TypeError(f"{cls.__name__} must implement _create_schema(conn)")
 
     # ── Connection lifecycle ─────────────────────────────────────────────────
 
@@ -243,7 +257,13 @@ class BaseCatalogue:
     def _post_init(self, conn: sqlite3.Connection) -> None:
         """Optional post-commit startup work (data backfills). Default: none."""
 
-    def clear_caches(self) -> None:
-        """Reset per-instance caches — used by tests and build scripts.
 
-        Default: no caches. Subclasses holding caches override."""
+class AsyncStoreBase(PathBound):
+    """Base for the aiosqlite-backed users.db domain stores.
+
+    Unlike :class:`BaseCatalogue`, these stores do NOT own their schema:
+    the whole users.db family shares one file whose tables/migrations are
+    orchestrated by ``backend.server.db.init_db()`` at startup. Each domain
+    method opens its own aiosqlite connection against ``self.path`` —
+    exactly the per-call transaction shape the old free functions had,
+    minus the ``path: Path = DB_PATH`` threading."""

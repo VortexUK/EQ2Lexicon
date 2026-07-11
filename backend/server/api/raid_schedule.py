@@ -20,7 +20,7 @@ from backend.server.auth_deps import is_admin
 from backend.server.core.audit_log import audit_log
 from backend.server.core.text_moderation import contains_blocked_term, sanitize_text
 from backend.server.core.twitch import is_blocked, parse_twitch_login
-from backend.server.db.raid_schedule import get_schedule, replace_schedule
+from backend.server.db.raid_schedule import store as raid_schedule_db
 from backend.server.server_context import current_world
 
 _log = logging.getLogger(__name__)
@@ -165,7 +165,7 @@ def _fmt_schedule(teams: list[dict]) -> RaidScheduleResponse:
 async def get_raid_schedule(guild_name: str) -> RaidScheduleResponse:
     """Public — anyone may view a guild's raid schedule."""
     _validate_guild_name(guild_name)
-    teams = await get_schedule(current_world(), guild_name)
+    teams = await raid_schedule_db.get_schedule(current_world(), guild_name)
     return _fmt_schedule(teams)
 
 
@@ -232,6 +232,6 @@ async def put_raid_schedule(guild_name: str, body: RaidScheduleInput, request: R
         )
 
     world = current_world()
-    await replace_schedule(world, guild_name, db_teams, updated_by=user["id"])
+    await raid_schedule_db.replace_schedule(world, guild_name, db_teams, updated_by=user["id"])
     audit_log("raid_schedule_updated", actor=user["id"], guild=guild_name, teams=len(db_teams))
-    return _fmt_schedule(await get_schedule(world, guild_name))
+    return _fmt_schedule(await raid_schedule_db.get_schedule(world, guild_name))

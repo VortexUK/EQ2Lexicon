@@ -37,7 +37,6 @@ async def _seed_user(discord_id: str) -> None:
         discord_name=discord_id,
         discord_username=discord_id,
         avatar=None,
-        path=_PATH,
     )
 
 
@@ -99,7 +98,6 @@ async def test_same_watch_insertable_on_two_worlds():
         added_by=uid,
         added_by_name="Sihtric",
         world="Varsoon",
-        path=_PATH,
     )
     row_w = await add_item_watch(
         guild_name="TestGuild",
@@ -109,7 +107,6 @@ async def test_same_watch_insertable_on_two_worlds():
         added_by=uid,
         added_by_name="Sihtric",
         world="Wuoshi",
-        path=_PATH,
     )
 
     assert row_v["world"] == "Varsoon"
@@ -131,7 +128,6 @@ async def test_listing_watches_for_varsoon_excludes_wuoshi():
         added_by=uid,
         added_by_name="Menludiir",
         world="Varsoon",
-        path=_PATH,
     )
     await add_item_watch(
         guild_name="TestGuild2",
@@ -141,11 +137,10 @@ async def test_listing_watches_for_varsoon_excludes_wuoshi():
         added_by=uid,
         added_by_name="Menludiir",
         world="Wuoshi",
-        path=_PATH,
     )
 
-    varsoon_watches = await list_item_watches("TestGuild2", world="Varsoon", path=_PATH)
-    wuoshi_watches = await list_item_watches("TestGuild2", world="Wuoshi", path=_PATH)
+    varsoon_watches = await list_item_watches("TestGuild2", world="Varsoon")
+    wuoshi_watches = await list_item_watches("TestGuild2", world="Wuoshi")
 
     assert all(w["world"] == "Varsoon" for w in varsoon_watches), (
         "list_item_watches for Varsoon returned a non-Varsoon row"
@@ -177,7 +172,6 @@ async def test_duplicate_on_same_world_raises():
         added_by=uid,
         added_by_name="Dupchar",
         world="Varsoon",
-        path=_PATH,
     )
     with pytest.raises(ValueError, match="already being watched"):
         await add_item_watch(
@@ -188,7 +182,6 @@ async def test_duplicate_on_same_world_raises():
             added_by=uid,
             added_by_name="Dupchar",
             world="Varsoon",
-            path=_PATH,
         )
 
 
@@ -206,7 +199,6 @@ async def test_same_watch_on_different_world_does_not_raise():
         added_by=uid,
         added_by_name="Dupchar2",
         world="Varsoon",
-        path=_PATH,
     )
     # Must not raise:
     row = await add_item_watch(
@@ -217,7 +209,6 @@ async def test_same_watch_on_different_world_does_not_raise():
         added_by=uid,
         added_by_name="Dupchar2",
         world="Wuoshi",
-        path=_PATH,
     )
     assert row["world"] == "Wuoshi"
 
@@ -241,7 +232,6 @@ async def test_remove_watch_scoped_to_world():
         added_by=uid,
         added_by_name="Rmchar",
         world="Varsoon",
-        path=_PATH,
     )
     row_w = await add_item_watch(
         guild_name="RmGuild",
@@ -251,19 +241,18 @@ async def test_remove_watch_scoped_to_world():
         added_by=uid,
         added_by_name="Rmchar",
         world="Wuoshi",
-        path=_PATH,
     )
 
     # Remove only the Varsoon watch
-    removed = await remove_item_watch(row_v["id"], "RmGuild", world="Varsoon", path=_PATH)
+    removed = await remove_item_watch(row_v["id"], "RmGuild", world="Varsoon")
     assert removed
 
     # Wuoshi watch must still exist
-    wuoshi_watches = await list_item_watches("RmGuild", world="Wuoshi", path=_PATH)
+    wuoshi_watches = await list_item_watches("RmGuild", world="Wuoshi")
     assert any(w["id"] == row_w["id"] for w in wuoshi_watches), (
         "Wuoshi watch was incorrectly deleted when removing the Varsoon watch"
     )
 
     # Varsoon watch must be gone
-    varsoon_watches = await list_item_watches("RmGuild", world="Varsoon", path=_PATH)
+    varsoon_watches = await list_item_watches("RmGuild", world="Varsoon")
     assert not any(w["id"] == row_v["id"] for w in varsoon_watches), "Varsoon watch was not deleted"

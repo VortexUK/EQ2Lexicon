@@ -29,8 +29,8 @@ from backend.server.cache import character_cache, favorite_count_cache
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_character_name
-from backend.server.db import favorites as favorites_db
 from backend.server.db import get_active_claims
+from backend.server.db.favorites import store as favorites_db
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
 

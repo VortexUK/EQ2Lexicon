@@ -73,7 +73,7 @@ def test_is_configured(monkeypatch):
 async def test_refresh_no_ops_when_unconfigured(monkeypatch):
     monkeypatch.delenv("TWITCH_CLIENT_ID", raising=False)
     monkeypatch.delenv("TWITCH_CLIENT_SECRET", raising=False)
-    with patch("backend.server.db.raid_schedule.list_all_teams_with_twitch", new=AsyncMock()) as db:
+    with patch("backend.server.db.raid_schedule.store.list_all_teams_with_twitch", new=AsyncMock()) as db:
         await rl.refresh()
     db.assert_not_awaited()
     assert rl.get_live("Varsoon") == []
@@ -104,7 +104,7 @@ async def test_refresh_populates_cache_for_scheduled_live_teams(monkeypatch):
     ]
     with (
         patch("backend.server.raid_live.datetime") as dt,
-        patch("backend.server.db.raid_schedule.list_all_teams_with_twitch", new=AsyncMock(return_value=teams)),
+        patch("backend.server.db.raid_schedule.store.list_all_teams_with_twitch", new=AsyncMock(return_value=teams)),
         patch("backend.server.raid_live._get_token", new=AsyncMock(return_value="tok")),
         patch("backend.server.raid_live._fetch_live", new=AsyncMock(return_value={"foo": {"viewer_count": 10}})) as fl,
     ):

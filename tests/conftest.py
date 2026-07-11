@@ -114,6 +114,8 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     parses_db.DB_PATH = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
     parses_db.store.path = parses_db.DB_PATH
     users_db.DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
+    for _store in users_db.ALL_STORES:
+        _store.path = users_db.DB_PATH
     census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
     census_store.store.path = census_store.DB_PATH
     # eq2db catalogue modules: re-point both the module constant AND the

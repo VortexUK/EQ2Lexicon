@@ -182,9 +182,9 @@ async def refresh() -> None:
     global _live_by_world
     if not is_configured():
         return
-    from backend.server.db.raid_schedule import list_all_teams_with_twitch  # local: avoid import cycle
+    from backend.server.db.raid_schedule import store as _rs_db  # local: avoid import cycle
 
-    teams = await list_all_teams_with_twitch()
+    teams = await _rs_db.list_all_teams_with_twitch()
     candidates = [t for t in teams if t.get("twitch_login") and team_scheduled_now(t)]
     if not candidates:
         _live_by_world = {}

@@ -415,10 +415,10 @@ async def prewarm_character_cache() -> None:
     pre-warms at boot, not just the default server.
     """
     from backend.server.core.executor import run_sync
-    from backend.server.db.servers import list_servers_sync
+    from backend.server.db.servers import store as _servers_db
 
     try:
-        servers = await run_sync(list_servers_sync)
+        servers = await run_sync(_servers_db.list_servers_sync)
     except Exception as exc:
         _log.warning("[startup] Could not load server registry for pre-warm: %s", exc)
         return
