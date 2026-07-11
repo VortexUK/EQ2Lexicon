@@ -55,7 +55,7 @@ import time
 from pathlib import Path
 
 from backend.db_helpers import resolve_db_path
-from backend.eq2db import _meta as _meta_db
+from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -107,7 +107,7 @@ _ACT_SPELL_TIMER_COLS = (
 )
 
 
-class RaidCatalogue:
+class RaidCatalogue(BaseCatalogue):
     """Read (and build) access to one raids.db file.
 
     The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
@@ -125,19 +125,14 @@ class RaidCatalogue:
     SOURCE_PARSE = SOURCE_PARSE
     VALID_SOURCES = VALID_SOURCES
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = Path(path)
+    # ON DELETE CASCADE on revisions/encounters only fires with the
+    # per-connection FK pragma.
+    FOREIGN_KEYS = True
 
-    def init_db(self) -> sqlite3.Connection:
-        """Create tables/indexes if missing. Returns an open connection
-        with FKs enabled (so the ON DELETE CASCADE on revisions/encounters
-        actually fires)."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous  = NORMAL;")
-        conn.execute("PRAGMA foreign_keys = ON;")
-        _meta_db.create_table(conn)
+    def __init__(self, path: Path = DB_PATH) -> None:
+        super().__init__(path)
+
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["schema_raid_zones"])
         conn.execute(_SQL["schema_raid_zone_revisions"])
         conn.execute(_SQL["schema_raid_encounters"])
@@ -145,8 +140,6 @@ class RaidCatalogue:
         conn.execute(_SQL["schema_act_triggers"])
         conn.execute(_SQL["schema_act_spell_timers"])
         conn.executescript(_SQL["indexes_all"])
-        conn.commit()
-        return conn
 
     # ── Write helpers (take an open conn — callers own the transaction) ──────
 

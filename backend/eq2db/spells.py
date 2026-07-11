@@ -35,7 +35,7 @@ from backend.census._coerce import coerce_float as _float
 from backend.census._coerce import coerce_int as _int
 from backend.census._coerce import coerce_str_or_none as _str
 from backend.db_helpers import like_escape, resolve_db_path
-from backend.eq2db import _meta as _meta_db
+from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 
@@ -147,7 +147,7 @@ def _row_to_dict(row: sqlite3.Row) -> SpellRow:
     return dict(row)  # type: ignore[return-value]
 
 
-class SpellCatalogue:
+class SpellCatalogue(BaseCatalogue):
     """Read (and build) access to one spells.db file, with per-instance caching.
 
     The eq2db data-interface convention (see AACatalogue): the DB path and
@@ -163,24 +163,16 @@ class SpellCatalogue:
     """
 
     def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = Path(path)
+        super().__init__(path)
         self._crc_cache: dict[tuple[int, int | None], SpellRow | None] = {}
 
-    def init_db(self) -> sqlite3.Connection:
-        """Create tables/indexes if missing. Returns an open connection."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous  = NORMAL;")
-        _meta_db.create_table(conn)
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["schema_spells"])
         conn.executescript(_SQL["indexes_spells"])
         # Idempotent migration: add effects column if missing (pre-existing DBs)
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(spells)").fetchall()}
         if "effects" not in existing_cols:
             conn.execute(_SQL["migrate_add_effects_column"])
-        conn.commit()
-        return conn
 
     def clear_caches(self) -> None:
         """Reset the per-instance caches — used by tests and upsert_spells."""

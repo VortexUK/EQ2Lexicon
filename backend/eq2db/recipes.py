@@ -37,7 +37,7 @@ from typing import TypedDict, cast
 
 from backend.census._coerce import coerce_int as _int
 from backend.db_helpers import like_escape, resolve_db_path
-from backend.eq2db import _meta as _meta_db
+from backend.eq2db._catalogue import BaseCatalogue
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -138,7 +138,7 @@ def _row_to_dict(row: sqlite3.Row) -> RecipeRow:
     return cast(RecipeRow, d)
 
 
-class RecipeCatalogue:
+class RecipeCatalogue(BaseCatalogue):
     """Read (and build) access to one recipes.db file.
 
     The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
@@ -149,15 +149,9 @@ class RecipeCatalogue:
     """
 
     def __init__(self, path: Path = DB_PATH) -> None:
-        self.path = Path(path)
+        super().__init__(path)
 
-    def init_db(self) -> sqlite3.Connection:
-        """Create tables/indexes if missing. Returns an open connection."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous  = NORMAL;")
-        _meta_db.create_table(conn)
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["schema_recipes"])
         conn.execute(_SQL["schema_recipe_classes"])
         # Migrate existing DBs that predate the spell-tier columns
@@ -167,11 +161,11 @@ class RecipeCatalogue:
             except sqlite3.OperationalError:
                 pass  # column already exists
         conn.executescript(_SQL["indexes_recipes"])
-        conn.commit()
+
+    def _post_init(self, conn: sqlite3.Connection) -> None:
         # Backfill spell-tier columns for any rows that have NULL (covers both
         # freshly-migrated DBs and rows upserted before this version).
         self._backfill_spell_tiers(conn)
-        return conn
 
     # ── Pure helpers (no DB access — statics so the class is the ONE interface) ──
 
