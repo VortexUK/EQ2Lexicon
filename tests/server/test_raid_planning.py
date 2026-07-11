@@ -429,3 +429,53 @@ async def test_put_availability_validates_window_and_status(app):
     r = await _put(app, "/api/me/availability", {"days": {ok_day: "available"}})
     r = await _get(app, "/api/me/availability")
     assert r.json()["days"] == {}
+
+
+# ---------------------------------------------------------------------------
+# API — admin-as-officer editing (admin must ALSO be a guild member)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_admin_member_can_edit_like_officer(app, monkeypatch):
+    """A site admin with a claimed character in the guild edits placements."""
+    from backend.server import auth_deps
+
+    monkeypatch.setattr(auth_deps, "ADMIN_IDS", frozenset({"member-1"}))
+    await _seed_raider("Tanky")
+    p = _planner_patches(officer=False)  # not an officer — admin path only
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/0/placements",
+            {"placements": [{"character_name": "Tanky", "group_num": 1, "slot": 0, "sitout": False}]},
+        )
+        assert r.status_code == 200
+        g = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0")
+    assert g.json()["is_officer"] is True  # UI enables editing for the admin
+
+
+@pytest.mark.asyncio
+async def test_admin_who_is_not_member_still_403(app, monkeypatch):
+    """Admin alone is not enough — the planner belongs to the guild."""
+    from backend.server import auth_deps
+
+    monkeypatch.setattr(auth_deps, "ADMIN_IDS", frozenset({"member-1"}))
+    await _seed_raider("Tanky")
+    p = _planner_patches(officer=False, member=False)  # no claim in this guild
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/0/placements",
+            {"placements": []},
+        )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_planner_roster_includes_rank_fields(app):
+    p = _planner_patches(officer=False)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0")
+    entry = r.json()["roster"][0]
+    assert "rank" in entry and "rank_id" in entry

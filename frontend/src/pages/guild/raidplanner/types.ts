@@ -5,6 +5,8 @@ export interface RosterEntry {
   cls: string | null
   level: number | null
   role: 'raider' | 'raid_alt' | null
+  rank: string | null
+  rank_id: number | null
 }
 
 export interface Placement {
