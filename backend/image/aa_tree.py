@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+from backend.eq2db.aas import catalogue
 
 _log = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "AAs"
 ICONS_DIR = DATA_DIR / "icons"
-_TREES_DIR = DATA_DIR / "trees"
 BG_PATH = DATA_DIR / "background.jpg"
 BG_CLASS = DATA_DIR / "bg_class.png"
 BG_SUBCLASS = DATA_DIR / "bg_subclass.png"
@@ -126,107 +125,21 @@ def _make_badge(tier: int, maxed: bool) -> Image.Image:
     return badge
 
 
-def detect_tree_type(tree_data: dict) -> str:
-    """Return a string key identifying the structural type of an AA tree."""
-    tree = tree_data["alternateadvancement_list"][0]
-    nodes = tree["alternateadvancementnode_list"]
-    ofy = tree.get("ofyclassification", "")
-    node_classes = {n.get("classification", "") for n in nodes}
-    xs = {n["xcoord"] for n in nodes}
-    ys = {n["ycoord"] for n in nodes}
-
-    if xs == {1, 4, 7, 10, 13}:
-        return "class"
-    if ofy == "Expertise" and max(ys) == 19:
-        return "subclass"
-    if xs == {0, 6, 12, 18, 24, 30, 38, 42}:
-        return "shadows"
-    if "Heroic" in node_classes:
-        return "heroic"
-    if "Crafting Expertise" in node_classes:
-        return "tradeskill"
-    if xs == {3, 7, 11, 18, 22, 26, 33, 37, 41}:
-        return "tradeskill_general"
-    if "Warder Primals" in node_classes:
-        return "warder"
-    if ofy in ("Prestige Expertise", "Conversion") and "Prestige" in node_classes:
-        return "prestige"
-    if xs == {1, 5, 9, 13} and max(ys) == 4:
-        return "dragon"
-    if "Reign of Shadows" in node_classes:
-        return "reign_of_shadows"
-    if xs == {5, 13, 21, 29, 37}:
-        return "far_seas"
-    return "unknown"
+# Tree metadata (index/types/costs/max-points) lives in backend/eq2db/aas.py —
+# this module is now purely the image renderer. Nodes arrive as aa_nodes row
+# dicts (flat icon_id/icon_backdrop columns) from aas.get_tree().
 
 
-@lru_cache(maxsize=1)
-def load_tree_index() -> dict[int, dict[str, str]]:
-    """Return {tree_id: {"name": str, "type": str}} parsed from data/AAs/trees/*.json.
-
-    Single source of truth for both the web AA route and the bot /aacheck cog.
-    Cached at first call — tree JSON is static reference data; restart to refresh.
-
-    BE-204: logs at WARNING on per-file parse failure so a corrupt JSON doesn't
-    silently disappear from the index.
-    """
-    out: dict[int, dict[str, str]] = {}
-    for path in _TREES_DIR.glob("*.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            aa_list = data.get("alternateadvancement_list") or []
-            if aa_list:
-                tid = int(path.stem)
-                out[tid] = {
-                    "name": aa_list[0].get("name", path.stem),
-                    "type": detect_tree_type(data),
-                }
-        except Exception:
-            _log.exception("[aa-tree] Failed to load tree index %s", path.name)
-    return out
-
-
-@lru_cache(maxsize=256)
-def tree_node_costs(tree_id: int) -> dict[int, int]:
-    """Return {node_id: pointspertier} for a tree — the per-tier AA point cost of
-    each node (most are 1, some endline nodes are 2). Used to compute a
-    character's *point* spend (tier × cost) rather than a bare tier count.
-    Missing/unparseable tree → empty dict (callers default to 1). Cached; tree
-    JSON is static reference data (restart to refresh)."""
-    path = _TREES_DIR / f"{tree_id}.json"
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        nodes = (data.get("alternateadvancement_list") or [{}])[0].get("alternateadvancementnode_list") or []
-        return {int(n["nodeid"]): int(n.get("pointspertier", 1)) for n in nodes if "nodeid" in n}
-    except Exception:
-        _log.exception("[aa-tree] Failed to load node costs %s", path.name)
-        return {}
-
-
-@lru_cache(maxsize=256)
-def tree_max_points(tree_id: int) -> int:
-    """Return the tree's fully-maxed point total: Σ (maxtier × pointspertier) over
-    its nodes. Used to derive the tradeskill AA cap from the data. Cached."""
-    path = _TREES_DIR / f"{tree_id}.json"
-    if not path.exists():
-        return 0
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        nodes = (data.get("alternateadvancement_list") or [{}])[0].get("alternateadvancementnode_list") or []
-        return sum(int(n.get("maxtier", 0)) * int(n.get("pointspertier", 1)) for n in nodes)
-    except Exception:
-        _log.exception("[aa-tree] Failed to compute max points %s", path.name)
-        return 0
+def _tree_nodes(tree_id: int) -> list[dict]:
+    """The tree's node rows; raises like the old missing-JSON open() did."""
+    tree = catalogue.get_tree(tree_id)
+    if tree is None:
+        raise FileNotFoundError(f"AA tree {tree_id} not found in aas.db")
+    return tree["nodes"]
 
 
 def render_aa_tree(tree_id: int, aa_data: dict[int, int] | None = None) -> Image.Image:
-    tree_path = DATA_DIR / "trees" / f"{tree_id}.json"
-    with tree_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    tree = data["alternateadvancement_list"][0]
-    nodes = tree["alternateadvancementnode_list"]
+    nodes = _tree_nodes(tree_id)
 
     bg = Image.open(BG_PATH).convert("RGBA").resize((IMG_W, IMG_H), Image.LANCZOS)
 
@@ -265,11 +178,7 @@ def _sub_px(xcoord: int, ycoord: int) -> tuple[int, int]:
 
 
 def render_subclass_tree(tree_id: int, aa_data: dict[int, int] | None = None) -> Image.Image:
-    tree_path = DATA_DIR / "trees" / f"{tree_id}.json"
-    with tree_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    tree = data["alternateadvancement_list"][0]
-    nodes = tree["alternateadvancementnode_list"]
+    nodes = _tree_nodes(tree_id)
 
     bg = Image.open(BG_PATH).convert("RGBA").resize((IMG_W, IMG_H), Image.LANCZOS)
     bg_sub = Image.open(BG_SUBCLASS).convert("RGBA").resize((IMG_W, IMG_H), Image.LANCZOS)
@@ -307,15 +216,14 @@ def _draw_nodes(
 ) -> None:
     for node in nodes:
         px, py = px_fn(node["xcoord"], node["ycoord"])
-        icon = node.get("icon") or {}
-        icon_id = icon.get("id", -1)
-        backdrop_id = int(icon.get("backdrop", -1))
+        icon_id = node.get("icon_id", 0)
+        backdrop_id = int(node.get("icon_backdrop", -1))
         node_img = _circle_icon(int(icon_id), backdrop_id) if icon_id and icon_id > 0 else _placeholder_node()
         if node_img:
             canvas.paste(node_img, (px - NODE_R, py - NODE_R), node_img)
 
         if aa_data is not None:
-            node_id = node.get("nodeid")
+            node_id = node.get("node_id")
             tier = aa_data.get(node_id, 0) if node_id is not None else 0
             if tier > 0:
                 max_tier = node.get("maxtier", 1) or 1
@@ -326,10 +234,7 @@ def _draw_nodes(
 
 
 def render_shadows_tree(tree_id: int, aa_data: dict[int, int] | None = None) -> Image.Image:
-    tree_path = DATA_DIR / "trees" / f"{tree_id}.json"
-    with tree_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    nodes = data["alternateadvancement_list"][0]["alternateadvancementnode_list"]
+    nodes = _tree_nodes(tree_id)
 
     bg = Image.open(BG_PATH).convert("RGBA").resize((IMG_W, IMG_H), Image.LANCZOS)
     bg_shad = Image.open(BG_SHADOWS).convert("RGBA").resize((IMG_W, IMG_H), Image.LANCZOS)
@@ -356,10 +261,7 @@ def _ts_px(xcoord: int, ycoord: int) -> tuple[int, int]:
 
 
 def render_tradeskill_tree(tree_id: int, aa_data: dict[int, int] | None = None) -> Image.Image:
-    tree_path = DATA_DIR / "trees" / f"{tree_id}.json"
-    with tree_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    nodes = data["alternateadvancement_list"][0]["alternateadvancementnode_list"]
+    nodes = _tree_nodes(tree_id)
 
     bg = Image.open(BG_PATH).convert("RGBA").resize((IMG_W, IMG_H), Image.LANCZOS)
     canvas = bg.copy()
@@ -386,10 +288,7 @@ def _heroic_px(xcoord: int, ycoord: int) -> tuple[int, int]:
 
 
 def render_heroic_tree(tree_id: int, aa_data: dict[int, int] | None = None) -> Image.Image:
-    tree_path = DATA_DIR / "trees" / f"{tree_id}.json"
-    with tree_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    nodes = data["alternateadvancement_list"][0]["alternateadvancementnode_list"]
+    nodes = _tree_nodes(tree_id)
 
     bg = Image.open(BG_PATH).convert("RGBA").resize((IMG_W, IMG_H), Image.LANCZOS)
     canvas = bg.copy()
@@ -423,9 +322,9 @@ def render_tree(
     aa_data: dict[int, int] | None = None,
 ) -> tuple[Image.Image, str]:
     """Render any AA tree, returning (image, tree_type_key)."""
-    tree_path = DATA_DIR / "trees" / f"{tree_id}.json"
-    with tree_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    tree_type = detect_tree_type(data)
+    tree = catalogue.get_tree(tree_id)
+    if tree is None:
+        raise FileNotFoundError(f"AA tree {tree_id} not found in aas.db")
+    tree_type = tree["tree_type"]
     renderer = _RENDERERS.get(tree_type, render_subclass_tree)
     return renderer(tree_id, aa_data), tree_type

@@ -8,7 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from backend.census.config import WORLD
-from backend.image.aa_tree import load_tree_index, render_tree, tree_node_costs
+from backend.eq2db.aas import catalogue as aa_db
+from backend.image.aa_tree import render_tree
 
 if TYPE_CHECKING:
     from backend.bot.bot import EQ2Bot
@@ -59,7 +60,7 @@ class AaCheckCog(commands.Cog):
             return
 
         # Find the tree ID matching the chosen type
-        tree_index = load_tree_index()
+        tree_index = aa_db.load_tree_index()
         wanted_types = _CHOICE_TO_TYPES.get(tree.value, {tree.value})
         tree_id = next(
             (tid for tid in char_aas.tree_ids if tree_index.get(tid, {}).get("type") in wanted_types),
@@ -86,7 +87,7 @@ class AaCheckCog(commands.Cog):
         buf.seek(0)
 
         # Points spent = Σ tier × pointspertier (some nodes cost 2 points/tier).
-        costs = tree_node_costs(tree_id)
+        costs = aa_db.tree_node_costs(tree_id)
         total = sum(tier * costs.get(node_id, 1) for node_id, tier in aa_data.items())
         await interaction.followup.send(
             content=f"**{char_aas.character_name}** — {tree_name} ({total} AAs)",

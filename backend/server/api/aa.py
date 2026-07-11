@@ -5,15 +5,14 @@ import json
 import logging
 import time
 from functools import lru_cache
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.census import store as census_store
 from backend.census.store import StoreRecord
+from backend.eq2db.aas import catalogue as aa_db
 from backend.eq2db.spells import find_by_crc
-from backend.image.aa_tree import detect_tree_type, load_tree_index, tree_max_points, tree_node_costs
 from backend.server.cache import aa_cache
 from backend.server.constants import CHARACTER_STALE_S
 from backend.server.core.cache_keys import aa_cache_key
@@ -24,10 +23,6 @@ from backend.server.server_context import current_server, current_world
 _log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["aa"])
-
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "AAs"
-_TREES_DIR = _DATA_DIR / "trees"
-_LIMITS = _DATA_DIR / "aa_limits.json"
 
 _TYPE_ORDER = {
     "class": 0,
@@ -44,41 +39,6 @@ _TYPE_ORDER = {
 # Tradeskill AA tree types — counted and capped SEPARATELY from adventure AAs
 # (their own pool, earned from crafting, not bounded by the adventure xpac cap).
 _TRADESKILL_TYPES = frozenset({"tradeskill", "tradeskill_general"})
-
-# EQ2 expansion short codes → the canonical aa_limits.json keys. A server's
-# current_xpac is often stored as a short code (e.g. "DoV"); without this the
-# aa_limits lookup misses and the AA cap silently reads 0 — which hides the
-# Raid-Ready check and the per-expansion cap on the AA tab.
-_XPAC_ALIASES: dict[str, str] = {
-    "kos": "Kingdom of Sky",
-    "eof": "Echoes of Faydwer",
-    "rok": "Rise of Kunark",
-    "tso": "The Shadow Odyssey",
-    "sf": "Sentinel's Fate",
-    "dov": "Destiny of Velious",
-    "aod": "Age of Discovery",
-    "coe": "Chains of Eternity",
-    "tov": "Tears of Veeshan",
-    "aom": "Altar of Malice",
-}
-
-
-def _resolve_xpac_key(xpac: str, limits: dict) -> str | None:
-    """Map the server's current_xpac to an aa_limits.json key, tolerating short
-    codes ("DoV" → "Destiny of Velious") and case/whitespace. None if unknown."""
-    if xpac in limits:
-        return xpac
-    norm = xpac.strip().lower()
-    if not norm:
-        return None
-    aliased = _XPAC_ALIASES.get(norm)
-    if aliased in limits:
-        return aliased
-    for k in limits:
-        if k.lower() == norm:
-            return k
-    return None
-
 
 # ---------------------------------------------------------------------------
 # Response models
@@ -142,29 +102,22 @@ class CharAAsResponse(BaseModel):
 
 @router.get("/aa/config", response_model=AAConfigResponse)
 async def get_aa_config() -> AAConfigResponse:
-    """Return the current xpac's AA cap and which tree types are unlocked."""
+    """Return the current xpac's AA cap and which tree types are unlocked.
+    All from aas.db (aa_limits + the precomputed per-tree max_points)."""
     xpac = current_server().current_xpac or ""
-    if not _LIMITS.exists():
-        return AAConfigResponse(xpac=xpac, aa_cap=0, tradeskill_aa_cap=0, unlocked_tree_types=[])
-    limits = json.loads(_LIMITS.read_text(encoding="utf-8"))
-    key = _resolve_xpac_key(xpac, limits)
-    if key is None:
+    limits = aa_db.xpac_limits(xpac)
+    if limits is None:
         if xpac:
-            _log.warning("[aa] current_xpac %r has no aa_limits.json entry — AA cap reads 0", xpac)
-        entry = {}
-    else:
-        entry = limits[key]
-    unlocked = entry.get("unlocked_trees", [])
+            _log.warning("[aa] current_xpac %r has no aa_limits entry — AA cap reads 0", xpac)
+        limits = {"aa_cap": 0, "unlocked_trees": []}
+    unlocked = limits["unlocked_trees"]
     # Tradeskill cap = the total the unlocked tradeskill trees add up to
-    # (Σ maxtier × pointspertier), derived from the tree data rather than
+    # (Σ maxtier × points_per_tier), derived from the tree data rather than
     # hardcoded. EoF (tradeskill only) → 45; Age of Discovery+ (both) → 116.
-    unlocked_ts = _TRADESKILL_TYPES & set(unlocked)
-    tradeskill_cap = sum(
-        tree_max_points(tid) for tid, info in load_tree_index().items() if info.get("type") in unlocked_ts
-    )
+    tradeskill_cap = aa_db.total_max_points(frozenset(_TRADESKILL_TYPES & set(unlocked)))
     return AAConfigResponse(
         xpac=xpac,
-        aa_cap=entry.get("aa_cap", 0),
+        aa_cap=limits["aa_cap"],
         tradeskill_aa_cap=tradeskill_cap,
         unlocked_tree_types=unlocked,
     )
@@ -172,50 +125,38 @@ async def get_aa_config() -> AAConfigResponse:
 
 @lru_cache(maxsize=128)
 def _load_tree_for_response(tree_id: int) -> AATreeResponse | None:
-    """Parse + build the AATreeResponse for a single tree id.
+    """Build the AATreeResponse for a single tree id from aas.db.
 
-    Returns None when the file is missing or has no AA data.
-
-    Invalidation: tree JSON is static reference data on disk; rebuild via a
-    process restart. If the data/AAs/trees/ files ever become hot-editable,
-    add a sibling _load_tree_for_response.cache_clear() on the mutation
-    path — see the canonical pattern at web/routes/rankings.py:195-203
-    (invalidate_zones_cache).
+    Returns None when the tree is unknown. Static reference data — the
+    eq2db.aas accessors are themselves cached; this cache just skips the
+    pydantic re-validation on hot trees. Tests clear via .cache_clear() AND
+    backend.eq2db.aas.clear_caches().
     """
-    path = _TREES_DIR / f"{tree_id}.json"
-    if not path.exists():
+    tree = aa_db.get_tree(tree_id)
+    if tree is None:
         return None
-    data = json.loads(path.read_text(encoding="utf-8"))
-    aa_list = data.get("alternateadvancement_list") or []
-    if not aa_list:
-        return None
-    tree = aa_list[0]
-    tree_type = detect_tree_type(data)
-    nodes: list[AANodeResponse] = []
-    for n in tree.get("alternateadvancementnode_list") or []:
-        icon = n.get("icon") or {}
-        nodes.append(
-            AANodeResponse(
-                node_id=int(n["nodeid"]),
-                name=str(n.get("name", "")),
-                description=str(n.get("description", "")),
-                classification=str(n.get("classification", "")),
-                xcoord=int(n["xcoord"]),
-                ycoord=int(n["ycoord"]),
-                icon_id=int(icon.get("id", 0)),
-                backdrop_id=int(icon.get("backdrop", -1)),
-                maxtier=int(n.get("maxtier", 1)),
-                pointspertier=int(n.get("pointspertier", 1)),
-                points_to_unlock=int(n.get("pointsspentintreetounlock", 0)),
-                title=str(n.get("title", "")),
-                spellcrc=int(n.get("spellcrc", 0)),
-            )
-        )
     return AATreeResponse(
         tree_id=tree_id,
-        tree_name=tree.get("name", str(tree_id)),
-        tree_type=tree_type,
-        nodes=nodes,
+        tree_name=tree["name"],
+        tree_type=tree["tree_type"],
+        nodes=[
+            AANodeResponse(
+                node_id=n["node_id"],
+                name=n["name"],
+                description=n["description"],
+                classification=n["classification"],
+                xcoord=n["xcoord"],
+                ycoord=n["ycoord"],
+                icon_id=n["icon_id"],
+                backdrop_id=n["icon_backdrop"],
+                maxtier=n["maxtier"],
+                pointspertier=n["points_per_tier"],
+                points_to_unlock=n["points_to_unlock"],
+                title=n["title"],
+                spellcrc=n["spellcrc"],
+            )
+            for n in tree["nodes"]
+        ],
     )
 
 
@@ -233,11 +174,11 @@ def _build_trees(aa_list) -> list[CharAATree]:
     by_tree: dict[int, dict[int, int]] = {}
     for aa in aa_list:
         by_tree.setdefault(aa.tree_id, {})[aa.node_id] = aa.tier
-    tree_index = load_tree_index()
+    tree_index = aa_db.load_tree_index()
     result = []
     for tid, spent in by_tree.items():
         info = tree_index.get(tid, {})
-        costs = tree_node_costs(tid)
+        costs = aa_db.tree_node_costs(tid)
         result.append(
             CharAATree(
                 tree_id=tid,
@@ -257,7 +198,7 @@ def _aas_response_from_census(char_aas) -> CharAAsResponse:
     return CharAAsResponse(
         character_name=char_aas.character_name,
         # Point-accurate: tier × pointspertier per node (see _build_trees).
-        total_spent=sum(aa.tier * tree_node_costs(aa.tree_id).get(aa.node_id, 1) for aa in char_aas.aa_list),
+        total_spent=sum(aa.tier * aa_db.tree_node_costs(aa.tree_id).get(aa.node_id, 1) for aa in char_aas.aa_list),
         trees=_build_trees(char_aas.aa_list),
         profiles=[CharAAProfile(name=p.name, trees=_build_trees(p.aa_list)) for p in char_aas.profiles],
     )

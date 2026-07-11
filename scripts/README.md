@@ -21,6 +21,7 @@ python scripts/preview_aacheck.py Menludiir Templar      # render a specific tre
 ```bash
 python scripts/download_aa_trees.py                      # fetch all AA tree JSONs from Census
 python scripts/download_aa_icons.py                      # fetch all AA node icon PNGs
+python scripts/build_aas_db.py                           # tree JSONs -> data/AAs/aas.db (committed)
 python scripts/download_spell_icons.py                   # download all spell icon PNGs
 python scripts/download_spell_icons.py --start N         # resume from icon N
 python scripts/download_spells.py --guild "Guild Name"   # seed spell cache DB for a guild
