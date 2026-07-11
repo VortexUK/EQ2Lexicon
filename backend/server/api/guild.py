@@ -393,7 +393,7 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
         async with shared_census_client() as client:
             raw = await client.search_guilds_by_name(q, current_world())
     except Exception as exc:
-        _log.warning("[guild] Census guild search failed for %r: %s", q, exc)
+        _log.warning("[guild] Census guild search failed for %r: %s", _scrub(q), exc)
         raw = []
 
     if raw:

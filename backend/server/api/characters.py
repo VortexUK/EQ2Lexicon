@@ -6,6 +6,7 @@ import aiosqlite
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from backend.core.log_safety import scrub
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.census_lifecycle import shared_census_client
@@ -85,9 +86,9 @@ async def search_characters(request: Request, name: str = "") -> CharSearchRespo
                     if brief:
                         raw = [brief]
                 except Exception as exc:
-                    _log.debug("[characters] Exact-name fallback failed for %r: %s", q, exc)
+                    _log.debug("[characters] Exact-name fallback failed for %r: %s", scrub(q), exc)
     except Exception as exc:
-        _log.warning("[characters] Census search failed for %r: %s", q, exc)
+        _log.warning("[characters] Census search failed for %r: %s", scrub(q), exc)
         raw = []
 
     if raw:

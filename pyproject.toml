@@ -17,6 +17,8 @@ dependencies = [
     "httpx>=0.27.0",
     "itsdangerous>=2.2.0",
     "slowapi>=0.1.9",
+    # Hardened XML parsing for the ACT paste-import (entity-expansion safe)
+    "defusedxml>=0.7.1",
     # IANA timezone database — Python's zoneinfo has no bundled tz data on
     # Windows (and minimal containers), so available_timezones()/ZoneInfo need
     # this for the raid-schedule timezone validation + live-window checks to

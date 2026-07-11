@@ -225,7 +225,7 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
     from backend.server import census_health
 
     if census_health.is_down():
-        _log.debug("[claim] Skipping live fetch — census_health=down (name=%s)", name)
+        _log.debug("[claim] Skipping live fetch — census_health=down (name=%s)", _safe_for_log(name))
         raise HTTPException(
             status_code=503,
             detail="Census is unavailable. Cannot verify character existence — try again shortly.",

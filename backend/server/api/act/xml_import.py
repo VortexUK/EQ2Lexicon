@@ -18,6 +18,10 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+# User-pasted XML — parse with defusedxml so entity-expansion bombs
+# (billion laughs) and external entities are rejected, not expanded.
+from defusedxml import ElementTree as SafeET
+from defusedxml.common import DefusedXmlException
 from fastapi import HTTPException
 
 
@@ -136,8 +140,8 @@ def parse_import_xml(text: str) -> tuple[list[dict], list[dict]]:
 
     wrapped = f"<__import_root>{body}</__import_root>"
     try:
-        root = ET.fromstring(wrapped)
-    except ET.ParseError as exc:
+        root = SafeET.fromstring(wrapped)
+    except (ET.ParseError, DefusedXmlException) as exc:
         raise HTTPException(status_code=400, detail=f"Invalid XML: {exc}") from exc
 
     triggers = [_trigger_from_element(t) for t in root.iter("Trigger") if (t.get("Regex") or t.get("R"))]

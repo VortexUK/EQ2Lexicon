@@ -27,6 +27,7 @@ from collections import Counter
 from backend.census.constants import SPELL_TIER_ORDER as _TIER_ORDER
 from backend.census.models import CharacterOverview, GuildData, SpellEntry
 from backend.census.store import store as census_store
+from backend.core.log_safety import scrub
 from backend.eq2db.spells import (
     DB_PATH as _SPELLS_DB,
 )
@@ -395,7 +396,7 @@ async def _fetch_and_cache_guild(
     try:
         return await task
     except Exception as exc:
-        _log.warning("[cache] Guild fetch failed for %s: %s", guild_name, exc)
+        _log.warning("[cache] Guild fetch failed for %s: %s", scrub(guild_name), exc)
         return None
     finally:
         if _guild_fetch_tasks.get(task_key) is task:

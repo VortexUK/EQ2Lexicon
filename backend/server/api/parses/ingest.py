@@ -17,6 +17,7 @@ import time
 from fastapi import BackgroundTasks, HTTPException, Request
 
 from backend.census.store import store as census_store
+from backend.core.log_safety import scrub
 from backend.server.api.parses import router
 from backend.server.api.parses.list import _classify_zone
 from backend.server.api.parses.models import (
@@ -140,7 +141,7 @@ async def _resolve_uploader_guild_async(
         async with shared_census_client() as client:
             guild_name = await client.get_character_guild_name(uploader, effective_world)
     except Exception as exc:
-        _log.warning("Census guild lookup failed for %r: %s", uploader, exc)
+        _log.warning("Census guild lookup failed for %r: %s", scrub(uploader), exc)
         return CENSUS_UNAVAILABLE
 
     if not guild_name:
