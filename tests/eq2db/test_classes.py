@@ -11,14 +11,20 @@ from __future__ import annotations
 
 from collections import Counter
 
-from backend.eq2db.classes import (
-    ARCHETYPE_COLOURS,
-    ARCHETYPE_GROUPS,
-    CRAFTER_NAMES,
-    SUBCLASS_GROUPS,
-    iter_adventure_class_names,
-    list_all,
-)
+from backend.eq2db.classes import catalogue
+
+ARCHETYPE_COLOURS = catalogue.archetype_colours()
+ARCHETYPE_GROUPS = catalogue.archetype_groups()
+CRAFTER_NAMES = catalogue.crafter_names()
+SUBCLASS_GROUPS = catalogue.subclass_groups()
+
+
+def iter_adventure_class_names():
+    return catalogue.adventure_class_names()
+
+
+def list_all():
+    return catalogue.list_all()
 
 
 class TestDbRows:

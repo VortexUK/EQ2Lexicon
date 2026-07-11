@@ -25,7 +25,7 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.eq2db.classes import iter_adventure_class_names
+from backend.eq2db.classes import catalogue as _classes
 from backend.eq2db.items import DB_PATH as ITEMS_DB_PATH
 from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
 from backend.server.core.executor import run_sync
@@ -96,9 +96,9 @@ _LABEL_TO_BENCH: dict[str, str] = {v.lower(): k for k, v in BENCH_DISPLAY.items(
 # ---------------------------------------------------------------------------
 
 # Sourced from the committed classes.db (read at import time via
-# backend.eq2db.classes.iter_adventure_class_names) — single source of truth.
+# backend.eq2db.classes.catalogue.adventure_class_names) — single source of truth.
 # BE-230: prevents the list drifting out of sync with the canonical class data.
-_ADVENTURE_CLASSES = iter_adventure_class_names()
+_ADVENTURE_CLASSES = _classes.adventure_class_names()
 
 # ---------------------------------------------------------------------------
 # Response models

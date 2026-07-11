@@ -118,6 +118,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     recipes_db.DB_PATH = resolve_db_path("DB_RECIPES_PATH", "recipes", "recipes.db")
     raids_db.DB_PATH = resolve_db_path("DB_RAIDS_PATH", "raids", "raids.db")
     classes_db.DB_PATH = resolve_db_path("DB_CLASSES_PATH", "classes", "classes.db")
+    classes_db.catalogue.path = classes_db.DB_PATH
 
     # Create both schemas immediately. FastAPI's startup hooks (which would
     # normally call init_db) don't fire under ASGITransport, so without this
