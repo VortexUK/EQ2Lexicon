@@ -393,7 +393,9 @@ class TestGetCharacterAas:
             patch("backend.server.api.aa.aa_cache.get_stale", return_value=(None, False)),
             patch("backend.server.api.aa.run_sync", side_effect=_fake_run_sync),
             patch("backend.server.api.aa.shared_census_client", return_value=mock_cm),
-            patch("backend.server.api.aa.aa_db.load_tree_index", return_value={1: {"type": "class", "name": "Templar"}}),
+            patch(
+                "backend.server.api.aa.aa_db.load_tree_index", return_value={1: {"type": "class", "name": "Templar"}}
+            ),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/character/Sihtric/aas")
