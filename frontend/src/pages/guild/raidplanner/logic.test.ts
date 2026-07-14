@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ClassInfo } from '../../../useClasses'
-import { buildGrid, computeWarnings, moveCharacter, nextRaidDate, placementsEqual, swapGroups } from './logic'
+import { altOwnerLabel, buildGrid, computeWarnings, moveCharacter, nextRaidDate, placementsEqual, swapGroups } from './logic'
 import type { Placement } from './types'
 
 const P = (name: string, group: number | null, slot: number | null, sitout = false): Placement => ({
@@ -151,5 +151,34 @@ describe('placementsEqual', () => {
     const b = [P('Healy', null, null, true), P('Tanky', 1, 0)]
     expect(placementsEqual(a, b)).toBe(true)
     expect(placementsEqual(a, [P('Tanky', 1, 1), P('Healy', null, null, true)])).toBe(false)
+  })
+})
+
+describe('altOwnerLabel', () => {
+  const roster = [
+    { name: 'Menludiir', role: 'raider' as const },
+    { name: 'Menwardiir', role: 'raid_alt' as const },
+    { name: 'Menthird', role: 'raider' as const },
+    { name: 'Stranger', role: 'raider' as const },
+  ]
+  const players = { menludiir: 'Ben', menwardiir: 'Ben', menthird: 'Ben', stranger: 'Sue' }
+
+  it("names the owner's placed raider first", () => {
+    const owner = altOwnerLabel('Menwardiir', players, roster, [P('Menthird', 1, 0)])
+    expect(owner).toBe('Menthird')
+  })
+
+  it("falls back to the owner's unplaced raider", () => {
+    const owner = altOwnerLabel('Menwardiir', players, roster, [])
+    expect(owner).toBe('Menludiir')
+  })
+
+  it('falls back to the player display name when they have no other character', () => {
+    const owner = altOwnerLabel('Menwardiir', { menwardiir: 'Ben' }, [{ name: 'Menwardiir', role: 'raid_alt' }], [])
+    expect(owner).toBe('Ben')
+  })
+
+  it('returns null for an unclaimed alt', () => {
+    expect(altOwnerLabel('Menwardiir', {}, roster, [])).toBeNull()
   })
 })
