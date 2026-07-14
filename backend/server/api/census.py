@@ -19,6 +19,22 @@ async def get_census_health() -> dict:
     return census_health.get_state()
 
 
+@router.get("/census/server-status")
+async def get_server_status() -> dict:
+    """The Census-reported game-server state for the world in focus (footer
+    indicator). ``state`` is Daybreak's raw token — low/medium/high mean up,
+    plus locked and down; ``unknown`` until the first fetch lands."""
+    from backend.server.server_context import current_world
+
+    world = current_world()
+    info = census_health.get_server_state(world)
+    return {
+        "world": world,
+        "state": (info or {}).get("state", "unknown"),
+        "reported_at": (info or {}).get("reported_at", 0),
+    }
+
+
 @router.get("/census/stream")
 async def census_stream(request: Request) -> StreamingResponse:
     async def gen():
