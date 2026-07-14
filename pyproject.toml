@@ -23,7 +23,7 @@ dependencies = [
     # Windows (and minimal containers), so available_timezones()/ZoneInfo need
     # this for the raid-schedule timezone validation + live-window checks to
     # work cross-platform.
-    "tzdata>=2024.1",
+    "tzdata>=2026.3",
     # Observability
     "prometheus-client>=0.20.0",
     # Reference-data pipeline: parse MediaWiki wikitext from EQ2i for the
