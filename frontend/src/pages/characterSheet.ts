@@ -148,7 +148,7 @@ export const STAT_GROUPS: StatGroupDef[] = [
       { key: 'crit_bonus',          label: 'Crit Bonus',         fmt: 'pct1' },
       { key: 'fervor',              label: 'Fervor',             fmt: 'dec1' },
       { key: 'dps',                 label: 'DPS',                fmt: 'dec1' },
-      { key: 'double_attack',       label: 'Double Attack',      fmt: 'pct1' },
+      { key: 'double_attack',       label: 'Multi Attack',       fmt: 'pct1' },
       { key: 'ability_doublecast',  label: 'Ability Doublecast', fmt: 'pct1' },
       { key: 'attack_speed',        label: 'Attack Speed',       fmt: 'pct1' },
       { key: 'ability_mod',         label: 'Ability Mod',        fmt: 'int' },

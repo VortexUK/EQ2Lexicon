@@ -85,3 +85,66 @@ def test_body_looks_healthy_rejects_non_dict():
     assert ch._body_looks_healthy([]) is False  # type: ignore[arg-type]
     assert ch._body_looks_healthy("oops") is False  # type: ignore[arg-type]
     assert ch._body_looks_healthy(None) is False  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# game_server_status parsing + endpoint (footer server-status indicator)
+# ---------------------------------------------------------------------------
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from backend.server import census_health
+
+
+def test_parse_server_states_filters_to_eq2_and_normalises():
+    body = {
+        "game_server_status_list": [
+            {"name": "Wuoshi", "game_code": "eq2", "last_reported_state": "HIGH", "last_reported_time": "1784023424"},
+            {"name": "Antonia Bayle", "game_code": "eq2", "last_reported_state": "locked", "last_reported_time": "x"},
+            {"name": "Povar", "game_code": "eq", "last_reported_state": "up", "last_reported_time": "1"},
+            {"name": "", "game_code": "eq2", "last_reported_state": "up"},
+            "garbage",
+        ]
+    }
+    out = census_health._parse_server_states(body)
+    assert out["wuoshi"] == {"name": "Wuoshi", "state": "high", "reported_at": 1784023424}
+    assert out["antonia bayle"]["state"] == "locked"
+    assert out["antonia bayle"]["reported_at"] == 0  # unparseable time -> 0
+    assert "povar" not in out  # wrong game
+    assert len(out) == 2
+
+
+def test_get_server_state_case_insensitive(monkeypatch):
+    monkeypatch.setattr(
+        census_health, "_server_states", {"wuoshi": {"name": "Wuoshi", "state": "high", "reported_at": 1}}
+    )
+    assert census_health.get_server_state("Wuoshi")["state"] == "high"
+    assert census_health.get_server_state("nope") is None
+
+
+@pytest.mark.asyncio
+async def test_server_status_endpoint_unknown_before_first_fetch(app, monkeypatch):
+    monkeypatch.setattr(census_health, "_server_states", {})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/census/server-status")
+    assert r.status_code == 200
+    assert r.json()["state"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_server_status_endpoint_returns_current_world(app, monkeypatch):
+    monkeypatch.setattr(
+        census_health,
+        "_server_states",
+        {
+            "wuoshi": {"name": "Wuoshi", "state": "locked", "reported_at": 42},
+            "varsoon": {"name": "Varsoon", "state": "high", "reported_at": 43},
+        },
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/census/server-status")
+    body = r.json()
+    assert body["state"] in ("locked", "high")  # whichever world the test app focuses
+    assert body["reported_at"] in (42, 43)
+    assert body["world"].lower() in ("wuoshi", "varsoon")
