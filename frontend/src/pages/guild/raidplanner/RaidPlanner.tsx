@@ -13,6 +13,7 @@ import { Badge, Button, SectionLabel } from '../../../components/ui'
 import { toErrorMessage } from '../../../lib/errors'
 import { useClasses } from '../../../useClasses'
 import {
+  altOwnerLabel,
   buildGrid,
   computeWarnings,
   moveCharacter,
@@ -394,9 +395,7 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
       >
         <div className="flex items-baseline gap-2 mb-1">
           <span className="font-heading text-text text-[0.85rem]">Unassigned</span>
-          <span className="text-[0.68rem] text-text-muted">
-            raiders without a spot{altBench.length > 0 ? ' · raid alts listed after' : ''}
-          </span>
+          <span className="text-[0.68rem] text-text-muted">raiders without a spot</span>
           {isOfficer && (
             <button
               type="button"
@@ -411,14 +410,46 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
           {grid.bench.map(n => (
             <div key={n}>{chipFor(n)}</div>
           ))}
-          {altBench.map(r => (
-            <div key={r.name}>{chipFor(r.name)}</div>
-          ))}
-          {grid.bench.length === 0 && altBench.length === 0 && (
+          {grid.bench.length === 0 && (
             <span className="text-[0.68rem] text-text-muted/50 px-1 py-2 select-none">everyone is placed</span>
           )}
         </div>
       </div>
+
+      {/* raid alts: alternate characters of players usually already in the raid */}
+      {(altBench.length > 0 || roled.some(r => r.role === 'raid_alt')) && (
+        <div
+          onDragOver={allowDrop}
+          onDrop={dropHandler({ kind: 'bench' })}
+          onClick={selected ? () => applyMove(selected, { kind: 'bench' }) : undefined}
+          className={`border border-dashed border-border rounded-md p-2 ${selected ? 'hover:border-gold cursor-pointer' : ''}`}
+        >
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="font-heading text-text text-[0.85rem]">Raid Alts</span>
+            <span className="text-[0.68rem] text-text-muted">alternate characters — drag one in to swap a player's toon</span>
+          </div>
+          <div className="grid gap-1 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 min-h-[38px]">
+            {altBench.map(r => {
+              const owner = altOwnerLabel(r.name, data.players, data.roster, placements)
+              return (
+                <div key={r.name} title={owner ? `${r.name} is ${owner}'s raid alt` : undefined}>
+                  {chipFor(r.name)}
+                  {owner && (
+                    <p className="text-[0.62rem] text-text-muted leading-tight pl-2.5 -mt-0.5 truncate">
+                      {owner}'s alt
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+            {altBench.length === 0 && (
+              <span className="text-[0.68rem] text-text-muted/50 px-1 py-2 select-none">
+                every raid alt is placed
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* officer: manage which guild members are raiders / alts */}
       {isOfficer && managing && (

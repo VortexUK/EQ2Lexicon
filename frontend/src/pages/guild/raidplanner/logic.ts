@@ -185,3 +185,39 @@ export function placementsEqual(a: Placement[], b: Placement[]): boolean {
   const sb = [...b].map(key).sort()
   return sa.length === sb.length && sa.every((v, i) => v === sb[i])
 }
+
+// ── Raid-alt ownership ───────────────────────────────────────────────────────
+
+/**
+ * Who owns a raid alt, for the "Menwardiir — Menludiir's alt" caption.
+ * Resolution: the alt's claiming player (via `players`), then that player's
+ * OTHER rostered character — preferring one currently placed in a group,
+ * then any raider, then any other roled character. Falls back to the
+ * player's display name when they have no other character on the roster.
+ * Returns null when the alt has no claim (owner unknown).
+ */
+export function altOwnerLabel(
+  altName: string,
+  players: Record<string, string>,
+  roster: { name: string; role: string | null }[],
+  placements: Placement[],
+): string | null {
+  const player = players[altName.toLowerCase()]
+  if (!player) return null
+
+  const placedLower = new Set(
+    placements.filter(p => !p.sitout && p.group_num !== null).map(p => p.character_name.toLowerCase()),
+  )
+  const siblings = roster.filter(
+    r =>
+      r.role &&
+      r.name.toLowerCase() !== altName.toLowerCase() &&
+      players[r.name.toLowerCase()] === player,
+  )
+  const ranked = [...siblings].sort((a, b) => {
+    const score = (r: { name: string; role: string | null }) =>
+      (placedLower.has(r.name.toLowerCase()) ? 0 : 2) + (r.role === 'raider' ? 0 : 1)
+    return score(a) - score(b)
+  })
+  return ranked[0]?.name ?? player
+}
