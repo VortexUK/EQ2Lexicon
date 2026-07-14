@@ -23,6 +23,11 @@ def aa_cache_key(name: str, world: str) -> str:
     return f"aas:{name.lower()}:{world.lower()}"
 
 
+def gear_sets_cache_key(name: str, world: str) -> str:
+    """Cache key for a character's saved gear sets."""
+    return f"gearsets:{name.lower()}:{world.lower()}"
+
+
 def guild_roster_key(guild: str, world: str) -> str:
     """``guild_cache`` key for the full roster fetch."""
     return f"roster:{guild.lower()}:{world.lower()}"
