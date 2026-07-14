@@ -559,6 +559,35 @@ class ItemCatalogue(BaseCatalogue):
         finally:
             conn.close()
 
+    def stats_for_ids(self, ids: list[int]) -> list[tuple[int, str, float]]:
+        """All ``(item_id, stat, value)`` rows for the given ids (read-only).
+
+        One row per stat per distinct id — callers holding duplicate ids
+        (two copies of the same ring) must weight by occurrence themselves.
+        Returns [] if the DB doesn't exist yet."""
+        if not ids or not self.path.exists():
+            return []
+        conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+        try:
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(_SQL["stats_for_ids"].format(placeholders=placeholders), ids)
+            return [(row[0], row[1], row[2]) for row in rows]
+        finally:
+            conn.close()
+
+    def set_bonus_rows_for_ids(self, ids: list[int]) -> list[tuple[int, str, str | None]]:
+        """``(item_id, setbonus_name, raw_json)`` for the ids that belong to an
+        item set (read-only). Returns [] if the DB doesn't exist yet."""
+        if not ids or not self.path.exists():
+            return []
+        conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+        try:
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(_SQL["set_bonus_rows_for_ids"].format(placeholders=placeholders), ids)
+            return [(row[0], row[1], row[2]) for row in rows]
+        finally:
+            conn.close()
+
     async def find_by_name(self, name: str) -> dict | None:
         """Return raw Census JSON dict for the closest name match, or None."""
         if not self.path.exists():

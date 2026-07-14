@@ -25,6 +25,21 @@ export interface EquipmentSlot {
   adorn_slots: AdornSlot[]
 }
 
+/** One saved in-game equipment set (GET /api/character/{name}/gear-sets). */
+export interface GearSet {
+  name: string
+  ilvl: number | null
+  /** Approximate sheet-stat movement of equipping this set instead of the
+   * current gear: CharacterStats field → (set − worn). Additive stats only. */
+  stat_deltas: Record<string, number>
+  equipment: EquipmentSlot[]
+}
+
+export interface CharGearSets {
+  character_name: string
+  sets: GearSet[]
+}
+
 export interface CharacterStats {
   health_max: number | null
   health_regen: number | null

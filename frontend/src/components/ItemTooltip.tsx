@@ -31,7 +31,7 @@ interface ItemEffect {
   lines: EffectLine[]
 }
 
-interface SetBonus {
+export interface SetBonus {
   required_items: number
   effect: string
   lines: string[]

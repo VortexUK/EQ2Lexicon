@@ -251,6 +251,15 @@ SELECT id, ilvl, wield_style, level_to_use, tier_display FROM items WHERE id IN 
 -- :name find_by_id_raw_json
 SELECT raw_json FROM items WHERE id = ? LIMIT 1;
 
+-- :name stats_for_ids
+-- {placeholders} = comma-joined "?,?,..."
+SELECT item_id, stat, value FROM item_stats WHERE item_id IN ({placeholders});
+
+-- :name set_bonus_rows_for_ids
+-- {placeholders} = comma-joined "?,?,..."
+SELECT id, setbonus_name, raw_json FROM items
+WHERE id IN ({placeholders}) AND setbonus_name IS NOT NULL;
+
 -- find_by_name composes one of these depending on SERVER_MAX_LEVEL +
 -- exact-vs-LIKE. {where} is the column condition: 'displayname_lower = ?'
 -- or 'displayname_lower LIKE ? ESCAPE \\'.

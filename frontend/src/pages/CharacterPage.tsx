@@ -1,14 +1,16 @@
-﻿import { useEffect, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
 import Breadcrumb from '../components/Breadcrumb'
 import { Card, SectionLabel } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
-import { ItemTooltip, useItemTooltip, getCachedItem, prefetchItem } from '../components/ItemTooltip'
+import { ItemTooltip, useItemTooltip, getCachedItem, prefetchItem, type SetBonus } from '../components/ItemTooltip'
 import { FreshnessBadge } from '../components/FreshnessBadge'
 import FavoriteButton from '../components/FavoriteButton'
 import { AAsTab } from './CharacterAAsTab'
 import { SpellsTab } from './CharacterSpellsTab'
+import DeltaChip from './compare/DeltaChip'
 import { useCensusStream } from '../hooks/useCensusStream'
+import { useFetch } from '../hooks/useFetch'
 import { mergeParams, safeSetParams } from '../lib/searchParams'
 import { fetchCharacter, getCachedCharacter, setCachedCharacter } from '../lib/characterCache'
 import { useServer } from '../hooks/useServer'
@@ -18,7 +20,9 @@ import { useServer } from '../hooks/useServer'
 // shared with the compare page so the two can never drift.
 
 import {
+  type CharGearSets,
   type Character,
+  type CharacterStats,
   type EquipmentSlot,
   type Fmt,
   CONSUMABLE_SLOTS,
@@ -382,7 +386,6 @@ type ActiveTab = 'equipment' | 'aas' | 'spells'
 const TABS: readonly ActiveTab[] = ['equipment', 'aas', 'spells']
 
 function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxLevel: number; ratingConfig: RatingConfig }) {
-  const bySlot = buildSlotMap(char.equipment)
   const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
   const [hoveredStat, setHoveredStat] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -391,21 +394,49 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
     const t = searchParams.get('tab')
     return TABS.includes(t as ActiveTab) ? (t as ActiveTab) : 'equipment'
   })
-  // Mirror the tab to the URL (React state is source of truth; URL best-effort).
-  // Off the AA tab, drop the AA-only params so links stay clean.
+
+  // Saved in-game gear sets — SWR-backed, so this is a local-store read in
+  // the common case. `selectedSet === null` means the live (current) gear.
+  // Errors/503 degrade to "no pills" silently.
+  const { data: gearSetsData } = useFetch<CharGearSets>(
+    `/api/character/${encodeURIComponent(char.name)}/gear-sets`,
+  )
+  const [selectedSet, setSelectedSet] = useState<string | null>(null)
+  // ?set= deep link: captured once, applied when the set list arrives.
+  const [initialSetParam] = useState(() => searchParams.get('set'))
+  // useFetch keeps the previous character's data while a refetch is in
+  // flight — only trust sets stamped with this character's name.
+  const sets = gearSetsData?.character_name.toLowerCase() === char.name.toLowerCase() ? gearSetsData.sets : []
+  useEffect(() => { setSelectedSet(null) }, [char.name])
   useEffect(() => {
-    const updates: Record<string, string | null> = { tab: activeTab === 'equipment' ? null : activeTab }
+    if (initialSetParam && gearSetsData?.sets.some(s => s.name === initialSetParam)) {
+      setSelectedSet(initialSetParam)
+    }
+  }, [gearSetsData, initialSetParam])
+
+  const activeSet = selectedSet ? sets.find(s => s.name === selectedSet) ?? null : null
+  const viewEquipment = activeSet ? activeSet.equipment : char.equipment
+  const bySlot = buildSlotMap(viewEquipment)
+
+  // Mirror the tab + gear set to the URL (React state is source of truth;
+  // URL best-effort). Off the AA tab, drop the AA-only params so links stay clean.
+  useEffect(() => {
+    const updates: Record<string, string | null> = {
+      tab: activeTab === 'equipment' ? null : activeTab,
+      set: activeTab === 'equipment' && selectedSet ? selectedSet : null,
+    }
     if (activeTab !== 'aas') { updates.profile = null; updates.tree = null }
     safeSetParams(setSearchParams as (...a: unknown[]) => void, [mergeParams(updates), { replace: true }])
-  }, [activeTab, setSearchParams])
+  }, [activeTab, selectedSet, setSearchParams])
   // Tracks when background prefetch completes so highlights + gear rating re-evaluate.
   const [itemsReady, setItemsReady] = useState(false)
 
   // Eagerly fetch stats for every equipped item + adorn so highlights work
   // without the user having to hover each item first.
   useEffect(() => {
+    setItemsReady(false)
     const ids: string[] = []
-    for (const slot of char.equipment) {
+    for (const slot of viewEquipment) {
       if (slot.item_id) ids.push(slot.item_id)
       for (const a of slot.adorn_slots) {
         if (a.adorn_id) ids.push(a.adorn_id)
@@ -413,7 +444,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
     }
     if (ids.length === 0) { setItemsReady(true); return }
     Promise.allSettled(ids.map(prefetchItem)).then(() => setItemsReady(true))
-  }, [char])
+  }, [viewEquipment])
 
   /** Returns whether this slot's item or adorns contribute to the hovered stat. */
   function getHighlight(item: EquipmentSlot | null): 'direct' | 'adorn' | null {
@@ -466,15 +497,45 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
         <div className="flex flex-col md:flex-row gap-6 items-start mt-4">
           {/* Left: gear rating + detailed stats */}
           <div className="w-full md:w-[260px] md:shrink-0">
-            <GearRating equipment={char.equipment} ready={itemsReady} maxLevel={maxLevel} ratingConfig={ratingConfig} ilvl={char.ilvl} />
+            <GearRating equipment={viewEquipment} ready={itemsReady} maxLevel={maxLevel} ratingConfig={ratingConfig} ilvl={activeSet ? activeSet.ilvl : char.ilvl} />
             <StatsPanel char={char}
+              deltas={activeSet ? activeSet.stat_deltas : null}
               onStatHover={setHoveredStat}
               onStatLeave={() => setHoveredStat(null)} />
           </div>
 
           {/* Right: paperdoll */}
           <div className="flex-1 min-w-0">
-            <SectionLabel variant="muted">Equipment</SectionLabel>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <SectionLabel variant="muted">Equipment</SectionLabel>
+              {sets.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                  {[null, ...sets.map(s => s.name)].map(name => {
+                    const active = name === selectedSet
+                    return (
+                      <button
+                        key={name ?? '__current'}
+                        type="button"
+                        onClick={() => setSelectedSet(name)}
+                        aria-pressed={active}
+                        className={`appearance-none cursor-pointer rounded-pill border px-2.5 py-0.5 text-[0.72rem] transition-colors ${
+                          active
+                            ? 'border-gold text-gold bg-gold/10'
+                            : 'border-border text-text-muted bg-transparent hover:text-text hover:border-gold/50'
+                        }`}
+                      >
+                        {name ?? 'Current'}
+                      </button>
+                    )
+                  })}
+                  {activeSet && (
+                    <span className="text-[0.7rem] italic text-text-muted">
+                      saved set — stats are approximate
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 gap-x-3">
               <div className="flex flex-col gap-1">
                 {LEFT_SLOTS.map(([label, key]) => {
@@ -489,6 +550,8 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
                 })}
               </div>
             </div>
+
+            <SetBonusesSection equipment={viewEquipment} ready={itemsReady} />
 
             <SectionLabel variant="muted" className="mt-4">Consumables</SectionLabel>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 gap-x-3">
@@ -509,6 +572,76 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
 
       {tooltip && <ItemTooltip state={tooltip} />}
     </div>
+  )
+}
+
+// ── Set bonuses (between the paperdoll and consumables) ───────────────────────
+
+interface WornSet {
+  name: string
+  count: number
+  tiers: { required: number; effect: string; lines: string[]; active: boolean }[]
+}
+
+/** Group the displayed equipment (items + adorns) by item set and mark which
+ * bonus tiers are active for the equipped piece count. Reads the tooltip
+ * prefetch cache, so results are complete once the eager prefetch finishes. */
+function wornSets(equipment: EquipmentSlot[]): WornSet[] {
+  const counts = new Map<string, number>()
+  const tiersBySet = new Map<string, SetBonus[]>()
+  const ids: string[] = []
+  for (const slot of equipment) {
+    if (slot.item_id) ids.push(slot.item_id)
+    for (const a of slot.adorn_slots) {
+      if (a.adorn_id) ids.push(a.adorn_id)
+    }
+  }
+  for (const id of ids) {
+    const d = getCachedItem(id)
+    if (!d?.set_name || !d.set_bonuses?.length) continue
+    counts.set(d.set_name, (counts.get(d.set_name) ?? 0) + 1)
+    if (!tiersBySet.has(d.set_name)) tiersBySet.set(d.set_name, d.set_bonuses)
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({
+      name,
+      count,
+      tiers: (tiersBySet.get(name) ?? []).map(t => ({
+        required: t.required_items,
+        effect: t.effect,
+        lines: t.lines,
+        active: count >= t.required_items,
+      })),
+    }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+}
+
+function SetBonusesSection({ equipment, ready }: { equipment: EquipmentSlot[]; ready: boolean }) {
+  const sets = useMemo(() => (ready ? wornSets(equipment) : []), [equipment, ready])
+  if (sets.length === 0) return null
+  return (
+    <>
+      <SectionLabel variant="muted" className="mt-4">Set Bonuses</SectionLabel>
+      {/* Multi-column (not grid) so short cards pack under each other instead
+          of row-aligning with the tallest card. */}
+      <div className="columns-1 sm:columns-2 gap-2">
+        {sets.map(s => (
+          <Card key={s.name} className="rounded-sm px-3 py-2 mb-2 break-inside-avoid">
+            <div className="text-[0.82rem] font-semibold text-gold">
+              {s.name} <span className="text-text-muted font-normal">— {s.count} equipped</span>
+            </div>
+            {s.tiers.map((t, i) => (
+              <div key={i} className={`text-[0.78rem] mt-1 ${t.active ? '' : 'text-text-muted opacity-60'}`}>
+                <span className={t.active ? 'font-medium text-success' : 'font-medium'}>({t.required})</span> {t.effect}
+                {t.lines.map((ln, j) => (
+                  <div key={j} className="text-[0.72rem] text-text-muted pl-4">{ln}</div>
+                ))}
+              </div>
+            ))}
+          </Card>
+        ))}
+      </div>
+    </>
   )
 }
 
@@ -600,8 +733,20 @@ function BannerStat({ label, value }: { label: string; value: string }) {
 
 // ── Stats panel (left of paperdoll, no General group) ─────────────────────────
 
-function StatsPanel({ char, onStatHover, onStatLeave }: {
+/** Health/power live in the banner, not STAT_GROUPS — when a saved set moves
+ * them, surface the approximation in its own group here. */
+const POOL_DELTA_ROWS: { key: keyof CharacterStats; label: string; fmt: Fmt }[] = [
+  { key: 'health_max',   label: 'Health',       fmt: 'int' },
+  { key: 'power_max',    label: 'Power',        fmt: 'int' },
+  { key: 'health_regen', label: 'Health Regen', fmt: 'int' },
+  { key: 'power_regen',  label: 'Power Regen',  fmt: 'int' },
+]
+
+function StatsPanel({ char, deltas, onStatHover, onStatLeave }: {
   char: Character
+  /** Saved-set stat deltas (field → set − worn); non-null when a set is
+   * selected — rows shift to approximate values with a delta chip. */
+  deltas?: Record<string, number> | null
   onStatHover: (label: string) => void
   onStatLeave: () => void
 }) {
@@ -609,15 +754,29 @@ function StatsPanel({ char, onStatHover, onStatLeave }: {
   // Convenience: create hover/leave props for a given label
   const h = (label: string) => ({ onHover: () => onStatHover(label), onLeave: onStatLeave })
 
+  const row = (r: { key: keyof CharacterStats; label: string; fmt: Fmt }) => {
+    const delta = deltas?.[r.key]
+    const base = s[r.key]
+    // With a delta, show the approximated set value (base treated as 0 when
+    // the sheet has no current value); without one, the live value as-is.
+    const value = typeof delta === 'number' ? (typeof base === 'number' ? base : 0) + delta : base
+    return <StatRow key={r.label} label={r.label} value={value} fmt={r.fmt} delta={delta} {...h(r.label)} />
+  }
+
+  const poolRows = deltas ? POOL_DELTA_ROWS.filter(r => typeof deltas[r.key] === 'number') : []
+
   return (
     <div>
+      {poolRows.length > 0 && (
+        <StatGroup title="Health & Power">
+          {poolRows.map(row)}
+        </StatGroup>
+      )}
       {/* Data-driven from the shared STAT_GROUPS config (characterSheet.ts) —
           hover labels are the row labels, so STAT_ALIASES matching is unchanged. */}
       {STAT_GROUPS.map(group => (
         <StatGroup key={group.title} title={group.title}>
-          {group.rows.map(row => (
-            <StatRow key={row.label} label={row.label} value={s[row.key]} fmt={row.fmt} {...h(row.label)} />
-          ))}
+          {group.rows.map(row)}
         </StatGroup>
       ))}
 
@@ -640,10 +799,12 @@ function StatsPanel({ char, onStatHover, onStatLeave }: {
 
 // ── Stat display helpers ──────────────────────────────────────────────────────
 
-export function StatRow({ label, value, fmt: format, onHover, onLeave }: {
+export function StatRow({ label, value, fmt: format, delta, onHover, onLeave }: {
   label: string
   value: number | string | null | undefined
   fmt?: Fmt
+  /** Optional saved-set delta shown as a signed chip after the value. */
+  delta?: number | null
   onHover?: () => void
   onLeave?: () => void
 }) {
@@ -657,7 +818,12 @@ export function StatRow({ label, value, fmt: format, onHover, onLeave }: {
       onMouseLeave={onLeave}
     >
       <span className="text-text-muted text-[0.78rem] pr-2">{label}</span>
-      <span className="text-[0.85rem] font-medium text-right">{display}</span>
+      <span className="text-[0.85rem] font-medium text-right">
+        {display}
+        {typeof delta === 'number' && delta !== 0 && (
+          <span className="ml-1.5 text-[0.72rem]"><DeltaChip delta={delta} fmt={format} /></span>
+        )}
+      </span>
     </div>
   )
 }

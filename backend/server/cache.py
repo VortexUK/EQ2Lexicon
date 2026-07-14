@@ -15,7 +15,7 @@ from backend.server.core.silent_swallow import swallow
 
 _log = logging.getLogger(__name__)
 
-CacheName = Literal["character", "guild", "claim", "aa", "rankings", "favorites"]
+CacheName = Literal["character", "guild", "claim", "aa", "gear-sets", "rankings", "favorites"]
 
 
 class TTLCache:
@@ -171,4 +171,5 @@ character_cache: TTLCache = TTLCache(name="character", maxsize=500)
 guild_cache: TTLCache = TTLCache(name="guild", maxsize=50)
 claim_cache: TTLCache = TTLCache(name="claim", maxsize=200)
 aa_cache: TTLCache = TTLCache(name="aa", maxsize=200)
+gear_sets_cache: TTLCache = TTLCache(name="gear-sets", maxsize=200)
 favorite_count_cache: TTLCache = TTLCache(name="favorites", maxsize=1000)

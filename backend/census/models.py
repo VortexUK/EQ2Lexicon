@@ -116,6 +116,15 @@ class EquipmentSlot:
 
 
 @dataclass
+class GearSet:
+    """One saved in-game equipment set from the adventure_sets collection.
+    ``name`` is the player-given label ("DPS", "Tank", ...)."""
+
+    name: str
+    equipment: list = field(default_factory=list)  # list[EquipmentSlot]
+
+
+@dataclass
 class CharacterOverview:
     id: str
     name: str
