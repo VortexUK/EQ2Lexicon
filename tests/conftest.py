@@ -174,6 +174,18 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
         pass
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """The shared slowapi limiter keeps in-memory counters for the whole
+    pytest process (every test client shares one IP), so heavily-hit routes
+    like /api/parses (30/minute) start returning 429 once enough tests have
+    run in the same minute. Reset between tests so each starts fresh."""
+    from backend.server.limiter import limiter
+
+    limiter.reset()
+    yield
+
+
 @pytest.fixture
 def app():
     """FastAPI application instance with a fixed session secret."""

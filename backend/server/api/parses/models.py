@@ -91,6 +91,9 @@ class ParseEncounterSummary(BaseModel):
 class ParsesListResponse(BaseModel):
     results: list[ParseEncounterSummary]
     total: int  # total number of FIGHTS matching the filter (pre-limit)
+    # Pagination cursor: pass back as ?before= to fetch the window below this
+    # page. None when this page reaches the end of the data.
+    next_before: int | None = None
 
 
 class AttackSummary(BaseModel):

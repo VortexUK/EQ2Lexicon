@@ -521,6 +521,12 @@ UPDATE tamper_reports
    SET acknowledged_at = ?, acknowledged_by = ?
  WHERE id = ? AND acknowledged_at IS NULL;
 
+-- :name acknowledge_tamper_reports_bulk
+-- {placeholders} = comma-joined "?,?,..."
+UPDATE tamper_reports
+   SET acknowledged_at = ?, acknowledged_by = ?
+ WHERE id IN ({placeholders}) AND acknowledged_at IS NULL;
+
 -- :name count_pending_tamper_reports
 SELECT COUNT(*) FROM tamper_reports WHERE acknowledged_at IS NULL;
 

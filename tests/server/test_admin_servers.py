@@ -464,7 +464,7 @@ async def test_admin_parses_scoped_to_current_world(app):
         "player_count": 3,
     }
 
-    def _mock_admin_list(conn, *, search=None, limit=200, world=None):
+    def _mock_admin_list(conn, *, search=None, limit=200, world=None, before=None):
         return [wuoshi_row] if world == "Wuoshi" else [varsoon_row]
 
     # Patch current_world() to simulate a Wuoshi-scoped request.

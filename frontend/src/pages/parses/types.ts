@@ -59,6 +59,9 @@ export interface ParseEncounterSummary {
 export interface ParsesListResponse {
   results: ParseEncounterSummary[]
   total: number
+  // Pagination cursor — pass back as ?before= for the window below this page.
+  // null/absent when the page reaches the end of the data.
+  next_before?: number | null
 }
 
 export type Category = 'raid' | 'dungeon' | 'other'

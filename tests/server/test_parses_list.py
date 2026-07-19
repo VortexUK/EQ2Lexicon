@@ -194,7 +194,7 @@ async def test_list_parses_clamps_fight_limit(app):
     The inner SQL cap is generous (limit*30) so grouping has headroom."""
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None, before=None):
         captured["inner_cap"] = inner_cap
         captured["zone"] = zone
         captured["size"] = size
@@ -217,7 +217,7 @@ async def test_list_parses_clamps_fight_limit(app):
 async def test_list_parses_passes_zone_filter(app):
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None, before=None):
         captured["zone"] = zone
         return []
 
@@ -234,7 +234,7 @@ async def test_list_parses_passes_zone_filter(app):
 async def test_list_parses_passes_size_filter(app):
     captured = {}
 
-    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None):
+    def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None, before=None):
         captured["size"] = size
         return []
 

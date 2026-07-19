@@ -4,7 +4,9 @@ import { useDebounce } from '../hooks/useDebounce'
 import { useSearchParams } from 'react-router-dom'
 
 import { FilterPill } from '../components/FilterPill'
+import { Button } from '../components/ui'
 import { fmtLocalDate } from '../formatters'
+import { handle } from '../lib/api'
 
 import { GuildSection } from './parses/GuildSection'
 import { NO_GUILD } from './parses/types'
@@ -164,11 +166,38 @@ export default function ParsesPage() {
   // Local copy for optimistic deletions — seeded from fetchedData on each
   // successful fetch, then mutated locally so deletes don't trigger a full
   // reload (which would unmount GuildSection / CategorySection, losing open state).
+  // "Load older" pages append into the same copy; the pagination cursor
+  // resets whenever a fresh filtered fetch lands.
   const [localData, setLocalData] = useState<ParsesListResponse | null>(null)
+  const [nextBefore, setNextBefore] = useState<number | null>(null)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   useEffect(() => {
-    if (fetchedData !== null) setLocalData(fetchedData)
+    if (fetchedData !== null) {
+      setLocalData(fetchedData)
+      setNextBefore(fetchedData.next_before ?? null)
+    }
   }, [fetchedData])
   const data = localData ?? fetchedData
+
+  const loadOlder = useCallback(async () => {
+    if (nextBefore == null || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const url = new URL(parsesUrl)
+      url.searchParams.set('before', String(nextBefore))
+      const page = await handle<ParsesListResponse>(await fetch(url.toString(), { credentials: 'include' }))
+      setLocalData(prev => {
+        if (!prev) return page
+        const seen = new Set(prev.results.map(r => r.id))
+        return { ...prev, results: [...prev.results, ...page.results.filter(r => !seen.has(r.id))] }
+      })
+      setNextBefore(page.next_before ?? null)
+    } catch {
+      // Leave the button enabled — the user can retry.
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [parsesUrl, nextBefore, loadingOlder])
 
   // URL sync
   useEffect(() => {
@@ -260,6 +289,16 @@ export default function ParsesPage() {
               onDeleted={removeEncounters}
             />
           ))}
+        </div>
+      )}
+
+      {/* Pagination — the list serves a newest-first window; older history
+          stays reachable instead of silently falling off the end. */}
+      {!loading && nextBefore != null && (
+        <div className="text-center mt-4">
+          <Button variant="secondary" onClick={loadOlder} disabled={loadingOlder}>
+            {loadingOlder ? 'Loading…' : 'Load older parses'}
+          </Button>
         </div>
       )}
     </main>
