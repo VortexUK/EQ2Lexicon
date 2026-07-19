@@ -262,9 +262,12 @@ describe('CharacterPage set bonuses', () => {
     })
     renderAt('/character/Setswap')
     expect(await screen.findByText('Plain Helm')).toBeInTheDocument()
+    // Wait for the pill row (gear-sets fetch resolved) BEFORE asserting the
+    // section's absence — otherwise the assertion passes vacuously.
+    const tankPill = await screen.findByRole('button', { name: 'Tank' })
     expect(screen.queryByText('Set Bonuses')).not.toBeInTheDocument()
     // Switch to the Tank set → its two Bulwark pieces activate the 2-piece bonus
-    fireEvent.click(screen.getByRole('button', { name: 'Tank' }))
+    fireEvent.click(tankPill)
     expect(await screen.findByText('Set Bonuses')).toBeInTheDocument()
     expect(screen.getByText('Bulwark of Stone')).toBeInTheDocument()
     expect(screen.getByText('(2)').className).toContain('text-success')

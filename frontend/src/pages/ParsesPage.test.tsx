@@ -222,3 +222,45 @@ describe('ParsesPage grouping', () => {
     expect(screen.queryByText('RaidFight')).not.toBeInTheDocument()
   })
 })
+
+describe('ParsesPage pagination', () => {
+  it('Load older appends the next window and hides when exhausted', async () => {
+    // First page carries a cursor; the follow-up page does not.
+    const page1 = [fight({ id: 1, title: 'Newest', category: 'raid', guild_name: 'Exordium', started_at: 2000, zone: 'Z', player_count: 12 })]
+    const page2 = [fight({ id: 2, title: 'Oldest', category: 'raid', guild_name: 'Exordium', started_at: 1000, zone: 'Z', player_count: 12 })]
+    const calls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        calls.push(url)
+        const before = new URL(url, 'http://localhost').searchParams.get('before')
+        return {
+          ok: true,
+          status: 200,
+          json: async () =>
+            before
+              ? { results: page2, total: 1, next_before: null }
+              : { results: page1, total: 5, next_before: 2000 },
+        }
+      }) as unknown as typeof fetch,
+    )
+    renderPage()
+
+    const loadOlder = await screen.findByRole('button', { name: /Load older parses/ })
+    await userEvent.click(loadOlder)
+
+    // The second request carried the cursor from the first response.
+    expect(calls.some(u => u.includes('before=2000'))).toBe(true)
+    // Both windows' guild sections are grouped together (2 fights under Exordium).
+    expect(await screen.findByText(/2 fights/)).toBeInTheDocument()
+    // Exhausted → the button disappears.
+    expect(screen.queryByRole('button', { name: /Load older parses/ })).not.toBeInTheDocument()
+  })
+
+  it('no cursor in the response → no Load-older button', async () => {
+    mockFetch([fight({ id: 1, title: 'Only', category: 'raid', guild_name: 'Exordium', started_at: 100, zone: 'Z', player_count: 12 })])
+    renderPage()
+    await screen.findByText('Exordium')
+    expect(screen.queryByRole('button', { name: /Load older parses/ })).not.toBeInTheDocument()
+  })
+})

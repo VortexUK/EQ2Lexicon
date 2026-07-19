@@ -304,3 +304,51 @@ def test_tamper_reports_never_touch_encounters_table():
 # Touch the time module so the import isn't dead — keeps the import block
 # tidy without an "unused" lint flag.
 _ = time  # noqa: B018
+
+
+# ---------------------------------------------------------------------------
+# Bulk acknowledge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_batch_requires_admin(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/admin/tamper-reports/acknowledge-batch", json={"ids": [1]})
+    assert r.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_batch_flips_only_pending_rows(app):
+    ids = _seed_tamper_reports()
+    _acknowledge_row(ids[1])  # already reviewed by a previous admin
+
+    with patch("backend.server.api.admin._require_admin", _fake_admin):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/api/admin/tamper-reports/acknowledge-batch",
+                json={"ids": [ids[0], ids[1], ids[2], 999999]},  # 1 ack'd + 1 unknown mixed in
+            )
+
+    assert r.status_code == 200
+    assert r.json()["acknowledged"] == 2  # only the two pending rows flipped
+
+    # The flipped rows carry THIS admin's stamp; the pre-ack'd row keeps its
+    # original reviewer.
+    conn = parses_db.store.init_db()
+    try:
+        rows = {r["id"]: r for r in parses_db.store.list_tamper_reports(conn, status="all")}
+    finally:
+        conn.close()
+    assert rows[ids[0]]["acknowledged_by"] == "admin-1"
+    assert rows[ids[2]]["acknowledged_by"] == "admin-1"
+    assert rows[ids[1]]["acknowledged_by"] == "admin-prev"
+    assert rows[ids[3]]["acknowledged_at"] is None  # untouched
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_batch_empty_ids_is_400(app):
+    with patch("backend.server.api.admin._require_admin", _fake_admin):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/admin/tamper-reports/acknowledge-batch", json={"ids": []})
+    assert r.status_code == 400

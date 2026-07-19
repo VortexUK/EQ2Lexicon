@@ -190,3 +190,45 @@ describe('TamperReportsTable', () => {
     })
   })
 })
+
+describe('TamperReportsTable bulk acknowledge', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('select-all + Acknowledge selected POSTs the batch and reloads', async () => {
+    const rowA = { ...baseRow, id: 11, title: 'a krait one' }
+    const rowB = { ...baseRow, id: 12, title: 'a krait two' }
+    const acked = { ...baseRow, id: 13, title: 'a krait three', acknowledged_at: 1700000099, acknowledged_by: 'x' }
+    mockFetchSequence([
+      { body: { results: [rowA, rowB, acked], pending_count: 2 } }, // initial load ("all"-shaped is fine)
+      { body: { acknowledged: 2 } },                                 // batch POST
+      { body: { results: [acked], pending_count: 0 } },              // reload
+    ])
+
+    render(<TamperReportsTable />)
+    await screen.findByText('a krait one')
+
+    // Header checkbox selects only the pending rows (the ack'd row has no checkbox).
+    fireEvent.click(screen.getByLabelText('Select all pending reports'))
+    const bulkBtn = screen.getByRole('button', { name: /Acknowledge selected \(2\)/ })
+    fireEvent.click(bulkBtn)
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+      const batch = calls.find(c => String(c[0]).includes('acknowledge-batch'))
+      expect(batch).toBeTruthy()
+      expect(JSON.parse((batch![1] as RequestInit).body as string)).toEqual({ ids: [11, 12] })
+    })
+    // Reload happened — the two acknowledged rows dropped out.
+    expect(await screen.findByText('a krait three')).toBeInTheDocument()
+    expect(screen.queryByText('a krait one')).not.toBeInTheDocument()
+  })
+
+  it('the bulk button is disabled with nothing selected', async () => {
+    mockFetchOnce({ results: [baseRow], pending_count: 1 })
+    render(<TamperReportsTable />)
+    await screen.findByText('a krait patriarch')
+    expect(screen.getByRole('button', { name: /Acknowledge selected \(0\)/ })).toBeDisabled()
+  })
+})
