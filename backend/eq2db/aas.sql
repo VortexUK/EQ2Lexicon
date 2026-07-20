@@ -103,17 +103,24 @@ CREATE TABLE IF NOT EXISTS aa_limits (
     xpac            TEXT    PRIMARY KEY,          -- canonical expansion name
     aa_cap          INTEGER NOT NULL DEFAULT 0,   -- adventure AA cap
     unlocked_trees  TEXT    NOT NULL DEFAULT '[]',-- JSON array of tree_type keys
+    -- JSON {tree_type: [ycoord, ...]} — rows visible in this era. A tree type
+    -- absent from the map shows ALL rows (only partial trees are listed).
+    visible_rows    TEXT    NOT NULL DEFAULT '{}',
     notes           TEXT
 );
 
+-- :name migrate_aa_limits_visible_rows
+ALTER TABLE aa_limits ADD COLUMN visible_rows TEXT NOT NULL DEFAULT '{}';
+
 -- :name select_limit
-SELECT aa_cap, unlocked_trees, notes FROM aa_limits WHERE xpac = ?;
+SELECT aa_cap, unlocked_trees, notes, visible_rows FROM aa_limits WHERE xpac = ?;
 
 -- :name select_limit_xpacs
 SELECT xpac FROM aa_limits;
 
 -- :name upsert_limit
-INSERT INTO aa_limits (xpac, aa_cap, unlocked_trees, notes)
-VALUES (?, ?, ?, ?)
+INSERT INTO aa_limits (xpac, aa_cap, unlocked_trees, visible_rows, notes)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(xpac) DO UPDATE SET
-    aa_cap=excluded.aa_cap, unlocked_trees=excluded.unlocked_trees, notes=excluded.notes;
+    aa_cap=excluded.aa_cap, unlocked_trees=excluded.unlocked_trees,
+    visible_rows=excluded.visible_rows, notes=excluded.notes;

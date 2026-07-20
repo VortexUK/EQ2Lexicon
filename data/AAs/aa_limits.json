@@ -11,27 +11,40 @@
   },
   "Kingdom of Sky": {
     "aa_cap": 50,
-    "notes": "AA system introduced — one class tree per archetype",
-    "unlocked_trees": ["class"]
+    "notes": "AA system introduced — one class tree per archetype. Class tree rows 5-6 (8-rank skills + second endline) are the Sentinel's Fate revamp — hidden here.",
+    "unlocked_trees": ["class"],
+    "visible_rows": { "class": [0, 1, 2, 3, 4] }
   },
   "Echoes of Faydwer": {
     "aa_cap": 100,
-    "notes": "Subclass (Expertise) trees added — one per class; tradeskill AA tree added (own 45-pt cap, separate from the adventure cap)",
-    "unlocked_trees": ["class", "subclass", "tradeskill"]
+    "notes": "Subclass (Expertise) trees added — one per class; tradeskill AA tree added (own 45-pt cap, separate from the adventure cap). Class rows 5-6 and subclass rows 16 (70-point row) + 19 (final) are the Sentinel's Fate revamp — hidden. Verified empirically against live Wuoshi census data (300 chars, no spent points beyond these rows).",
+    "unlocked_trees": ["class", "subclass", "tradeskill"],
+    "visible_rows": {
+      "class": [0, 1, 2, 3, 4],
+      "subclass": [0, 3, 6, 9, 13]
+    }
   },
   "Rise of Kunark": {
     "aa_cap": 140,
-    "notes": "AA cap increased, no new tree types",
-    "unlocked_trees": ["class", "subclass", "tradeskill"]
+    "notes": "AA cap increased, no new tree types or tree content",
+    "unlocked_trees": ["class", "subclass", "tradeskill"],
+    "visible_rows": {
+      "class": [0, 1, 2, 3, 4],
+      "subclass": [0, 3, 6, 9, 13]
+    }
   },
   "The Shadow Odyssey": {
     "aa_cap": 200,
-    "notes": "Shadows tree added — one per class, cross-archetype nodes",
-    "unlocked_trees": ["class", "subclass", "shadows", "tradeskill"]
+    "notes": "Shadows tree added — one per class, cross-archetype nodes (whole tree from launch). Class/subclass trees still pre-revamp.",
+    "unlocked_trees": ["class", "subclass", "shadows", "tradeskill"],
+    "visible_rows": {
+      "class": [0, 1, 2, 3, 4],
+      "subclass": [0, 3, 6, 9, 13]
+    }
   },
   "Sentinel's Fate": {
     "aa_cap": 250,
-    "notes": "AA cap increased, no new tree types",
+    "notes": "AA cap increased; class trees gain rows 5-6 (8-rank skills + endline), subclass trees gain rows 16 (70-point gate) + 19 (final) — all rows visible from here on",
     "unlocked_trees": ["class", "subclass", "shadows", "tradeskill"]
   },
   "Destiny of Velious": {

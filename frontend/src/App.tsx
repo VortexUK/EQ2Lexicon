@@ -26,6 +26,7 @@ const ParsesPage        = lazy(() => import('./pages/ParsesPage'))
 const RaidZonePage      = lazy(() => import('./pages/RaidZonePage'))
 const RaidZonesPage     = lazy(() => import('./pages/RaidZonesPage'))
 const ComparePage       = lazy(() => import('./pages/ComparePage'))
+const AAPlanSharePage   = lazy(() => import('./pages/AAPlanSharePage'))
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
 import { ServerProvider } from './hooks/useServer'
@@ -290,6 +291,7 @@ function App() {
         <Route path="/items"      element={<ItemSearchPage />} />
         <Route path="/character/:name" element={<CharacterPage />} />
         <Route path="/compare" element={<ComparePage />} />
+        <Route path="/aa-plan/:slug" element={<AAPlanSharePage />} />
         <Route path="/guild/:guildName" element={<GuildPage />} />
         <Route path="/item/:itemId"    element={<ItemPage />} />
         <Route path="/claim" element={<ClaimPage />} />

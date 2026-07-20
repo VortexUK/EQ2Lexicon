@@ -157,9 +157,55 @@ def test_limits_round_trip_and_alias_resolution(tmp_path, cat):
         conn.close()
     for query in ("Destiny of Velious", "DoV", "dov", " DOV "):
         lim = cat.xpac_limits(query)
-        assert lim == {"aa_cap": 300, "unlocked_trees": ["class", "subclass"]}, query
+        assert lim == {"aa_cap": 300, "unlocked_trees": ["class", "subclass"], "visible_rows": {}}, query
     assert cat.xpac_limits("Unknown Xpac") is None
     assert aas.AACatalogue(tmp_path / "missing.db").xpac_limits("DoV") is None
+
+
+def test_limits_visible_rows_round_trip(cat):
+    """Era-partial trees: visible_rows survives the upsert → read cycle."""
+    conn = cat.init_db()
+    try:
+        cat.upsert_limits(
+            conn,
+            "Echoes of Faydwer",
+            {
+                "aa_cap": 100,
+                "unlocked_trees": ["class", "subclass", "tradeskill"],
+                "visible_rows": {"class": [0, 1, 2, 3, 4], "subclass": [0, 3, 6, 9, 13]},
+            },
+        )
+    finally:
+        conn.close()
+    lim = cat.xpac_limits("EoF")
+    assert lim is not None
+    assert lim["visible_rows"] == {"class": [0, 1, 2, 3, 4], "subclass": [0, 3, 6, 9, 13]}
+
+
+def test_init_db_migrates_pre_visible_rows_limits_table(tmp_path):
+    """init_db on a DB whose aa_limits predates the visible_rows column must
+    migrate in place and keep existing rows readable.
+
+    Memory [test-migrations-against-old-db-shape].
+    """
+    import sqlite3
+
+    db_path = tmp_path / "old-aas.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE aa_limits (xpac TEXT PRIMARY KEY, aa_cap INTEGER NOT NULL DEFAULT 0,"
+        " unlocked_trees TEXT NOT NULL DEFAULT '[]', notes TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO aa_limits (xpac, aa_cap, unlocked_trees, notes) VALUES ('Kingdom of Sky', 50, '[\"class\"]', 'x')"
+    )
+    conn.commit()
+    conn.close()
+
+    cat = aas.AACatalogue(db_path)
+    cat.init_db().close()  # applies the ALTER migration
+    lim = cat.xpac_limits("KoS")
+    assert lim == {"aa_cap": 50, "unlocked_trees": ["class"], "visible_rows": {}}
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +254,24 @@ def test_committed_db_limits():
     lim = aas.catalogue.xpac_limits("Destiny of Velious")
     assert lim is not None and lim["aa_cap"] == 300
     assert aas.catalogue.xpac_limits("KoS") == aas.catalogue.xpac_limits("Kingdom of Sky")
+
+
+@_committed
+def test_committed_db_era_visible_rows():
+    """The 2026-07 era curation: pre-Sentinel's-Fate xpacs hide the class
+    tree's rows 5-6 and the subclass rows 16/19 (verified against live
+    Wuoshi census data, boundary user-confirmed); SF+ show everything."""
+    kos = aas.catalogue.xpac_limits("Kingdom of Sky")
+    assert kos is not None and kos["visible_rows"] == {"class": [0, 1, 2, 3, 4]}
+    for xpac in ("Echoes of Faydwer", "Rise of Kunark", "The Shadow Odyssey"):
+        lim = aas.catalogue.xpac_limits(xpac)
+        assert lim is not None, xpac
+        assert lim["visible_rows"] == {
+            "class": [0, 1, 2, 3, 4],
+            "subclass": [0, 3, 6, 9, 13],
+        }, xpac
+    sf = aas.catalogue.xpac_limits("Sentinel's Fate")
+    assert sf is not None and sf["visible_rows"] == {}
 
 
 @_committed

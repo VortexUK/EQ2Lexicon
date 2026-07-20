@@ -128,6 +128,9 @@ class AACatalogue(BaseCatalogue):
         conn.execute(_SQL["schema_aa_nodes"])
         conn.execute(_SQL["schema_aa_limits"])
         conn.executescript(_SQL["indexes_aas"])
+        # Idempotent for DBs built before the era-row curation shipped
+        # (2026-07: per-xpac node visibility for the AA planner).
+        self._apply_migrations(conn, [_SQL["migrate_aa_limits_visible_rows"]])
 
     def _query(self, name: str, params: tuple = ()) -> list:
         """Run one read query by its _SQL block name; [] when the DB is
@@ -211,9 +214,12 @@ class AACatalogue(BaseCatalogue):
         return self._trees[tree_id]
 
     def xpac_limits(self, xpac: str) -> dict | None:
-        """``{"aa_cap": int, "unlocked_trees": [tree_type, ...]}`` for an
-        expansion. Tolerates short codes ("DoV" → "Destiny of Velious") and
-        case/whitespace. None when unknown (caller decides the fallback)."""
+        """``{"aa_cap": int, "unlocked_trees": [tree_type, ...],
+        "visible_rows": {tree_type: [ycoord, ...]}}`` for an expansion.
+        ``visible_rows`` lists only PARTIAL trees — a tree type absent from
+        the map shows all rows. Tolerates short codes ("DoV" → "Destiny of
+        Velious") and case/whitespace. None when unknown (caller decides the
+        fallback)."""
         if xpac not in self._limits:
             self._limits[xpac] = self._resolve_limits(xpac)
         return self._limits[xpac]
@@ -243,7 +249,11 @@ class AACatalogue(BaseCatalogue):
             unlocked = json.loads(row[1] or "[]")
         except json.JSONDecodeError:
             unlocked = []
-        return {"aa_cap": int(row[0]), "unlocked_trees": unlocked}
+        try:
+            visible_rows = json.loads(row[3] or "{}")
+        except (json.JSONDecodeError, IndexError):
+            visible_rows = {}
+        return {"aa_cap": int(row[0]), "unlocked_trees": unlocked, "visible_rows": visible_rows}
 
     # ── Build (scripts/build_aas_db.py) ──────────────────────────────────────
 
@@ -317,13 +327,14 @@ class AACatalogue(BaseCatalogue):
 
     def upsert_limits(self, conn: sqlite3.Connection, xpac: str, entry: dict) -> None:
         """Insert/replace one expansion's AA limits (from aa_limits.json's
-        ``{xpac: {aa_cap, unlocked_trees, notes}}`` entries)."""
+        ``{xpac: {aa_cap, unlocked_trees, visible_rows, notes}}`` entries)."""
         conn.execute(
             _SQL["upsert_limit"],
             (
                 xpac,
                 _as_int(entry.get("aa_cap", 0)),
                 json.dumps(entry.get("unlocked_trees", [])),
+                json.dumps(entry.get("visible_rows", {})),
                 entry.get("notes"),
             ),
         )

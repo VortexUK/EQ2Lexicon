@@ -183,6 +183,24 @@
     outline: none;
   }
   input:focus { border-color: var(--accent); }
+
+  /* <select> needs the same no-Preflight reset as <input> — without it the
+     UA font/chrome leaks through (first spotted on the AA planner's era
+     dropdown). Page-level utility classes still override any of this. */
+  select {
+    font-family: inherit;
+    font-size: inherit;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.5rem 0.75rem;
+    outline: none;
+    cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
+  /* The native popup list ignores most styling — keep it readable on dark. */
+  option { background: var(--surface); color: var(--text); }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

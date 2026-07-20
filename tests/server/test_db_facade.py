@@ -39,6 +39,14 @@ _FACADE_EXEMPT = {
     "get_schedule",
     "replace_schedule",
     "list_all_teams_with_twitch",
+    # aa_plans domain bypasses the facade too (routes use the store directly)
+    "list_plans",
+    "count_plans",
+    "get_plan",
+    "get_plan_by_slug",
+    "create_plan",
+    "update_plan",
+    "delete_plan",
     # raid_planning + availability domains bypass the facade too
     "get_roles",
     "set_role",

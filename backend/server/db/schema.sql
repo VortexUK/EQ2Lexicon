@@ -277,3 +277,22 @@ CREATE TABLE IF NOT EXISTS user_availability (
     status      TEXT NOT NULL,                    -- tentative or afk
     PRIMARY KEY (discord_id, day)
 );
+
+-- Saved AA planner builds. Owned by a user and pinned to the character they
+-- were planned from (the planner lives on the character page's AA tab).
+-- allocations is JSON {tree_id: {node_id: rank}}. share_slug is minted at
+-- creation so any plan can be linked read-only without a separate publish step.
+CREATE TABLE IF NOT EXISTS aa_plans (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_id      TEXT    NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
+    world           TEXT    NOT NULL,
+    character_name  TEXT    NOT NULL,
+    name            TEXT    NOT NULL,
+    xpac            TEXT,
+    allocations     TEXT    NOT NULL DEFAULT '{}',
+    share_slug      TEXT    NOT NULL UNIQUE,
+    created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    updated_at      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_aa_plans_owner ON aa_plans(discord_id, world, character_name);
