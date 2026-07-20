@@ -23,6 +23,12 @@ export interface AANode {
   points_to_unlock: number
   title:            string
   spellcrc:         number
+  // Unlock prerequisites (planner validation inputs) — optional so payloads
+  // cached before the planner shipped keep parsing.
+  classification_points_required?: number
+  points_global_to_unlock?:        number
+  first_parent_id?:                number | null
+  first_parent_required_tier?:     number | null
 }
 
 interface SpellEffect {
@@ -49,6 +55,14 @@ export interface AATreeData {
 interface AATreeProps {
   tree:  AATreeData
   spent: Record<string, number>   // node_id (string) → tier spent
+  // Planner mode (all optional — absent = the read-only character view).
+  // Left-click adds a rank, right-click removes one; `locked` grays out
+  // rank-0 nodes whose requirements aren't met yet; `lockReason` puts the
+  // unmet requirement ("Requires 5 points spent in General") in the tooltip.
+  onAddRank?:    (node: AANode) => void
+  onRemoveRank?: (node: AANode) => void
+  locked?:       (node: AANode) => boolean
+  lockReason?:   (node: AANode) => string | null
 }
 
 // ── Coordinate systems (native 640×480 space) ─────────────────────────────────
@@ -121,6 +135,28 @@ function getBgOverlay(treeType: string): string | null {
 // Node diameter in native 640×480 space (matches NODE_R = 44 output at 2× scale → 22 native radius → 44 diameter)
 const NODE_D = 44
 
+// ── Per-node backdrop sprite (mirrors image/aa_tree.py) ───────────────────────
+// bg_sprite.png is 390×44: seven 44×44 backdrop circles with 1px gaps, keyed
+// by the node's backdrop id. Unknown/absent ids fall back to the default
+// circle at x=0. Rendered via CSS sprite math: percent background-size scales
+// the 44px crop to the responsive node diameter.
+
+const SPRITE_W = 390
+const SPRITE_H = 44
+const SPRITE_CELL = 44
+const BACKDROP_X: Record<number, number> = { [-1]: 0, 456: 45, 457: 90, 458: 135, 459: 180, 460: 225, 461: 270 }
+
+function backdropStyle(backdropId: number): React.CSSProperties {
+  const x = BACKDROP_X[backdropId] ?? 0
+  return {
+    backgroundColor: '#0a0a0e',
+    backgroundImage: "url('/aa-assets/bg_sprite.png')",
+    backgroundRepeat: 'no-repeat',
+    backgroundSize: `${(SPRITE_W / SPRITE_CELL) * 100}% ${(SPRITE_H / SPRITE_CELL) * 100}%`,
+    backgroundPosition: `${(x / (SPRITE_W - SPRITE_CELL)) * 100}% 0%`,
+  }
+}
+
 // ── Hover tooltip ──────────────────────────────────────────────────────────────
 // Exported: the compare page's AA node-diff rows reuse the exact same tooltip
 // (name, rank, description, lazy-fetched spell effects) as the tree view.
@@ -130,6 +166,8 @@ export interface AANodeTooltipData {
   tier: number
   mx:   number
   my:   number
+  /** Planner: why this node can't take another rank right now. */
+  reason?: string | null
 }
 
 type TooltipData = AANodeTooltipData
@@ -221,6 +259,13 @@ export function AANodeTooltip({ data }: { data: TooltipData }) {
         )}
       </div>
 
+      {/* Planner: the unmet requirement blocking this node */}
+      {data.reason && (
+        <div style={{ color: '#e06a6a', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: 5 }}>
+          {data.reason}
+        </div>
+      )}
+
       {/* Title */}
       {node.title && (
         <div style={{ color: '#e6e970', fontStyle: 'italic', fontSize: '0.78rem', marginBottom: 4 }}>
@@ -270,10 +315,12 @@ export function AANodeTooltip({ data }: { data: TooltipData }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function AATree({ tree, spent }: AATreeProps) {
+export function AATree({ tree, spent, onAddRank, onRemoveRank, locked, lockReason }: AATreeProps) {
   const [hovered, setHovered] = useState<TooltipData | null>(null)
 
+  const interactive = onAddRank != null
   const overlay = getBgOverlay(tree.tree_type)
+  const reasonFor = (node: AANode): string | null => lockReason?.(node) ?? null
 
   // As a % of the 640×480 native container
   const wPct = (NODE_D / 640) * 100   // ≈ 6.875 %
@@ -325,6 +372,7 @@ export function AATree({ tree, spent }: AATreeProps) {
           const tier    = spent[String(node.node_id)] ?? 0
           const hasSpent = tier > 0
           const maxed   = tier >= node.maxtier
+          const isLocked = interactive && !hasSpent && (locked?.(node) ?? false)
 
           const borderColor = maxed  ? '#22cc22'
                             : hasSpent ? '#d4a017'
@@ -343,23 +391,32 @@ export function AATree({ tree, spent }: AATreeProps) {
                 width:     `${wPct}%`,
                 height:    `${hPct}%`,
                 transform: 'translate(-50%, -50%)',
-                cursor: 'default',
+                cursor: !interactive ? 'default' : isLocked ? 'not-allowed' : 'pointer',
               }}
-              onMouseEnter={e => setHovered({ node, tier, mx: e.clientX, my: e.clientY })}
+              onMouseEnter={e => setHovered({ node, tier, mx: e.clientX, my: e.clientY, reason: reasonFor(node) })}
               onMouseMove={e  => setHovered(h => h ? { ...h, mx: e.clientX, my: e.clientY } : null)}
               onMouseLeave={() => setHovered(null)}
-              onClick={e => setHovered({ node, tier, mx: e.clientX, my: e.clientY })}
+              onClick={e => {
+                if (interactive) onAddRank?.(node)
+                setHovered({ node, tier, mx: e.clientX, my: e.clientY, reason: reasonFor(node) })
+              }}
+              onContextMenu={e => {
+                if (!interactive) return
+                e.preventDefault()
+                onRemoveRank?.(node)
+              }}
             >
-              {/* Icon circle */}
+              {/* Icon circle over its sprite backdrop */}
               <div style={{
                 width: '100%', height: '100%',
                 borderRadius: '50%',
                 overflow: 'hidden',
                 border: `2px solid ${borderColor}`,
                 boxShadow: glowColor !== 'none' ? `0 0 6px ${glowColor}` : undefined,
-                opacity: hasSpent ? 1 : 0.45,
-                background: '#0a0a0e',
+                opacity: hasSpent ? 1 : isLocked ? 0.2 : 0.45,
+                filter: isLocked ? 'grayscale(1)' : undefined,
                 position: 'relative',
+                ...backdropStyle(node.backdrop_id),
               }}>
                 {node.icon_id > 0 && (
                   <img

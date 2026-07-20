@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 load_dotenv()
 from pathlib import Path
 
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -51,6 +52,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from backend.server import db as users_db
 from backend.server import server_context
 from backend.server.api.aa import router as aa_router
+from backend.server.api.aa_plans import router as aa_plans_router
 from backend.server.api.act_triggers import router as act_triggers_router
 from backend.server.api.admin import router as admin_router
 from backend.server.api.auth import router as auth_router
@@ -394,9 +396,12 @@ async def _validation_exception_handler(request: Request, exc: RequestValidation
         or "<no field detail>"
     )
     _log.warning("[validation] 422 %s %s (request_id=%s) — %s", request.method, request.url.path, rid, summary)
+    # exc.errors() can embed non-JSON-serialisable objects (pydantic v2 puts
+    # the raised ValueError itself into a field_validator error's ctx) —
+    # jsonable_encoder stringifies them instead of crashing the 422 response.
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "request_id": rid},
+        content={"detail": jsonable_encoder(exc.errors()), "request_id": rid},
         headers={"X-Request-ID": rid},
     )
 
@@ -605,6 +610,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         guild_officer_router,
         item_watch_router,
         raid_planning_router,
+        aa_plans_router,
         raid_schedule_router,
         favorites_router,
         characters_router,

@@ -565,7 +565,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
       )}
 
       {/* AAs tab */}
-      {activeTab === 'aas' && <AAsTab charName={char.name} aaCount={char.aa_count} />}
+      {activeTab === 'aas' && <AAsTab charName={char.name} aaCount={char.aa_count} cls={char.cls} />}
 
       {/* Spells tab */}
       {activeTab === 'spells' && <SpellsTab charName={char.name} />}

@@ -51,6 +51,9 @@ class AAConfigResponse(BaseModel):
     aa_cap: int  # adventure AA cap (tradeskill excluded)
     tradeskill_aa_cap: int = 0  # Σ max points of the unlocked tradeskill trees
     unlocked_tree_types: list[str]
+    # Era-partial trees: tree_type → the ycoord rows that exist in this xpac.
+    # A tree type absent from the map shows ALL rows (see aa_limits.json).
+    visible_rows: dict[str, list[int]] = {}
 
 
 class AANodeResponse(BaseModel):
@@ -67,6 +70,12 @@ class AANodeResponse(BaseModel):
     points_to_unlock: int
     title: str = ""
     spellcrc: int = 0
+    # Unlock prerequisites (the planner's validation inputs). Thresholds count
+    # AA POINTS spent (rank × pointspertier), not ranks.
+    classification_points_required: int = 0  # points in this node's line
+    points_global_to_unlock: int = 0  # total adventure AA spent
+    first_parent_id: int | None = None  # required prior skill (node_id)
+    first_parent_required_tier: int | None = None  # ranks needed in it
 
 
 class AATreeResponse(BaseModel):
@@ -102,15 +111,23 @@ class CharAAsResponse(BaseModel):
 
 
 @router.get("/aa/config", response_model=AAConfigResponse)
-async def get_aa_config() -> AAConfigResponse:
-    """Return the current xpac's AA cap and which tree types are unlocked.
+async def get_aa_config(xpac: str | None = None) -> AAConfigResponse:
+    """Return an expansion's AA cap and which tree types are unlocked.
+    Defaults to the active server's current xpac; the AA planner's era
+    dropdown passes ``?xpac=`` to plan under a different era's rules
+    (alias-tolerant — "DoV" and "Destiny of Velious" both resolve).
     All from aas.db (aa_limits + the precomputed per-tree max_points)."""
-    xpac = current_server().current_xpac or ""
-    limits = aa_db.xpac_limits(xpac)
-    if limits is None:
-        if xpac:
-            _log.warning("[aa] current_xpac %r has no aa_limits entry — AA cap reads 0", xpac)
-        limits = {"aa_cap": 0, "unlocked_trees": []}
+    if xpac is not None:
+        limits = aa_db.xpac_limits(xpac)
+        if limits is None:
+            raise HTTPException(status_code=404, detail=f"Unknown expansion: {xpac}")
+    else:
+        xpac = current_server().current_xpac or ""
+        limits = aa_db.xpac_limits(xpac)
+        if limits is None:
+            if xpac:
+                _log.warning("[aa] current_xpac %r has no aa_limits entry — AA cap reads 0", xpac)
+            limits = {"aa_cap": 0, "unlocked_trees": [], "visible_rows": {}}
     unlocked = limits["unlocked_trees"]
     # Tradeskill cap = the total the unlocked tradeskill trees add up to
     # (Σ maxtier × points_per_tier), derived from the tree data rather than
@@ -121,7 +138,124 @@ async def get_aa_config() -> AAConfigResponse:
         aa_cap=limits["aa_cap"],
         tradeskill_aa_cap=tradeskill_cap,
         unlocked_tree_types=unlocked,
+        visible_rows=limits.get("visible_rows", {}),
     )
+
+
+# ---------------------------------------------------------------------------
+# Planner tree resolution (subclass → its adventure trees)
+# ---------------------------------------------------------------------------
+# Census tree data names every shadows tree "Shadows" and every heroic tree
+# "Heroic" with no structured class field, so these mappings were mined
+# empirically from live Varsoon census characters (2026-07-20: 250 max-AA
+# chars, all 26 subclasses covered, zero conflicts). The shadows side is
+# cross-checked against the committed db's node classifications in
+# tests/server/test_aa_routes.py, which will catch a tree-id reshuffle on a
+# future aas.db rebuild.
+
+_SHADOWS_TREE_BY_SUBCLASS: dict[str, int] = {
+    "Assassin": 37,
+    "Ranger": 38,
+    "Brigand": 39,
+    "Swashbuckler": 40,
+    "Dirge": 41,
+    "Troubador": 42,
+    "Guardian": 43,
+    "Berserker": 44,
+    "Paladin": 45,
+    "Shadowknight": 46,
+    "Monk": 47,
+    "Bruiser": 48,
+    "Templar": 49,
+    "Inquisitor": 50,
+    "Warden": 51,
+    "Fury": 52,
+    "Defiler": 53,
+    "Mystic": 54,
+    "Wizard": 55,
+    "Warlock": 56,
+    "Conjuror": 57,
+    "Necromancer": 58,
+    "Coercer": 59,
+    "Illusionist": 60,
+    "Beastlord": 76,
+    "Channeler": 124,
+}
+
+_HEROIC_TREE_BY_SUBCLASS: dict[str, int] = {
+    "Dirge": 61,
+    "Troubador": 61,
+    "Bruiser": 62,
+    "Monk": 62,
+    "Inquisitor": 63,
+    "Templar": 63,
+    "Paladin": 64,
+    "Shadowknight": 64,
+    "Fury": 65,
+    "Warden": 65,
+    "Coercer": 66,
+    "Illusionist": 66,
+    "Assassin": 67,
+    "Ranger": 67,
+    "Brigand": 68,
+    "Swashbuckler": 68,
+    "Defiler": 69,
+    "Mystic": 69,
+    "Warlock": 70,
+    "Wizard": 70,
+    "Conjuror": 71,
+    "Necromancer": 71,
+    "Berserker": 72,
+    "Guardian": 72,
+    "Beastlord": 77,
+    "Channeler": 125,
+}
+
+
+class PlanTreeEntry(BaseModel):
+    tree_id: int
+    tree_type: str
+    tree_name: str
+
+
+@lru_cache(maxsize=64)
+def _plan_trees_for(cls: str) -> tuple[PlanTreeEntry, ...] | None:
+    """The adventure trees a subclass can plan (class, subclass, shadows,
+    heroic — in tree-tab order). None for an unknown subclass. Era gating is
+    the caller's job via /aa/config's unlocked_tree_types."""
+    from backend.census.constants import SUBCLASS_GROUPS
+
+    index = aa_db.load_tree_index()
+    by_name_type = {(info["name"], info["type"]): tid for tid, info in index.items()}
+
+    subclass_tree = by_name_type.get((cls, "subclass"))
+    if subclass_tree is None:
+        return None
+    group = next((g for g, members in SUBCLASS_GROUPS if cls in members), None)
+
+    entries: list[PlanTreeEntry] = []
+    class_tree = by_name_type.get((group, "class")) if group else None
+    if class_tree is not None and group is not None:
+        entries.append(PlanTreeEntry(tree_id=class_tree, tree_type="class", tree_name=group))
+    entries.append(PlanTreeEntry(tree_id=subclass_tree, tree_type="subclass", tree_name=cls))
+    shadows = _SHADOWS_TREE_BY_SUBCLASS.get(cls)
+    if shadows is not None and shadows in index:
+        entries.append(PlanTreeEntry(tree_id=shadows, tree_type="shadows", tree_name="Shadows"))
+    heroic = _HEROIC_TREE_BY_SUBCLASS.get(cls)
+    if heroic is not None and heroic in index:
+        entries.append(PlanTreeEntry(tree_id=heroic, tree_type="heroic", tree_name="Heroic"))
+    return tuple(entries)
+
+
+@router.get("/aa/plan-trees", response_model=list[PlanTreeEntry])
+async def get_plan_trees(cls: str) -> list[PlanTreeEntry]:
+    """The adventure trees a subclass can plan — lets the planner offer
+    shadows/heroic trees the character doesn't have on their Census record
+    yet (future-era planning on a pre-TSO server)."""
+    entries = _plan_trees_for(cls.strip().capitalize())
+    if entries is None:
+        raise HTTPException(status_code=404, detail=f"Unknown class: {cls}")
+    return list(entries)
 
 
 @lru_cache(maxsize=128)
@@ -155,6 +289,10 @@ def _load_tree_for_response(tree_id: int) -> AATreeResponse | None:
                 points_to_unlock=n["points_to_unlock"],
                 title=n["title"],
                 spellcrc=n["spellcrc"],
+                classification_points_required=n["classification_points_required"],
+                points_global_to_unlock=n["points_global_to_unlock"],
+                first_parent_id=n["first_parent_id"],
+                first_parent_required_tier=n["first_parent_required_tier"],
             )
             for n in tree["nodes"]
         ],

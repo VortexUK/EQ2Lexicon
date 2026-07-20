@@ -1,9 +1,12 @@
 ﻿import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AATree, AATreeData } from '../components/AATree'
-import { Card, SectionLabel } from '../components/ui'
+import { Button, Card, SectionLabel } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { StatGroup, StatRow } from './CharacterPage'
+import { PlannerMode } from './aaplanner/PlannerMode'
+import { aaFileName, buildAAFileXml, downloadAAFile } from './aaplanner/aaFile'
+import { planFromSpent } from './aaplanner/engine'
 import { partitionAASpend, TRADESKILL_TYPES } from './aaSpend'
 import { mergeParams, safeSetParams } from '../lib/searchParams'
 
@@ -34,6 +37,19 @@ export interface AAConfig {
   aa_cap:             number   // adventure AA cap (tradeskill excluded)
   tradeskill_aa_cap:  number   // separate tradeskill pool cap
   unlocked_tree_types: string[]
+  // Era-partial trees: tree_type → ycoord rows that exist in this xpac.
+  // Tree types absent from the map show ALL rows.
+  visible_rows?: Record<string, number[]>
+}
+
+/** Drop nodes whose row doesn't exist in the active era (e.g. the class
+ * tree's Sentinel's-Fate rows on a KoS/EoF server). A tree type absent from
+ * config.visible_rows shows every row. Shared with the AA planner. */
+export function filterTreeForEra(td: AATreeData, treeType: string, config: AAConfig): AATreeData {
+  const rows = config.visible_rows?.[treeType]
+  if (!rows) return td
+  const allow = new Set(rows)
+  return { ...td, nodes: td.nodes.filter(n => allow.has(n.ycoord)) }
 }
 
 // ── AA data cache + loaders ──────────────────────────────────────────────────
@@ -64,6 +80,24 @@ export function getAAConfig(): Promise<AAConfig> {
       })
   }
   return _configPromise
+}
+
+// Per-era config cache — the planner's era dropdown plans under a different
+// expansion's rules (?xpac=). Static reference data, cached per era.
+const _eraConfigCache = new Map<string, Promise<AAConfig>>()
+
+export function getAAConfigFor(xpac: string): Promise<AAConfig> {
+  let p = _eraConfigCache.get(xpac)
+  if (!p) {
+    p = fetch(`/api/aa/config?xpac=${encodeURIComponent(xpac)}`, { credentials: 'include' })
+      .then(r => (r.ok ? (r.json() as Promise<AAConfig>) : Promise.reject(new Error(`Config: HTTP ${r.status}`))))
+      .catch(err => {
+        _eraConfigCache.delete(xpac) // allow retry
+        throw err
+      })
+    _eraConfigCache.set(xpac, p)
+  }
+  return p
 }
 
 // Per-tree promise cache: a tree_id is fetched at most once per session (tree
@@ -266,7 +300,7 @@ function resolveProfile(want: string | null, profiles: CharAAProfile[]): ActiveP
   return idx >= 0 ? idx : 'current'
 }
 
-export function AAsTab({ charName, aaCount }: { charName: string; aaCount: number }) {
+export function AAsTab({ charName, aaCount, cls }: { charName: string; aaCount: number; cls?: string | null }) {
   const cacheKey = charName.toLowerCase()
   const cached   = aaCache.get(cacheKey)
 
@@ -285,6 +319,8 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
   const [activeProfile, setActiveProfile] = useState<ActiveProfile>(
     cached ? resolveProfile(deepLink.current.profile, cached.charAAs.profiles) : 'current'
   )
+  // 'view' = the read-only character AAs; 'planner' = the interactive planner.
+  const [mode, setMode] = useState<'view' | 'planner'>('view')
 
   // Mirror active profile + tree to the URL (state is source of truth). The AA
   // tab is the only place this component mounts, so ?profile/?tree only appear
@@ -333,6 +369,22 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
   // filtered to the xpac-unlocked types.
   const visibleTrees: CharAATree[] = visibleTreesFor(charAAs, config, activeProfile)
 
+  const modeToggle = (
+    <div className="mt-4 flex border-b border-border">
+      <TabButton active={mode === 'view'} onClick={() => setMode('view')}>Current AAs</TabButton>
+      <TabButton active={mode === 'planner'} onClick={() => setMode('planner')}>Planner</TabButton>
+    </div>
+  )
+
+  if (mode === 'planner') {
+    return (
+      <div>
+        {modeToggle}
+        <PlannerMode charName={charName} cls={cls} charAAs={charAAs} config={config} treeData={treeData} />
+      </div>
+    )
+  }
+
   const activeCt = visibleTrees.find(t => t.tree_id === selectedTreeId) ?? visibleTrees[0]
   const activeTd = activeCt ? treeData.get(activeCt.tree_id) : undefined
 
@@ -352,6 +404,8 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
     : null
 
   return (
+    <div>
+    {modeToggle}
     <div className="mt-4 flex flex-col md:flex-row gap-6 items-start">
 
       {/* ── Left sidebar ── */}
@@ -386,6 +440,34 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
                 )
               })}
             </div>
+          </div>
+        )}
+
+        {/* Export the shown build (current or the selected in-game profile)
+            as a loadable .aa spec file — same exporter as the planner. */}
+        {visibleTrees.length > 0 && (
+          <div className="mb-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const ctxTrees = visibleTrees
+                  .map(ct => {
+                    const td = treeData.get(ct.tree_id)
+                    return td ? filterTreeForEra(td, ct.tree_type, config) : null
+                  })
+                  .filter((td): td is AATreeData => td !== null)
+                const ctx = { trees: ctxTrees, aaCap: config.aa_cap, tradeskillCap: config.tradeskill_aa_cap }
+                const { xml } = buildAAFileXml(ctx, planFromSpent(visibleTrees))
+                const label = isProfileIndex(activeProfile)
+                  ? (charAAs.profiles[activeProfile]?.name ?? 'profile')
+                  : 'current'
+                downloadAAFile(aaFileName(charName, label), xml)
+              }}
+              title="Download this build as an in-game .aa spec file (loadable from the AA window)"
+            >
+              Download .aa
+            </Button>
           </div>
         )}
 
@@ -487,7 +569,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
                 <div className="overflow-x-auto md:overflow-visible">
                   <div className="min-w-[420px] md:min-w-0 md:w-[60%]">
                     {activeTd ? (
-                      <AATree tree={activeTd} spent={activeCt.spent} />
+                      <AATree tree={filterTreeForEra(activeTd, activeCt.tree_type, config)} spent={activeCt.spent} />
                     ) : (
                       <Card className="rounded-sm p-4 text-text-muted text-[0.82rem]">
                         Tree data unavailable (tree #{activeCt.tree_id})
@@ -501,6 +583,7 @@ export function AAsTab({ charName, aaCount }: { charName: string; aaCount: numbe
         )}
 
       </div>
+    </div>
     </div>
   )
 }

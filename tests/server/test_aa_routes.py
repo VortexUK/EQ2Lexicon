@@ -133,6 +133,7 @@ class TestGetAaConfig:
             "Varsoon": {
                 "aa_cap": 320,
                 "unlocked_trees": ["class", "subclass", "shadows"],
+                "visible_rows": {"class": [0, 1, 2, 3, 4]},
             }
         }
         mock_server = MagicMock()
@@ -149,6 +150,36 @@ class TestGetAaConfig:
         body = r.json()
         assert body["aa_cap"] == 320
         assert "class" in body["unlocked_tree_types"]
+        assert body["visible_rows"] == {"class": [0, 1, 2, 3, 4]}
+
+    async def test_explicit_xpac_param_overrides_server_era(self, app, tmp_path) -> None:
+        """The planner's era dropdown passes ?xpac= — resolved independently of
+        the active server's current_xpac; unknown eras 404."""
+        limits_data = {
+            "Varsoon": {"aa_cap": 320, "unlocked_trees": ["class", "subclass", "shadows"]},
+            "Kingdom of Sky": {
+                "aa_cap": 50,
+                "unlocked_trees": ["class"],
+                "visible_rows": {"class": [0, 1, 2, 3, 4]},
+            },
+        }
+        mock_server = MagicMock()
+        mock_server.current_xpac = "Varsoon"
+
+        with (
+            self._limits_db(tmp_path, limits_data),
+            patch("backend.server.api.aa.current_server", return_value=mock_server),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.get("/api/aa/config?xpac=Kingdom of Sky")
+                unknown = await client.get("/api/aa/config?xpac=Neverquest")
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["aa_cap"] == 50
+        assert body["unlocked_tree_types"] == ["class"]
+        assert body["visible_rows"] == {"class": [0, 1, 2, 3, 4]}
+        assert unknown.status_code == 404
 
     async def test_tradeskill_cap_derived_from_unlocked_trees(self, app, tmp_path) -> None:
         """tradeskill_aa_cap = Σ max points of the UNLOCKED tradeskill trees, derived
@@ -526,3 +557,46 @@ class TestGetSpellEffects:
 
         body = r.json()
         assert body["requested_tier"] is None
+
+
+# ---------------------------------------------------------------------------
+# GET /aa/plan-trees — subclass → plannable trees (committed aas.db)
+# ---------------------------------------------------------------------------
+
+
+class TestPlanTrees:
+    @pytest.mark.asyncio
+    async def test_templar_resolves_all_four_trees(self, app) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/aa/plan-trees?cls=Templar")
+        assert r.status_code == 200
+        body = r.json()
+        assert [(e["tree_type"], e["tree_id"]) for e in body] == [
+            ("class", 3),  # Cleric
+            ("subclass", 25),  # Templar
+            ("shadows", 49),
+            ("heroic", 63),
+        ]
+        assert body[0]["tree_name"] == "Cleric"
+
+    @pytest.mark.asyncio
+    async def test_unknown_class_404s_and_case_is_forgiven(self, app) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            ok = await client.get("/api/aa/plan-trees?cls=mystic")
+            bad = await client.get("/api/aa/plan-trees?cls=Clown")
+        assert ok.status_code == 200
+        assert bad.status_code == 404
+
+    def test_shadows_mapping_matches_node_classifications(self) -> None:
+        """The empirically-mined shadows mapping must agree with the committed
+        db's node classifications (each shadows tree names its subclass in a
+        node classification) — catches tree-id reshuffles on rebuilds."""
+        from backend.eq2db.aas import catalogue
+        from backend.server.api.aa import _SHADOWS_TREE_BY_SUBCLASS
+
+        for subclass, tree_id in _SHADOWS_TREE_BY_SUBCLASS.items():
+            tree = catalogue.get_tree(tree_id)
+            assert tree is not None, f"{subclass}: shadows tree {tree_id} missing"
+            assert tree["tree_type"] == "shadows", f"{subclass}: tree {tree_id} is {tree['tree_type']}"
+            classifications = {(n["classification"] or "").strip() for n in tree["nodes"]}
+            assert subclass in classifications, f"{subclass}: tree {tree_id} classifications {classifications}"
