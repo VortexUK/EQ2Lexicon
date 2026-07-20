@@ -65,6 +65,7 @@ class CensusStore(BaseCatalogue):
         conn.execute(_SQL["schema_characters"])
         conn.execute(_SQL["schema_guilds"])
         conn.execute(_SQL["schema_character_aas"])
+        conn.execute(_SQL["schema_character_gear_sets"])
         self._apply_migrations(conn, _MIGRATIONS)
 
     # ── Characters ───────────────────────────────────────────────────────────
@@ -178,6 +179,36 @@ class CensusStore(BaseCatalogue):
         if now is None:
             now = int(time.time())
         conn.execute(_SQL["upsert_character_aas"], (name.lower(), world, json.dumps(data), now))
+        conn.commit()
+
+    # ── Character gear sets ──────────────────────────────────────────────────
+
+    @staticmethod
+    def get_character_gear_sets(conn: sqlite3.Connection, name: str, world: str) -> StoreRecord | None:
+        """The persisted gear-sets response dict (or None) for (name, world)."""
+        row = conn.execute(_SQL["select_character_gear_sets"], (name.lower(), world)).fetchone()
+        if row is None:
+            return None
+        return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
+
+    @staticmethod
+    def upsert_character_gear_sets(
+        conn: sqlite3.Connection,
+        name: str,
+        world: str,
+        data: dict,
+        *,
+        now: int | None = None,
+    ) -> None:
+        """Insert or update the (name, world) gear-sets record. Always
+        overwrites — like AAs there is no best-known merge; the Census
+        response is authoritative."""
+        if now is None:
+            now = int(time.time())
+        conn.execute(
+            _SQL["upsert_character_gear_sets"],
+            (name.lower(), world, json.dumps(data), now),
+        )
         conn.commit()
 
 

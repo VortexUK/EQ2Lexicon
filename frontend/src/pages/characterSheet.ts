@@ -25,6 +25,21 @@ export interface EquipmentSlot {
   adorn_slots: AdornSlot[]
 }
 
+/** One saved in-game equipment set (GET /api/character/{name}/gear-sets). */
+export interface GearSet {
+  name: string
+  ilvl: number | null
+  /** Approximate sheet-stat movement of equipping this set instead of the
+   * current gear: CharacterStats field → (set − worn). Additive stats only. */
+  stat_deltas: Record<string, number>
+  equipment: EquipmentSlot[]
+}
+
+export interface CharGearSets {
+  character_name: string
+  sets: GearSet[]
+}
+
 export interface CharacterStats {
   health_max: number | null
   health_regen: number | null
@@ -148,7 +163,7 @@ export const STAT_GROUPS: StatGroupDef[] = [
       { key: 'crit_bonus',          label: 'Crit Bonus',         fmt: 'pct1' },
       { key: 'fervor',              label: 'Fervor',             fmt: 'dec1' },
       { key: 'dps',                 label: 'DPS',                fmt: 'dec1' },
-      { key: 'double_attack',       label: 'Double Attack',      fmt: 'pct1' },
+      { key: 'double_attack',       label: 'Multi Attack',       fmt: 'pct1' },
       { key: 'ability_doublecast',  label: 'Ability Doublecast', fmt: 'pct1' },
       { key: 'attack_speed',        label: 'Attack Speed',       fmt: 'pct1' },
       { key: 'ability_mod',         label: 'Ability Mod',        fmt: 'int' },

@@ -136,6 +136,14 @@ class AcknowledgeResponse(BaseModel):
     acknowledged: bool
 
 
+class AcknowledgeBatchRequest(BaseModel):
+    ids: list[int]
+
+
+class AcknowledgeBatchResponse(BaseModel):
+    acknowledged: int  # how many PENDING rows were flipped (skips already-ack'd)
+
+
 class ServerItem(BaseModel):
     world: str
     subdomain: str
@@ -413,9 +421,13 @@ async def list_parses_admin(
     request: Request,
     search: str | None = None,
     limit: int = 200,
+    before: int | None = None,
 ) -> list[AdminParseItem]:
     """All parse encounters (including hidden/soft-deleted) for the sanitize
-    view, scoped to the active server. Admin only.
+    view, scoped to the active server, newest first. Admin only. ``before``
+    is the pagination cursor (only rows strictly older than that unix
+    timestamp) — the frontend's "Load older" passes the last row's
+    started_at back to page through the full history.
     Hard-purge uses the existing DELETE /api/parses/{id}?purge=1 and
     /api/parses/batch?ids=...&purge=1."""
     _require_admin(request)
@@ -427,7 +439,7 @@ async def list_parses_admin(
             return []
         conn = parses_db.init_db()
         try:
-            return parses_db.list_encounters_for_admin(conn, search=search, limit=limit, world=world)
+            return parses_db.list_encounters_for_admin(conn, search=search, limit=limit, world=world, before=before)
         finally:
             conn.close()
 
@@ -592,6 +604,51 @@ async def acknowledge_tamper_report(
             report_id=report_id,
         )
     return AcknowledgeResponse(acknowledged=flipped)
+
+
+@router.post(
+    "/admin/tamper-reports/acknowledge-batch",
+    response_model=AcknowledgeBatchResponse,
+)
+async def acknowledge_tamper_reports_batch(
+    request: Request,
+    body: AcknowledgeBatchRequest,
+) -> AcknowledgeBatchResponse:
+    """Bulk-acknowledge tamper reports in one action. Same one-way
+    semantics as the single endpoint: only pending rows flip; already
+    acknowledged or unknown ids are skipped silently. Returns the
+    flipped count so the panel can report what actually changed.
+    """
+    user = _require_admin(request)
+    actor_id = str(user.get("id") or "")
+    ids = list(dict.fromkeys(body.ids))[:500]  # dedupe, cap fan-out
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids must not be empty")
+    now_unix = int(datetime.now().timestamp())
+
+    def _ack_batch() -> int:
+        if not parses_db.path.exists():
+            return 0
+        conn = parses_db.init_db()
+        try:
+            return parses_db.acknowledge_tamper_reports(
+                conn,
+                ids,
+                acknowledged_at=now_unix,
+                acknowledged_by=actor_id,
+            )
+        finally:
+            conn.close()
+
+    flipped = await run_sync(_ack_batch)
+    if flipped:
+        audit_log(
+            "tamper_report.acknowledge_batch",
+            actor=actor_id,
+            count=flipped,
+            ids=",".join(str(i) for i in ids[:20]) + (" …" if len(ids) > 20 else ""),
+        )
+    return AcknowledgeBatchResponse(acknowledged=flipped)
 
 
 # ---------------------------------------------------------------------------

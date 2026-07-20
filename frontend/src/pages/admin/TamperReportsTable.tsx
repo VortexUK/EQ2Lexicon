@@ -37,6 +37,7 @@ export function TamperReportsTable() {
   const [rows, setRows] = useState<TamperReport[]>([])
   const [pending, setPending] = useState(0)
   const [filter, setFilter] = useState<TamperReportFilter>('pending')
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -55,6 +56,7 @@ export function TamperReportsTable() {
       const data: TamperReportListResponse = await res.json()
       setRows(data.results)
       setPending(data.pending_count)
+      setSelected(new Set())
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return
       setError('Network error — could not load tamper reports.')
@@ -68,6 +70,48 @@ export function TamperReportsTable() {
     load(controller.signal)
     return () => controller.abort()
   }, [load])
+
+  // Selection is pending-rows-only — acknowledged reports have nothing to bulk-act on.
+  const pendingRows = rows.filter(r => r.acknowledged_at === null)
+  const allPendingSelected = pendingRows.length > 0 && pendingRows.every(r => selected.has(r.id))
+
+  function toggleRow(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllPending() {
+    setSelected(allPendingSelected ? new Set() : new Set(pendingRows.map(r => r.id)))
+  }
+
+  async function acknowledgeSelected() {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/tamper-reports/acknowledge-batch', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(`Error: ${body.detail ?? 'Bulk acknowledge failed'}`)
+        return
+      }
+      await load()
+    } catch {
+      setError('Network error — bulk acknowledge failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function acknowledge(report: TamperReport) {
     if (report.acknowledged_at !== null) return // already acked, button shouldn't render
@@ -115,7 +159,7 @@ export function TamperReportsTable() {
           "all" let the admin revisit older reports. Implemented as
           buttons (not a select) so the active state is visible and
           one click cycles. */}
-      <div className="flex gap-2 mb-3 flex-wrap">
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
         {(['pending', 'ack', 'all'] as TamperReportFilter[]).map(opt => (
           <Button
             key={opt}
@@ -128,6 +172,16 @@ export function TamperReportsTable() {
             {opt === 'pending' ? 'Pending' : opt === 'ack' ? 'Acknowledged' : 'All'}
           </Button>
         ))}
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          onClick={acknowledgeSelected}
+          disabled={busy || selected.size === 0}
+          className="ml-auto"
+        >
+          Acknowledge selected ({selected.size})
+        </Button>
       </div>
 
       {error && <p className="text-danger mb-2">{error}</p>}
@@ -136,6 +190,15 @@ export function TamperReportsTable() {
         <table className={TABLE_CLS}>
           <thead>
             <tr className="bg-white/2">
+              <th className={`${TH_CLS} w-[1%]`}>
+                <input
+                  type="checkbox"
+                  checked={allPendingSelected}
+                  onChange={toggleAllPending}
+                  aria-label="Select all pending reports"
+                  disabled={pendingRows.length === 0}
+                />
+              </th>
               <th className={TH_CLS}>Reason</th>
               <th className={TH_CLS}>Encounter</th>
               <th className={TH_CLS}>Zone</th>
@@ -149,13 +212,13 @@ export function TamperReportsTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className={`${TD_CLS} text-text-muted text-center p-6`}>
+                <td colSpan={9} className={`${TD_CLS} text-text-muted text-center p-6`}>
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className={`${TD_CLS} text-text-muted text-center p-6`}>
+                <td colSpan={9} className={`${TD_CLS} text-text-muted text-center p-6`}>
                   {filter === 'pending'
                     ? 'No pending tamper reports. ✓'
                     : 'No tamper reports match this filter.'}
@@ -164,6 +227,16 @@ export function TamperReportsTable() {
             ) : (
               rows.map(r => (
                 <tr key={r.id}>
+                  <td className={TD_CLS}>
+                    {r.acknowledged_at === null && (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleRow(r.id)}
+                        aria-label={`Select report ${r.title}`}
+                      />
+                    )}
+                  </td>
                   <td className={TD_CLS}>{renderReasonBadge(r.reason)}</td>
                   <td className={TD_CLS}>
                     <span className="font-semibold">{r.title}</span>

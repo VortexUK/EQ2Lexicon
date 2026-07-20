@@ -222,6 +222,7 @@ def _list_encounters_sync(
     size: str | None,
     world: str = "Varsoon",
     search: str | None = None,
+    before: int | None = None,
 ) -> list[dict]:
     """Return matching encounter rows most-recent-first, capped at
     ``inner_cap`` raw uploads (not fights). Mirror grouping happens after
@@ -229,7 +230,8 @@ def _list_encounters_sync(
     fight limit × the worst-case mirror count per fight.
 
     ``world`` scopes results to the active server so a Varsoon viewer only
-    sees Varsoon parses."""
+    sees Varsoon parses. ``before`` is the pagination cursor: only rows
+    strictly older than that unix timestamp."""
     if not parses_db.path.exists():
         return []
 
@@ -237,6 +239,9 @@ def _list_encounters_sync(
     # Note: the WHERE clause operates on the outer query's columns (no alias).
     where_clauses: list[str] = ["hidden_at IS NULL", "world = ?"]
     params: list = [world]
+    if before is not None:
+        where_clauses.append("started_at < ?")
+        params.append(before)
     if zone:
         where_clauses.append("zone = ?")
         params.append(zone)
@@ -446,6 +451,7 @@ async def list_parses(
     zone: str | None = None,
     size: str | None = None,
     search: str | None = None,
+    before: int | None = None,
 ) -> ParsesListResponse:
     _require_user(request)
 
@@ -495,7 +501,7 @@ async def list_parses(
         sees the correct flag. Also re-query player_count for each
         backfilled encounter so the response carries the correct
         number on the same request (no stale-on-first-load glitch)."""
-        rows = _list_encounters_sync(inner_cap, zone, size, active_world, search)
+        rows = _list_encounters_sync(inner_cap, zone, size, active_world, search, before)
         if not rows:
             return rows, [], 0
         conn = parses_db.init_db()
@@ -583,7 +589,13 @@ async def list_parses(
         )
 
     results = [_encounter_summary(f) for f in fights]
-    return ParsesListResponse(results=results, total=total_fights)
+    # Pagination cursor: more fights exist below this page when the grouped
+    # count overflowed the fight limit OR the raw SQL window itself was full
+    # (older rows never even reached the grouper). The client passes
+    # ``next_before`` back as ``before`` to fetch the next window.
+    has_more = total_fights > limit or len(encounters) >= inner_cap
+    next_before = fights[-1]["started_at"] if (fights and has_more) else None
+    return ParsesListResponse(results=results, total=total_fights, next_before=next_before)
 
 
 @router.get("/parses/{encounter_id}", response_model=ParseDetailResponse)

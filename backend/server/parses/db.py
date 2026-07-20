@@ -435,6 +435,7 @@ class ParsesStore(BaseCatalogue):
         search: str | None = None,
         limit: int = 200,
         world: str | None = None,
+        before: int | None = None,
     ) -> list[dict]:
         """All encounters INCLUDING hidden (soft-deleted) ones, newest first, for
         the admin sanitize view. Optional case-insensitive search over
@@ -443,13 +444,18 @@ class ParsesStore(BaseCatalogue):
         polluting the leaderboards.
 
         ``world`` scopes to a single EQ2 server; ``None`` returns all worlds
-        (no longer recommended — pass the active server world in all call sites)."""
+        (no longer recommended — pass the active server world in all call sites).
+        ``before`` is the pagination cursor: only rows strictly older than that
+        unix timestamp (pass the previous page's last started_at)."""
         conn.row_factory = sqlite3.Row
         clauses: list[str] = []
         params: list = []
         if world is not None:
             clauses.append("e.world = ?")
             params.append(world)
+        if before is not None:
+            clauses.append("e.started_at < ?")
+            params.append(before)
         if search:
             like = f"%{search.lower()}%"
             clauses.append(
@@ -772,6 +778,26 @@ class ParsesStore(BaseCatalogue):
                 (acknowledged_at, acknowledged_by, report_id),
             )
         return cur.rowcount > 0
+
+    @staticmethod
+    def acknowledge_tamper_reports(
+        conn: sqlite3.Connection,
+        report_ids: list[int],
+        *,
+        acknowledged_at: int,
+        acknowledged_by: str,
+    ) -> int:
+        """Bulk one-way acknowledge. Only pending rows flip (already-ack'd
+        and unknown ids are silently skipped); returns the flipped count."""
+        if not report_ids:
+            return 0
+        placeholders = ",".join("?" * len(report_ids))
+        with conn:
+            cur = conn.execute(
+                _SQL["acknowledge_tamper_reports_bulk"].format(placeholders=placeholders),
+                [acknowledged_at, acknowledged_by, *report_ids],
+            )
+        return cur.rowcount
 
     @staticmethod
     def count_pending_tamper_reports(

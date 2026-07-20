@@ -33,6 +33,7 @@ import { Link } from 'react-router-dom'
 import logo from './assets/EQ2L.webp'
 import ServerLaunchTimer from './components/ServerLaunchTimer'
 import CensusStatus from './components/CensusStatus'
+import ServerStatus from './components/ServerStatus'
 import { MobileNav } from './components/MobileNav'
 
 function LoginGate() {
@@ -269,6 +270,7 @@ function Layout() {
               Support the site
             </Link>
           </span>
+          <ServerStatus />
           <CensusStatus />
         </footer>
       </div>

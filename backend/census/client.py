@@ -18,6 +18,7 @@ from backend.census.models import (
     CharacterOverview,
     CharacterSpells,
     EquipmentSlot,
+    GearSet,
     GuildData,
     GuildMember,
     ItemData,
@@ -427,6 +428,29 @@ class CensusClient:
             equipment=equipment,
             spell_ids=spell_ids,
         )
+
+    async def get_gear_sets(self, character_id: str | int) -> list[GearSet] | None:
+        """A character's saved in-game equipment sets (adventure_sets
+        collection), each parsed through the same slot pipeline as live
+        equipment so items/adorns resolve identically.
+
+        Returns None on Census failure (caller decides how to degrade),
+        [] when the character simply has no saved sets.
+        """
+        data = await self._census_get("adventure_sets/", {"id": str(character_id), "c:limit": "1"})
+        if data is None:
+            return None
+        rows = data.get("adventure_sets_list", [])
+        if not rows:
+            return []
+        sets: list[GearSet] = []
+        for raw in rows[0].get("set_list") or []:
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or "").strip() or "Unnamed set"
+            equipment = await self._parse_equipment(raw.get("equipmentslot_list") or [])
+            sets.append(GearSet(name=name, equipment=equipment))
+        return sets
 
     async def get_character_aas(self, name: str, world: str) -> CharacterAAs | None:
         params = {

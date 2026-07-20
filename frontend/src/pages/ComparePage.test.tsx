@@ -3,7 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 import ComparePage from './ComparePage'
-import type { Character } from './characterSheet'
+import type { Character, EquipmentSlot, GearSet } from './characterSheet'
 
 // ── react-router-dom partial mock: real router, swappable useSearchParams ────
 // Default passthrough; the throws-test flips `throwOnSet` to simulate the
@@ -70,11 +70,21 @@ const mkChar = (name: string, cls: string, over: Partial<Character> = {}): Chara
   ...over,
 })
 
+const mkSlot = (slotName: string, itemName: string): EquipmentSlot => ({
+  slot: slotName,
+  name: itemName,
+  item_id: null, // no id → no tooltip fetch in jsdom
+  icon_id: null,
+  tier: 'FABLED',
+  adorn_slots: [],
+})
+
 interface StubOpts {
   chars?: Record<string, Character>
   favorites?: unknown[]
   searchResults?: { name: string; cls: string | null; level: number | null; guild_name: string | null }[]
   aas?: Record<string, unknown>
+  gearSets?: Record<string, GearSet[]>
 }
 
 function stubFetch(opts: StubOpts = {}) {
@@ -86,6 +96,11 @@ function stubFetch(opts: StubOpts = {}) {
     if (url.includes('/api/favorites')) return ok({ favorites: opts.favorites ?? [] })
     if (url.includes('/api/characters/search')) return ok({ results: opts.searchResults ?? [], total: 0, source: 'local' })
     if (url.includes('/api/aa/config')) return ok({ xpac: 'x', aa_cap: 100, tradeskill_aa_cap: 0, unlocked_tree_types: [] })
+    const gsMatch = url.match(/\/api\/character\/([^/]+)\/gear-sets/)
+    if (gsMatch) {
+      const name = decodeURIComponent(gsMatch[1])
+      return ok({ character_name: name, sets: opts.gearSets?.[name] ?? [] })
+    }
     const aaMatch = url.match(/\/api\/character\/([^/]+)\/aas/)
     if (aaMatch) {
       const name = decodeURIComponent(aaMatch[1])
@@ -205,6 +220,27 @@ describe('ComparePage', () => {
     expect(legend().textContent).toContain('Mira − Lorin')
     fireEvent.click(screen.getByRole('button', { name: /swap/i }))
     await waitFor(() => expect(legend().textContent).toContain('Lorin − Mira'))
+  })
+
+  it('gear tab: per-side gear-set dropdown swaps the diffed equipment', async () => {
+    stubFetch({
+      chars: {
+        Quinra: mkChar('Quinra', 'Templar', { equipment: [mkSlot('Head', 'Quin Current Helm')] }),
+        Rossik: mkChar('Rossik', 'Templar'),
+      },
+      gearSets: { Quinra: [{ name: 'Tank', ilvl: 62, stat_deltas: {}, equipment: [mkSlot('Head', 'Quin Tank Helm')] }] },
+    })
+    renderAt('/compare?a=Quinra&b=Rossik&tab=gear')
+    expect(await screen.findByText('Quin Current Helm')).toBeInTheDocument()
+    // Only side A has saved sets → exactly one dropdown, defaulting to live gear.
+    const selects = await screen.findAllByLabelText('Gear set')
+    expect(selects).toHaveLength(1)
+    fireEvent.change(selects[0], { target: { value: 'Tank' } })
+    expect(await screen.findByText('Quin Tank Helm')).toBeInTheDocument()
+    expect(screen.queryByText('Quin Current Helm')).not.toBeInTheDocument()
+    // Headline ilvl reflects the chosen set; column header names the set.
+    expect(screen.getByText('62')).toBeInTheDocument()
+    expect(screen.getByText(/— Tank/)).toBeInTheDocument()
   })
 
   it('survives setSearchParams throwing (History API throttle) — UI still responds', async () => {

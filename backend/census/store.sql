@@ -38,6 +38,15 @@ CREATE TABLE IF NOT EXISTS character_aas (
     PRIMARY KEY (name_lower, world)
 );
 
+-- :name schema_character_gear_sets
+CREATE TABLE IF NOT EXISTS character_gear_sets (
+    name_lower         TEXT    NOT NULL,
+    world              TEXT    NOT NULL,
+    data_json          TEXT    NOT NULL,
+    last_resolved_at   INTEGER NOT NULL,
+    PRIMARY KEY (name_lower, world)
+);
+
 -- ---------------------------------------------------------------------------
 -- DML
 -- ---------------------------------------------------------------------------
@@ -68,3 +77,9 @@ SELECT data_json, last_resolved_at FROM character_aas WHERE name_lower = ? AND w
 
 -- :name upsert_character_aas
 INSERT OR REPLACE INTO character_aas (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?);
+
+-- :name select_character_gear_sets
+SELECT data_json, last_resolved_at FROM character_gear_sets WHERE name_lower = ? AND world = ?;
+
+-- :name upsert_character_gear_sets
+INSERT OR REPLACE INTO character_gear_sets (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?);

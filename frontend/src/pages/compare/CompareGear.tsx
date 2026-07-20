@@ -1,11 +1,52 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge, Card } from '../../components/ui'
 import { ItemTooltip, useItemTooltip } from '../../components/ItemTooltip'
 import { useClasses } from '../../useClasses'
-import type { Character, EquipmentSlot } from '../characterSheet'
+import { useFetch } from '../../hooks/useFetch'
+import type { CharGearSets, Character, EquipmentSlot, GearSet } from '../characterSheet'
 import { tierStyle } from '../characterSheet'
 import { diffGear, nullableDelta, type GearDiffRow } from './diff'
 import DeltaChip from './DeltaChip'
+
+/** One side's gear selection: the live equipment or a chosen saved set.
+ * Fetching lives here (not ComparePage) so the sets load only when the Gear
+ * tab is actually opened. */
+function useGearSelection(char: Character) {
+  const { data } = useFetch<CharGearSets>(`/api/character/${encodeURIComponent(char.name)}/gear-sets`)
+  const [setName, setSetName] = useState<string | null>(null)
+  useEffect(() => { setSetName(null) }, [char.name])
+  // useFetch keeps the previous character's payload during a refetch — only
+  // trust sets stamped with this character's name.
+  const sets: GearSet[] = data?.character_name.toLowerCase() === char.name.toLowerCase() ? data.sets : []
+  const active = setName ? sets.find(s => s.name === setName) ?? null : null
+  return {
+    sets,
+    setName,
+    setSetName,
+    equipment: active ? active.equipment : char.equipment,
+    ilvl: active ? active.ilvl : char.ilvl,
+    label: active ? active.name : null,
+  }
+}
+
+/** "Current gear" / saved-set dropdown for one column. Hidden when the
+ * character has no saved sets. */
+function GearSetSelect({ sel, align }: { sel: ReturnType<typeof useGearSelection>; align: 'left' | 'right' }) {
+  if (sel.sets.length === 0) return null
+  return (
+    <select
+      value={sel.setName ?? ''}
+      onChange={e => sel.setSetName(e.target.value || null)}
+      className={`block bg-surface border border-border rounded-sm px-2 py-0.5 mt-1 text-[0.75rem] normal-case tracking-normal font-normal max-w-full cursor-pointer ${align === 'right' ? 'ml-auto' : ''}`}
+      aria-label="Gear set"
+    >
+      <option value="">Current gear</option>
+      {sel.sets.map(s => (
+        <option key={s.name} value={s.name}>{s.name}</option>
+      ))}
+    </select>
+  )
+}
 
 /** One side of a mirrored slot row: icon + tier-coloured name + adorn fill. */
 function GearCell({ item, adorns, align, onShow, onHide }: {
@@ -68,12 +109,15 @@ function SlotRowMirror({ row, onShow, onHide }: {
   )
 }
 
-/** Mirrored paperdoll comparison: [A item | slot | B item] rows + ilvl headline. */
+/** Mirrored paperdoll comparison: [A item | slot | B item] rows + ilvl headline.
+ * Each side can compare its live gear or any saved in-game gear set. */
 export default function CompareGear({ charA, charB }: { charA: Character; charB: Character }) {
   const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
   const { colourFor } = useClasses()
   const [diffOnly, setDiffOnly] = useState(false)
-  const gear = useMemo(() => diffGear(charA.equipment, charB.equipment), [charA, charB])
+  const selA = useGearSelection(charA)
+  const selB = useGearSelection(charB)
+  const gear = useMemo(() => diffGear(selA.equipment, selB.equipment), [selA.equipment, selB.equipment])
 
   const filterRows = (rows: GearDiffRow[]) =>
     rows.filter(r => (r.a !== null || r.b !== null) && (!diffOnly || !r.identical))
@@ -92,13 +136,13 @@ export default function CompareGear({ charA, charB }: { charA: Character; charB:
         <span className="text-[0.85rem]">
           <span className="text-text-muted">Item Level:</span>{' '}
           <span style={{ color: colourFor(charA.cls, 'var(--text)') }}>
-            {charA.name} <span className="font-semibold tabular-nums">{charA.ilvl != null ? Math.round(charA.ilvl) : '—'}</span>
+            {charA.name} <span className="font-semibold tabular-nums">{selA.ilvl != null ? Math.round(selA.ilvl) : '—'}</span>
           </span>
           <span className="text-text-muted"> vs </span>
           <span style={{ color: colourFor(charB.cls, 'var(--text)') }}>
-            {charB.name} <span className="font-semibold tabular-nums">{charB.ilvl != null ? Math.round(charB.ilvl) : '—'}</span>
+            {charB.name} <span className="font-semibold tabular-nums">{selB.ilvl != null ? Math.round(selB.ilvl) : '—'}</span>
           </span>{' '}
-          <DeltaChip delta={nullableDelta(charA.ilvl != null ? Math.round(charA.ilvl) : null, charB.ilvl != null ? Math.round(charB.ilvl) : null)} fmt="int" />
+          <DeltaChip delta={nullableDelta(selA.ilvl != null ? Math.round(selA.ilvl) : null, selB.ilvl != null ? Math.round(selB.ilvl) : null)} fmt="int" />
         </span>
         <span className="text-[0.82rem] text-text-muted">
           {gear.differingCount} of {gear.occupiedCount} slots differ
@@ -109,11 +153,21 @@ export default function CompareGear({ charA, charB }: { charA: Character; charB:
         </label>
       </Card>
 
-      {/* Column identity for the mirrored rows */}
+      {/* Column identity for the mirrored rows + per-side gear-set choice */}
       <div className="grid grid-cols-[1fr_84px_1fr] gap-2 mb-2 text-[0.72rem] uppercase tracking-[0.08em]">
-        <span className="font-semibold truncate" style={{ color: colourFor(charA.cls, 'var(--gold)') }}>{charA.name}</span>
+        <div className="min-w-0">
+          <span className="font-semibold truncate block" style={{ color: colourFor(charA.cls, 'var(--gold)') }}>
+            {charA.name}{selA.label && <span className="text-text-muted font-normal"> — {selA.label}</span>}
+          </span>
+          <GearSetSelect sel={selA} align="left" />
+        </div>
         <span />
-        <span className="font-semibold truncate text-right" style={{ color: colourFor(charB.cls, 'var(--gold)') }}>{charB.name}</span>
+        <div className="min-w-0 text-right">
+          <span className="font-semibold truncate block" style={{ color: colourFor(charB.cls, 'var(--gold)') }}>
+            {charB.name}{selB.label && <span className="text-text-muted font-normal"> — {selB.label}</span>}
+          </span>
+          <GearSetSelect sel={selB} align="right" />
+        </div>
       </div>
 
       {sections.map(([title, rows]) =>

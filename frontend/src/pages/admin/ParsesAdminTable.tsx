@@ -21,6 +21,11 @@ function resultLabel(successLevel: number): string {
 // URL-length safety cap for the batch-purge endpoint.
 const PARSE_BATCH_CHUNK_SIZE = 64
 
+// Page size of GET /api/admin/parses (mirrors the backend default limit).
+// A full page implies more history below it — the Load-older button pages
+// down via the `before` started_at cursor.
+const ADMIN_PAGE_LIMIT = 200
+
 // Trash = an encounter whose title starts lowercase ("a krait warrior");
 // named bosses start uppercase. Mirrors isBoss() in ParsesPage and the
 // authoritative is_boss() server-side. Inlined here so the admin chunk
@@ -35,6 +40,8 @@ export function ParsesAdminTable() {
   const [rows, setRows] = useState<AdminParse[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -51,6 +58,7 @@ export function ParsesAdminTable() {
       }
       const data: AdminParse[] = await res.json()
       setRows(data)
+      setHasMore(data.length >= ADMIN_PAGE_LIMIT)
       setSelected(new Set())
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return
@@ -59,6 +67,34 @@ export function ParsesAdminTable() {
       setLoading(false)
     }
   }, [query])
+
+  // Page down through history: fetch the window strictly older than the
+  // last loaded row. Selection is preserved — appending never unchecks.
+  const loadOlder = useCallback(async () => {
+    const oldest = rows[rows.length - 1]
+    if (!oldest || loadingOlder) return
+    setLoadingOlder(true)
+    setError(null)
+    try {
+      const url = `/api/admin/parses?search=${encodeURIComponent(query)}&before=${oldest.started_at}`
+      const res = await fetch(url, { credentials: 'include' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(`Error: ${body.detail ?? 'Failed to load older parses'}`)
+        return
+      }
+      const page: AdminParse[] = await res.json()
+      setRows(prev => {
+        const seen = new Set(prev.map(r => r.id))
+        return [...prev, ...page.filter(r => !seen.has(r.id))]
+      })
+      setHasMore(page.length >= ADMIN_PAGE_LIMIT)
+    } catch {
+      setError('Network error — could not load older parses.')
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [rows, query, loadingOlder])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -261,6 +297,14 @@ export function ParsesAdminTable() {
           </tbody>
         </table>
       </div>
+
+      {!loading && hasMore && (
+        <div className="text-center mt-3">
+          <Button variant="secondary" size="sm" onClick={loadOlder} disabled={busy || loadingOlder}>
+            {loadingOlder ? 'Loading…' : `Load older (${rows.length} loaded)`}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

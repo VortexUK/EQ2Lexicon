@@ -31,6 +31,7 @@ A web companion site for EverQuest 2 (TLE), with a Discord bot for spot checks (
 | `backend/server/api/server.py` | `GET /api/server` — bootstraps the frontend with the active server's world, display name, max_level, current_xpac, launch_dt, and the full public server list |
 | `backend/server/cache.py` | TTLCache with stale-while-revalidate: character_cache, guild_cache, claim_cache. Character and guild read paths serve from `census_store` first and never block on Census. |
 | `backend/server/api/aa.py` | GET /api/character/{name}/aas — AA profile list with per-tree data |
+| `backend/server/api/character/gear_sets.py` | GET /api/character/{name}/gear-sets — saved in-game equipment sets (Census `adventure_sets`), store-first SWR mirroring aa.py; feeds the character-sheet set pills + the compare per-side set picker. Each set carries `stat_deltas` (set − worn, additive stats + active item-set bonuses, from items.db `item_stats`) computed in sibling `stat_deltas.py` — the sheet shows approximated stats when a set is selected |
 | `backend/server/api/characters.py` | GET /api/characters/search — character name search |
 | `backend/server/api/guild_officer.py` | Officer claim-review endpoints; imports _officer_chars, _roster_rank_map from guild.py |
 | `backend/server/api/item_watch.py` | Item watch endpoints; imports _officer_chars, _roster_rank_map from guild.py |
