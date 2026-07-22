@@ -398,6 +398,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
 
     rec = await run_sync(_read)
     if rec is not None:
+        aa_cache.record_store_hit()
         stale = (now - rec["last_resolved_at"]) > CHARACTER_STALE_S
         if stale:
             asyncio.create_task(_bg_refresh_aas(name, cache_key))

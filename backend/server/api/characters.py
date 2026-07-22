@@ -145,7 +145,7 @@ async def lookup_characters(request: Request, names: str = "") -> BulkLookupResp
     out: dict[str, BulkLookupEntry] = {}
     for name in unique:
         cache_key = char_cache_key(name, current_world())
-        cached = character_cache.get_stale(cache_key)[0]
+        cached = character_cache.peek(cache_key)  # opportunistic probe — no metrics/LRU churn
         if cached is None:
             out[name] = BulkLookupEntry(found=False)
             continue

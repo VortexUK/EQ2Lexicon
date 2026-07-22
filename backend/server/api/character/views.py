@@ -458,6 +458,7 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
     if rec is not None:
         from backend.server.census_refresh import request_character_refresh
 
+        character_cache.record_store_hit()
         data = rec["data"]
         # A guild-roster sync persists a partial character record (name / level /
         # guild only) so the roster can render before the character is ever

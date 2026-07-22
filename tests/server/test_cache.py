@@ -116,3 +116,85 @@ class TestTTLCacheSetDelete:
         cache.delete("a")
         assert cache.get("a") is None
         assert cache.get("b") == 2
+
+
+class TestLRUEviction:
+    """maxsize eviction is LRU-by-access (2026-07): reads and overwrites move
+    an entry to the back of the eviction queue, so hot entries survive
+    roster-flood inserts."""
+
+    def test_read_saves_an_entry_from_eviction(self):
+        cache = TTLCache(ttl=300, max_age=3600, maxsize=3)
+        for k in ("a", "b", "c"):
+            cache.set(k, k)
+        cache.get_stale("a")  # touch the oldest
+        cache.set("d", "d")  # over capacity → evicts the LRU entry
+        assert cache.get_stale("a")[0] == "a"  # touched — survived
+        assert cache.get_stale("b")[0] is None  # untouched oldest — evicted
+
+    def test_get_also_touches(self):
+        cache = TTLCache(ttl=300, max_age=3600, maxsize=3)
+        for k in ("a", "b", "c"):
+            cache.set(k, k)
+        cache.get("a")
+        cache.set("d", "d")
+        assert cache.get("a") == "a"
+        assert cache.get("b") is None
+
+    def test_overwrite_moves_to_back_of_queue(self):
+        cache = TTLCache(ttl=300, max_age=3600, maxsize=3)
+        for k in ("a", "b", "c"):
+            cache.set(k, k)
+        cache.set("a", "a2")  # overwrite — must refresh queue position
+        cache.set("d", "d")
+        assert cache.get_stale("a")[0] == "a2"
+        assert cache.get_stale("b")[0] is None
+
+
+class TestPeek:
+    """peek() is the opportunistic-probe read: no metrics, no LRU touch."""
+
+    def test_peek_returns_fresh_and_stale_values(self):
+        cache = TTLCache(ttl=1, max_age=3600)
+        cache.set("fresh", 1)
+        cache._store["stale"] = (time.monotonic() - 2, 2)
+        assert cache.peek("fresh") == 1
+        assert cache.peek("stale") == 2  # stale-but-within-max-age still served
+        assert cache.peek("absent") is None
+
+    def test_peek_respects_hard_expiry(self):
+        cache = TTLCache(ttl=1, max_age=10)
+        cache._store["old"] = (time.monotonic() - 11, "gone")
+        assert cache.peek("old") is None
+        assert "old" in cache._store  # read-only: no eviction side effect
+
+    def test_peek_records_no_metrics(self):
+        from backend.server.metrics import CACHE_HITS, CACHE_MISSES
+
+        cache = TTLCache(ttl=300, max_age=3600, name="claim")
+        cache.set("k", 1)
+        hits_before = CACHE_HITS.labels(cache="claim")._value.get()
+        misses_before = CACHE_MISSES.labels(cache="claim")._value.get()
+        cache.peek("k")
+        cache.peek("nope")
+        assert CACHE_HITS.labels(cache="claim")._value.get() == hits_before
+        assert CACHE_MISSES.labels(cache="claim")._value.get() == misses_before
+
+    def test_peek_does_not_touch_lru_order(self):
+        cache = TTLCache(ttl=300, max_age=3600, maxsize=3)
+        for k in ("a", "b", "c"):
+            cache.set(k, k)
+        cache.peek("a")  # must NOT save it from eviction
+        cache.set("d", "d")
+        assert cache.peek("a") is None
+        assert cache.peek("b") == "b"
+
+
+class TestStoreHitMetric:
+    def test_record_store_hit_increments_counter(self):
+        from backend.server.metrics import CACHE_STORE_HITS
+
+        cache = TTLCache(ttl=300, max_age=3600, name="character")
+        before = CACHE_STORE_HITS.labels(cache="character")._value.get()
+        cache.record_store_hit()
+        assert CACHE_STORE_HITS.labels(cache="character")._value.get() == before + 1
