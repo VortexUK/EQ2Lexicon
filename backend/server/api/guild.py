@@ -212,6 +212,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
     finally:
         conn.close()
     if rec is not None:
+        guild_cache.record_store_hit()
         age = int(time.time()) - rec["last_resolved_at"]
         stale = age > 900
         if stale:

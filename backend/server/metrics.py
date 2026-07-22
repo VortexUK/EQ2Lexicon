@@ -64,6 +64,9 @@ USER_PAGE_VIEWS = Counter(
 CACHE_HITS = Counter("cache_hits_total", "Fresh cache hits", ["cache"])
 CACHE_MISSES = Counter("cache_misses_total", "Cache misses (not found or expired)", ["cache"])
 CACHE_STALE = Counter("cache_stale_total", "Stale hits that fired bg refresh", ["cache"])
+# A memory miss that census_store then served instantly — the dashboard's
+# "miss" panel splits into store-absorbed vs real Census fetches with this.
+CACHE_STORE_HITS = Counter("cache_store_hits_total", "Misses served from the durable census_store", ["cache"])
 CACHE_SETS = Counter("cache_sets_total", "Values written into cache", ["cache"])
 CACHE_SIZE = Gauge("cache_size", "Live entry count in cache", ["cache"])
 

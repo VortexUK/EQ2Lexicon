@@ -15,12 +15,13 @@ def _fake_cached(*, guild_name=None, cls=None, level=None):
 
 
 def _cache_with(entries: dict):
-    """Build a fake character_cache whose get_stale returns the given map."""
+    """Build a fake character_cache whose peek/get_stale serve the given map."""
     from unittest.mock import MagicMock
 
     fake = MagicMock()
     # entries keyed by cache_key (name.lower():world.lower())
     fake.get_stale.side_effect = lambda key: (entries.get(key), False)
+    fake.peek.side_effect = lambda key: entries.get(key)
     return fake
 
 

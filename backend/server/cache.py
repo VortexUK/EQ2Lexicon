@@ -61,6 +61,21 @@ class TTLCache:
 
             CACHE_STALE.labels(cache=self._name).inc()
 
+    def record_store_hit(self) -> None:
+        """Call when a memory miss was served from the durable census_store —
+        lets the dashboard split misses into store-absorbed vs Census-fetch."""
+        with swallow("metrics"):
+            from backend.server.metrics import CACHE_STORE_HITS
+
+            CACHE_STORE_HITS.labels(cache=self._name).inc()
+
+    def _touch(self, key: str) -> None:
+        """Move an accessed key to the end of the dict so maxsize eviction
+        (which pops the front) behaves as LRU-by-access, not FIFO-by-insert."""
+        entry = self._store.pop(key, None)
+        if entry is not None:
+            self._store[key] = entry
+
     def _update_size(self) -> None:
         with swallow("metrics"):
             from backend.server.metrics import CACHE_SIZE
@@ -83,6 +98,7 @@ class TTLCache:
             return None
         _log.debug("[cache] HIT   %s", scrub(key))
         self._inc_hit()
+        self._touch(key)
         return value
 
     def get_stale(self, key: str) -> tuple[Any | None, bool]:
@@ -113,7 +129,22 @@ class TTLCache:
             self._inc_stale()
         else:
             self._inc_hit()
+        self._touch(key)
         return value, is_stale
+
+    def peek(self, key: str) -> Any | None:
+        """Metric-free, side-effect-free read for OPPORTUNISTIC probes (bulk
+        lookups that treat a miss as "no enrichment, fine"). Returns whatever
+        get_stale would (fresh or stale value; None past max_age) without
+        counting a hit/miss or refreshing the entry's LRU position — so probe
+        sweeps can't distort the hit-ratio dashboards or the eviction order."""
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        ts, value = entry
+        if self._max_age is not None and time.monotonic() - ts > self._max_age:
+            return None
+        return value
 
     def set(self, key: str, value: Any) -> None:
         _log.debug("[cache] SET   %s", scrub(key))
@@ -122,6 +153,9 @@ class TTLCache:
             oldest_key = next(iter(self._store))
             del self._store[oldest_key]
             _log.debug("[cache] EVICT (maxsize) %s", oldest_key)
+        # Pop-then-set so an overwrite also moves to the back of the eviction
+        # queue (plain dict assignment keeps the original insertion slot).
+        self._store.pop(key, None)
         self._store[key] = (time.monotonic(), value)
         with swallow("metrics"):
             from backend.server.metrics import CACHE_SETS
@@ -167,7 +201,11 @@ class TTLCache:
 #              cached to skip the per-request aiosqlite connection open on hot
 #              character pages. Writes invalidate exactly (single-process), so
 #              the TTL is only a backstop.
-character_cache: TTLCache = TTLCache(name="character", maxsize=500)
+# 2000: guild-roster views and the startup pre-warm insert every member/claimed
+# character; at 500 the combined rosters exceeded the cap and cycled the cache
+# (observed pinned-at-cap with a ~4% hit ratio, 2026-07). Entries are a few KB
+# each → ~10-20 MB worst case.
+character_cache: TTLCache = TTLCache(name="character", maxsize=2000)
 guild_cache: TTLCache = TTLCache(name="guild", maxsize=50)
 claim_cache: TTLCache = TTLCache(name="claim", maxsize=200)
 aa_cache: TTLCache = TTLCache(name="aa", maxsize=200)

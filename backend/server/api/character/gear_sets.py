@@ -167,6 +167,7 @@ async def get_character_gear_sets(name: str) -> CharGearSetsResponse:
 
     rec = await run_sync(_read)
     if rec is not None:
+        gear_sets_cache.record_store_hit()
         stale = (now - rec["last_resolved_at"]) > CHARACTER_STALE_S
         if stale:
             asyncio.create_task(_bg_refresh_gear_sets(name, cache_key))
