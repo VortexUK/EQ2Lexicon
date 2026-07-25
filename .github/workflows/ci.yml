@@ -131,7 +131,40 @@ jobs:
 
       - name: npm audit (frontend production deps)
         working-directory: frontend
-        # --audit-level=high → exit 1 only on high or critical; moderate/low
-        # are reported but don't fail the build. --omit=dev skips devDeps
-        # (vitest, ESLint, etc.) — same rationale as pip-audit's --no-dev.
-        run: npm audit --audit-level=high --omit=dev
+        # Same policy as the bare `npm audit --audit-level=high --omit=dev`
+        # this replaces: only high/critical advisories fail the build, and
+        # devDeps are skipped (same rationale as pip-audit's --no-dev). npm
+        # audit has no native ignore flag, so this mirrors .pip-audit-ignore:
+        # frontend/.npm-audit-ignore lists GHSA IDs (first token per line,
+        # rest is rationale) for accepted risks / not-applicable advisories.
+        run: |
+          npm audit --json --omit=dev > /tmp/npm-audit.json || true
+          # A registry/network failure must fail loudly, not pass silently.
+          jq -e '.vulnerabilities != null' /tmp/npm-audit.json > /dev/null || {
+            echo "::error::npm audit did not produce a report"
+            cat /tmp/npm-audit.json
+            exit 1
+          }
+          jq -r '[.vulnerabilities[]?.via[]? | objects
+                  | select(.severity == "high" or .severity == "critical")
+                  | (.url // empty)] | unique | .[] | sub(".*/"; "")' \
+            /tmp/npm-audit.json > /tmp/npm-audit-ids
+          : > /tmp/npm-audit-ignored
+          if [ -f .npm-audit-ignore ]; then
+            grep -vE '^[[:space:]]*(#|$)' .npm-audit-ignore | awk '{print $1}' > /tmp/npm-audit-ignored || true
+          fi
+          FAIL=0
+          while IFS= read -r id; do
+            [ -z "$id" ] && continue
+            if grep -qx "$id" /tmp/npm-audit-ignored; then
+              echo "allowlisted by .npm-audit-ignore: $id"
+            else
+              echo "::error::high/critical advisory not allowlisted: https://github.com/advisories/$id"
+              FAIL=1
+            fi
+          done < /tmp/npm-audit-ids
+          if [ "$FAIL" = "1" ]; then
+            npm audit --audit-level=high --omit=dev || true
+            exit 1
+          fi
+          echo "npm audit: no unallowlisted high/critical advisories"
