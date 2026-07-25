@@ -99,6 +99,7 @@ from backend.server.metrics import (
     _register_db_collector,
     check_metrics_auth,
     normalize_http_labels,
+    record_user_seen,
     should_track_path,
 )
 from backend.server.server_context import ServerContextMiddleware
@@ -262,6 +263,13 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
             # offending endpoint without exploding label cardinality.
             if response.status_code >= 500:
                 APP_ERRORS.labels(source=label_path).inc()
+
+            # Feed the fixed-cardinality active_users gauge — the user id
+            # stays in app memory, never becomes a metric label.
+            if request.method == "GET" and response.status_code < 400:
+                user = request.session.get("user")
+                if user:
+                    record_user_seen(str(user.get("id") or user.get("username") or "?"))
 
         return response
 
