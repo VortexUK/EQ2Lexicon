@@ -19,6 +19,7 @@ const ITEMS: NavSpec[] = [
   { to: '/raids',      label: 'Raids',      also: '/raids/' },
   { to: '/parses',     label: 'Parses',     also: '/parse/' },
   { to: '/rankings',   label: 'Rankings' },
+  { to: '/stats', label: 'Stats' },
 ]
 
 export function MobileNav() {
