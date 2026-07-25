@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import sqlite3
+import time
 
 from prometheus_client import (
     REGISTRY,
@@ -58,6 +59,46 @@ HTTP_REQUEST_DURATION = Histogram(
     ["path"],
     buckets=(0.01, 0.05, 0.1, 0.25, 1.0, 2.5),
 )
+
+# ── Active users ──────────────────────────────────────────────────────────────
+# Bounded replacement for the removed user_page_views_total (which cost
+# username × path series — 12.9k at peak). The distinct-user count is computed
+# app-side from in-memory last-seen timestamps and exported as ONE series per
+# window by _ActiveUsersCollector, so cardinality is fixed regardless of how
+# many users exist. Resets on deploy (in-memory), like every other gauge here.
+
+_ACTIVE_WINDOWS: dict[str, float] = {"1h": 3600.0, "24h": 86400.0}
+_user_last_seen: dict[str, float] = {}
+
+
+def record_user_seen(user_id: str) -> None:
+    """Stamp an authenticated user as active now (called from the metrics
+    middleware). Dict ops are atomic under the GIL; scrape-side reads snapshot."""
+    now = time.time()
+    _user_last_seen[user_id] = now
+    # Prune only if the dict somehow grows far past the real user count so a
+    # long-lived process can't accumulate unboundedly.
+    if len(_user_last_seen) > 2048:
+        cutoff = now - max(_ACTIVE_WINDOWS.values())
+        for key in [k for k, ts in _user_last_seen.items() if ts < cutoff]:
+            _user_last_seen.pop(key, None)
+
+
+class _ActiveUsersCollector(Collector):
+    """Emit active_users{window=} at scrape time from the last-seen map."""
+
+    def collect(self):  # type: ignore[override]
+        g = GaugeMetricFamily(
+            "active_users",
+            "Distinct authenticated users seen within the trailing window",
+            labels=["window"],
+        )
+        now = time.time()
+        stamps = list(_user_last_seen.values())
+        for label, span in _ACTIVE_WINDOWS.items():
+            g.add_metric([label], float(sum(1 for ts in stamps if now - ts <= span)))
+        yield g
+
 
 # ── Cache metrics ─────────────────────────────────────────────────────────────
 # Labels: cache = character | guild | claim
@@ -328,6 +369,7 @@ def _register_db_collector() -> None:
         REGISTRY.register(_DBCollector())
         REGISTRY.register(_DBFileSizeCollector())
         REGISTRY.register(_CensusHealthCollector())
+        REGISTRY.register(_ActiveUsersCollector())
         _db_collector_registered = True
 
 

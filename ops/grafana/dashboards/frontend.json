@@ -106,6 +106,21 @@
     },
 
     {
+      "id": 4, "type": "stat", "title": "Active users (last 1 h)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Distinct authenticated users seen in the last hour. Computed app-side (active_users gauge, one series per window) — never re-add per-user metric labels.",
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "expr": "active_users{job=\"eq2companion\",window=\"1h\"}",
+        "legendFormat": "users", "refId": "A" }]
+    },
+
+    {
       "id": 5, "type": "timeseries", "title": "HTTP requests / sec by status code",
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },

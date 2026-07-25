@@ -41,3 +41,37 @@ def test_should_track_path_skips_static_mounts():
     for skipped in ("/assets/app.js", "/class-icons/13.png", "/spell-icons/1.png", "/metrics"):
         assert not metrics.should_track_path(skipped)
     assert metrics.should_track_path("/api/character/Foo")
+
+
+def _active_counts() -> dict[str, float]:
+    (family,) = metrics._ActiveUsersCollector().collect()
+    return {sample.labels["window"]: sample.value for sample in family.samples}
+
+
+def test_active_users_counts_per_window(monkeypatch):
+    """Distinct-user counts are computed app-side from last-seen stamps —
+    fixed 2-series cardinality regardless of user count (the whole point of
+    replacing user_page_views_total)."""
+    monkeypatch.setattr(metrics, "_user_last_seen", {})
+    now = 1_800_000_000.0
+    monkeypatch.setattr(metrics.time, "time", lambda: now)
+
+    assert _active_counts() == {"1h": 0.0, "24h": 0.0}
+
+    metrics.record_user_seen("111")
+    metrics.record_user_seen("222")
+    metrics.record_user_seen("111")  # repeat visits stay one user
+    metrics._user_last_seen["333"] = now - 7200  # 2h ago: out of 1h, in 24h
+    metrics._user_last_seen["444"] = now - 100_000  # out of both windows
+
+    assert _active_counts() == {"1h": 2.0, "24h": 3.0}
+
+
+def test_record_user_seen_prunes_stale_entries(monkeypatch):
+    monkeypatch.setattr(metrics, "_user_last_seen", {})
+    now = 1_800_000_000.0
+    monkeypatch.setattr(metrics.time, "time", lambda: now)
+    for i in range(2049):
+        metrics._user_last_seen[str(i)] = now - 100_000  # all stale
+    metrics.record_user_seen("fresh")
+    assert metrics._user_last_seen == {"fresh": now}
