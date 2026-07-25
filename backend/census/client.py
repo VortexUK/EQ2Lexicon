@@ -452,6 +452,110 @@ class CensusClient:
             sets.append(GearSet(name=name, equipment=equipment))
         return sets
 
+    # ── Lifetime statistics (the character.stat aggregate family) ────────────
+
+    @staticmethod
+    def _list_of(data: dict) -> list:
+        """Census wraps rows in a '<collection>_list' key — grab it by suffix."""
+        for key, value in data.items():
+            if key.endswith("_list") and isinstance(value, list):
+                return value
+        return []
+
+    async def get_stat_aggregates(self) -> dict | None:
+        """The three character.stat aggregate collections, refreshed daily by
+        Census: per-class global rows (id=classid or 'all'), per-world rows
+        (id=worldid), and the world×class matrix (id='worldid.classid',
+        paginated at 100/request). Returns
+        ``{"global": [...], "world": [...], "world_class": [...]}`` or None
+        when any fetch fails (partial aggregates would mislead)."""
+        # The matrix is ~1095 rows paginated at 100/request — fire the whole
+        # page fan (plus global+world) concurrently instead of serially; the
+        # build drops from ~10s to one census round-trip.
+        page_starts = list(range(0, 1300, 100))
+        results = await asyncio.gather(
+            self._census_get("character.stat.global/", {"c:limit": "40"}),
+            self._census_get("character.stat.world/", {"c:limit": "80"}),
+            *[self._census_get("character.stat/", {"c:limit": "100", "c:start": str(s)}) for s in page_starts],
+        )
+        g, w, *pages = results
+        if g is None or w is None:
+            return None
+        world_class: list = []
+        for p in pages:
+            if p is None:
+                return None
+            world_class.extend(self._list_of(p))
+        return {"global": self._list_of(g), "world": self._list_of(w), "world_class": world_class}
+
+    async def get_stat_leaders(
+        self,
+        world: str,
+        sort_path: str,
+        limit: int = 10,
+        extra_filter: dict[str, str] | None = None,
+        show: str = "statistics",
+    ) -> list[dict] | None:
+        """Characters on ``world`` ordered by a census field, name+class+
+        value shape. ``sort_path`` is the census sort key (single-value stats
+        sort on 'statistics.kills'; ratio-style need '...value'). ``show``
+        selects the payload subtree ('statistics' for lifetime stats,
+        'stats' for combat snapshots). None on census failure."""
+        params = {
+            "locationdata.world": world,
+            "c:sort": f"{sort_path}:-1",
+            "c:show": f"name.first,type.class,type.level,{show}",
+            "c:limit": str(limit),
+            **(extra_filter or {}),
+        }
+        data = await self._census_get("character/", params, timeout_s=20)
+        return self._list_of(data) if data is not None else None
+
+    async def get_stat_range(
+        self, world: str, stat_value_path: str, minimum: float, limit: int = 200
+    ) -> list[dict] | None:
+        """Characters on ``world`` whose statistic exceeds ``minimum`` —
+        unsorted (census can't sort two-key stat objects like max_melee_hit;
+        the caller sorts client-side). None on census failure."""
+        params = {
+            "locationdata.world": world,
+            stat_value_path: f"]{minimum:.0f}",
+            "c:show": "name.first,type.class,type.level,statistics",
+            "c:limit": str(limit),
+        }
+        data = await self._census_get("character/", params, timeout_s=20)
+        return self._list_of(data) if data is not None else None
+
+    async def get_character_statistics(self, name: str, world: str) -> dict | None:
+        """One character's lifetime ``statistics`` object (kills, deaths,
+        biggest hits w/ ability crcs, crafts, rare harvests). None when the
+        character is unknown or census fails."""
+        params = {
+            "name.first": name,
+            "locationdata.world": world,
+            "c:show": "name.first,type.class,statistics",
+            "c:limit": "1",
+        }
+        data = await self._census_get("character/", params)
+        if data is None:
+            return None
+        rows = self._list_of(data)
+        return rows[0] if rows else None
+
+    async def get_worldid(self, world: str) -> int | None:
+        """Resolve a world name to its numeric census id (the key the
+        character.stat aggregates use) by probing one character's
+        locationdata. None when the world has no census characters."""
+        params = {"locationdata.world": world, "c:show": "locationdata.worldid", "c:limit": "1"}
+        data = await self._census_get("character/", params)
+        if data is None:
+            return None
+        rows = self._list_of(data)
+        try:
+            return int(rows[0]["locationdata"]["worldid"]) if rows else None
+        except (KeyError, TypeError, ValueError):
+            return None
+
     async def get_character_aas(self, name: str, world: str) -> CharacterAAs | None:
         params = {
             "name.first": name,

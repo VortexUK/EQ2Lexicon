@@ -78,6 +78,8 @@ from backend.server.api.rankings import router as rankings_router
 from backend.server.api.recipes import router as recipes_router
 from backend.server.api.role_requests import router as role_requests_router
 from backend.server.api.server import router as server_router
+from backend.server.api.stats import prewarm_server_stats
+from backend.server.api.stats import router as stats_router
 from backend.server.api.supporters import router as supporters_router
 from backend.server.api.zones import router as zones_router
 from backend.server.api.zones_admin import router as zones_admin_router
@@ -486,6 +488,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
         tasks: list[asyncio.Task] = [
             asyncio.create_task(prewarm_character_cache(), name="prewarm-character-cache"),
+            asyncio.create_task(prewarm_server_stats(), name="prewarm-server-stats"),
             asyncio.create_task(_cache_sweep_loop(), name="cache-sweep-loop"),
             asyncio.create_task(census_health.poll_loop(), name="census-health-poll"),
             asyncio.create_task(_parse_cleanup_loop(), name="parse-cleanup-loop"),
@@ -627,6 +630,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         role_requests_router,
         census_router,
         server_router,
+        stats_router,
         supporters_router,
     ]
     for _r in _ROUTERS:

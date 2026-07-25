@@ -502,6 +502,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
               deltas={activeSet ? activeSet.stat_deltas : null}
               onStatHover={setHoveredStat}
               onStatLeave={() => setHoveredStat(null)} />
+            <LifetimePanel charName={char.name} />
           </div>
 
           {/* Right: paperdoll */}
@@ -572,6 +573,47 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
 
       {tooltip && <ItemTooltip state={tooltip} />}
     </div>
+  )
+}
+
+// ── Lifetime statistics (census character statistics object) ─────────────────
+
+interface LifetimeStats {
+  character_name: string
+  kills: number | null
+  deaths: number | null
+  kills_deaths_ratio: number | null
+  max_melee_hit: number | null
+  max_melee_ability: string | null
+  max_magic_hit: number | null
+  max_magic_ability: string | null
+  items_crafted: number | null
+  rare_harvests: number | null
+  class_avg_kills: number | null
+  class_avg_kd: number | null
+}
+
+function LifetimePanel({ charName }: { charName: string }) {
+  const { data } = useFetch<LifetimeStats>(`/api/stats/character/${encodeURIComponent(charName)}`)
+  if (!data || data.kills == null) return null // no lifetime data → no panel
+  const hit = (value: number | null, ability: string | null) =>
+    value == null ? null : ability ? `${value.toLocaleString()} (${ability})` : value.toLocaleString()
+  return (
+    <StatGroup title="Lifetime">
+      <StatRow label="Kills" value={data.kills} fmt="int" />
+      <StatRow label="Deaths" value={data.deaths} fmt="int" />
+      <StatRow label="K/D Ratio" value={data.kills_deaths_ratio} fmt="dec1" />
+      <StatRow label="Biggest Melee Hit" value={hit(data.max_melee_hit, data.max_melee_ability)} />
+      <StatRow label="Biggest Magic Hit" value={hit(data.max_magic_hit, data.max_magic_ability)} />
+      <StatRow label="Items Crafted" value={data.items_crafted} fmt="int" />
+      <StatRow label="Rare Harvests" value={data.rare_harvests} fmt="int" />
+      {data.class_avg_kills != null && (
+        <div className="pt-1 pb-[2px] text-[0.68rem] text-text-muted">
+          Class average on this server: {Math.round(data.class_avg_kills).toLocaleString()} kills
+          {data.class_avg_kd != null ? ` · ${data.class_avg_kd.toFixed(1)} K/D` : ''}
+        </div>
+      )}
+    </StatGroup>
   )
 }
 

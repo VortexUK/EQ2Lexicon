@@ -1,0 +1,10 @@
+# npm audit ignore list for the CI security job (.github/workflows/ci.yml).
+#
+# Format: one GHSA ID per line (first whitespace-delimited token); the rest
+# of the line is free for a rationale. Blank lines and lines starting with
+# `#` are ignored. Same convention as ../.pip-audit-ignore.
+#
+# Prefer fixing the advisory by bumping the dep. Use this file only for
+# accepted-risk items or advisories that don't apply to how we ship.
+
+GHSA-qwww-vcr4-c8h2  react-router RSC-mode CSRF (actions run before 400). Not applicable: this app is a client-only SPA (BrowserRouter, no RSC / server actions). No 7.x patch exists — fixed only in react-router 8.3.0 (major). Remove this line when we take the v8 upgrade.

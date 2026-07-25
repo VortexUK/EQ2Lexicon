@@ -92,7 +92,7 @@ const TANK_SET: GearSet = {
 }
 const DPS_SET: GearSet = { name: 'DPS', ilvl: 58, stat_deltas: {}, equipment: [slot('Head', 'Deeps Helm')] }
 
-function stubFetch(opts: { char: Character; sets?: GearSet[]; items?: Record<string, unknown> }) {
+function stubFetch(opts: { char: Character; sets?: GearSet[]; items?: Record<string, unknown>; lifetime?: Record<string, unknown> }) {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
     if (url.includes('/gear-sets')) {
@@ -105,6 +105,11 @@ function stubFetch(opts: { char: Character; sets?: GearSet[]; items?: Record<str
     }
     if (url.includes('/favorite')) return ok({ count: 0, favorited_by_me: false })
     if (url.includes('/api/claim/me')) return ok({ approved: [], pending: [] })
+    if (url.includes('/api/stats/character/')) {
+      return ok(
+        opts.lifetime ?? { character_name: opts.char.name, kills: null },
+      )
+    }
     if (url.includes('/api/config')) return ok({})
     if (url.includes('/api/classes')) return ok([])
     if (url.match(/\/api\/character\/[^/]+$/)) return ok(opts.char)
@@ -202,6 +207,34 @@ const itemDetail = (over: Record<string, unknown>) => ({
   quality: 'FABLED', stats: [], effects: [], adornment_slots: [], flags: [],
   extra_info: [], mitigation: null, set_name: null, set_bonuses: [],
   ...over,
+})
+
+describe('CharacterPage lifetime stats', () => {
+  it('renders the Lifetime panel with ability-named record hits', async () => {
+    stubFetch({
+      char: mkChar('Lifey'),
+      lifetime: {
+        character_name: 'Lifey', kills: 17286, deaths: 140, kills_deaths_ratio: 123.5,
+        max_melee_hit: 125009, max_melee_ability: 'Frenzy II',
+        max_magic_hit: 66938, max_magic_ability: null,
+        items_crafted: 2243, rare_harvests: 0,
+        class_avg_kills: 6843.5, class_avg_kd: 160.2,
+      },
+    })
+    renderAt('/character/Lifey')
+    expect(await screen.findByText('Lifetime')).toBeInTheDocument()
+    expect(screen.getByText('17,286')).toBeInTheDocument()
+    expect(screen.getByText('125,009 (Frenzy II)')).toBeInTheDocument()
+    expect(screen.getByText('66,938')).toBeInTheDocument() // unnamed crc → bare value
+    expect(screen.getByText(/Class average on this server: 6,844 kills/)).toBeInTheDocument()
+  })
+
+  it('hides the panel when the character has no lifetime data', async () => {
+    stubFetch({ char: mkChar('Nolife') })
+    renderAt('/character/Nolife')
+    expect(await screen.findByText('Current Helm')).toBeInTheDocument()
+    expect(screen.queryByText('Lifetime')).not.toBeInTheDocument()
+  })
 })
 
 describe('CharacterPage set bonuses', () => {
