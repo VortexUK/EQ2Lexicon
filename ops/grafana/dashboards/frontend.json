@@ -106,21 +106,6 @@
     },
 
     {
-      "id": 4, "type": "stat", "title": "Active users (last 1 h)",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Distinct authenticated usernames that hit at least one tracked page in the last hour.",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "none", "textMode": "auto"
-      },
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "count(count by(username) (increase(user_page_views_total{job=\"eq2companion\"}[1h]) > 0))",
-        "legendFormat": "users", "refId": "A" }]
-    },
-
-    {
       "id": 5, "type": "timeseries", "title": "HTTP requests / sec by status code",
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -152,39 +137,6 @@
       "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
         "expr": "histogram_quantile(0.95, sum by(le, path) (rate(http_request_duration_seconds_bucket{job=\"eq2companion\"}[5m])))",
         "legendFormat": "{{path}}", "refId": "A" }]
-    },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 101, "title": "Per-user activity", "type": "row" },
-
-    {
-      "id": 10, "type": "timeseries", "title": "Page views per user (5 m rate)",
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 15 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Cardinality bounded by ~users × ~routes — currently well under 1k series.",
-      "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": []
-      },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "sum by(username) (rate(user_page_views_total{job=\"eq2companion\"}[5m]))",
-        "legendFormat": "{{username}}", "refId": "A" }]
-    },
-
-    {
-      "id": 11, "type": "table", "title": "Top pages by user (last 1 h)",
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 15 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Username × route view counts for the last hour. Sort by Value desc.",
-      "fieldConfig": { "defaults": { "custom": { "align": "auto" } }, "overrides": [] },
-      "options": { "showHeader": true, "footer": { "show": false } },
-      "targets": [{
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "topk(20, sum by(username, path) (increase(user_page_views_total{job=\"eq2companion\"}[1h])))",
-        "format": "table", "instant": true, "refId": "A"
-      }],
-      "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "job": true, "instance": true, "__name__": true } } }
-      ]
     }
 
   ]

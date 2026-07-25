@@ -23,17 +23,28 @@ from prometheus_client import (
     Gauge,
     Histogram,
     Info,
+    disable_created_metrics,
 )
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.registry import Collector
 
 from backend.sql_loader import load_sql
 
+# The OpenMetrics *_created companion series double the series count of every
+# counter/histogram and nothing reads them (Grafana cardinality dashboard
+# flagged them all "Unused"). Kill them globally before any metric is defined.
+disable_created_metrics()
+
 _SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
 # ── HTTP request metrics ──────────────────────────────────────────────────────
+# Cardinality discipline (2026-07 Grafana free-tier overrun): labels only ever
+# take bounded values — route templates via normalize_http_labels (never raw
+# URL paths, which bot scans mint by the thousand) and a fixed method
+# vocabulary. The latency histogram deliberately has NO method label: each
+# extra label combo costs ~(buckets + 2) series and no dashboard queried it.
 
 HTTP_REQUESTS = Counter(
     "http_requests_total",
@@ -44,18 +55,8 @@ HTTP_REQUESTS = Counter(
 HTTP_REQUEST_DURATION = Histogram(
     "http_request_duration_seconds",
     "HTTP request latency",
-    ["method", "path"],
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
-)
-
-# ── Per-user page view metrics ─────────────────────────────────────────────────
-# Tracks authenticated GET requests by Discord username and route template.
-# Cardinality: ~users × ~routes — stays well under 1 k series for a guild tool.
-
-USER_PAGE_VIEWS = Counter(
-    "user_page_views_total",
-    "Successful authenticated GET requests by user and route",
-    ["username", "path"],
+    ["path"],
+    buckets=(0.01, 0.05, 0.1, 0.25, 1.0, 2.5),
 )
 
 # ── Cache metrics ─────────────────────────────────────────────────────────────
@@ -348,16 +349,8 @@ _SKIP_PREFIXES = (
     "/icons/",
     "/aa-assets/",
     "/spell-icons/",
+    "/class-icons/",
     "/metrics",
-)
-
-# Routes excluded from per-user page-view tracking (still counted in
-# HTTP_REQUESTS).  Add polling/background endpoints here so they don't
-# inflate individual user activity graphs.
-_USER_VIEW_SKIP = frozenset(
-    [
-        "/api/notifications",
-    ]
 )
 
 
@@ -365,10 +358,23 @@ def should_track_path(path: str) -> bool:
     return not any(path.startswith(p) for p in _SKIP_PREFIXES)
 
 
-def should_track_user_view(route_path: str) -> bool:
-    """Return False for background/polling routes that shouldn't count as
-    meaningful page views in the per-user USER_PAGE_VIEWS metric."""
-    return route_path not in _USER_VIEW_SKIP
+# ── Label normalisation (cardinality guard) ──────────────────────────────────
+# Requests that match no route (bot probes with POST/PUT on arbitrary paths)
+# have no template — labelling them with the raw URL mints a permanent series
+# per probe path (prometheus_client never forgets a label combo). Collapse
+# them all into one bucket; ditto garbage HTTP verbs (PROPFIND, TRACK, …).
+
+UNMATCHED_PATH = "(unmatched)"
+
+_KNOWN_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+
+
+def normalize_http_labels(method: str, route_path: str | None) -> tuple[str, str]:
+    """Return (method, path) label values with bounded cardinality."""
+    method = method.upper()
+    if method not in _KNOWN_METHODS:
+        method = "OTHER"
+    return method, route_path if route_path else UNMATCHED_PATH
 
 
 # ── Token check ───────────────────────────────────────────────────────────────

@@ -96,11 +96,10 @@ from backend.server.metrics import (
     APP_INFO_LEGACY,
     HTTP_REQUEST_DURATION,
     HTTP_REQUESTS,
-    USER_PAGE_VIEWS,
     _register_db_collector,
     check_metrics_auth,
+    normalize_http_labels,
     should_track_path,
-    should_track_user_view,
 )
 from backend.server.server_context import ServerContextMiddleware
 
@@ -235,7 +234,10 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 class _MetricsMiddleware(BaseHTTPMiddleware):
     """Records per-route request count and latency using the matched route
     template (e.g. /api/character/{name}) rather than the raw path, so
-    label cardinality stays low."""
+    label cardinality stays low. Requests that match no route (bot probes)
+    collapse into a single "(unmatched)" path label — labelling them with
+    the raw URL minted a permanent series per probe path and blew through
+    the Grafana Cloud free-tier series limit (2026-07)."""
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         start = time.perf_counter()
@@ -244,18 +246,14 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
         if should_track_path(path):
-            # Prefer the route template; fall back to raw path
             route = request.scope.get("route")
-            label_path = getattr(route, "path", path)
+            method, label_path = normalize_http_labels(request.method, getattr(route, "path", None))
             HTTP_REQUESTS.labels(
-                method=request.method,
+                method=method,
                 path=label_path,
                 status_code=str(response.status_code),
             ).inc()
-            HTTP_REQUEST_DURATION.labels(
-                method=request.method,
-                path=label_path,
-            ).observe(elapsed)
+            HTTP_REQUEST_DURATION.labels(path=label_path).observe(elapsed)
 
             # Server-error counter for the Databases dashboard. Only 5xx — 4xx
             # is mostly user error (auth, validation) and would drown out the
@@ -264,17 +262,6 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
             # offending endpoint without exploding label cardinality.
             if response.status_code >= 500:
                 APP_ERRORS.labels(source=label_path).inc()
-
-            # Per-user page views: authenticated GET requests only.
-            # Session is already populated by SessionMiddleware (runs before us).
-            # Polling/background endpoints are excluded via should_track_user_view.
-            if request.method == "GET" and response.status_code < 400 and should_track_user_view(label_path):
-                user = request.session.get("user")
-                if user:
-                    USER_PAGE_VIEWS.labels(
-                        username=user.get("username", "unknown"),
-                        path=label_path,
-                    ).inc()
 
         return response
 
