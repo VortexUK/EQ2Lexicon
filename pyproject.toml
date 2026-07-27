@@ -25,7 +25,7 @@ dependencies = [
     # work cross-platform.
     "tzdata>=2026.3",
     # Observability
-    "prometheus-client>=0.20.0",
+    "prometheus-client>=0.26.0",
     # Reference-data pipeline: parse MediaWiki wikitext from EQ2i for the
     # raid-strategies feature. Used by scripts/dev/scrape_eq2i_raids.py
     # and backend/census/wikitext_md.py (the wikitext→markdown converter).
