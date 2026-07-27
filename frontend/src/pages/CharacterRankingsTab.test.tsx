@@ -106,6 +106,41 @@ describe('CharacterRankingsTab', () => {
     expect(screen.queryByText("Veeshan's Peak")).not.toBeInTheDocument()
   })
 
+  it('scope dropdown defaults to raids and switches to heroics', () => {
+    archetype = 'Fighter'
+    renderTab({
+      ...DATA,
+      zones: [
+        { ...DATA.zones[0], zone: 'Emerald Halls', scope: 'raid', expansion: 'KoS' },
+        { ...DATA.zones[0], zone: 'Obelisk of Blight', scope: 'group', expansion: 'KoS' },
+      ],
+    })
+    // Raids by default — the heroic section is hidden.
+    expect(screen.getByText('Emerald Halls')).toBeInTheDocument()
+    expect(screen.queryByText('Obelisk of Blight')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Content type'), { target: { value: 'group' } })
+    expect(screen.getByText('Obelisk of Blight')).toBeInTheDocument()
+    expect(screen.queryByText('Emerald Halls')).not.toBeInTheDocument()
+  })
+
+  it('falls back to heroics when the character has no raid kills', () => {
+    archetype = 'Fighter'
+    renderTab({
+      ...DATA,
+      zones: [{ ...DATA.zones[0], zone: 'Obelisk of Blight', scope: 'group', expansion: 'KoS' }],
+    })
+    expect(screen.getByText('Obelisk of Blight')).toBeInTheDocument()
+  })
+
+  it('shows an empty state when the filter combo has no kills', () => {
+    archetype = 'Fighter'
+    renderTab() // raid-only fixture
+    expect(screen.queryByText(/No ranked/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Content type'), { target: { value: 'group' } })
+    expect(screen.getByText(/No ranked heroic kills in this expansion/)).toBeInTheDocument()
+    expect(screen.queryByText('Deathtoll')).not.toBeInTheDocument()
+  })
+
   it('shows dashes for a metric the character never parsed', () => {
     archetype = 'Fighter'
     renderTab({

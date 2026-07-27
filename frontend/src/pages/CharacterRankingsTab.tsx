@@ -69,7 +69,12 @@ export default function CharacterRankingsTab({ data }: { data: CharacterRankings
   // Expansion filter — the server sends only expansions this character has
   // ranked kills in, newest first.
   const [xpac, setXpac] = useState(() => data.expansions[0]?.short ?? '')
-  const zones = xpac ? data.zones.filter(z => z.expansion === xpac) : data.zones
+  // Scope filter — raids by default; fall back to heroics only when the
+  // character has no raid sections at all.
+  const [scope, setScope] = useState<'raid' | 'group'>(() =>
+    data.zones.some(z => z.scope === 'raid') ? 'raid' : 'group',
+  )
+  const zones = data.zones.filter(z => z.scope === scope && (!xpac || z.expansion === xpac))
 
   return (
     <div className="mt-4">
@@ -86,6 +91,15 @@ export default function CharacterRankingsTab({ data }: { data: CharacterRankings
             ))}
           </select>
         )}
+        <select
+          value={scope}
+          onChange={e => setScope(e.target.value as 'raid' | 'group')}
+          className="px-2 py-1 text-[0.82rem]"
+          aria-label="Content type"
+        >
+          <option value="raid">Raids</option>
+          <option value="group">Heroics</option>
+        </select>
         {(['dps', 'hps'] as Metric[]).map(m => (
           <button
             key={m}
@@ -101,6 +115,12 @@ export default function CharacterRankingsTab({ data }: { data: CharacterRankings
           Percentiles are against other {data.cls ?? 'class'}s on this server.
         </span>
       </div>
+
+      {zones.length === 0 && (
+        <p className="text-text-muted text-[0.85rem] mb-4">
+          No ranked {scope === 'raid' ? 'raid' : 'heroic'} kills{xpac ? ' in this expansion' : ''}.
+        </p>
+      )}
 
       {zones.map(zone => {
         const allstars = metric === 'dps' ? zone.dps_allstars : zone.hps_allstars
