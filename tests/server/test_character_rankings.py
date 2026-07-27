@@ -36,6 +36,22 @@ def _kill(kid: int, boss: str, duration: int, combatants: list[dict], *, zone: s
     }
 
 
+# The curated universe the tab is gated to — mirrors _cached_zones_data's
+# (boss_index, raid_tree, dungeon_tree) shape. "Uncurated Keep" is absent on
+# purpose: kills there must never surface.
+FAKE_TREES = (
+    {},
+    [
+        {
+            "zone": "Deathtoll",
+            "expansion": "KoS",
+            "expansion_name": "Kingdom of Sky",
+            "bosses": ["Tarinax the Destroyer", "Xerkizh The Creator"],
+        }
+    ],
+    [],
+)
+
 # Tarinax: Templar pool = [1000, 1200, 2000] (Menlu twice, Elesine once).
 # Wizard pool = [5000]. Elesine also solo-kills Xerkizh (boss the target
 # never killed) — it must still count toward zone All Stars coverage.
@@ -65,6 +81,17 @@ KILLS = [
         [
             _combatant("Elesine", "Templar", 1800, hps=3500),
         ],
+    ),
+    # Heuristic-matched named in an uncurated zone — huge score, but it must
+    # never appear in the tab nor pollute any pool.
+    _kill(
+        4,
+        "A Very Big Named",
+        120,
+        [
+            _combatant("Menlu", "Templar", 99_999, hps=99_999),
+        ],
+        zone="Uncurated Keep",
     ),
 ]
 
@@ -140,6 +167,35 @@ def test_unranked_character_gets_empty_zones():
     assert resp.cls is None
 
 
+def test_uncurated_kills_are_excluded_and_expansions_listed():
+    """Only curated rankings content surfaces: Menlu's 99,999-DPS kill in
+    'Uncurated Keep' must not appear anywhere — no boss row, no pool
+    pollution. Zone sections carry the expansion tag for the dropdown."""
+    resp = mod._build_character_rankings("Menlu", "Wuoshi")
+    (zone,) = resp.zones  # only the curated Deathtoll section
+    assert zone.zone == "Deathtoll"
+    assert zone.expansion == "KoS"
+    assert [b.boss for b in zone.bosses] == ["Tarinax the Destroyer"]
+    assert [e.model_dump() for e in resp.expansions] == [{"short": "KoS", "name": "Kingdom of Sky"}]
+    # The uncurated monster score never entered the Templar pool: the best
+    # percentile still ranks against [1000, 1200, 2000] only.
+    assert zone.bosses[0].dps is not None
+    assert zone.bosses[0].dps.best_pct == 50
+
+
+def test_character_with_only_uncurated_kills_gets_empty_zones():
+    """A character whose parses are all heuristic-matched noise gets zones=[]
+    — the tab stays hidden for them."""
+    solo = mod._build_character_rankings("Menlu", "Wuoshi")
+    assert solo.zones  # sanity: Menlu has curated kills
+
+    uncurated_only = [k for k in KILLS if k["zone"] == "Uncurated Keep"]
+    with patch.object(mod, "_cached_kills", lambda world: uncurated_only):
+        resp = mod._build_character_rankings("Menlu", "Wuoshi")
+    assert resp.zones == []
+    assert resp.expansions == []
+
+
 @pytest.mark.asyncio
 async def test_endpoint_serves_and_validates(app):
     with (
@@ -159,3 +215,4 @@ async def test_endpoint_serves_and_validates(app):
 @pytest.fixture(autouse=True)
 def _fake_kills(monkeypatch):
     monkeypatch.setattr(mod, "_cached_kills", lambda world: KILLS)
+    monkeypatch.setattr(mod, "_cached_zones_data", lambda: FAKE_TREES)

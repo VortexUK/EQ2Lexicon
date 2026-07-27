@@ -27,7 +27,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
 from backend.server.api.character import router
-from backend.server.api.rankings import _cached_kills, _is_player_combatant
+from backend.server.api.rankings import _cached_kills, _cached_zones_data, _is_player_combatant
 from backend.server.auth_deps import require_user_session as _require_user
 from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_character_name
@@ -65,15 +65,45 @@ class ZoneAllStars(BaseModel):
 class ZoneRankings(BaseModel):
     zone: str
     scope: str  # "raid" | "group"
+    expansion: str | None = None  # short code from zones.db ("EoF", "RoK")
     bosses: list[BossRankingRow]
     dps_allstars: ZoneAllStars | None = None
     hps_allstars: ZoneAllStars | None = None
+
+
+class ExpansionOption(BaseModel):
+    short: str
+    name: str
 
 
 class CharacterRankingsResponse(BaseModel):
     name: str
     cls: str | None = None
     zones: list[ZoneRankings]
+    # Expansions (newest first) the character has ranked kills in — drives
+    # the tab's expansion dropdown.
+    expansions: list[ExpansionOption] = []
+
+
+def _curated_content() -> tuple[dict[tuple[str, str], tuple[str | None, frozenset[str]]], dict[str, str], list[str]]:
+    """The curated (zone → bosses) universe from zones.db — the exact set the
+    rankings page dropdowns show. Returns (curated, expansion_names, order):
+      * curated: (scope, zone) → (expansion_short, frozenset(boss names))
+      * expansion_names: short → display name
+      * order: distinct expansion shorts, newest first (zones.db ordering)
+    """
+    _, raid_tree, dungeon_tree = _cached_zones_data()
+    curated: dict[tuple[str, str], tuple[str | None, frozenset[str]]] = {}
+    names: dict[str, str] = {}
+    order: list[str] = []
+    for scope, tree in (("raid", raid_tree), ("group", dungeon_tree)):
+        for entry in tree:
+            curated[(scope, entry["zone"])] = (entry["expansion"], frozenset(entry["bosses"]))
+            short = entry["expansion"]
+            if short and short not in names:
+                names[short] = entry.get("expansion_name") or short
+                order.append(short)
+    return curated, names, order
 
 
 def _rank_pct(score: float, pool: list[float]) -> int:
@@ -89,6 +119,7 @@ def _rank_pct(score: float, pool: list[float]) -> int:
 def _build_character_rankings(name: str, world: str) -> CharacterRankingsResponse:
     kills = _cached_kills(world)
     target = name.strip().lower()
+    curated, exp_names, exp_order = _curated_content()
 
     # One pass over the dataset. Keys are (zone, scope, boss).
     pools: dict[tuple, dict[str, dict[str, list[float]]]] = defaultdict(
@@ -104,6 +135,13 @@ def _build_character_rankings(name: str, world: str) -> CharacterRankingsRespons
     latest_cls: tuple[int, str] | None = None
 
     for k in kills:
+        # Only curated rankings content counts — the same (zone → bosses)
+        # universe the rankings page dropdowns show. Heuristic-matched kills
+        # (any capitalised mob in an uncurated zone) would otherwise flood
+        # the tab with every named the character ever logged.
+        cur = curated.get((k["scope"], k["zone"]))
+        if cur is None or k["title"] not in cur[1]:
+            continue
         key = (k["zone"], k["scope"], k["title"])
         for c in k["combatants"]:
             if not _is_player_combatant(c) or not c.get("cls"):
@@ -162,7 +200,7 @@ def _build_character_rankings(name: str, world: str) -> CharacterRankingsRespons
 
     zones: list[ZoneRankings] = []
     for (zone, scope), rows in sections.items():
-        z = ZoneRankings(zone=zone, scope=scope, bosses=rows)
+        z = ZoneRankings(zone=zone, scope=scope, expansion=curated[(scope, zone)][0], bosses=rows)
         # The target's class for this zone: their most recent parse's class
         # among the zone's bosses.
         cls = max(t_cls[k] for k in t_cls if k[0] == zone and k[1] == scope)[1]
@@ -194,7 +232,14 @@ def _build_character_rankings(name: str, world: str) -> CharacterRankingsRespons
 
     # Raid sections first, then dungeons; alphabetical within.
     zones.sort(key=lambda z: (z.scope != "raid", z.zone.lower()))
-    return CharacterRankingsResponse(name=name, cls=latest_cls[1] if latest_cls else None, zones=zones)
+    present = {z.expansion for z in zones if z.expansion}
+    expansions = [ExpansionOption(short=s, name=exp_names[s]) for s in exp_order if s in present]
+    return CharacterRankingsResponse(
+        name=name,
+        cls=latest_cls[1] if latest_cls else None,
+        zones=zones,
+        expansions=expansions,
+    )
 
 
 @router.get("/character/{name}/rankings", response_model=CharacterRankingsResponse)
