@@ -21,10 +21,12 @@ vi.mock('../useClasses', () => ({
 const DATA: CharacterRankings = {
   name: 'Ranker',
   cls: 'Templar',
+  expansions: [{ short: 'KoS', name: 'Kingdom of Sky' }],
   zones: [
     {
       zone: 'Deathtoll',
       scope: 'raid',
+      expansion: 'KoS',
       dps_allstars: { points: 160.5, rank: 2, out_of: 7 },
       hps_allstars: { points: 88, rank: 3, out_of: 5 },
       bosses: [
@@ -81,6 +83,27 @@ describe('CharacterRankingsTab', () => {
     expect(screen.getByText('Highest HPS')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Damage' }))
     expect(screen.getByText('Highest DPS')).toBeInTheDocument()
+  })
+
+  it('expansion dropdown filters zone sections, newest first by default', () => {
+    archetype = 'Fighter'
+    renderTab({
+      ...DATA,
+      expansions: [
+        { short: 'RoK', name: 'Rise of Kunark' },
+        { short: 'EoF', name: 'Echoes of Faydwer' },
+      ],
+      zones: [
+        { ...DATA.zones[0], zone: 'Veeshan\'s Peak', expansion: 'RoK' },
+        { ...DATA.zones[0], zone: 'Emerald Halls', expansion: 'EoF' },
+      ],
+    })
+    // Newest expansion selected by default → only its zone shows.
+    expect(screen.getByText("Veeshan's Peak")).toBeInTheDocument()
+    expect(screen.queryByText('Emerald Halls')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Expansion'), { target: { value: 'EoF' } })
+    expect(screen.getByText('Emerald Halls')).toBeInTheDocument()
+    expect(screen.queryByText("Veeshan's Peak")).not.toBeInTheDocument()
   })
 
   it('shows dashes for a metric the character never parsed', () => {

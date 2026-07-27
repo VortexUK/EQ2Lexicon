@@ -326,8 +326,9 @@ describe('CharacterPage rankings tab', () => {
   const RANKINGS = {
     name: 'Ranker',
     cls: 'Guardian',
+    expansions: [{ short: 'KoS', name: 'Kingdom of Sky' }],
     zones: [{
-      zone: 'Deathtoll', scope: 'raid',
+      zone: 'Deathtoll', scope: 'raid', expansion: 'KoS',
       dps_allstars: { points: 95.5, rank: 2, out_of: 7 }, hps_allstars: null,
       bosses: [{
         boss: 'Tarinax the Destroyer', kills: 8, fastest_s: 530, fastest_encounter_id: 42,

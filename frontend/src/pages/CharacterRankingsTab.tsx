@@ -38,6 +38,7 @@ export interface BossRankingRow {
 export interface ZoneRankings {
   zone: string
   scope: string
+  expansion: string | null
   bosses: BossRankingRow[]
   dps_allstars: { points: number; rank: number; out_of: number } | null
   hps_allstars: { points: number; rank: number; out_of: number } | null
@@ -47,6 +48,7 @@ export interface CharacterRankings {
   name: string
   cls: string | null
   zones: ZoneRankings[]
+  expansions: { short: string; name: string }[]
 }
 
 type Metric = 'dps' | 'hps'
@@ -64,10 +66,26 @@ export default function CharacterRankingsTab({ data }: { data: CharacterRankings
   const [metric, setMetric] = useState<Metric>(() =>
     data.cls && byName.get(data.cls)?.archetype === 'Priest' ? 'hps' : 'dps',
   )
+  // Expansion filter — the server sends only expansions this character has
+  // ranked kills in, newest first.
+  const [xpac, setXpac] = useState(() => data.expansions[0]?.short ?? '')
+  const zones = xpac ? data.zones.filter(z => z.expansion === xpac) : data.zones
 
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {data.expansions.length > 0 && (
+          <select
+            value={xpac}
+            onChange={e => setXpac(e.target.value)}
+            className="px-2 py-1 text-[0.82rem]"
+            aria-label="Expansion"
+          >
+            {data.expansions.map(e => (
+              <option key={e.short} value={e.short}>{e.name}</option>
+            ))}
+          </select>
+        )}
         {(['dps', 'hps'] as Metric[]).map(m => (
           <button
             key={m}
@@ -84,7 +102,7 @@ export default function CharacterRankingsTab({ data }: { data: CharacterRankings
         </span>
       </div>
 
-      {data.zones.map(zone => {
+      {zones.map(zone => {
         const allstars = metric === 'dps' ? zone.dps_allstars : zone.hps_allstars
         return (
           <div key={`${zone.zone}-${zone.scope}`} className="mb-6">
