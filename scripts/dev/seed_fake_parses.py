@@ -214,7 +214,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--character", help="target character name (as you'd browse them on the site)")
     ap.add_argument("--cls", default="Templar", help="target character's class (default Templar)")
-    ap.add_argument("--world", default=os.getenv("EQ2_WORLD", "Varsoon"), help="world stamp (default EQ2_WORLD/Varsoon)")
+    ap.add_argument(
+        "--world", default=os.getenv("EQ2_WORLD", "Varsoon"), help="world stamp (default EQ2_WORLD/Varsoon)"
+    )
     ap.add_argument("--wipe", action="store_true", help="remove all fake-seed rows and exit")
     args = ap.parse_args()
 
