@@ -92,11 +92,20 @@ const TANK_SET: GearSet = {
 }
 const DPS_SET: GearSet = { name: 'DPS', ilvl: 58, stat_deltas: {}, equipment: [slot('Head', 'Deeps Helm')] }
 
-function stubFetch(opts: { char: Character; sets?: GearSet[]; items?: Record<string, unknown>; lifetime?: Record<string, unknown> }) {
+function stubFetch(opts: {
+  char: Character
+  sets?: GearSet[]
+  items?: Record<string, unknown>
+  lifetime?: Record<string, unknown>
+  rankings?: Record<string, unknown>
+}) {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
     if (url.includes('/gear-sets')) {
       return ok({ character_name: opts.char.name, sets: opts.sets ?? [] })
+    }
+    if (url.includes('/rankings')) {
+      return ok(opts.rankings ?? { name: opts.char.name, cls: null, zones: [] })
     }
     const itemMatch = url.match(/\/api\/item\/(\d+)/)
     if (itemMatch) {
@@ -307,5 +316,45 @@ describe('CharacterPage set bonuses', () => {
     // Back to current gear → section disappears again
     fireEvent.click(screen.getByRole('button', { name: 'Current' }))
     await waitFor(() => expect(screen.queryByText('Set Bonuses')).not.toBeInTheDocument())
+  })
+})
+
+// ── Rankings tab gating ──────────────────────────────────────────────────────
+// The tab only exists once the eager /rankings fetch returns ≥1 ranked zone.
+
+describe('CharacterPage rankings tab', () => {
+  const RANKINGS = {
+    name: 'Ranker',
+    cls: 'Guardian',
+    zones: [{
+      zone: 'Deathtoll', scope: 'raid',
+      dps_allstars: { points: 95.5, rank: 2, out_of: 7 }, hps_allstars: null,
+      bosses: [{
+        boss: 'Tarinax the Destroyer', kills: 8, fastest_s: 530, fastest_encounter_id: 42,
+        dps: { best_pct: 99, best_score: 40901.4, median_pct: 91, encounter_id: 41, points: 95.5, rank: 2, out_of: 7 },
+        hps: null,
+      }],
+    }],
+  }
+
+  it('is hidden for a character with no ranked kills', async () => {
+    stubFetch({ char: mkChar('Norank') })
+    renderAt('/character/Norank')
+    await screen.findByRole('button', { name: 'Spells' })
+    // Wait for the rankings fetch to settle before asserting absence.
+    await waitFor(() =>
+      expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/rankings'))).toBe(true),
+    )
+    expect(screen.queryByRole('button', { name: 'Rankings' })).not.toBeInTheDocument()
+  })
+
+  it('appears with ranked kills and renders the board', async () => {
+    stubFetch({ char: mkChar('Ranker'), rankings: RANKINGS })
+    renderAt('/character/Ranker')
+    const tab = await screen.findByRole('button', { name: 'Rankings' })
+    fireEvent.click(tab)
+    expect(await screen.findByRole('link', { name: 'Tarinax the Destroyer' })).toHaveAttribute('href', '/parse/41')
+    expect(screen.getByText('99')).toBeInTheDocument()
+    expect(screen.getByText(/#2 of 7/)).toBeInTheDocument()
   })
 })

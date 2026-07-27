@@ -7,6 +7,7 @@ import { ItemTooltip, useItemTooltip, getCachedItem, prefetchItem, type SetBonus
 import { FreshnessBadge } from '../components/FreshnessBadge'
 import FavoriteButton from '../components/FavoriteButton'
 import { AAsTab } from './CharacterAAsTab'
+import CharacterRankingsTab, { type CharacterRankings } from './CharacterRankingsTab'
 import { SpellsTab } from './CharacterSpellsTab'
 import DeltaChip from './compare/DeltaChip'
 import { useCensusStream } from '../hooks/useCensusStream'
@@ -381,9 +382,9 @@ export default function CharacterPage() {
 
 // ── Character view ────────────────────────────────────────────────────────────
 
-type ActiveTab = 'equipment' | 'aas' | 'spells'
+type ActiveTab = 'equipment' | 'aas' | 'spells' | 'rankings'
 
-const TABS: readonly ActiveTab[] = ['equipment', 'aas', 'spells']
+const TABS: readonly ActiveTab[] = ['equipment', 'aas', 'spells', 'rankings']
 
 function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxLevel: number; ratingConfig: RatingConfig }) {
   const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
@@ -413,6 +414,19 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
       setSelectedSet(initialSetParam)
     }
   }, [gearSetsData, initialSetParam])
+
+  // Parse rankings — fetched eagerly because the tab itself is gated on
+  // having at least one ranked kill. Errors just hide the tab.
+  const { data: rankingsData } = useFetch<CharacterRankings>(
+    `/api/character/${encodeURIComponent(char.name)}/rankings`,
+  )
+  const rankings = rankingsData?.name?.toLowerCase() === char.name.toLowerCase() ? rankingsData : null
+  const hasRankings = (rankings?.zones.length ?? 0) > 0
+  // A ?tab=rankings deep link for a character with no ranked kills falls
+  // back to equipment once the (empty) response lands.
+  useEffect(() => {
+    if (activeTab === 'rankings' && rankings && rankings.zones.length === 0) setActiveTab('equipment')
+  }, [activeTab, rankings])
 
   const activeSet = selectedSet ? sets.find(s => s.name === selectedSet) ?? null : null
   const viewEquipment = activeSet ? activeSet.equipment : char.equipment
@@ -474,11 +488,12 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
       {/* Full-width general banner */}
       <GeneralBanner char={char} />
 
-      {/* Tab bar */}
+      {/* Tab bar — Rankings only exists once the character has ≥1 ranked kill */}
       <div className="flex flex-wrap gap-0 border-b border-border mt-4">
-        {(['equipment', 'aas', 'spells'] as ActiveTab[]).map(tab => {
+        {(['equipment', 'aas', 'spells', ...(hasRankings ? (['rankings'] as ActiveTab[]) : [])] as ActiveTab[]).map(tab => {
           const label = tab === 'equipment' ? 'Equipment & Stats'
                       : tab === 'aas'       ? 'Alternate Advancements'
+                      : tab === 'rankings'  ? 'Rankings'
                       :                       'Spells'
           return (
             <TabButton
@@ -570,6 +585,8 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
 
       {/* Spells tab */}
       {activeTab === 'spells' && <SpellsTab charName={char.name} />}
+
+      {activeTab === 'rankings' && rankings && hasRankings && <CharacterRankingsTab data={rankings} />}
 
       {tooltip && <ItemTooltip state={tooltip} />}
     </div>
