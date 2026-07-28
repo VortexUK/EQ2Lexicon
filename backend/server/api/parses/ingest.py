@@ -82,18 +82,25 @@ CENSUS_UNAVAILABLE = _CensusUnavailable()
 async def _resolve_uploader_guild_async(
     uploader: str,
     world: str | None = None,
+    *,
+    allow_census: bool = False,
 ) -> str | None | _CensusUnavailable:
     """Cache-first guild lookup for the upload path. Order of attempts:
 
       1. character_cache hit on the uploader's character → return its
-         guild_name (zero Census traffic).
+         guild_name (zero Census traffic; any age — stale beats a live call).
       2. Miss → durable census_store hit → return its guild_name (zero
          Census). The store never deletes, so an uploader resolved once is
          served from here forever; and if they're in the store the guild was
          already loaded, so its members are too and combatant resolution finds
          them without a prewarm.
-      3. Never-seen → single-character Census call via get_character_guild_name
-         to learn the guild name for this upload.
+      3. Never-seen → CENSUS_UNAVAILABLE unless ``allow_census`` (background
+         tasks only). The HTTP response path must NEVER wait on Census — one
+         degraded lookup blows the plugin's 20 s HttpClient timeout
+         (2026-07-28 incident); the encounter commits with guild_name=NULL
+         and _backfill_encounter_guild resolves it after the response.
+         With ``allow_census``: single-character Census call via
+         get_character_guild_name.
       4. If we learned a guild that way, fire-and-forget _fetch_and_cache_guild()
          to pull + persist the full roster so the rest of the raid hits step 1/2.
          Thundering-herd guard inside the helper dedupes concurrent prewarms.
@@ -136,6 +143,9 @@ async def _resolve_uploader_guild_async(
         store_conn.close()
     if rec is not None:
         return rec["data"].get("guild_name") or None
+
+    if not allow_census:
+        return CENSUS_UNAVAILABLE
 
     try:
         async with shared_census_client() as client:
@@ -342,7 +352,7 @@ async def _backfill_encounter_guild(encounter_id: int, uploader: str, world: str
     the user after the parse was already accepted.
     """
     try:
-        result = await _resolve_uploader_guild_async(uploader, world)
+        result = await _resolve_uploader_guild_async(uploader, world, allow_census=True)
         if isinstance(result, _CensusUnavailable):
             _log.info(
                 "[parses-ingest] Background guild backfill for encounter %s: Census still unavailable, will retry on next opportunity",
@@ -876,19 +886,18 @@ async def ingest_parse(
     # no current_world() fallback to fall through to on this HTTP path.
     parse_world = sanitized_server
 
-    # Cache-aware guild resolve: hits character_cache first; on miss does a
-    # one-character Census call and pre-warms the full roster in the
-    # background so the rest of the raid's uploads are zero-Census.
-    # logger_server (plugin v0.1.10+) overrides EQ2_WORLD when present —
-    # enables a Varsoon-configured deployment to correctly resolve a
-    # Wuoshi upload, for instance. After the strict gate above the value is
-    # guaranteed valid; _resolve_uploader_guild_async re-sanitises it
-    # defensively and that fallback is now only reachable from the
-    # local-ingest pipeline.
+    # Guild resolve — cache/census_store only (any age). The response path
+    # NEVER waits on Census: a never-seen uploader gets CENSUS_UNAVAILABLE
+    # here, the encounter commits with guild_name=NULL, and the background
+    # backfill below does the live lookup after the response is out. (One
+    # degraded inline Census call was enough to blow the plugin's 20 s
+    # HttpClient timeout — 2026-07-28 incident.) logger_server (plugin
+    # v0.1.10+) overrides EQ2_WORLD; after the strict gate above the value
+    # is guaranteed valid.
     guild_result = await _resolve_uploader_guild_async(uploader, body.logger_server)
-    # Distinguish "Census down" (CENSUS_UNAVAILABLE) from "genuinely unguilded" (None).
-    # We commit the parse with guild_name=NULL in both cases and schedule a
-    # background retry only for the transient error case.
+    # CENSUS_UNAVAILABLE covers both "not in cache/store" and (via the
+    # backfill's own retry) "Census down" — either way: commit NULL now,
+    # backfill fills it in.
     census_error_on_guild = isinstance(guild_result, _CensusUnavailable)
     guild_name: str | None = None if census_error_on_guild else guild_result  # type: ignore[assignment]
 
