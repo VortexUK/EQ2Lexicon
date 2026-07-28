@@ -58,6 +58,8 @@ Plugin auto-detects the EQ2 server from its log file path (`<install>/logs/<serv
 
 Backward compat: absent / null / empty `logger_server` → falls back to `EQ2_WORLD` env var as before. Older plugin versions and the local-ingest path keep working unchanged. The override path lives in `_resolve_uploader_guild_async(uploader, world=None, *, allow_census=False)`.
 
+**Gzip uploads (plugin v0.1.16+, server 2026-07-28)**: `GzipRequestMiddleware` (backend/server/core/gzip_request.py, pure ASGI) transparently inflates any request with `Content-Encoding: gzip` before FastAPI parsing and the HMAC check see the body — the signature contract stays "HMAC over the uncompressed JSON" for both formats, and plain uploads pass through untouched (old plugins unaffected). 16 MiB decompressed cap (413), bad gzip → 400. Rationale: 282 KB ACT payloads on a ~120 kbit/s throttled route couldn't finish inside the plugin's HttpClient timeout; gzip is 10–20×.
+
 **Zero-Census response path (2026-07-28)**: the ingest handler never awaits Census before responding. Guild resolve is cache→census_store only (any age); a never-seen uploader returns CENSUS_UNAVAILABLE → commit with `guild_name=NULL` → `_backfill_encounter_guild` (BackgroundTasks, `allow_census=True`) does the live lookup + roster prewarm after the response. Combatant snapshots were already cache-only inline with background fill. Rationale: the plugin's HttpClient timeout is 20 s ([UploadClient.cs:52](https://github.com/VortexUK/EQ2LexiconACTPlugin/blob/main/src/Core/UploadClient.cs)) and one degraded inline Census call blew it — the upload "failed" client-side while the server committed anyway.
 
 **HMAC payload signing (v0.1.8+ plugin, server-side validator added 2026-05-25, strict mode same day)**:
