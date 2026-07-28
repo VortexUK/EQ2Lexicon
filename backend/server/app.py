@@ -595,6 +595,14 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
     app.add_middleware(RequestContextMiddleware)
 
+    # Innermost body-touching layer: transparently gunzip request bodies
+    # (Content-Encoding: gzip) before FastAPI parsing / the ingest HMAC check
+    # read them. Plain requests pass through untouched — pre-gzip ACT plugin
+    # versions keep working. See backend/server/core/gzip_request.py.
+    from backend.server.core.gzip_request import GzipRequestMiddleware
+
+    app.add_middleware(GzipRequestMiddleware)
+
     # API routers — one entry per router, registered at /api prefix
     _ROUTERS = [
         health_router,
