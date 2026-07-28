@@ -99,6 +99,47 @@ async def test_uploader_guild_served_from_store_without_census_or_prewarm(store_
 
 
 @pytest.mark.asyncio
+async def test_uploader_guild_response_path_never_calls_census(store_db):
+    """A never-seen uploader must NOT trigger an inline Census call on the
+    response path (default allow_census=False) — one degraded lookup blew
+    the plugin's 20 s HttpClient timeout (2026-07-28 incident). The resolve
+    returns CENSUS_UNAVAILABLE so the endpoint commits guild_name=NULL and
+    the background backfill picks it up."""
+    client = MagicMock()
+    client.get_character_guild_name = AsyncMock(side_effect=AssertionError("Census must not be called inline"))
+
+    with (
+        patch.object(ingest, "character_cache", _empty_cache()),
+        patch.object(ingest, "shared_census_client", _client_factory(client)),
+        patch.object(ingest, "_prewarm_guild_silently", new=AsyncMock()) as prewarm,
+    ):
+        result = await ingest._resolve_uploader_guild_async("Neverseen", None)
+
+    assert isinstance(result, ingest._CensusUnavailable)
+    client.get_character_guild_name.assert_not_called()
+    prewarm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_uploader_guild_backfill_path_uses_census(store_db):
+    """The background backfill opts in (allow_census=True): live lookup +
+    roster prewarm for a never-seen uploader."""
+    client = MagicMock()
+    client.get_character_guild_name = AsyncMock(return_value="Exordium")
+
+    with (
+        patch.object(ingest, "character_cache", _empty_cache()),
+        patch.object(ingest, "shared_census_client", _client_factory(client)),
+        patch.object(ingest, "_prewarm_guild_silently", new=AsyncMock()) as prewarm,
+    ):
+        result = await ingest._resolve_uploader_guild_async("Neverseen", None, allow_census=True)
+
+    assert result == "Exordium"
+    client.get_character_guild_name.assert_awaited_once()
+    prewarm.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_ilvl_backfill_writes_through_to_store(store_db):
     # Store has class/level/guild but no equipment → ilvl None triggers backfill.
     _seed(store_db, "Raider", level=100, guild_name="Exordium", cls="Wizard", ilvl=None)

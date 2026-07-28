@@ -56,7 +56,9 @@ The [EQ2LexiconACTPlugin](https://github.com/VortexUK/EQ2LexiconACTPlugin) sends
 
 Plugin auto-detects the EQ2 server from its log file path (`<install>/logs/<server>/eq2log_<character>.txt`) and stamps it as `logger_server` on every upload. The server uses it to override `EQ2_WORLD` for the Census guild lookup — so a Varsoon-configured deployment correctly resolves a Kaladim character's guild without needing per-deployment world config.
 
-Backward compat: absent / null / empty `logger_server` → falls back to `EQ2_WORLD` env var as before. Older plugin versions and the local-ingest path keep working unchanged. The override path lives in `_resolve_uploader_guild_async(uploader, world=None)`.
+Backward compat: absent / null / empty `logger_server` → falls back to `EQ2_WORLD` env var as before. Older plugin versions and the local-ingest path keep working unchanged. The override path lives in `_resolve_uploader_guild_async(uploader, world=None, *, allow_census=False)`.
+
+**Zero-Census response path (2026-07-28)**: the ingest handler never awaits Census before responding. Guild resolve is cache→census_store only (any age); a never-seen uploader returns CENSUS_UNAVAILABLE → commit with `guild_name=NULL` → `_backfill_encounter_guild` (BackgroundTasks, `allow_census=True`) does the live lookup + roster prewarm after the response. Combatant snapshots were already cache-only inline with background fill. Rationale: the plugin's HttpClient timeout is 20 s ([UploadClient.cs:52](https://github.com/VortexUK/EQ2LexiconACTPlugin/blob/main/src/Core/UploadClient.cs)) and one degraded inline Census call blew it — the upload "failed" client-side while the server committed anyway.
 
 **HMAC payload signing (v0.1.8+ plugin, server-side validator added 2026-05-25, strict mode same day)**:
 
