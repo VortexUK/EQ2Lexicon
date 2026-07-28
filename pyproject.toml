@@ -41,7 +41,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
-    "ruff>=0.15.22",
+    "ruff>=0.16.0",
     "pyright>=1.1.0",
 ]
 
@@ -53,6 +53,10 @@ package = false
 [tool.ruff]
 line-length = 120
 target-version = "py313"
+# docs/ holds point-in-time plan/spec records — ruff 0.16+ formats Python
+# code blocks inside markdown by default, and reformatting historical docs
+# is churn that muddies their blame. Keep them frozen.
+extend-exclude = ["docs"]
 
 [tool.ruff.format]
 # Black-compatible defaults; double quotes, 4-space indent
