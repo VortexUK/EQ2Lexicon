@@ -344,3 +344,4 @@ data/census/census.db-shm
 # again (this happened during the backend/ reorg pre-fix-up window —
 # see commit history), gitignore catches it before the next `git add -A`.
 backend/**/data/
+scripts/dev/*_class_refs*/
