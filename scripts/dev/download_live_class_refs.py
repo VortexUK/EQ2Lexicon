@@ -42,7 +42,9 @@ SLEEP_S = 1.5
 def adventure_classes() -> list[tuple[int, str]]:
     conn = sqlite3.connect(Path(__file__).parent.parent.parent / "data" / "classes" / "classes.db")
     try:
-        return [(r[0], r[1]) for r in conn.execute("SELECT icon_id, name FROM classes WHERE icon_id < 100 ORDER BY icon_id")]
+        return [
+            (r[0], r[1]) for r in conn.execute("SELECT icon_id, name FROM classes WHERE icon_id < 100 ORDER BY icon_id")
+        ]
     finally:
         conn.close()
 
@@ -53,13 +55,16 @@ def find_candidate(client: httpx.Client, world: str, classid: int, level: int) -
         {"type.level": str(level)},
         {"type.level": f"]{max(1, level - 20)}"},  # near-cap fallback
     ):
-        r = client.get(BASE, params={
-            "locationdata.world": world,
-            "type.classid": str(classid),
-            "c:show": "id,name,type,spell_list",
-            "c:limit": "5",
-            **params,
-        })
+        r = client.get(
+            BASE,
+            params={
+                "locationdata.world": world,
+                "type.classid": str(classid),
+                "c:show": "id,name,type,spell_list",
+                "c:limit": "5",
+                **params,
+            },
+        )
         r.raise_for_status()
         rows = r.json().get("character_list", [])
         if rows:
@@ -80,12 +85,15 @@ def fetch_resolved_spells() -> None:
             char_id = doc.get("id")
             if char_id is None:
                 continue
-            r = client.get(BASE, params={
-                "id": str(char_id),
-                "c:show": "id,name,type,spell_list",
-                "c:resolve": "spells(name,given_by,level,type,crc,tier_name)",
-                "c:limit": "1",
-            })
+            r = client.get(
+                BASE,
+                params={
+                    "id": str(char_id),
+                    "c:show": "id,name,type,spell_list",
+                    "c:resolve": "spells(name,given_by,level,type,crc,tier_name)",
+                    "c:limit": "1",
+                },
+            )
             r.raise_for_status()
             rows = r.json().get("character_list", [])
             spells = (rows[0].get("spell_list") or []) if rows else []
@@ -102,8 +110,11 @@ def main() -> None:
     ap.add_argument("--level", type=int, default=135, help="target max level (default 135)")
     ap.add_argument("--only", default=None, help="comma-separated class names to (re)fetch")
     ap.add_argument("--out-dir", default=str(DEFAULT_OUT), help="reference dump directory")
-    ap.add_argument("--spells-only", action="store_true",
-                    help="fetch resolved spell lists (<Class>.spells.json) for already-downloaded refs")
+    ap.add_argument(
+        "--spells-only",
+        action="store_true",
+        help="fetch resolved spell lists (<Class>.spells.json) for already-downloaded refs",
+    )
     args = ap.parse_args()
     global OUT_DIR
     OUT_DIR = Path(args.out_dir)

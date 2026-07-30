@@ -31,8 +31,12 @@ sys.stdout.reconfigure(encoding="utf-8")
 REF_DIRS = sorted(Path(__file__).parent.glob("*_class_refs*"))
 
 CLASS_CHANNELS = {
-    "spellscroll", "class", "classtraining", "alternateadvancement",
-    "warderspell", "focusabilities",
+    "spellscroll",
+    "class",
+    "classtraining",
+    "alternateadvancement",
+    "warderspell",
+    "focusabilities",
 }
 
 _ROMAN_RE = re.compile(r"\s+[IVXLC]+$")
@@ -72,7 +76,9 @@ def main() -> None:
     out_path.write_text(json.dumps(out, indent=0, ensure_ascii=False), encoding="utf-8")
 
     unique = sum(1 for classes in mapping.values() if len(classes) == 1)
-    print(f"classes: {len(per_class)} | distinct base spells: {len(mapping):,} | unique-to-one-class: {unique:,} ({100 * unique / max(1, len(mapping)):.0f}%)")
+    print(
+        f"classes: {len(per_class)} | distinct base spells: {len(mapping):,} | unique-to-one-class: {unique:,} ({100 * unique / max(1, len(mapping)):.0f}%)"
+    )
     for cls, count in sorted(per_class.items()):
         print(f"  {cls:<14} {count:>4} base spells")
     print(f"wrote {out_path} ({out_path.stat().st_size / 1024:.0f} KB)")
