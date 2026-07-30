@@ -56,18 +56,23 @@ def strip_roman(name: str) -> str:
     return _ROMAN_RE.sub("", name.strip())
 
 
-def effect_casts_by_base(spells_db: Path) -> dict[str, set[str]]:
-    """spells.db base_name_lower → the effect names that spell line casts."""
+def effect_casts_by_base(spells_db: Path) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """spells.db base_name_lower → the effect names that spell line casts,
+    plus effect name → the target types of EVERY parent spell casting it
+    (used to decide vote-safety: self/selfpet parents only fire for their
+    owner; group parents fire on recipients)."""
     by_base: dict[str, set[str]] = defaultdict(set)
+    effect_targets: dict[str, set[str]] = defaultdict(set)
     conn = sqlite3.connect(spells_db)
     try:
-        rows = conn.execute("SELECT base_name_lower, effects FROM spells WHERE effects LIKE '%will cast%'")
-        for base, effects in rows:
+        rows = conn.execute("SELECT base_name_lower, target_type, effects FROM spells WHERE effects LIKE '%will cast%'")
+        for base, target_type, effects in rows:
             for m in _EFFECT_CAST_RE.finditer(effects or ""):
                 by_base[base].add(m.group(1))
+                effect_targets[m.group(1)].add((target_type or "").lower())
     finally:
         conn.close()
-    return by_base
+    return by_base, effect_targets
 
 
 def main() -> None:
@@ -98,21 +103,31 @@ def main() -> None:
             per_class[cls] = max(per_class[cls], len(names))
 
     # Effect-cast pass: attribute triggered-effect names to the classes whose
-    # reference spells cast them. Kept SEPARATE from the scroll layer: granted
-    # procs (Aria of Magic's "Precise Note") fire on the RECIPIENT's casts, so
-    # effect names are safe for source tagging but poison for class voting —
-    # a Conjuror in the bard group logs Precise Note constantly.
+    # reference spells cast them. Vote-safety depends on the PARENT's target:
+    # self/selfpet buffs (Elemental Unity → "Force of the Elements") only fire
+    # for their owner, so those effects vote like scroll names. Group-granted
+    # procs (Perfection of the Maestro → "Precise Note") fire on the
+    # RECIPIENT's casts — a Conjuror in the bard group logs Precise Note
+    # constantly — so they land in the tag-only layer. An effect with ANY
+    # non-self parent anywhere is tag-only (conservative).
+    _SELF_TARGETS = {"self", "selfpet"}
     effects: dict[str, set[str]] = defaultdict(set)
+    promoted = 0
     spells_db = Path(args.spells_db)
     if spells_db.exists():
-        by_base = effect_casts_by_base(spells_db)
+        by_base, effect_targets = effect_casts_by_base(spells_db)
         for cls, names in class_names.items():
             for base in names:
                 for effect in by_base.get(base, ()):
                     key = strip_roman(effect).lower()
                     if len(key) < 2:
                         continue
-                    effects[key].add(cls)
+                    if effect_targets[effect] <= _SELF_TARGETS:
+                        if cls not in mapping[key]:
+                            promoted += 1
+                        mapping[key].add(cls)
+                    else:
+                        effects[key].add(cls)
     else:
         print(f"warning: {spells_db} missing - effect-cast mining skipped")
 
@@ -126,7 +141,7 @@ def main() -> None:
 
     unique = sum(1 for classes in mapping.values() if len(classes) == 1)
     print(
-        f"classes: {len(per_class)} | distinct base spells: {len(mapping):,} | unique-to-one-class: {unique:,} ({100 * unique / max(1, len(mapping)):.0f}%) | effect names: {len(effects):,}"
+        f"classes: {len(per_class)} | distinct base spells: {len(mapping):,} | unique-to-one-class: {unique:,} ({100 * unique / max(1, len(mapping)):.0f}%) | self-effect votes: {promoted:,} | tag-only effect names: {len(effects):,}"
     )
     for cls, count in sorted(per_class.items()):
         print(f"  {cls:<14} {count:>4} base spells")
