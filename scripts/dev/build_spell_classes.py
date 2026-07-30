@@ -49,7 +49,8 @@ CLASS_CHANNELS = {
 _ROMAN_RE = re.compile(r"\s+[IVXLC]+$")
 
 # "When any damage is received this spell will cast Divine Prayer on target."
-_EFFECT_CAST_RE = re.compile(r"will cast ([A-Z][A-Za-z' \-]+?) on ")
+# "…has a 30% chance to cast Mark of Nobility on target's attacker."
+_EFFECT_CAST_RE = re.compile(r"\bcasts? ([A-Z][A-Za-z' \-]+?) on ")
 
 
 def strip_roman(name: str) -> str:
@@ -65,7 +66,7 @@ def effect_casts_by_base(spells_db: Path) -> tuple[dict[str, set[str]], dict[str
     effect_targets: dict[str, set[str]] = defaultdict(set)
     conn = sqlite3.connect(spells_db)
     try:
-        rows = conn.execute("SELECT base_name_lower, target_type, effects FROM spells WHERE effects LIKE '%will cast%'")
+        rows = conn.execute("SELECT base_name_lower, target_type, effects FROM spells WHERE effects LIKE '%cast%'")
         for base, target_type, effects in rows:
             for m in _EFFECT_CAST_RE.finditer(effects or ""):
                 by_base[base].add(m.group(1))
