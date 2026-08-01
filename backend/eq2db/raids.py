@@ -90,7 +90,7 @@ _ACT_TRIGGER_COLS = (
     "id, raid_encounter_id, position, label, notes, "
     "active, regex, sound_data, sound_type, "
     "category_restrict, category, "
-    "timer, timer_name, tabbed, "
+    "timer, timer_name, tabbed, cooldown_seconds, "
     "last_edited_at, last_edited_by, created_at"
 )
 
@@ -100,7 +100,17 @@ _ACT_SPELL_TIMER_COLS = (
     "start_wav, warning_wav, warning_value, "
     "radial_display, modable, tooltip, fill_color, "
     "panel1, panel2, remove_value, category, restrict_category, "
+    "damage_type, control_effect, "
     "last_edited_at, last_edited_by, created_at"
+)
+
+# EQ2Parser-enrichment columns added 2026-08 — ALTERs bring a pre-existing
+# raids.db up to the CREATE TABLE shape above (idempotent via
+# _apply_migrations' duplicate-column skip).
+_ACT_ENRICHMENT_MIGRATIONS = (
+    "ALTER TABLE act_triggers ADD COLUMN cooldown_seconds REAL NOT NULL DEFAULT 1.0",
+    "ALTER TABLE act_spell_timers ADD COLUMN damage_type TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE act_spell_timers ADD COLUMN control_effect TEXT NOT NULL DEFAULT ''",
 )
 
 
@@ -136,6 +146,7 @@ class RaidCatalogue(BaseCatalogue):
         conn.execute(_SQL["schema_raid_encounter_revisions"])
         conn.execute(_SQL["schema_act_triggers"])
         conn.execute(_SQL["schema_act_spell_timers"])
+        self._apply_migrations(conn, _ACT_ENRICHMENT_MIGRATIONS)
         conn.executescript(_SQL["indexes_all"])
 
     # ── Write helpers (take an open conn — callers own the transaction) ──────
@@ -436,6 +447,7 @@ class RaidCatalogue(BaseCatalogue):
         timer: bool = False,
         timer_name: str | None = None,
         tabbed: bool = False,
+        cooldown_seconds: float = 1.0,
         edited_by: str | None = None,
     ) -> int:
         """Insert or update a single trigger row. Pass ``trigger_id`` to UPDATE,
@@ -449,6 +461,7 @@ class RaidCatalogue(BaseCatalogue):
             int(bool(active)), regex, sound_data, int(sound_type),
             int(bool(category_restrict)), category,
             int(bool(timer)), timer_name, int(bool(tabbed)),
+            float(cooldown_seconds),
             now, edited_by,
         )  # fmt: skip
 
@@ -459,9 +472,9 @@ class RaidCatalogue(BaseCatalogue):
                     raid_encounter_id, position, label, notes,
                     active, regex, sound_data, sound_type,
                     category_restrict, category,
-                    timer, timer_name, tabbed,
+                    timer, timer_name, tabbed, cooldown_seconds,
                     last_edited_at, last_edited_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 params,
             )
@@ -474,7 +487,7 @@ class RaidCatalogue(BaseCatalogue):
                 raid_encounter_id = ?, position = ?, label = ?, notes = ?,
                 active = ?, regex = ?, sound_data = ?, sound_type = ?,
                 category_restrict = ?, category = ?,
-                timer = ?, timer_name = ?, tabbed = ?,
+                timer = ?, timer_name = ?, tabbed = ?, cooldown_seconds = ?,
                 last_edited_at = ?, last_edited_by = ?
             WHERE id = ?
             """,
@@ -528,6 +541,8 @@ class RaidCatalogue(BaseCatalogue):
         remove_value: int = -15,
         category: str | None = None,
         restrict_category: bool = False,
+        damage_type: str = "",
+        control_effect: str = "",
         edited_by: str | None = None,
     ) -> int:
         """Insert or update a spell-timer row. Pass ``timer_id`` to UPDATE,
@@ -543,6 +558,7 @@ class RaidCatalogue(BaseCatalogue):
             int(bool(radial_display)), int(bool(modable)), tooltip, int(fill_color),
             int(bool(panel1)), int(bool(panel2)), int(remove_value),
             category, int(bool(restrict_category)),
+            damage_type, control_effect,
             now, edited_by,
         )  # fmt: skip
 
@@ -557,8 +573,9 @@ class RaidCatalogue(BaseCatalogue):
                     radial_display, modable, tooltip, fill_color,
                     panel1, panel2, remove_value,
                     category, restrict_category,
+                    damage_type, control_effect,
                     last_edited_at, last_edited_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 params,
             )
@@ -575,6 +592,7 @@ class RaidCatalogue(BaseCatalogue):
                 radial_display = ?, modable = ?, tooltip = ?, fill_color = ?,
                 panel1 = ?, panel2 = ?, remove_value = ?,
                 category = ?, restrict_category = ?,
+                damage_type = ?, control_effect = ?,
                 last_edited_at = ?, last_edited_by = ?
             WHERE id = ?
             """,

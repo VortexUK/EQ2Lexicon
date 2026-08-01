@@ -213,3 +213,117 @@ class TestDeleteActSpellTimer:
 
     def test_returns_false_for_unknown_id(self, db_conn):
         assert delete_act_spell_timer(db_conn, 9999) is False
+
+
+# ---------------------------------------------------------------------------
+# EQ2Parser enrichment (damage_type / control_effect / cooldown_seconds)
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichment:
+    def test_spell_timer_enrichment_round_trips(self, db_path: Path, db_conn, enc_id: int):
+        tid = upsert_act_spell_timer(
+            db_conn,
+            raid_encounter_id=enc_id,
+            name="Stench of Death",
+            timer_duration_s=16,
+            damage_type="poison, disease",
+            control_effect="stifle",
+        )
+        row = RaidCatalogue(db_path).get_act_spell_timer(tid)
+        assert row is not None
+        assert row["damage_type"] == "poison, disease"
+        assert row["control_effect"] == "stifle"
+
+    def test_trigger_cooldown_round_trips(self, db_path: Path, db_conn, enc_id: int):
+        trig_id = upsert_act_trigger(db_conn, raid_encounter_id=enc_id, regex="Feed, my pets!", cooldown_seconds=2.5)
+        row = RaidCatalogue(db_path).get_act_trigger(trig_id)
+        assert row is not None
+        assert row["cooldown_seconds"] == 2.5
+
+    def test_enrichment_defaults_are_empty(self, db_path: Path, db_conn, enc_id: int):
+        tid = upsert_act_spell_timer(db_conn, raid_encounter_id=enc_id, name="Plain", timer_duration_s=30)
+        row = RaidCatalogue(db_path).get_act_spell_timer(tid)
+        assert row is not None
+        assert (row["damage_type"], row["control_effect"]) == ("", "")
+
+    def test_init_db_migrates_a_pre_enrichment_db(self, tmp_path: Path):
+        """A raids.db created before the enrichment columns existed must
+        gain them on init_db (the _apply_migrations ALTERs) — the exact
+        failure mode the test-migrations-against-old-DB-shape rule exists
+        for."""
+        p = tmp_path / "old-shape.db"
+        conn = sqlite3.connect(p)
+        # The pre-2026-08 table shapes, frozen: no cooldown_seconds /
+        # damage_type / control_effect.
+        conn.execute(
+            """
+            CREATE TABLE act_triggers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raid_encounter_id INTEGER NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                label TEXT, notes TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                regex TEXT NOT NULL,
+                sound_data TEXT NOT NULL DEFAULT '',
+                sound_type INTEGER NOT NULL DEFAULT 3,
+                category_restrict INTEGER NOT NULL DEFAULT 0,
+                category TEXT,
+                timer INTEGER NOT NULL DEFAULT 0,
+                timer_name TEXT,
+                tabbed INTEGER NOT NULL DEFAULT 0,
+                last_edited_at INTEGER, last_edited_by TEXT,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE act_spell_timers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raid_encounter_id INTEGER NOT NULL,
+                name TEXT NOT NULL, name_lower TEXT NOT NULL,
+                checked INTEGER NOT NULL DEFAULT 0,
+                timer_duration_s INTEGER NOT NULL,
+                only_master_ticks INTEGER NOT NULL DEFAULT 0,
+                restrict INTEGER NOT NULL DEFAULT 0,
+                absolute_ INTEGER NOT NULL DEFAULT 0,
+                start_wav TEXT NOT NULL DEFAULT '',
+                warning_wav TEXT NOT NULL DEFAULT '',
+                warning_value INTEGER NOT NULL DEFAULT 10,
+                radial_display INTEGER NOT NULL DEFAULT 0,
+                modable INTEGER NOT NULL DEFAULT 0,
+                tooltip TEXT NOT NULL DEFAULT '',
+                fill_color INTEGER NOT NULL DEFAULT -16776961,
+                panel1 INTEGER NOT NULL DEFAULT 1,
+                panel2 INTEGER NOT NULL DEFAULT 0,
+                remove_value INTEGER NOT NULL DEFAULT -15,
+                category TEXT,
+                restrict_category INTEGER NOT NULL DEFAULT 0,
+                last_edited_at INTEGER, last_edited_by TEXT,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                UNIQUE (raid_encounter_id, name_lower)
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO act_spell_timers (raid_encounter_id, name, name_lower, timer_duration_s) "
+            "VALUES (1, 'Old Timer', 'old timer', 30)"
+        )
+        conn.commit()
+        conn.close()
+
+        RaidCatalogue(p).init_db().close()
+
+        with sqlite3.connect(p) as check:
+            trig_cols = {r[1] for r in check.execute("PRAGMA table_info(act_triggers)")}
+            timer_cols = {r[1] for r in check.execute("PRAGMA table_info(act_spell_timers)")}
+            assert "cooldown_seconds" in trig_cols
+            assert {"damage_type", "control_effect"} <= timer_cols
+            # Pre-existing rows read back with the defaults.
+            row = check.execute(
+                "SELECT damage_type, control_effect FROM act_spell_timers WHERE name = 'Old Timer'"
+            ).fetchone()
+            assert row == ("", "")
+        # Idempotent: a second init on the migrated file is a no-op.
+        RaidCatalogue(p).init_db().close()

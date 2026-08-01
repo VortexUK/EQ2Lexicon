@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.eq2db.raids import catalogue as raids_db
 from backend.server.api.act._shared import (
@@ -21,6 +21,7 @@ from backend.server.api.act._shared import (
     _resolve_encounter,
     _spell_row_to_entry,
 )
+from backend.server.api.act.vocabulary import normalize_control_effect, normalize_damage_type
 from backend.server.api.act.xml_export import build_xml, safe_filename
 from backend.server.auth_deps import require_editor
 from backend.server.core.executor import run_sync
@@ -55,6 +56,19 @@ class SpellTimerUpsertRequest(BaseModel):
     remove_value: int = -15
     category: str | None = None
     restrict_category: bool = False
+    # EQ2Parser enrichment (closed vocabularies; never in ACT XML).
+    damage_type: str = ""
+    control_effect: str = ""
+
+    @field_validator("damage_type")
+    @classmethod
+    def _valid_damage_type(cls, v: str) -> str:
+        return normalize_damage_type(v)
+
+    @field_validator("control_effect")
+    @classmethod
+    def _valid_control_effect(cls, v: str) -> str:
+        return normalize_control_effect(v)
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +147,8 @@ async def create_spell_timer(
                 remove_value=body.remove_value,
                 category=category,
                 restrict_category=body.restrict_category,
+                damage_type=body.damage_type,
+                control_effect=body.control_effect,
                 edited_by=user["id"],
             )
         finally:
@@ -195,6 +211,8 @@ async def update_spell_timer(
                 remove_value=body.remove_value,
                 category=category,
                 restrict_category=body.restrict_category,
+                damage_type=body.damage_type,
+                control_effect=body.control_effect,
                 edited_by=user["id"],
             )
         finally:

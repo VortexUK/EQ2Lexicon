@@ -1,6 +1,7 @@
 import { Checkbox, Field, inputCls } from './primitives'
 import type { SpellTimerDraft } from './types'
 import { hexToArgb } from './types'
+import { CONTROL_EFFECTS, DAMAGE_SCHOOLS, parseSchools, toggleSchool } from './vocabulary'
 
 // ── Shared SpellTimerEditor sub-form ──────────────────────────────────────────
 
@@ -80,6 +81,44 @@ export function SpellTimerEditor({ draft, onChange, nameEditable = true, onNameB
           className={inputCls}
         />
       </Field>
+
+      {/* EQ2Parser enrichment — rides /api/act/pack, never the ACT XML. */}
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+        <Field label="Damage type (toggle all that apply — first picked leads)">
+          <div className="flex flex-wrap gap-1">
+            {DAMAGE_SCHOOLS.map(school => {
+              const selected = parseSchools(draft.damage_type).includes(school)
+              return (
+                <button
+                  key={school}
+                  type="button"
+                  onClick={() => onChange({ ...draft, damage_type: toggleSchool(draft.damage_type, school) })}
+                  className={
+                    'appearance-none border rounded-pill px-2 py-0.5 text-[0.75rem] cursor-pointer transition-colors ' +
+                    (selected
+                      ? 'border-gold bg-gold/15 text-gold'
+                      : 'border-border bg-transparent text-text-muted hover:border-gold-dim hover:text-text')
+                  }
+                >
+                  {school}
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+        <Field label="Control effect">
+          <select
+            value={draft.control_effect}
+            onChange={e => onChange({ ...draft, control_effect: e.target.value })}
+            className={inputCls}
+          >
+            <option value="">none</option>
+            {CONTROL_EFFECTS.map(effect => (
+              <option key={effect} value={effect}>{effect}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
 
       <div className="flex items-center gap-4 flex-wrap text-[0.85rem]">
         <Checkbox

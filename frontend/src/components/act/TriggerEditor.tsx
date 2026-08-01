@@ -3,7 +3,7 @@ import { Button } from '../ui'
 import { SpellTimerEditor } from './SpellTimerEditor'
 import { Checkbox, Field, inputCls } from './primitives'
 import type { SpellTimer, SpellTimerDraft, Trigger } from './types'
-import { defaultSpellTimerDraft } from './types'
+import { buildTimerBody, defaultSpellTimerDraft } from './types'
 
 // ── Editor (combined Trigger + optional Spell timer) ──────────────────────────
 
@@ -29,6 +29,8 @@ export interface TriggerDraft {
   timer_name: string
   tabbed: boolean
   active: boolean
+  /** EQ2Parser enrichment — never in ACT XML. */
+  cooldown_seconds: number
 }
 
 export function defaultTriggerDraft(t?: Trigger): TriggerDraft {
@@ -44,6 +46,7 @@ export function defaultTriggerDraft(t?: Trigger): TriggerDraft {
     timer_name: t?.timer_name ?? '',
     tabbed: t?.tabbed ?? false,
     active: t?.active ?? true,
+    cooldown_seconds: t?.cooldown_seconds ?? 1,
   }
 }
 
@@ -103,6 +106,7 @@ export function TriggerEditor({ base, spellTimers, existing, existingTimer, onCa
         timer_name: draft.timer ? timerDraft.name.trim() || null : null,
         tabbed: draft.tabbed,
         active: draft.active,
+        cooldown_seconds: draft.cooldown_seconds,
         position: existing?.position ?? 0,
       }
 
@@ -120,17 +124,7 @@ export function TriggerEditor({ base, spellTimers, existing, existingTimer, onCa
       // Match by name (UNIQUE within encounter); fall back to POST then
       // gracefully handle the 409 by switching to PUT against the existing.
       if (draft.timer && timerDraft.name.trim()) {
-        const timerBody = {
-          name: timerDraft.name.trim(),
-          timer_duration_s: timerDraft.timer_duration_s,
-          warning_value: timerDraft.warning_value,
-          fill_color: timerDraft.fill_color_packed,
-          panel1: timerDraft.panel1,
-          panel2: timerDraft.panel2,
-          absolute: timerDraft.absolute,
-          only_master_ticks: timerDraft.only_master_ticks,
-          tooltip: timerDraft.tooltip,
-        }
+        const timerBody = buildTimerBody(timerDraft)
 
         // Existing row known? PUT directly.
         const target = spellTimers.find(
@@ -210,6 +204,16 @@ export function TriggerEditor({ base, spellTimers, existing, existingTimer, onCa
               <option value={3}>TTS (3)</option>
               <option value={0}>Silent / file (0)</option>
             </select>
+          </Field>
+          <Field label="Cooldown (s) — EQ2Parser only; ACT fixes this at 1s">
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={draft.cooldown_seconds}
+              onChange={e => setDraft({ ...draft, cooldown_seconds: Number(e.target.value) })}
+              className={inputCls}
+            />
           </Field>
         </div>
 

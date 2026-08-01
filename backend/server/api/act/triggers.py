@@ -60,6 +60,8 @@ class TriggerUpsertRequest(BaseModel):
     timer: bool = False
     timer_name: str | None = None
     tabbed: bool = False
+    # EQ2Parser enrichment: per-trigger audio cooldown (ACT hardcodes 1s).
+    cooldown_seconds: float = Field(1.0, ge=0, le=3600)
 
 
 class ImportXmlRequest(BaseModel):
@@ -226,6 +228,7 @@ async def create_trigger(
                 timer=body.timer,
                 timer_name=body.timer_name,
                 tabbed=body.tabbed,
+                cooldown_seconds=body.cooldown_seconds,
                 edited_by=user["id"],
             )
         finally:
@@ -278,6 +281,7 @@ async def update_trigger(
                 timer=body.timer,
                 timer_name=body.timer_name,
                 tabbed=body.tabbed,
+                cooldown_seconds=body.cooldown_seconds,
                 edited_by=user["id"],
             )
         finally:

@@ -15,6 +15,8 @@ export interface Trigger {
   timer: boolean
   timer_name: string | null
   tabbed: boolean
+  /** EQ2Parser enrichment — never in ACT XML. */
+  cooldown_seconds: number
   last_edited_at: number | null
   last_edited_by: string | null
   created_at: number
@@ -41,6 +43,10 @@ export interface SpellTimer {
   remove_value: number
   category: string | null
   restrict_category: boolean
+  /** EQ2Parser enrichment — never in ACT XML. Comma-joined dominant-first
+   * log schools ("poison, disease") / tooltip-vocabulary control effect. */
+  damage_type: string
+  control_effect: string
   last_edited_at: number | null
   last_edited_by: string | null
   created_at: number
@@ -57,6 +63,8 @@ export interface SpellTimerDraft {
   absolute: boolean
   only_master_ticks: boolean
   tooltip: string
+  damage_type: string
+  control_effect: string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -100,6 +108,8 @@ export function defaultSpellTimerDraft(s?: SpellTimer | null, nameHint?: string)
     absolute: s?.absolute ?? false,
     only_master_ticks: s?.only_master_ticks ?? false,
     tooltip: s?.tooltip ?? '',
+    damage_type: s?.damage_type ?? '',
+    control_effect: s?.control_effect ?? '',
   }
 }
 
@@ -114,5 +124,7 @@ export function buildTimerBody(d: SpellTimerDraft) {
     absolute: d.absolute,
     only_master_ticks: d.only_master_ticks,
     tooltip: d.tooltip,
+    damage_type: d.damage_type,
+    control_effect: d.control_effect,
   }
 }

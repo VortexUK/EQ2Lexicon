@@ -110,6 +110,10 @@ CREATE TABLE IF NOT EXISTS act_triggers (
     timer_name          TEXT,                          -- loose name-FK into act_spell_timers (same encounter)
     tabbed              INTEGER NOT NULL DEFAULT 0,
 
+    -- EQ2Parser enrichment (served by /api/act/pack — NEVER exported to
+    -- ACT XML; plain ACT stays byte-compatible)
+    cooldown_seconds    REAL    NOT NULL DEFAULT 1.0,  -- per-trigger audio cooldown (ACT hardcodes 1s)
+
     -- Audit
     last_edited_at      INTEGER,
     last_edited_by      TEXT,
@@ -147,6 +151,13 @@ CREATE TABLE IF NOT EXISTS act_spell_timers (
     remove_value         INTEGER NOT NULL DEFAULT -15,
     category             TEXT,                          -- defaults to mob_name at write time
     restrict_category    INTEGER NOT NULL DEFAULT 0,
+
+    -- EQ2Parser enrichment (served by /api/act/pack — NEVER exported to
+    -- ACT XML; plain ACT stays byte-compatible). Closed vocabularies —
+    -- damage_type is comma-joined dominant-first log schools ("poison,
+    -- disease"); control_effect is tooltip vocabulary ("stifle", "stun").
+    damage_type          TEXT    NOT NULL DEFAULT '',
+    control_effect       TEXT    NOT NULL DEFAULT '',
 
     -- Audit
     last_edited_at       INTEGER,

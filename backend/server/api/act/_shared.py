@@ -36,6 +36,8 @@ class TriggerEntry(BaseModel):
     timer: bool
     timer_name: str | None = None
     tabbed: bool
+    # EQ2Parser enrichment — served via /api/act/pack, never in ACT XML.
+    cooldown_seconds: float = 1.0
     last_edited_at: int | None = None
     last_edited_by: str | None = None
     created_at: int
@@ -66,6 +68,11 @@ class SpellTimerEntry(BaseModel):
     remove_value: int
     category: str | None = None
     restrict_category: bool
+    # EQ2Parser enrichment — served via /api/act/pack, never in ACT XML.
+    # damage_type is comma-joined dominant-first log schools ("poison,
+    # disease"); control_effect is tooltip vocabulary ("stifle").
+    damage_type: str = ""
+    control_effect: str = ""
     last_edited_at: int | None = None
     last_edited_by: str | None = None
     created_at: int
@@ -195,6 +202,7 @@ def _trigger_row_to_entry(row: dict) -> TriggerEntry:
         timer=bool(row["timer"]),
         timer_name=row["timer_name"],
         tabbed=bool(row["tabbed"]),
+        cooldown_seconds=row["cooldown_seconds"],
         last_edited_at=row["last_edited_at"],
         last_edited_by=row["last_edited_by"],
         created_at=row["created_at"],
@@ -224,6 +232,8 @@ def _spell_row_to_entry(row: dict) -> SpellTimerEntry:
         remove_value=row["remove_value"],
         category=row["category"],
         restrict_category=bool(row["restrict_category"]),
+        damage_type=row["damage_type"],
+        control_effect=row["control_effect"],
         last_edited_at=row["last_edited_at"],
         last_edited_by=row["last_edited_by"],
         created_at=row["created_at"],

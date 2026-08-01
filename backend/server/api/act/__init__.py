@@ -19,11 +19,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from backend.server.api.act import spell_timers, triggers
+from backend.server.api.act import pack, spell_timers, triggers
 
 router = APIRouter()
 router.include_router(triggers.router)
 router.include_router(spell_timers.router)
+router.include_router(pack.router)
 
 # Re-export the shared models for consumers that import them directly
 # (e.g. tests/web/test_act_triggers.py).
