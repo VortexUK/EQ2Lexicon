@@ -182,7 +182,7 @@ def _build_leaderboard_map() -> dict[str, Literal["raid", "dungeon"]]:
     types, but if a curator ever does, the rankings page would surface
     it under both dropdowns. Picking "dungeon" here is arbitrary; flag
     this in the audit if it happens in practice."""
-    _, raid_tree, dungeon_tree = _cached_zones_data()
+    _, raid_tree, dungeon_tree, _ = _cached_zones_data()
     out: dict[str, Literal["raid", "dungeon"]] = {entry["zone"].lower(): "raid" for entry in raid_tree}
     for entry in dungeon_tree:
         out[entry["zone"].lower()] = "dungeon"

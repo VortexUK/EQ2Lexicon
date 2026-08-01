@@ -37,7 +37,7 @@ def _kill(kid: int, boss: str, duration: int, combatants: list[dict], *, zone: s
 
 
 # The curated universe the tab is gated to — mirrors _cached_zones_data's
-# (boss_index, raid_tree, dungeon_tree) shape. "Uncurated Keep" is absent on
+# (boss_index, raid_tree, dungeon_tree, curated_zone_names) shape. "Uncurated Keep" is absent on
 # purpose: kills there must never surface.
 FAKE_TREES = (
     {},
@@ -50,6 +50,7 @@ FAKE_TREES = (
         }
     ],
     [],
+    {"Deathtoll"},
 )
 
 # Tarinax: Templar pool = [1000, 1200, 2000] (Menlu twice, Elesine once).

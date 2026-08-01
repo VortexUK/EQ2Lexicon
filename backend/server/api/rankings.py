@@ -279,10 +279,10 @@ def invalidate_zones_cache() -> None:
 
 
 @lru_cache(maxsize=1)
-def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], list[dict]]:
+def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], list[dict], set[str]]:
     """Authoritative zone/boss data from zones.db, built once per process.
 
-    Returns (boss_index, raid_tree, dungeon_tree):
+    Returns (boss_index, raid_tree, dungeon_tree, curated_zone_names):
       * boss_index: ``mob_name_lower -> [(canonical_zone, encounter_name), ...]``
         — the lookup that gates a raid title and maps it to its canonical boss.
       * raid_tree:    ordered ``[{zone, expansion, bosses:[...]}]`` for zones
@@ -308,7 +308,7 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
     move invalidation to a Redis-backed fan-out."""
     path = zones_db.path
     if not path.exists():
-        return {}, [], []
+        return {}, [], [], set()
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         boss_index: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -328,7 +328,12 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
                 out.append({"zone": zname, "expansion": exp, "expansion_name": exp_name, "bosses": bosses})
             return out
 
-        return dict(boss_index), _tree_for_type("raid_x4"), _tree_for_type("dungeon")
+        raid_tree = _tree_for_type("raid_x4")
+        dungeon_tree = _tree_for_type("dungeon")
+        # Zones with a curated roster — inside these, the roster is
+        # AUTHORITATIVE and the is_boss heuristic never applies.
+        curated_zones = {e["zone"] for e in raid_tree} | {e["zone"] for e in dungeon_tree}
+        return dict(boss_index), raid_tree, dungeon_tree, curated_zones
     finally:
         conn.close()
 
@@ -345,11 +350,15 @@ def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str |
         rankings page shows one entry per encounter rather than one
         per mob)
 
-    Unpopulated zones fall back to the is_boss heuristic, keeping the
+    UNCURATED zones fall back to the is_boss heuristic, keeping the
     ACT zone/title verbatim — this is how rankings surface kills for
-    zones the curator hasn't gotten to yet."""
+    zones the curator hasn't gotten to yet. Inside a CURATED zone the
+    roster is authoritative: an unmatched title never ranks, so a
+    player-shaped kill title ("Ripclaw" — article-less, exactly what
+    the heuristic waves through) can't reach the boss dropdown or the
+    leaderboards."""
     if scope in ("raid", "group"):
-        boss_index, _, _ = _cached_zones_data()
+        boss_index, _, _, curated_zones = _cached_zones_data()
         candidates = boss_index.get(_normalise_boss_key(title))
         if candidates:
             if len(candidates) > 1 and zone:
@@ -360,6 +369,8 @@ def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str |
                             return True, cz, ct
             cz, ct = candidates[0]
             return True, cz, ct
+        if zone and (resolved := zones_db.find_by_name(zone)) and resolved["name"] in curated_zones:
+            return False, zone, title
     if is_boss(title):
         return True, zone, title
     return False, zone, title
@@ -384,7 +395,7 @@ def _build_filters(kills: list[dict]) -> dict:
     Also returns ``raid_expansions`` (newest first) and ``default_expansion``
     for the expansion selector — the server's current_xpac when it has raids,
     else the most recent expansion that does."""
-    _, raid_tree, dungeon_tree = _cached_zones_data()
+    _, raid_tree, dungeon_tree, _ = _cached_zones_data()
 
     raid_zones: dict[str, dict] = {}  # insertion-ordered: zone -> {bosses, expansion}
     exp_names: dict[str, str] = {}  # short -> display name

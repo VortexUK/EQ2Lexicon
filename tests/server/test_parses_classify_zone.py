@@ -19,12 +19,13 @@ from backend.server.api.parses.list import _classifier_cache_clear, _classify_zo
 
 
 def _fake_trees(raid_zones: list[str], dungeon_zones: list[str]):
-    """Mirror the (boss_index, raid_tree, dungeon_tree) shape that
-    rankings._cached_zones_data returns. Tests only need the names."""
+    """Mirror the (boss_index, raid_tree, dungeon_tree, curated_zone_names)
+    shape that rankings._cached_zones_data returns. Tests only need names."""
     return (
         {},
         [{"zone": z, "expansion": "EoF", "bosses": ["X"]} for z in raid_zones],
         [{"zone": z, "expansion": "EoF", "bosses": ["X"]} for z in dungeon_zones],
+        set(raid_zones) | set(dungeon_zones),
     )
 
 

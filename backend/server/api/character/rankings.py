@@ -92,7 +92,7 @@ def _curated_content() -> tuple[dict[tuple[str, str], tuple[str | None, frozense
       * expansion_names: short → display name
       * order: distinct expansion shorts, newest first (zones.db ordering)
     """
-    _, raid_tree, dungeon_tree = _cached_zones_data()
+    _, raid_tree, dungeon_tree, _ = _cached_zones_data()
     curated: dict[tuple[str, str], tuple[str | None, frozenset[str]]] = {}
     names: dict[str, str] = {}
     order: list[str] = []
