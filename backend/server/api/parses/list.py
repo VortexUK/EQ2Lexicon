@@ -151,7 +151,7 @@ def _all_ally_names(conn: sqlite3.Connection, encounter_id: int) -> set[str]:
 # while keeping the load-time cycle broken.
 
 
-def _cached_zones_data() -> tuple[dict, list[dict], list[dict]]:
+def _cached_zones_data() -> tuple[dict, list[dict], list[dict], set[str]]:
     """Thin local wrapper around rankings._cached_zones_data.
 
     Indirects through a local import to avoid the load-time circular
