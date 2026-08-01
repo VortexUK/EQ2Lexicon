@@ -56,12 +56,21 @@ export interface SpellTimerDraft {
   name: string
   timer_duration_s: number
   warning_value: number
+  remove_value: number
   fill_color_hex: string
   fill_color_packed: number
+  checked: boolean
   panel1: boolean
   panel2: boolean
   absolute: boolean
   only_master_ticks: boolean
+  restrict: boolean
+  restrict_category: boolean
+  radial_display: boolean
+  modable: boolean
+  start_wav: string
+  warning_wav: string
+  category: string
   tooltip: string
   damage_type: string
   control_effect: string
@@ -101,12 +110,24 @@ export function defaultSpellTimerDraft(s?: SpellTimer | null, nameHint?: string)
     name: s?.name ?? nameHint ?? '',
     timer_duration_s: s?.timer_duration_s ?? 30,
     warning_value: s?.warning_value ?? 10,
+    remove_value: s?.remove_value ?? -15,
     fill_color_hex: argbToHex(packed),
     fill_color_packed: packed,
+    // New-timer defaults mirror EQ2Parser/ACT: enabled, modable, tts
+    // sounds — the editor now expresses EVERY field, so what's saved is
+    // always what the curator saw.
+    checked: s?.checked ?? true,
     panel1: s?.panel1 ?? true,
     panel2: s?.panel2 ?? false,
     absolute: s?.absolute ?? false,
     only_master_ticks: s?.only_master_ticks ?? false,
+    restrict: s?.restrict ?? false,
+    restrict_category: s?.restrict_category ?? false,
+    radial_display: s?.radial_display ?? false,
+    modable: s?.modable ?? true,
+    start_wav: s?.start_wav ?? 'tts',
+    warning_wav: s?.warning_wav ?? 'tts',
+    category: s?.category ?? '',
     tooltip: s?.tooltip ?? '',
     damage_type: s?.damage_type ?? '',
     control_effect: s?.control_effect ?? '',
@@ -118,11 +139,20 @@ export function buildTimerBody(d: SpellTimerDraft) {
     name: d.name.trim(),
     timer_duration_s: d.timer_duration_s,
     warning_value: d.warning_value,
+    remove_value: d.remove_value,
     fill_color: d.fill_color_packed,
+    checked: d.checked,
     panel1: d.panel1,
     panel2: d.panel2,
     absolute: d.absolute,
     only_master_ticks: d.only_master_ticks,
+    restrict: d.restrict,
+    restrict_category: d.restrict_category,
+    radial_display: d.radial_display,
+    modable: d.modable,
+    start_wav: d.start_wav,
+    warning_wav: d.warning_wav,
+    category: d.category.trim() || null,
     tooltip: d.tooltip,
     damage_type: d.damage_type,
     control_effect: d.control_effect,

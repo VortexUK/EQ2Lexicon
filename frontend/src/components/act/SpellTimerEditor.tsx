@@ -34,7 +34,7 @@ export function SpellTimerEditor({ draft, onChange, nameEditable = true, onNameB
         )}
       </Field>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Field label="Duration (s)">
           <input
             type="number"
@@ -50,6 +50,15 @@ export function SpellTimerEditor({ draft, onChange, nameEditable = true, onNameB
             min={0}
             value={draft.warning_value}
             onChange={e => onChange({ ...draft, warning_value: Number(e.target.value) })}
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Remove at (s)">
+          <input
+            type="number"
+            title="Seconds remaining when the bar disappears — negative keeps counting past zero"
+            value={draft.remove_value}
+            onChange={e => onChange({ ...draft, remove_value: Number(e.target.value) })}
             className={inputCls}
           />
         </Field>
@@ -70,6 +79,34 @@ export function SpellTimerEditor({ draft, onChange, nameEditable = true, onNameB
             />
             <code className="font-mono text-[0.78rem] text-text-muted">{draft.fill_color_hex}</code>
           </div>
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <Field label="Start sound (text / 'tts' = speak name)">
+          <input
+            type="text"
+            value={draft.start_wav}
+            onChange={e => onChange({ ...draft, start_wav: e.target.value })}
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Warning sound ('tts' = name + soon)">
+          <input
+            type="text"
+            value={draft.warning_wav}
+            onChange={e => onChange({ ...draft, warning_wav: e.target.value })}
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Category (blank = boss name)">
+          <input
+            type="text"
+            value={draft.category}
+            onChange={e => onChange({ ...draft, category: e.target.value })}
+            placeholder="a|b for split mobs"
+            className={inputCls}
+          />
         </Field>
       </div>
 
@@ -120,7 +157,35 @@ export function SpellTimerEditor({ draft, onChange, nameEditable = true, onNameB
         </Field>
       </div>
 
+      {/* Full parity with EQ2Parser's timer options — every field the
+          parser honours is expressible here, so a save can never silently
+          strip behaviour again. */}
       <div className="flex items-center gap-4 flex-wrap text-[0.85rem]">
+        <Checkbox
+          label="Enabled"
+          checked={draft.checked}
+          onChange={v => onChange({ ...draft, checked: v })}
+        />
+        <Checkbox
+          label="Timer mods"
+          checked={draft.modable}
+          onChange={v => onChange({ ...draft, modable: v })}
+        />
+        <Checkbox
+          label="Category lock"
+          checked={draft.restrict_category}
+          onChange={v => onChange({ ...draft, restrict_category: v })}
+        />
+        <Checkbox
+          label="Only mine"
+          checked={draft.restrict}
+          onChange={v => onChange({ ...draft, restrict: v })}
+        />
+        <Checkbox
+          label="Radial"
+          checked={draft.radial_display}
+          onChange={v => onChange({ ...draft, radial_display: v })}
+        />
         <Checkbox
           label="Panel 1"
           checked={draft.panel1}

@@ -327,3 +327,53 @@ class TestEnrichment:
             assert row == ("", "")
         # Idempotent: a second init on the migrated file is a no-op.
         RaidCatalogue(p).init_db().close()
+
+
+class TestEditorParityBackfill:
+    def test_backfill_flips_editor_stripped_fields_once(self, db_path: Path, db_conn, enc_id: int):
+        """Rows saved by the pre-parity web editor (modable/checked 0,
+        blank sounds) flip to the real defaults exactly ONCE — a curator's
+        later deliberate zero survives re-init (meta-guarded)."""
+        tid = upsert_act_spell_timer(
+            db_conn,
+            raid_encounter_id=enc_id,
+            name="Stripped",
+            timer_duration_s=30,
+            checked=False,
+            modable=False,
+            start_wav="",
+            warning_wav="",
+        )
+        deliberate = upsert_act_spell_timer(
+            db_conn,
+            raid_encounter_id=enc_id,
+            name="Silent By Choice",
+            timer_duration_s=30,
+            checked=False,
+            modable=False,
+            start_wav="",
+            warning_wav="custom.wav",
+        )
+        # Clear the guard the fixture's init already set, then re-init.
+        db_conn.execute("DELETE FROM _meta WHERE key = 'act_editor_parity_backfill'")
+        db_conn.commit()
+        RaidCatalogue(db_path).init_db().close()
+
+        cat = RaidCatalogue(db_path)
+        row = cat.get_act_spell_timer(tid)
+        assert row is not None
+        assert (row["modable"], row["checked"]) == (1, 1)
+        assert (row["start_wav"], row["warning_wav"]) == ("tts", "tts")
+        # One sound set deliberately → the pair is NOT blank-both → kept.
+        partial = cat.get_act_spell_timer(deliberate)
+        assert partial is not None
+        assert (partial["start_wav"], partial["warning_wav"]) == ("", "custom.wav")
+
+        # Post-backfill: a deliberate off survives the next init.
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("UPDATE act_spell_timers SET modable = 0 WHERE id = ?", (tid,))
+            conn.commit()
+        RaidCatalogue(db_path).init_db().close()
+        row = cat.get_act_spell_timer(tid)
+        assert row is not None
+        assert row["modable"] == 0

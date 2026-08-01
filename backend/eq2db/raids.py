@@ -149,6 +149,25 @@ class RaidCatalogue(BaseCatalogue):
         self._apply_migrations(conn, _ACT_ENRICHMENT_MIGRATIONS)
         conn.executescript(_SQL["indexes_all"])
 
+    def _post_init(self, conn: sqlite3.Connection) -> None:
+        # One-time backfill (2026-08): the web ACT editor historically
+        # omitted modable / checked / the sound fields, so every save wrote
+        # the request-model defaults (0 / 0 / '') regardless of curator
+        # intent — synced EQ2Parser timers came out non-modable and silent.
+        # Flip the damage once; the meta guard means a curator's LATER
+        # deliberate zero/blank (now expressible in the editor) survives
+        # every re-init.
+        if get_meta(conn, "act_editor_parity_backfill"):
+            return
+        conn.execute("UPDATE act_spell_timers SET modable = 1")
+        conn.execute("UPDATE act_spell_timers SET checked = 1")
+        conn.execute(
+            "UPDATE act_spell_timers SET start_wav = 'tts', warning_wav = 'tts' "
+            "WHERE start_wav = '' AND warning_wav = ''"
+        )
+        conn.commit()
+        set_meta(conn, "act_editor_parity_backfill", "1")
+
     # ── Write helpers (take an open conn — callers own the transaction) ──────
 
     @staticmethod

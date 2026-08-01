@@ -40,15 +40,17 @@ class SpellTimerUpsertRequest(BaseModel):
 
     name: str = Field(..., min_length=1)
     timer_duration_s: int = Field(..., gt=0)
-    checked: bool = False
+    # Defaults mirror EQ2Parser's (and ACT's): enabled, modable, tts
+    # sounds — so a sparse client can't silently strip behaviour again.
+    checked: bool = True
     only_master_ticks: bool = False
     restrict: bool = False
     absolute: bool = False
-    start_wav: str = ""
-    warning_wav: str = ""
+    start_wav: str = "tts"
+    warning_wav: str = "tts"
     warning_value: int = 10
     radial_display: bool = False
-    modable: bool = False
+    modable: bool = True
     tooltip: str = ""
     fill_color: int = -16776961
     panel1: bool = True

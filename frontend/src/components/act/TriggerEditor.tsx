@@ -226,11 +226,25 @@ export function TriggerEditor({ base, spellTimers, existing, existingTimer, onCa
           />
         </Field>
 
+        <Field label="Category (blank = boss name)">
+          <input
+            type="text"
+            value={draft.category}
+            onChange={e => setDraft({ ...draft, category: e.target.value })}
+            className={inputCls}
+          />
+        </Field>
+
         <div className="flex items-center gap-4 flex-wrap text-[0.85rem]">
           <Checkbox
             label="Active"
             checked={draft.active}
             onChange={v => setDraft({ ...draft, active: v })}
+          />
+          <Checkbox
+            label="Zone-locked"
+            checked={draft.category_restrict}
+            onChange={v => setDraft({ ...draft, category_restrict: v })}
           />
           <Checkbox
             label="Tabbed"
