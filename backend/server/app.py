@@ -599,9 +599,14 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     # (Content-Encoding: gzip) before FastAPI parsing / the ingest HMAC check
     # read them. Plain requests pass through untouched — pre-gzip ACT plugin
     # versions keep working. See backend/server/core/gzip_request.py.
-    from backend.server.core.gzip_request import GzipRequestMiddleware
+    from backend.server.core.gzip_request import BodySizeLimitMiddleware, GzipRequestMiddleware
 
     app.add_middleware(GzipRequestMiddleware)
+
+    # Outermost of the body-touching layers (added last → runs first), so it
+    # caps the raw incoming body BEFORE gzip inflation or FastAPI parsing can
+    # buffer it. Stops the unbounded-plain-POST memory DoS.
+    app.add_middleware(BodySizeLimitMiddleware)
 
     # API routers — one entry per router, registered at /api prefix
     _ROUTERS = [

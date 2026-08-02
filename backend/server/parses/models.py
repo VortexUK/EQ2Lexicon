@@ -22,8 +22,16 @@ serve the v0.1.8+ upload path unchanged.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
+
+# SQLite stores integers as signed 64-bit. A payload value outside this range
+# raises OverflowError at insert time (an uncaught 500); clamp instead so a
+# hostile/garbage number degrades to a bound the plausibility gate then
+# rejects, rather than crashing the request.
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
 
 
 def _to_unix(dt: datetime | None) -> int:
@@ -44,21 +52,28 @@ def _to_int(v) -> int:
     if v is None or v == "":
         return 0
     try:
-        return int(v)
+        n = int(v)
     except (TypeError, ValueError):
         try:
-            return int(float(v))
+            f = float(v)
         except (TypeError, ValueError):
             return 0
+        # nan/inf have no integer value — treat as missing, not a crash.
+        n = int(f) if math.isfinite(f) else 0
+    # Clamp to int64 so an absurd magnitude can't OverflowError at insert.
+    return max(_INT64_MIN, min(_INT64_MAX, n))
 
 
 def _to_float(v) -> float:
     if v is None or v == "":
         return 0.0
     try:
-        return float(v)
+        f = float(v)
     except (TypeError, ValueError):
         return 0.0
+    # inf/nan would poison downstream max()/percentile math and JSON encoding —
+    # coerce non-finite to 0.0 (missing) here so nothing further has to guard.
+    return f if math.isfinite(f) else 0.0
 
 
 def _to_str_or_none(v) -> str | None:
@@ -78,9 +93,14 @@ def _to_perc(v) -> float:
         return 0.0
     s = str(v).strip().rstrip("%").strip()
     try:
-        return float(s)
+        f = float(s)
     except (TypeError, ValueError):
         return 0.0
+    # Non-finite guard (same rationale as _to_float). Range clamping to
+    # [0,100] is deliberately NOT done here — the plausibility gate rejects
+    # out-of-range percentages so a forged "9999%" surfaces rather than being
+    # silently masked to 100.
+    return f if math.isfinite(f) else 0.0
 
 
 def _to_bool_tf(v) -> bool:

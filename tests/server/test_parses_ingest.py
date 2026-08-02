@@ -139,7 +139,14 @@ async def test_ingest_revived_status_schedules_background(app):
 
 
 @pytest.mark.asyncio
-async def test_reupload_of_soft_deleted_parse_revives_it(tmp_path, monkeypatch):
+async def test_reupload_of_soft_deleted_parse_does_not_revive_it(tmp_path, monkeypatch):
+    """Security: re-uploading a moderator-hidden parse must NOT un-hide it.
+
+    Soft-delete is the moderation action; auto-reviving on re-upload let a
+    cheater undo an officer's hide just by re-sending the payload. Re-upload
+    now returns 'skipped' (with no encounter_id echo — enumeration oracle
+    closed) and leaves hidden_at set. Restoring a wrongly-hidden parse is a
+    separate authenticated admin action."""
     from backend.server.api.parses import IngestRequest
     from backend.server.api.parses.ingest import _ingest_payload_sync
     from backend.server.parses import db as pdb
@@ -163,12 +170,14 @@ async def test_reupload_of_soft_deleted_parse_revives_it(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    # Re-upload the same encounter → revived + un-hidden.
+    # Re-upload the same encounter → skipped, NOT revived; id not echoed.
     status2, eid2, *_ = _ingest_payload_sync(payload, "Menludiir", "Exordium", "plugin:123", {})
-    assert status2 == "revived" and eid2 == eid
+    assert status2 == "skipped"
+    assert eid2 is None
+    # Still hidden — moderation preserved.
     conn = pdb.ParsesStore(db_file).init_db()
     try:
-        assert pdb.store.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is None
+        assert pdb.store.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is not None
     finally:
         conn.close()
 

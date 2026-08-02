@@ -32,12 +32,14 @@ from backend.server.auth_deps import require_user_session_or_token
 from backend.server.cache import character_cache
 from backend.server.config import ALLOWED_SERVERS as _ALLOWED_SERVERS
 from backend.server.config import WORLD as _WORLD
+from backend.server.core.audit_log import audit_log
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
 from backend.server.core.session_user import TokenUser
 from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
-from backend.server.limiter import limiter
+from backend.server.limiter import limiter, upload_rate_key
+from backend.server.parses import plausibility
 from backend.server.parses.db import store as parses_db
 from backend.server.parses.models import (
     AttackType,
@@ -51,10 +53,17 @@ from backend.server.parses.models import (
     _to_perc,
     _to_str_or_none,
     _to_ts,
+    _to_unix,
 )
 from backend.server.parses.pet_detection import classify_combatants
 
 _log = logging.getLogger(__name__)
+
+# The background snapshot resolver hits Census once per never-seen player
+# name (serial). A real raid is ≤24 players + a few mercs, and the first
+# never-seen name warms the whole guild roster, so this cap is generous for
+# legitimate uploads while bounding a hostile payload's Census amplification.
+_MAX_SNAPSHOT_NAMES = 40
 
 # Pre-lowered comparison set so each ingest doesn't redo the work.
 # Computed at module import — env changes need a process restart, same
@@ -556,19 +565,32 @@ def _check_idempotency_sync(
     """Return a terminal result tuple if this encid has already been ingested,
     or None if we should proceed with a fresh insert.
 
-    'revived' — was ingested then soft-deleted; un-hides and returns.
-    'skipped' — already ingested and still visible; no-op return.
+    'skipped' — already ingested; no-op return.
     None      — never ingested; caller should insert.
+
+    Re-upload NEVER un-hides a soft-deleted parse. Soft-delete is the
+    moderation action (an officer/admin hid an abusive parse); the original
+    uploader is also the party most likely to re-upload, so auto-reviving on
+    re-upload let a cheater undo moderation just by re-sending the payload
+    (a known moderation-evasion bypass). Restoring a wrongly-hidden parse is
+    now an explicit authenticated admin action, not a side effect of ingest.
+
+    The existing internal ``encounter_id`` is NOT echoed on a skip — combined
+    with client-chosen encids it was an enumeration oracle for which encounters
+    exist. Skipped returns ``None`` for the id.
     """
     if not parses_db.is_ingested(conn, encid, world):
         return None
     existing = parses_db.find_encounter_by_act_encid(conn, encid, world)
-    # A re-upload of a soft-deleted (hidden) parse should bring it back,
-    # not silently skip — un-hide it so it returns to the list.
     if existing and existing.get("hidden_at") is not None:
-        parses_db.unhide_encounter(conn, existing["id"])
-        return ("revived", existing["id"], 0, 0, 0)
-    return ("skipped", existing["id"] if existing else None, 0, 0, 0)
+        # Leave it hidden; surface the evasion attempt in the logs (the actor
+        # is captured on the request via the request-context/audit trail).
+        _log.warning(
+            "[parses-ingest] re-upload of hidden encounter %s skipped — moderation preserved (world=%s)",
+            existing.get("id"),
+            world,
+        )
+    return ("skipped", None, 0, 0, 0)
 
 
 def _insert_encounter_rows_sync(
@@ -706,6 +728,48 @@ def _ingest_payload_sync(
         conn.close()
 
 
+def _quarantine_encounter_sync(
+    body: IngestRequest,
+    enc: Encounter,
+    *,
+    world: str,
+    reason: str,
+    uploader: str,
+    discord_id: str,
+    discord_name: str,
+) -> int:
+    """Route an implausible-but-not-impossible upload to the tamper_reports
+    audit table INSTEAD of `encounters`, so it never reaches a leaderboard but
+    an admin can review it. Reuses the existing tamper-report row + admin UI —
+    the reason is prefixed ``server_`` to distinguish server-detected
+    quarantines from the plugin's client-side tamper heuristics."""
+    conn = parses_db.init_db()
+    try:
+        report_id = parses_db.insert_tamper_report(
+            conn,
+            world=world,
+            act_encid=body.encounter.encid,
+            title=body.encounter.title or "",
+            zone=body.encounter.zone,
+            started_at=_to_unix(enc.started_at),
+            ended_at=_to_unix(enc.ended_at),
+            duration_s=enc.duration_s,
+            total_damage=enc.total_damage,
+            encdps=enc.encdps,
+            reason=f"server_{reason}",
+            reported_at=int(time.time()),
+            uploader_logger_name=uploader,
+            uploader_discord_id=discord_id,
+            uploader_discord_name=discord_name,
+            guild_name=None,
+            payload_json=body.model_dump_json(),
+        )
+        conn.commit()
+        return report_id
+    finally:
+        conn.close()
+
+
 # Header name shipped by the plugin (v0.1.8+). MUST match
 # PayloadSigner.SignatureHeaderName in the EQ2LexiconACTPlugin repo —
 # changing one side without the other breaks HMAC validation.
@@ -810,7 +874,7 @@ async def _validate_payload_signature(
 
 
 @router.post("/parses/ingest", response_model=IngestResponse, status_code=201)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=upload_rate_key)
 async def ingest_parse(
     request: Request,
     body: IngestRequest,
@@ -886,6 +950,60 @@ async def ingest_parse(
     # no current_world() fallback to fall through to on this HTTP path.
     parse_world = sanitized_server
 
+    # Plausibility gate — the server-side honesty floor. Runs BEFORE any
+    # Census/DB work so an impossible or absurd payload is cheap to reject.
+    #   REJECT     → 400 (physically impossible: bad duration/timestamps, a
+    #                combatant out-damaging the whole fight).
+    #   QUARANTINE → routed to tamper_reports, kept off the leaderboard, and
+    #                the caller gets a normal-looking 201 (no calibration
+    #                feedback for a forger).
+    typed_enc = _encounter_from_payload(body.encounter)
+    if typed_enc is None:
+        raise HTTPException(status_code=400, detail="Encounter starttime/endtime unparseable")
+    typed_combatants = _combatants_from_payload(body.combatants, typed_enc.encid)
+    verdict = plausibility.evaluate(typed_enc, typed_combatants, now=int(time.time()))
+    if verdict.verdict is plausibility.Verdict.REJECT:
+        _log.warning(
+            "[parses-ingest] plausibility REJECT reason=%s user_id=%s world=%s encid=%s",
+            verdict.reason,
+            user["id"],
+            parse_world,
+            body.encounter.encid,
+        )
+        raise HTTPException(status_code=400, detail=f"Parse rejected as implausible: {verdict.reason}")
+    if verdict.verdict is plausibility.Verdict.QUARANTINE:
+        discord_id = str(user.get("id") or "")
+        discord_name = str(user.get("discord_name") or user.get("username") or "")
+        report_id = await run_sync(
+            _quarantine_encounter_sync,
+            body,
+            typed_enc,
+            world=parse_world,
+            reason=verdict.reason,
+            uploader=uploader,
+            discord_id=discord_id,
+            discord_name=discord_name,
+        )
+        audit_log(
+            "parse_quarantined",
+            actor=discord_id,
+            report_id=report_id,
+            reason=f"server_{verdict.reason}",
+            logger=uploader,
+            world=parse_world,
+            encid=body.encounter.encid,
+        )
+        # Normal-looking 201 — the parse simply never reaches the board.
+        return IngestResponse(
+            status="quarantined",
+            encounter_id=None,
+            act_encid=body.encounter.encid,
+            combatants=0,
+            damage_types=0,
+            attack_types=0,
+            guild_name=None,
+        )
+
     # Guild resolve — cache/census_store only (any age). The response path
     # NEVER waits on Census: a never-seen uploader gets CENSUS_UNAVAILABLE
     # here, the encounter commits with guild_name=NULL, and the background
@@ -904,11 +1022,24 @@ async def ingest_parse(
     # Freeze each player ally's level/guild/class at ingest. Restricted to
     # player-like names (single-word ally, not the 'Unknown' rollup) so we
     # never burn Census calls on pets/NPCs that don't exist as characters.
-    player_names = [
-        name
-        for r in body.combatants
-        if _to_bool_tf(r.ally) and (name := str(r.name or "").strip()) and " " not in name and name != "Unknown"
-    ]
+    # Restrict to VALID EQ2 character-name shapes (letters, 1-15) — the
+    # background resolver does one live Census call per never-seen name, so an
+    # unvalidated list of fabricated names was a Census-amplification lever
+    # (could get the shared service ID rate-limited/banned). Cap the count too:
+    # a real raid is well under _MAX_SNAPSHOT_NAMES, and names beyond it simply
+    # keep NULL identity rather than each costing a Census round-trip.
+    player_names: list[str] = []
+    for r in body.combatants:
+        if not _to_bool_tf(r.ally):
+            continue
+        name = str(r.name or "").strip()
+        if not name or name == "Unknown" or " " in name:
+            continue
+        if _validate_character_name(name) is None:
+            continue
+        player_names.append(name)
+        if len(player_names) >= _MAX_SNAPSHOT_NAMES:
+            break
     # Cache-only on the response path — NEVER hit Census here, or a cold-cache
     # raid upload (up to N serial 30 s Census calls) would time the plugin out.
     # Whatever's already warm in character_cache is frozen now; the rest is

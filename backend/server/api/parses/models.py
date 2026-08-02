@@ -382,9 +382,15 @@ class IngestRequest(BaseModel):
     # Optional so older plugins keep working through the rollout.
     logger_server: str | None = Field(default=None, max_length=64)
     encounter: IngestEncounter
-    combatants: list[IngestCombatant] = []
-    damage_types: list[IngestDamageType] = []
-    attack_types: list[IngestAttackType] = []
+    # Size caps mirror the plugin's own limits and sit far above any real
+    # raid (a 24-player raid is ~50 combatants incl. pets/enemies; sub-rows
+    # scale with abilities × combatants). They bound the DB insert work and
+    # the background Census-resolution loop against a hostile/huge payload —
+    # the raw-body cap (BodySizeLimitMiddleware) stops the memory spike, these
+    # stop the per-row amplification.
+    combatants: list[IngestCombatant] = Field(default_factory=list, max_length=512)
+    damage_types: list[IngestDamageType] = Field(default_factory=list, max_length=8000)
+    attack_types: list[IngestAttackType] = Field(default_factory=list, max_length=16000)
     # Soft warnings the plugin (v0.1.15+) attaches when something looked
     # off but not bad enough to block the upload. Currently just
     # ``"folder_hint_mismatch"`` — ACT's per-encounter HistoryRecord.FolderHint
