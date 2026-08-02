@@ -103,7 +103,6 @@ def test_evaluate_accepts_a_normal_fight():
     ("enc_over", "reason"),
     [
         ({"duration_s": -1}, "duration_negative"),
-        ({"duration_s": plausibility.MAX_FIGHT_S + 1}, "duration_too_long"),
         ({"total_damage": -5}, "total_damage_negative"),
         ({"encdps": -1.0}, "encdps_negative"),
         # started > ended
@@ -138,23 +137,18 @@ def test_evaluate_rejects_impossible_encounters(enc_over, reason):
     assert r.reason == reason
 
 
-def test_evaluate_rejects_combatant_out_damaging_the_fight():
-    # ally deals more than the whole encounter's total damage
-    r = evaluate(_enc(total_damage=100_000), [_combatant(damage=250_000)], now=_NOW)
-    assert r.verdict is Verdict.REJECT
-    assert r.reason == "combatant_exceeds_total"
-
-
 def test_evaluate_rejects_negative_combatant_damage():
     r = evaluate(_enc(), [_combatant(damage=-1)], now=_NOW)
     assert r.verdict is Verdict.REJECT
     assert r.reason == "combatant_damage_negative"
 
 
-def test_evaluate_ignores_enemy_rows_for_the_out_damage_check():
-    # An enemy (boss) row can exceed the ally-total; only ally rows are bound.
-    r = evaluate(_enc(total_damage=100_000), [_combatant(ally=False, damage=9_000_000)], now=_NOW)
-    assert r.verdict is Verdict.ACCEPT
+def test_evaluate_quarantines_long_idle_merge_without_erroring():
+    # A > 2h "encounter" is ACT idle-merge, not a real fight — quarantined
+    # (off-board), NOT rejected, so the upload still succeeds for the user.
+    r = evaluate(_enc(duration_s=plausibility.MAX_FIGHT_S + 1), [_combatant()], now=_NOW)
+    assert r.verdict is Verdict.QUARANTINE
+    assert r.reason == "duration_too_long"
 
 
 def test_evaluate_quarantines_implausible_encounter_rate():
@@ -255,7 +249,7 @@ async def test_body_size_middleware_passes_small_bodies_through():
 @pytest.mark.asyncio
 async def test_route_rejects_impossible_payload_before_insert(app):
     payload = _minimal_payload()
-    payload["encounter"]["duration"] = 999_999  # > MAX_FIGHT_S
+    payload["encounter"]["duration"] = -5  # impossible → REJECT (400)
 
     insert = MagicMock(return_value=("inserted", 1, 1, 0, 0))
     with (

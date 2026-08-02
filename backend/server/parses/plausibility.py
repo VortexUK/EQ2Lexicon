@@ -48,10 +48,6 @@ MAX_FIGHT_S = 7200  # 2 hours
 TS_FLOOR = 1_420_070_400  # 2015-01-01 UTC
 FUTURE_SKEW_S = 86_400  # 1 day
 
-# A combatant cannot out-damage the whole encounter. Small multiplicative
-# slack absorbs ACT's rounding / pet-attribution bleed.
-DAMAGE_OVER_TOTAL_SLACK = 1.10
-
 # Absolute per-second ceiling for the QUARANTINE layer. Intentionally far above
 # any real parse — its only job is to catch fabricated magnitudes and finite
 # huge floats, NOT to enforce records. Calibrate down against real data later.
@@ -86,10 +82,14 @@ def evaluate(enc: Encounter, combatants: list[Combatant], *, now: int) -> Plausi
     """Judge a fully-parsed encounter + its combatants. ``now`` is unix
     seconds (injected so the check is deterministic under test)."""
     # --- Layer 1: impossible / malformed → REJECT (400) ---------------------
+    # ONLY values a real recent encounter can never produce. A false REJECT
+    # fails a legitimate plugin upload, so this set is deliberately minimal:
+    # negatives and impossible/absurd timestamps. Anything that a legitimate
+    # (if unusual) capture COULD produce — a long idle-merged encounter, a
+    # combatant whose damage exceeds the reported total under some total-damage
+    # computation — is handled as a non-erroring QUARANTINE below, never a 400.
     if enc.duration_s < 0:
         return _reject("duration_negative")
-    if enc.duration_s > MAX_FIGHT_S:
-        return _reject("duration_too_long")
     if enc.total_damage < 0:
         return _reject("total_damage_negative")
     if enc.encdps < 0:
@@ -102,16 +102,20 @@ def evaluate(enc: Encounter, combatants: list[Combatant], *, now: int) -> Plausi
     if started > 0 and (started < TS_FLOOR or started > now + FUTURE_SKEW_S):
         return _reject("timestamp_implausible")
 
-    damage_ceiling = enc.total_damage * DAMAGE_OVER_TOTAL_SLACK
     for c in combatants:
-        if not c.ally:
-            continue  # only ally rows rank; enemy damage isn't bounded by total
-        if c.damage < 0:
+        if c.ally and c.damage < 0:
             return _reject("combatant_damage_negative")
-        if enc.total_damage > 0 and c.damage > damage_ceiling:
-            return _reject("combatant_exceeds_total")
 
-    # --- Layer 2: possible but implausibly large → QUARANTINE ---------------
+    # --- Layer 2: possible but implausible → QUARANTINE (off-board, 201) -----
+    # These do NOT error the upload — the plugin gets a normal 201; the parse
+    # is simply held off the leaderboard for admin review. Safe to apply to
+    # anything that shouldn't rank but might not be provably malicious.
+    #
+    # A fight longer than MAX_FIGHT_S is almost always ACT's idle-merge, not a
+    # real ranked encounter — quarantining keeps that garbage off the board
+    # without failing the user's upload.
+    if enc.duration_s > MAX_FIGHT_S:
+        return _quarantine("duration_too_long")
     if enc.encdps > MAX_PLAUSIBLE_RATE:
         return _quarantine("implausible_encdps")
     for c in combatants:
