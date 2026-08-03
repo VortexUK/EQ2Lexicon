@@ -31,7 +31,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.1.5",
     "@types/react-dom": "^19.1.5",
-    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "@vitest/ui": "^4.1.10",
     "eslint": "^10.7.0",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -41,7 +41,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.7"
   }
 }
