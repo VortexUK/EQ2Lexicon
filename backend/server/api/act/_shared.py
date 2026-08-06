@@ -98,6 +98,32 @@ def _ensure_raids_db_inited() -> None:
         _RAIDS_DB_INIT_DONE = True
 
 
+# The synthetic zone that holds contributor-defined trigger CATEGORIES
+# ("Death Saves", …) — encounters under it are categories, not bosses.
+# It exists only in raids.db (verified absent from zones.db), so it rides
+# every existing per-encounter route, the XML import/export, and the app
+# pack with zero special-casing beyond the resolution branch below.
+GENERAL_ZONE = "General"
+
+
+def _resolve_general_sync(position: int) -> tuple[str, str, int] | None:
+    """Resolve a General-zone category purely against raids.db — there is
+    no zones_db backing, and no lazy-create (categories are created
+    explicitly via the categories API)."""
+    _ensure_raids_db_inited()
+    with sqlite3.connect(raids_db.path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """SELECT e.id, e.mob_name FROM raid_encounters e
+               JOIN raid_zones z ON z.id = e.raid_zone_id
+               WHERE z.zone_name_lower = ? AND e.position = ?""",
+            (GENERAL_ZONE.lower(), position),
+        ).fetchone()
+        if row is None:
+            return None
+        return GENERAL_ZONE, row["mob_name"], row["id"]
+
+
 def _resolve_encounter_sync(zone_name: str, position: int) -> tuple[str, str, int] | None:
     """Map ``(zone_name, position)`` -> ``(canonical_zone, mob_name, encounter_id)``.
 
@@ -109,6 +135,8 @@ def _resolve_encounter_sync(zone_name: str, position: int) -> tuple[str, str, in
     (encounter never had a strategy written), we lazy-create it via the
     same upsert_raid_encounter pattern the strategy editor uses, so the
     first trigger save doesn't need a pre-existing strategy."""
+    if zone_name.strip().lower() == GENERAL_ZONE.lower():
+        return _resolve_general_sync(position)
     z = zones_db.find_by_name(zone_name)
     if z is None:
         return None

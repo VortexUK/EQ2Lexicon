@@ -17,6 +17,7 @@ const ITEMS: NavSpec[] = [
   { to: '/items',      label: 'Items',      also: '/item/' },
   { to: '/recipes',    label: 'Recipes' },
   { to: '/raids',      label: 'Raids',      also: '/raids/' },
+  { to: '/triggers',   label: 'Triggers' },
   { to: '/parses',     label: 'Parses',     also: '/parse/' },
   { to: '/rankings',   label: 'Rankings' },
   { to: '/stats', label: 'Stats' },

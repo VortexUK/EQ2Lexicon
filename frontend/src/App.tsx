@@ -27,6 +27,7 @@ const RaidZonePage      = lazy(() => import('./pages/RaidZonePage'))
 const RaidZonesPage     = lazy(() => import('./pages/RaidZonesPage'))
 const ComparePage       = lazy(() => import('./pages/ComparePage'))
 const StatsPage         = lazy(() => import('./pages/StatsPage'))
+const TriggersPage      = lazy(() => import('./pages/TriggersPage'))
 const AAPlanSharePage   = lazy(() => import('./pages/AAPlanSharePage'))
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
@@ -137,6 +138,7 @@ function NavLinks() {
       <NavItem to="/items"      label="Items"       also="/item/" />
       <NavItem to="/recipes"    label="Recipes" />
       <NavItem to="/raids"      label="Raids"       also="/raids/" />
+      <NavItem to="/triggers"   label="Triggers" />
       <NavItem to="/parses"     label="Parses"      also="/parse/" />
       <NavItem to="/rankings"   label="Rankings" />
       <NavItem to="/stats"      label="Stats" />
@@ -302,6 +304,7 @@ function App() {
         <Route path="/raids"                    element={<RaidZonesPage />} />
         <Route path="/raids/:name"              element={<RaidZonePage />} />
         <Route path="/raids/:name/:bossName"    element={<RaidZonePage />} />
+        <Route path="/triggers"    element={<TriggersPage />} />
         <Route path="/parses"      element={<ParsesPage />} />
         <Route path="/rankings"    element={<RankingsPage />} />
         <Route path="/stats"       element={<StatsPage />} />
