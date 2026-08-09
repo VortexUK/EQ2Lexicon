@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, SectionLabel, Badge, LinkButton } from '../components/ui'
 
@@ -32,6 +32,72 @@ function Step({ children }: { children: ReactNode }) {
   return <li className="pl-1 leading-relaxed">{children}</li>
 }
 
+/**
+ * A compact screenshot thumbnail that expands to a full-screen lightbox on
+ * click. Kept small inline so it previews the app without dominating the
+ * card / stealing focus from the download CTA. Dismiss the lightbox with the
+ * ✕ button, the Escape key, or a click anywhere on the backdrop/image.
+ */
+function Screenshot({ src, alt, caption }: { src: string; alt: string; caption: string }) {
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
+  return (
+    <figure className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Enlarge screenshot"
+        className="group relative block w-full max-w-[380px] appearance-none border-0 bg-transparent p-0 cursor-zoom-in"
+      >
+        <img
+          src={src}
+          alt={alt}
+          width={1600}
+          height={1176}
+          loading="lazy"
+          className="w-full h-auto rounded-md border border-border shadow-md transition-[filter] duration-150 group-hover:brightness-[1.06]"
+        />
+        <span className="absolute bottom-1.5 right-1.5 rounded-sm bg-bg/80 border border-border px-1.5 py-0.5 text-[0.65rem] text-text-muted opacity-0 transition-opacity group-hover:opacity-100">
+          ⤢ Enlarge
+        </span>
+      </button>
+      <figcaption className="text-xs text-text-muted max-w-[380px]">{caption}</figcaption>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-modal flex items-center justify-center p-4 sm:p-8 bg-bg/85 backdrop-blur-sm cursor-zoom-out"
+          onClick={() => setOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Screenshot enlarged"
+        >
+          <img src={src} alt={alt} className="max-w-full max-h-full w-auto h-auto rounded-md border border-border shadow-2xl" />
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close"
+            className="absolute top-3 right-3 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-bg/80 text-lg text-text-muted transition-colors hover:text-gold cursor-pointer appearance-none"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </figure>
+  )
+}
+
 export default function DownloadsPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 space-y-8">
@@ -62,6 +128,12 @@ export default function DownloadsPage() {
           timers, a click-through overlay, local encounter history, and one-click parse
           uploads to this site. Open source (MIT) and self-updating.
         </p>
+
+        <Screenshot
+          src="/eq2parser-screenshot.webp"
+          alt="EQ2Parser's Main tab showing a live raid parse — a per-combatant DPS bar chart above a sortable damage table, with the fight history tree on the left."
+          caption="The Main tab mid-raid — DPS chart, sortable damage table, and fight history. Click to enlarge."
+        />
 
         <div className="flex flex-wrap items-center gap-3">
           <LinkButton href={PARSER_SETUP} variant="primary">
