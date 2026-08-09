@@ -272,6 +272,68 @@ async def test_acknowledge_missing_id_returns_false(app):
 
 
 # ---------------------------------------------------------------------------
+# Acknowledge-all + purge (spam-flood cleanup)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_all_requires_admin(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/admin/tamper-reports/acknowledge-all")
+    assert r.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_all_flips_every_pending(app):
+    ids = _seed_tamper_reports()  # 4 pending
+    _acknowledge_row(ids[1])  # one already acked — must not be re-counted
+
+    with patch("backend.server.api.admin._require_admin", _fake_admin):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/admin/tamper-reports/acknowledge-all")
+
+    assert r.status_code == 200
+    assert r.json() == {"acknowledged": 3}  # only the 3 still-pending flipped
+
+    conn = parses_db.store.init_db()
+    try:
+        pending = conn.execute("SELECT COUNT(*) FROM tamper_reports WHERE acknowledged_at IS NULL").fetchone()[0]
+        actor = conn.execute("SELECT acknowledged_by FROM tamper_reports WHERE id = ?", (ids[0],)).fetchone()[0]
+    finally:
+        conn.close()
+    assert pending == 0  # working set is clear
+    assert actor == "admin-1"  # actor recorded on the flipped rows
+
+
+@pytest.mark.asyncio
+async def test_purge_acknowledged_requires_admin(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/admin/tamper-reports/purge-acknowledged")
+    assert r.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_purge_deletes_only_acknowledged(app):
+    ids = _seed_tamper_reports()  # 4
+    _acknowledge_row(ids[0])
+    _acknowledge_row(ids[2])  # 2 acked, 2 pending
+
+    with patch("backend.server.api.admin._require_admin", _fake_admin):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/admin/tamper-reports/purge-acknowledged")
+
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 2}
+
+    conn = parses_db.store.init_db()
+    try:
+        remaining = {row[0] for row in conn.execute("SELECT id FROM tamper_reports").fetchall()}
+    finally:
+        conn.close()
+    assert remaining == {ids[1], ids[3]}  # only the pending rows survive
+
+
+# ---------------------------------------------------------------------------
 # Isolation guarantee: tamper_reports never touches the encounters table
 # ---------------------------------------------------------------------------
 

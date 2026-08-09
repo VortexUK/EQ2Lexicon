@@ -144,6 +144,10 @@ class AcknowledgeBatchResponse(BaseModel):
     acknowledged: int  # how many PENDING rows were flipped (skips already-ack'd)
 
 
+class PurgeResponse(BaseModel):
+    deleted: int  # how many rows were hard-deleted
+
+
 class ServerItem(BaseModel):
     world: str
     subdomain: str
@@ -649,6 +653,79 @@ async def acknowledge_tamper_reports_batch(
             ids=",".join(str(i) for i in ids[:20]) + (" …" if len(ids) > 20 else ""),
         )
     return AcknowledgeBatchResponse(acknowledged=flipped)
+
+
+@router.post(
+    "/admin/tamper-reports/acknowledge-all",
+    response_model=AcknowledgeBatchResponse,
+)
+async def acknowledge_all_tamper_reports(request: Request) -> AcknowledgeBatchResponse:
+    """Acknowledge EVERY pending tamper report for the active server in one
+    statement. The escape hatch for spam floods — a hammering uploader can
+    create tens of thousands of reports that the 500-id batch endpoint can't
+    clear in a sane number of round-trips. One-way, like the other ack paths;
+    scoped to ``current_world()``."""
+    user = _require_admin(request)
+    actor_id = str(user.get("id") or "")
+    world = current_world()
+    now_unix = int(datetime.now().timestamp())
+
+    def _ack_all() -> int:
+        if not parses_db.path.exists():
+            return 0
+        conn = parses_db.init_db()
+        try:
+            return parses_db.acknowledge_all_pending_tamper_reports(
+                conn,
+                world,
+                acknowledged_at=now_unix,
+                acknowledged_by=actor_id,
+            )
+        finally:
+            conn.close()
+
+    flipped = await run_sync(_ack_all)
+    if flipped:
+        audit_log(
+            "tamper_report.acknowledge_all",
+            actor=actor_id,
+            world=world,
+            count=flipped,
+        )
+    return AcknowledgeBatchResponse(acknowledged=flipped)
+
+
+@router.post(
+    "/admin/tamper-reports/purge-acknowledged",
+    response_model=PurgeResponse,
+)
+async def purge_acknowledged_tamper_reports(request: Request) -> PurgeResponse:
+    """Hard-delete already-acknowledged tamper reports for the active server
+    to reclaim space after a spam flood. Pending (unreviewed) rows are never
+    touched — acknowledge them first if you want them gone. Scoped to
+    ``current_world()``."""
+    user = _require_admin(request)
+    actor_id = str(user.get("id") or "")
+    world = current_world()
+
+    def _purge() -> int:
+        if not parses_db.path.exists():
+            return 0
+        conn = parses_db.init_db()
+        try:
+            return parses_db.delete_acknowledged_tamper_reports(conn, world)
+        finally:
+            conn.close()
+
+    deleted = await run_sync(_purge)
+    if deleted:
+        audit_log(
+            "tamper_report.purge_acknowledged",
+            actor=actor_id,
+            world=world,
+            count=deleted,
+        )
+    return PurgeResponse(deleted=deleted)
 
 
 # ---------------------------------------------------------------------------

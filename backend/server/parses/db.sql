@@ -532,3 +532,16 @@ SELECT COUNT(*) FROM tamper_reports WHERE acknowledged_at IS NULL;
 
 -- :name count_pending_tamper_reports_for_world
 SELECT COUNT(*) FROM tamper_reports WHERE world = ? AND acknowledged_at IS NULL;
+
+-- :name acknowledge_all_pending_tamper_reports
+-- Ack EVERY pending report for a world in one statement — the spam-flood
+-- escape hatch (a hammering uploader can create more than the 500-id batch
+-- endpoint can clear in a sane number of round-trips).
+UPDATE tamper_reports
+   SET acknowledged_at = ?, acknowledged_by = ?
+ WHERE world = ? AND acknowledged_at IS NULL;
+
+-- :name delete_acknowledged_tamper_reports
+-- Hard-delete already-reviewed reports for a world to reclaim space. Pending
+-- rows are never touched.
+DELETE FROM tamper_reports WHERE world = ? AND acknowledged_at IS NOT NULL;

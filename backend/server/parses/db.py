@@ -800,6 +800,33 @@ class ParsesStore(BaseCatalogue):
         return cur.rowcount
 
     @staticmethod
+    def acknowledge_all_pending_tamper_reports(
+        conn: sqlite3.Connection,
+        world: str,
+        *,
+        acknowledged_at: int,
+        acknowledged_by: str,
+    ) -> int:
+        """Ack every pending report for a world in one statement — the spam
+        cleanup path (a single hammering uploader can create far more rows
+        than the 500-id batch endpoint can clear). Returns the flipped count."""
+        with conn:
+            cur = conn.execute(
+                _SQL["acknowledge_all_pending_tamper_reports"],
+                (acknowledged_at, acknowledged_by, world),
+            )
+        return cur.rowcount
+
+    @staticmethod
+    def delete_acknowledged_tamper_reports(conn: sqlite3.Connection, world: str) -> int:
+        """Hard-delete already-acknowledged reports for a world to reclaim
+        space after a spam flood. Reviewed rows only — pending ones are never
+        touched. Returns the deleted count."""
+        with conn:
+            cur = conn.execute(_SQL["delete_acknowledged_tamper_reports"], (world,))
+        return cur.rowcount
+
+    @staticmethod
     def count_pending_tamper_reports(
         conn: sqlite3.Connection,
         world: str | None = None,

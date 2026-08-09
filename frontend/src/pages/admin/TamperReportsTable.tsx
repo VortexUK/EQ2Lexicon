@@ -113,6 +113,57 @@ export function TamperReportsTable() {
     }
   }
 
+  async function acknowledgeAll() {
+    if (pending === 0) return
+    if (!window.confirm(
+      `Acknowledge all ${pending.toLocaleString()} pending tamper reports for this server? ` +
+      `They stay in the audit log but drop out of the working set. This can't be undone.`,
+    )) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/tamper-reports/acknowledge-all', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(`Error: ${body.detail ?? 'Acknowledge all failed'}`)
+        return
+      }
+      await load()
+    } catch {
+      setError('Network error — acknowledge all failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function purgeAcknowledged() {
+    if (!window.confirm(
+      'Permanently delete every ACKNOWLEDGED tamper report for this server? ' +
+      'Pending reports are not affected. This frees space and cannot be undone.',
+    )) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/tamper-reports/purge-acknowledged', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(`Error: ${body.detail ?? 'Purge failed'}`)
+        return
+      }
+      await load()
+    } catch {
+      setError('Network error — purge failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function acknowledge(report: TamperReport) {
     if (report.acknowledged_at !== null) return // already acked, button shouldn't render
     setBusy(true)
@@ -172,16 +223,39 @@ export function TamperReportsTable() {
             {opt === 'pending' ? 'Pending' : opt === 'ack' ? 'Acknowledged' : 'All'}
           </Button>
         ))}
-        <Button
-          variant="secondary"
-          size="sm"
-          type="button"
-          onClick={acknowledgeSelected}
-          disabled={busy || selected.size === 0}
-          className="ml-auto"
-        >
-          Acknowledge selected ({selected.size})
-        </Button>
+        <div className="ml-auto flex gap-2 flex-wrap items-center">
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            onClick={acknowledgeSelected}
+            disabled={busy || selected.size === 0}
+          >
+            Acknowledge selected ({selected.size})
+          </Button>
+          {pending > 0 && (
+            <Button
+              variant="danger"
+              size="sm"
+              type="button"
+              onClick={acknowledgeAll}
+              disabled={busy}
+              title="Clears every pending report for this server in one action — for spam floods"
+            >
+              Acknowledge all {pending.toLocaleString()} pending
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            onClick={purgeAcknowledged}
+            disabled={busy}
+            title="Permanently delete acknowledged reports to reclaim space"
+          >
+            Delete acknowledged
+          </Button>
+        </div>
       </div>
 
       {error && <p className="text-danger mb-2">{error}</p>}
