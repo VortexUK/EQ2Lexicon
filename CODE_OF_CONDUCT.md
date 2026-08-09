@@ -12,7 +12,7 @@ enforcement responsibilities are spelled out in full at the URL above.
 ## Reporting
 
 Reports of behaviour that violates this code should be sent privately to
-the project maintainer at **ben.mcelroy.uk@gmail.com**. Reports are
+the project maintainer at **tovortexuk@gmail.com**. Reports are
 reviewed and acted on promptly and confidentially.
 
 ## Scope
