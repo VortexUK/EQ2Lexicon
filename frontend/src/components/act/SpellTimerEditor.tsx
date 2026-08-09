@@ -1,4 +1,4 @@
-import { Checkbox, Field, inputCls } from './primitives'
+import { Checkbox, Field, IntInput, inputCls } from './primitives'
 import type { SpellTimerDraft } from './types'
 import { hexToArgb } from './types'
 import { CONTROL_EFFECTS, DAMAGE_SCHOOLS, parseSchools, toggleSchool } from './vocabulary'
@@ -54,12 +54,11 @@ export function SpellTimerEditor({ draft, onChange, nameEditable = true, onNameB
           />
         </Field>
         <Field label="Remove at (s)">
-          <input
-            type="number"
-            title="Seconds remaining when the bar disappears — negative keeps counting past zero"
+          <IntInput
+            title="Seconds remaining when the bar disappears. 0 = at expiry; negative lingers past zero (ACT default −15 keeps it up 15s after)."
             value={draft.remove_value}
-            onChange={e => onChange({ ...draft, remove_value: Number(e.target.value) })}
-            className={inputCls}
+            onChange={v => onChange({ ...draft, remove_value: v })}
+            fallback={-15}
           />
         </Field>
         <Field label="Fill colour">

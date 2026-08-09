@@ -288,7 +288,11 @@ function CombatantSection({
               'minmax(160px,1.6fr) 90px 80px 50px 90px 70px 90px 60px 40px',
           }}
         >
-          <div className={HDR_CELL_CLS}>Name</div>
+          {/* Name freezes to the left edge below sm so it stays visible
+              while the stats scroll horizontally (the table is min-w 640,
+              which is the sm breakpoint, so this engages exactly when the
+              table overflows). Opaque fill = surface composited over bg. */}
+          <div className={`${HDR_CELL_CLS} max-sm:sticky max-sm:left-0 max-sm:z-[2] max-sm:bg-[#1a1c2a] max-sm:pr-2 max-sm:border-r max-sm:border-border`}>Name</div>
           <div className={`${HDR_CELL_CLS} text-right`}>DMG</div>
           <div className={`${HDR_CELL_CLS} text-right`}>encDPS</div>
           <div className={`${HDR_CELL_CLS} text-right`}>%</div>
@@ -331,7 +335,7 @@ function CombatantRow({
         className="col-[1/-1] grid grid-cols-subgrid items-center px-2 py-1.5 -mx-2 border-t border-border cursor-pointer"
         style={{ background: tint ?? 'transparent' }}
       >
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:bg-[#1a1c2a] max-sm:pr-2 max-sm:-mr-2 max-sm:border-r max-sm:border-border">
           <Caret open={open} />
           <NameCell combatant={c} player={player} level={level} guildName={guildName} cls={cls} />
         </div>

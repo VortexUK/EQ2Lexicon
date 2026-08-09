@@ -27,18 +27,18 @@ export default function CompareStats({ charA, charB }: { charA: Character; charB
   return (
     <div>
       {/* Column header: names stay visible while scrolling the groups */}
-      <div className="sticky top-14 z-10 bg-bg/90 backdrop-blur-sm border-b border-border mb-3 py-1.5 grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline">
+      <div className="sticky top-14 z-10 bg-bg/90 backdrop-blur-sm border-b border-border mb-3 py-1.5 grid grid-cols-[1fr_auto_auto_auto] gap-x-2 sm:gap-x-4 items-baseline">
         <label className="flex items-center gap-1.5 text-[0.72rem] text-text-muted cursor-pointer select-none">
           <input type="checkbox" checked={diffOnly} onChange={e => setDiffOnly(e.target.checked)} />
           differences only
         </label>
-        <span className="text-[0.8rem] font-semibold w-[90px] text-right truncate" style={{ color: colourFor(charA.cls, 'var(--gold)') }}>
+        <span className="text-[0.8rem] font-semibold w-[68px] sm:w-[90px] text-right truncate" style={{ color: colourFor(charA.cls, 'var(--gold)') }}>
           {charA.name}
         </span>
-        <span className="text-[0.8rem] font-semibold w-[90px] text-right truncate" style={{ color: colourFor(charB.cls, 'var(--gold)') }}>
+        <span className="text-[0.8rem] font-semibold w-[68px] sm:w-[90px] text-right truncate" style={{ color: colourFor(charB.cls, 'var(--gold)') }}>
           {charB.name}
         </span>
-        <span className="text-[0.8rem] font-semibold w-[80px] text-right text-text-muted">Δ</span>
+        <span className="text-[0.8rem] font-semibold w-[58px] sm:w-[80px] text-right text-text-muted">Δ</span>
       </div>
 
       {shown.length === 0 && (
@@ -52,12 +52,12 @@ export default function CompareStats({ charA, charB }: { charA: Character; charB
             {group.rows.map(row => (
               <div
                 key={row.label}
-                className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline py-[3px] border-b border-border last:border-b-0"
+                className="grid grid-cols-[1fr_auto_auto_auto] gap-x-2 sm:gap-x-4 items-baseline py-[3px] border-b border-border last:border-b-0"
               >
                 <span className="text-text-muted text-[0.78rem] pr-2">{row.label}</span>
-                <span className="w-[90px] text-right"><Cell value={row.a} fmt={row.fmt} /></span>
-                <span className="w-[90px] text-right"><Cell value={row.b} fmt={row.fmt} /></span>
-                <span className="w-[80px] text-right text-[0.82rem]"><DeltaChip delta={row.delta} fmt={row.fmt} /></span>
+                <span className="w-[68px] sm:w-[90px] text-right"><Cell value={row.a} fmt={row.fmt} /></span>
+                <span className="w-[68px] sm:w-[90px] text-right"><Cell value={row.b} fmt={row.fmt} /></span>
+                <span className="w-[58px] sm:w-[80px] text-right text-[0.82rem]"><DeltaChip delta={row.delta} fmt={row.fmt} /></span>
               </div>
             ))}
           </Card>

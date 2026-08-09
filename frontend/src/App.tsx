@@ -1,4 +1,4 @@
-﻿import { lazy, Suspense } from 'react'
+﻿import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Routes, Route, Outlet, NavLink, useLocation } from 'react-router-dom'
 import { DiscordButton } from './components/ui/DiscordButton'
 import HomePage from './pages/HomePage'
@@ -129,19 +129,77 @@ function NavItem({ to, label, also }: { to: string; label: string; also?: string
   )
 }
 
+type NavSpec = { to: string; label: string; also?: string }
+
+/** The lookup/directory pages, grouped under one heading to keep the bar
+ *  from overflowing wide laptop headers. */
+const BROWSE_ITEMS: NavSpec[] = [
+  { to: '/characters', label: 'Characters', also: '/character/' },
+  { to: '/guilds',     label: 'Guilds',     also: '/guild/' },
+  { to: '/items',      label: 'Items',      also: '/item/' },
+  { to: '/recipes',    label: 'Recipes' },
+]
+
+function NavDropdown({ label, items }: { label: string; items: NavSpec[] }) {
+  const { pathname } = useLocation()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const active = items.some(i => pathname === i.to || (i.also ? pathname.startsWith(i.also) : false))
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Close on navigation.
+  useEffect(() => setOpen(false), [pathname])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="font-heading text-[0.82rem] font-semibold tracking-[0.07em] pb-[2px] transition-[color,border-color] duration-150 whitespace-nowrap flex items-center gap-1 appearance-none border-0 bg-transparent cursor-pointer"
+        style={navLinkStyle({ isActive: active })}
+      >
+        {label}
+        <span className="text-[0.6rem] text-text-muted">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-[calc(100%+8px)] bg-surface-raised border border-border rounded-md min-w-[150px] z-dropdown overflow-hidden"
+          style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+        >
+          {items.map(i => (
+            <NavLink
+              key={i.to}
+              to={i.to}
+              className="block py-2.5 px-4 text-text-muted text-[0.88rem] no-underline border-b border-border last:border-b-0 hover:text-gold"
+              style={navLinkStyle({
+                isActive: pathname === i.to || (i.also ? pathname.startsWith(i.also) : false),
+              })}
+            >
+              {i.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function NavLinks() {
   return (
     <nav className="flex items-center gap-5">
-      <NavItem to="/"           label="Home" />
-      <NavItem to="/characters" label="Characters" also="/character/" />
-      <NavItem to="/guilds"     label="Guilds"      also="/guild/" />
-      <NavItem to="/items"      label="Items"       also="/item/" />
-      <NavItem to="/recipes"    label="Recipes" />
-      <NavItem to="/raids"      label="Raids"       also="/raids/" />
-      <NavItem to="/triggers"   label="Triggers" />
-      <NavItem to="/parses"     label="Parses"      also="/parse/" />
-      <NavItem to="/rankings"   label="Rankings" />
-      <NavItem to="/stats"      label="Stats" />
+      <NavItem to="/"         label="Home" />
+      <NavDropdown label="Browse" items={BROWSE_ITEMS} />
+      <NavItem to="/raids"    label="Raids"    also="/raids/" />
+      <NavItem to="/triggers" label="Triggers" />
+      <NavItem to="/parses"   label="Parses"   also="/parse/" />
+      <NavItem to="/rankings" label="Rankings" />
+      <NavItem to="/stats"    label="Stats" />
     </nav>
   )
 }
