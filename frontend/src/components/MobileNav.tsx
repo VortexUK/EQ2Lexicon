@@ -1,26 +1,35 @@
 /**
  * Mobile/tablet nav drawer — shown below `lg:` only (App.tsx hides the
  * inline <NavLinks /> in the same window). Hamburger button anchors at the
- * top-right of the header; tapping opens a full-width overlay with the
- * eight nav items stacked vertically + the ACT plugin download. Closes on
- * link click, on Escape, and on backdrop tap.
+ * top-right of the header; tapping opens a full-width overlay with the nav
+ * destinations stacked vertically, grouped under the same headings as the
+ * desktop dropdowns (Browse / Raids / Leaderboards). Closes on link click,
+ * on Escape, and on backdrop tap.
  */
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 
 type NavSpec = { to: string; label: string; also?: string }
+type NavGroup = { heading?: string; items: NavSpec[] }
 
-const ITEMS: NavSpec[] = [
-  { to: '/',           label: 'Home' },
-  { to: '/characters', label: 'Characters', also: '/character/' },
-  { to: '/guilds',     label: 'Guilds',     also: '/guild/' },
-  { to: '/items',      label: 'Items',      also: '/item/' },
-  { to: '/recipes',    label: 'Recipes' },
-  { to: '/raids',      label: 'Raids',      also: '/raids/' },
-  { to: '/triggers',   label: 'Triggers' },
-  { to: '/parses',     label: 'Parses',     also: '/parse/' },
-  { to: '/rankings',   label: 'Rankings' },
-  { to: '/stats', label: 'Stats' },
+const GROUPS: NavGroup[] = [
+  { items: [{ to: '/', label: 'Home' }] },
+  { heading: 'Browse', items: [
+    { to: '/characters', label: 'Characters', also: '/character/' },
+    { to: '/guilds',     label: 'Guilds',     also: '/guild/' },
+    { to: '/items',      label: 'Items',      also: '/item/' },
+    { to: '/recipes',    label: 'Recipes' },
+  ] },
+  { heading: 'Raids', items: [
+    { to: '/raids',    label: 'Strategies', also: '/raids/' },
+    { to: '/triggers', label: 'Triggers' },
+  ] },
+  { heading: 'Leaderboards', items: [
+    { to: '/parses',   label: 'Parses', also: '/parse/' },
+    { to: '/rankings', label: 'Rankings' },
+    { to: '/stats',    label: 'Stats' },
+  ] },
+  { items: [{ to: '/downloads', label: 'Downloads' }] },
 ]
 
 export function MobileNav() {
@@ -76,37 +85,38 @@ export function MobileNav() {
           />
           {/* Panel: full-width, slides down from under the header. */}
           <nav
-            className="fixed left-0 right-0 top-14 z-[260] bg-bg/95 border-b border-border shadow-2xl flex flex-col py-2"
+            className="fixed left-0 right-0 top-14 z-[260] bg-bg/95 border-b border-border shadow-2xl flex flex-col py-2 max-h-[calc(100vh-3.5rem)] overflow-y-auto"
             aria-label="Mobile navigation"
           >
-            {ITEMS.map((it, i) => (
-              <NavLink
-                key={it.to}
-                to={it.to}
-                end
-                ref={i === 0 ? firstLinkRef : undefined}
-                className={({ isActive }) => {
-                  const active = isActive || (it.also ? pathname.startsWith(it.also) : false)
-                  return [
-                    'block py-3 px-6 no-underline font-heading text-[0.95rem] tracking-[0.06em]',
-                    'border-l-2',
-                    active
-                      ? 'text-gold-bright border-gold bg-surface/40'
-                      : 'text-gold-dim border-transparent hover:text-gold hover:bg-surface/20',
-                  ].join(' ')
-                }}
-              >
-                {it.label}
-              </NavLink>
+            {GROUPS.map((g, gi) => (
+              <div key={g.heading ?? `g${gi}`} className={gi > 0 ? 'border-t border-border/60 mt-1 pt-1' : ''}>
+                {g.heading && (
+                  <div className="px-6 pt-2 pb-1 font-heading text-[0.62rem] uppercase tracking-[0.14em] text-text-muted/70">
+                    {g.heading}
+                  </div>
+                )}
+                {g.items.map(it => (
+                  <NavLink
+                    key={it.to}
+                    to={it.to}
+                    end
+                    ref={it.to === '/' ? firstLinkRef : undefined}
+                    className={({ isActive }) => {
+                      const active = isActive || (it.also ? pathname.startsWith(it.also) : false)
+                      return [
+                        'block py-3 px-6 no-underline font-heading text-[0.95rem] tracking-[0.06em]',
+                        'border-l-2',
+                        active
+                          ? 'text-gold-bright border-gold bg-surface/40'
+                          : 'text-gold-dim border-transparent hover:text-gold hover:bg-surface/20',
+                      ].join(' ')
+                    }}
+                  >
+                    {it.label}
+                  </NavLink>
+                ))}
+              </div>
             ))}
-            <a
-              href="https://github.com/VortexUK/EQ2LexiconACTPlugin/releases/latest"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block py-3 px-6 mt-1 border-t border-border no-underline text-text-muted text-[0.9rem]"
-            >
-              Download ACT Plugin →
-            </a>
           </nav>
         </>
       )}

@@ -29,6 +29,7 @@ const ComparePage       = lazy(() => import('./pages/ComparePage'))
 const StatsPage         = lazy(() => import('./pages/StatsPage'))
 const TriggersPage      = lazy(() => import('./pages/TriggersPage'))
 const AAPlanSharePage   = lazy(() => import('./pages/AAPlanSharePage'))
+const DownloadsPage     = lazy(() => import('./pages/DownloadsPage'))
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
 import { ServerProvider } from './hooks/useServer'
@@ -140,6 +141,19 @@ const BROWSE_ITEMS: NavSpec[] = [
   { to: '/recipes',    label: 'Recipes' },
 ]
 
+/** Raid content: written strategies + the ACT trigger/spell-timer library. */
+const RAIDS_ITEMS: NavSpec[] = [
+  { to: '/raids',    label: 'Strategies', also: '/raids/' },
+  { to: '/triggers', label: 'Triggers' },
+]
+
+/** Performance data: uploaded parses, best-parse rankings, server stats. */
+const LEADERBOARD_ITEMS: NavSpec[] = [
+  { to: '/parses',   label: 'Parses', also: '/parse/' },
+  { to: '/rankings', label: 'Rankings' },
+  { to: '/stats',    label: 'Stats' },
+]
+
 function NavDropdown({ label, items }: { label: string; items: NavSpec[] }) {
   const { pathname } = useLocation()
   const [open, setOpen] = useState(false)
@@ -194,12 +208,10 @@ function NavLinks() {
   return (
     <nav className="flex items-center gap-5">
       <NavItem to="/"         label="Home" />
-      <NavDropdown label="Browse" items={BROWSE_ITEMS} />
-      <NavItem to="/raids"    label="Raids"    also="/raids/" />
-      <NavItem to="/triggers" label="Triggers" />
-      <NavItem to="/parses"   label="Parses"   also="/parse/" />
-      <NavItem to="/rankings" label="Rankings" />
-      <NavItem to="/stats"    label="Stats" />
+      <NavDropdown label="Browse"       items={BROWSE_ITEMS} />
+      <NavDropdown label="Raids"        items={RAIDS_ITEMS} />
+      <NavDropdown label="Leaderboards" items={LEADERBOARD_ITEMS} />
+      <NavItem to="/downloads" label="Downloads" />
     </nav>
   )
 }
@@ -263,22 +275,9 @@ function Layout() {
           <NavLinks />
         </div>
         <div className="flex items-center gap-2.5">
-          {/* ACT download icon: lg+ only (it's also in the MobileNav drawer). */}
-          {/* The wrapper pins the rendered height to match the
-              UserWidget button next to it (Tailwind h-11 = 44px); the
-              <img> fills that height with h-full so its top and bottom
-              align with the user dropdown's. block-display + items-
-              center handle the rare case where the PNG has internal
-              transparent padding above/below the visible badge. */}
-          <a
-            href="https://github.com/VortexUK/EQ2LexiconACTPlugin/releases/latest"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Download the EQ2 Lexicon ACT plugin"
-            className="hidden lg:flex h-11 items-center shrink-0 transition-[transform,filter] duration-150 hover:brightness-110 hover:scale-[1.03]"
-          >
-            <img src="/download_plugin.webp" alt="Download ACT Plugin" className="h-full w-auto" />
-          </a>
+          {/* Downloads now live on the dedicated /downloads page (nav item);
+              the old header plugin-download icon was removed in that
+              consolidation. */}
           <RaidingLiveWidget />
           <NotificationBell />
           <UserWidget />
@@ -366,6 +365,7 @@ function App() {
         <Route path="/parses"      element={<ParsesPage />} />
         <Route path="/rankings"    element={<RankingsPage />} />
         <Route path="/stats"       element={<StatsPage />} />
+        <Route path="/downloads"   element={<DownloadsPage />} />
         <Route path="/parse/:id"   element={<ParsePage />} />
         <Route path="/settings/tokens" element={<TokensPage />} />
         <Route path="/settings/roles" element={<RolesSettingsPage />} />
