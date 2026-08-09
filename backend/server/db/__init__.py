@@ -62,6 +62,7 @@ def init_db(path: Path | None = None) -> None:
 from backend.server.db.aa_plans import store as aa_plans_store  # noqa: E402
 from backend.server.db.availability import store as availability_store  # noqa: E402
 from backend.server.db.claims import store as claims_store  # noqa: E402
+from backend.server.db.downloads import store as downloads_store  # noqa: E402
 from backend.server.db.favorites import store as favorites_store  # noqa: E402
 from backend.server.db.item_watch import store as item_watch_store  # noqa: E402
 from backend.server.db.raid_planning import store as raid_planning_store  # noqa: E402
@@ -127,6 +128,7 @@ ALL_STORES = (
     aa_plans_store,
     availability_store,
     claims_store,
+    downloads_store,
     favorites_store,
     item_watch_store,
     raid_planning_store,

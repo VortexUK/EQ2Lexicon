@@ -98,7 +98,65 @@ function Screenshot({ src, alt, caption }: { src: string; alt: string; caption: 
   )
 }
 
+/** Only surface a download count once it clears this — a brand-new asset
+ *  shouldn't advertise "3 downloads". "more than 20". */
+const DOWNLOAD_COUNT_THRESHOLD = 20
+
+type Counts = Record<string, number>
+
+/**
+ * A download link (styled as a button) that records the click for the public
+ * counter and shows the running total beneath it once it clears the threshold.
+ * The recording fetch is fire-and-forget with `keepalive` so it never blocks
+ * or cancels the actual file download.
+ */
+function DownloadButton({
+  href, slug, count, onRecord, variant = 'primary', size, children,
+}: {
+  href: string
+  slug: string
+  count: number
+  onRecord: (slug: string) => void
+  variant?: 'primary' | 'secondary'
+  size?: 'sm' | 'md'
+  children: ReactNode
+}) {
+  return (
+    <span className="inline-flex flex-col items-center gap-1">
+      <LinkButton href={href} variant={variant} size={size} onClick={() => onRecord(slug)}>
+        {children}
+      </LinkButton>
+      {count > DOWNLOAD_COUNT_THRESHOLD && (
+        <span className="text-[0.7rem] text-text-muted tabular-nums">
+          {count.toLocaleString()} downloads
+        </span>
+      )}
+    </span>
+  )
+}
+
 export default function DownloadsPage() {
+  const [counts, setCounts] = useState<Counts>({})
+
+  // Load the public counters once. Best-effort — a failure just hides counts.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/downloads/counts', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d?.counts) setCounts(d.counts) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // Record a click, then reconcile with the server's fresh counts. Idempotent
+  // per user server-side, so re-clicks don't inflate the number.
+  function recordDownload(slug: string) {
+    fetch(`/api/downloads/${slug}`, { method: 'POST', credentials: 'include', keepalive: true })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.counts) setCounts(d.counts) })
+      .catch(() => {})
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 space-y-8">
       <header className="space-y-2">
@@ -135,18 +193,22 @@ export default function DownloadsPage() {
           caption="The Main tab mid-raid — DPS chart, sortable damage table, and fight history. Click to enlarge."
         />
 
-        <div className="flex flex-wrap items-center gap-3">
-          <LinkButton href={PARSER_SETUP} variant="primary">
-            Download for Windows
-          </LinkButton>
-          <LinkButton href={PARSER_PORTABLE} variant="secondary" size="sm">
-            Portable (.zip)
-          </LinkButton>
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+            <DownloadButton href={PARSER_SETUP} slug="parser-setup" variant="primary"
+              count={counts['parser-setup'] ?? 0} onRecord={recordDownload}>
+              Download for Windows
+            </DownloadButton>
+            <DownloadButton href={PARSER_PORTABLE} slug="parser-portable" variant="secondary" size="sm"
+              count={counts['parser-portable'] ?? 0} onRecord={recordDownload}>
+              Portable (.zip)
+            </DownloadButton>
+          </div>
           <a
             href={PARSER_RELEASES}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[0.8rem] text-text-muted hover:text-gold underline underline-offset-2"
+            className="inline-block text-[0.8rem] text-text-muted hover:text-gold underline underline-offset-2"
           >
             All releases &amp; source →
           </a>
@@ -199,15 +261,18 @@ export default function DownloadsPage() {
           simpler path.
         </p>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <LinkButton href={PLUGIN_DLL} variant="primary">
-            Download plugin (.dll)
-          </LinkButton>
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+            <DownloadButton href={PLUGIN_DLL} slug="act-plugin" variant="primary"
+              count={counts['act-plugin'] ?? 0} onRecord={recordDownload}>
+              Download plugin (.dll)
+            </DownloadButton>
+          </div>
           <a
             href={PLUGIN_RELEASES}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[0.8rem] text-text-muted hover:text-gold underline underline-offset-2"
+            className="inline-block text-[0.8rem] text-text-muted hover:text-gold underline underline-offset-2"
           >
             All releases &amp; source →
           </a>

@@ -225,6 +225,22 @@ CREATE TABLE IF NOT EXISTS character_favorites (
 -- list query is covered by the UNIQUE index prefix (discord_id first).
 CREATE INDEX IF NOT EXISTS idx_favorites_character ON character_favorites(character_name, world);
 
+-- ── Download counters ────────────────────────────────────────────────────────
+-- One row per (user, download slug) so the public count on the Downloads page
+-- is distinct-downloaders and can't be inflated by one person re-clicking.
+-- Slugs are a fixed allowlist in the API (parser-setup / parser-portable /
+-- act-plugin). Not world-scoped — the parser + plugin are universal.
+CREATE TABLE IF NOT EXISTS download_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_id  TEXT    NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
+    slug        TEXT    NOT NULL,             -- download identifier eg parser-setup
+    created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE(discord_id, slug)
+);
+
+-- Serves the per-slug COUNT(*) on the Downloads page.
+CREATE INDEX IF NOT EXISTS idx_download_events_slug ON download_events(slug);
+
 -- ── Raid planning ────────────────────────────────────────────────────────────
 -- Officer-curated raid rosters + per-team group layouts + per-user availability.
 -- All three are brand-new tables so CREATE TABLE IF NOT EXISTS needs no
