@@ -329,7 +329,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "slowapi", specifier = ">=0.1.9" },
     { name = "tzdata", specifier = ">=2026.3" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
 ]
 
 [package.metadata.requires-dev]
