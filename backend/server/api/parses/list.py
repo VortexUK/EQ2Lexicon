@@ -8,6 +8,7 @@ ingest.py (and the read paths import them).
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 from collections.abc import Mapping
 from types import MappingProxyType
@@ -51,6 +52,8 @@ from backend.server.server_context import current_world
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
+
+_log = logging.getLogger(__name__)
 
 
 def _uploader_discord_id(source_dsn: str | None) -> str | None:
@@ -109,8 +112,16 @@ def _ensure_classified(conn: sqlite3.Connection, encounter_id: int, zone: str | 
     rows = parses_db.get_combatants_for_encounter(conn, encounter_id)
     zone_category = _classify_zone(zone)
     classification = classify_combatants(rows, zone_category)
-    parses_db.update_combatant_is_player(conn, classification)
-    conn.commit()
+    try:
+        parses_db.update_combatant_is_player(conn, classification)
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        # Backfill is best-effort maintenance riding a READ path — a lock
+        # collision with concurrent ingest must degrade to "try again next
+        # read", never take the rankings/parses response down with it.
+        _log.warning("[parses-list] lazy classify skipped for encounter %s: %s", encounter_id, exc)
+        conn.rollback()
+        return False
     return True
 
 

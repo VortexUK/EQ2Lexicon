@@ -134,6 +134,36 @@ def test_ensure_classified_is_noop_when_already_classified(parses_db_in_memory):
         fake.assert_not_called()
 
 
+def test_ensure_classified_ignores_enemy_null_rows(parses_db_in_memory):
+    """Enemy rows keep is_player NULL FOREVER by design (classify_combatants
+    omits ally != 1 from its result), so their NULLs must not trip the
+    unclassified probe. Before the ally-scoped probe, every encounter with an
+    enemy row looked perpetually unclassified — every read path re-ran the
+    classifier + re-wrote the same ally rows on every request, which melted
+    the rankings load and collided with ingest ("database is locked")."""
+    from backend.server.api.parses.list import _ensure_classified
+
+    enc_id = _insert_encounter(parses_db_in_memory, "encD")
+    # Allies fully classified; the enemy row NULL (its permanent state).
+    parses_db_in_memory.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+        (enc_id, "Alpha", 1, 1),
+    )
+    parses_db_in_memory.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+        (enc_id, "Zylphax the Shredder", 0, None),
+    )
+    parses_db_in_memory.commit()
+
+    with patch("backend.server.parses.pet_detection.classify_combatants") as fake:
+        assert _ensure_classified(parses_db_in_memory, enc_id, None) is False
+        fake.assert_not_called()
+
+    # And the enemy row's NULL is untouched.
+    row = parses_db_in_memory.execute("SELECT is_player FROM combatants WHERE name = 'Zylphax the Shredder'").fetchone()
+    assert row[0] is None
+
+
 @pytest.mark.asyncio
 async def test_phase4_merger_top_n_uses_is_player(app, parses_db_in_memory):
     """Phase-4-of-parse-grouping-redo merger's top-N gate must filter on

@@ -42,10 +42,17 @@ WHERE encounter_id = ? AND is_player = 1;
 -- ---------------------------------------------------------------------------
 
 -- :name has_unclassified_combatants
--- Cheap probe: does this encounter still have any combatant rows with
--- is_player IS NULL? Drives the pre-Phase-4 lazy backfill.
+-- Cheap probe: does this encounter still have any ALLY combatant rows with
+-- is_player IS NULL? Drives the pre-Phase-4 lazy backfill. Scoped to
+-- ally = 1 because that is exactly the set classify_combatants can ever
+-- classify — enemy rows keep is_player NULL by design (omitted from the
+-- classifier's result), so probing all rows made every encounter look
+-- perpetually unclassified: every read path re-ran the classifier and
+-- re-WROTE the same ally rows forever, which is what melted the rankings
+-- load (thousands of write+commit cycles per cold cache fill, colliding
+-- with raid-night ingest → "database is locked").
 SELECT 1 FROM combatants
-WHERE encounter_id = ? AND is_player IS NULL LIMIT 1;
+WHERE encounter_id = ? AND ally = 1 AND is_player IS NULL LIMIT 1;
 
 -- ---------------------------------------------------------------------------
 -- Encounter list + detail

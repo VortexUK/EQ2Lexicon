@@ -243,6 +243,10 @@ class BaseCatalogue(PathBound):
         conn = sqlite3.connect(self.path)
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
+        # Wait out transient writer contention (raid-night ingest bursts vs
+        # background backfills) instead of raising "database is locked" —
+        # supersedes sqlite3.connect's 5 s default.
+        conn.execute("PRAGMA busy_timeout = 15000;")
         if self.FOREIGN_KEYS:
             conn.execute("PRAGMA foreign_keys = ON;")
         if self.CREATE_META:
