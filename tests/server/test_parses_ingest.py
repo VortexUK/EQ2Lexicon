@@ -839,3 +839,70 @@ async def test_ingest_accepts_wuoshi(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
     assert r.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# EQ2Parser (≤0.3.4) field-gap fallbacks: it ships encdps + crithits for
+# attack/damage-type rows but not ACT's `dps` and pre-formatted `critperc` —
+# without the fallbacks those rows stored dps=0 / crit_perc=0 and the parse
+# page's per-attack DPS + CRIT% columns rendered 0 for parser uploads.
+# ---------------------------------------------------------------------------
+
+
+def test_attack_type_dps_falls_back_to_encdps():
+    from backend.server.api.parses.ingest import _attack_types_from_payload
+    from backend.server.api.parses.models import IngestAttackType
+
+    row = IngestAttackType(
+        attacker="Gigachad",
+        type="Bear Claws",
+        swingtype=2,
+        damage=409217,
+        encdps=1206.0,  # what EQ2Parser ships
+        hits=207,
+        swings=207,
+        crithits=140,
+        # no dps, no critperc (the parser's field gap)
+    )
+    (out,) = _attack_types_from_payload([row], "ENC1")
+    assert out.dps == 1206.0  # falls back to encdps instead of 0
+    assert out.crit_perc == round(100.0 * 140 / 207, 1)  # computed from counts
+
+
+def test_attack_type_act_fields_win_over_fallbacks():
+    """ACT-plugin rows carry real dps/critperc — the fallbacks must not
+    override them."""
+    from backend.server.api.parses.ingest import _attack_types_from_payload
+    from backend.server.api.parses.models import IngestAttackType
+
+    row = IngestAttackType(
+        attacker="Menludiir",
+        type="Smite",
+        swingtype=2,
+        damage=400000,
+        dps=1500.0,
+        encdps=1100.0,
+        hits=100,
+        crithits=90,
+        critperc="93%",
+    )
+    (out,) = _attack_types_from_payload([row], "ENC1")
+    assert out.dps == 1500.0
+    assert out.crit_perc == 93.0
+
+
+def test_damage_type_rows_get_the_same_fallbacks():
+    from backend.server.api.parses.ingest import _damage_types_from_payload
+    from backend.server.api.parses.models import IngestDamageType
+
+    row = IngestDamageType(
+        combatant="Gigachad",
+        type="crushing",
+        damage=100000,
+        encdps=350.0,
+        hits=50,
+        crithits=10,
+    )
+    (out,) = _damage_types_from_payload([row], "ENC1")
+    assert out.dps == 350.0
+    assert out.crit_perc == 20.0

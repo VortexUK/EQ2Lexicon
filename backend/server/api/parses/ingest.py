@@ -477,6 +477,26 @@ def _combatants_from_payload(rows: list[IngestCombatant], encid: str) -> list[Co
     return out
 
 
+def _dps_or_encdps(dps_raw, encdps_raw) -> float:
+    """Per-row DPS with an encdps fallback.
+
+    ACT ships both `dps` (damage over the row's own active window) and
+    `encdps`; EQ2Parser (≤0.3.4) ships only `encdps` — without the fallback
+    its rows stored dps=0 and the site's per-attack DPS column rendered 0."""
+    dps = _to_float(dps_raw)
+    return dps if dps else _to_float(encdps_raw)
+
+
+def _crit_perc_or_computed(critperc_raw, crit_hits_raw, hits_raw) -> float:
+    """Crit% with a computed crithits/hits fallback for clients (EQ2Parser
+    ≤0.3.4) that ship the counts but not ACT's pre-formatted percentage."""
+    perc = _to_perc(critperc_raw)
+    if perc:
+        return perc
+    hits, crits = _to_int(hits_raw), _to_int(crit_hits_raw)
+    return round(100.0 * crits / hits, 1) if hits > 0 and crits > 0 else perc
+
+
 def _damage_types_from_payload(rows: list[IngestDamageType], encid: str) -> list[DamageType]:
     out: list[DamageType] = []
     for r in rows:
@@ -496,7 +516,7 @@ def _damage_types_from_payload(rows: list[IngestDamageType], encid: str) -> list
                 damage=_to_int(r.damage),
                 encdps=_to_float(r.encdps),
                 char_dps=_to_float(r.chardps),
-                dps=_to_float(r.dps),
+                dps=_dps_or_encdps(r.dps, r.encdps),
                 average=_to_float(r.average),
                 median=_to_int(r.median),
                 min_hit=_to_int(r.minhit),
@@ -508,7 +528,7 @@ def _damage_types_from_payload(rows: list[IngestDamageType], encid: str) -> list
                 swings=_to_int(r.swings),
                 to_hit=_to_float(r.tohit),
                 average_delay=_to_float(r.averagedelay),
-                crit_perc=_to_perc(r.critperc),
+                crit_perc=_crit_perc_or_computed(r.critperc, r.crithits, r.hits),
                 crit_types=_to_str_or_none(r.crittypes),
             )
         )
@@ -537,7 +557,7 @@ def _attack_types_from_payload(rows: list[IngestAttackType], encid: str) -> list
                 damage=_to_int(r.damage),
                 encdps=_to_float(r.encdps),
                 char_dps=_to_float(r.chardps),
-                dps=_to_float(r.dps),
+                dps=_dps_or_encdps(r.dps, r.encdps),
                 average=_to_float(r.average),
                 median=_to_int(r.median),
                 min_hit=_to_int(r.minhit),
@@ -550,7 +570,7 @@ def _attack_types_from_payload(rows: list[IngestAttackType], encid: str) -> list
                 swings=_to_int(r.swings),
                 to_hit=_to_float(r.tohit),
                 average_delay=_to_float(r.averagedelay),
-                crit_perc=_to_perc(r.critperc),
+                crit_perc=_crit_perc_or_computed(r.critperc, r.crithits, r.hits),
                 crit_types=_to_str_or_none(r.crittypes),
             )
         )
