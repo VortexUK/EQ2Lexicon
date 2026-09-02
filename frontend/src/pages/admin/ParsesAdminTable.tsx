@@ -183,7 +183,7 @@ export function ParsesAdminTable() {
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search title, zone, guild, uploader…"
+          placeholder="Search title, guild, uploader, or parse #id…"
           className="flex-1 min-w-[220px] bg-surface border border-border rounded-sm px-3 py-1.5 text-[0.875rem] text-text"
         />
         <Button variant="secondary" size="sm" type="submit" disabled={busy}>

@@ -36,6 +36,8 @@ class ServersStore(PathBound):
             "max_level": row["max_level"],
             "current_xpac": row["current_xpac"],
             "launch_dt": row["launch_dt"],
+            "next_xpac": row["next_xpac"],
+            "next_xpac_dt": row["next_xpac_dt"],
             "is_default": bool(row["is_default"]),
         }
 
@@ -63,11 +65,13 @@ class ServersStore(PathBound):
         max_level: int,
         current_xpac: str | None,
         launch_dt: str | None,
+        next_xpac: str | None = None,
+        next_xpac_dt: str | None = None,
     ) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.execute(
                 _SQL["upsert_server_settings"],
-                (max_level, current_xpac, launch_dt, world),
+                (max_level, current_xpac, launch_dt, next_xpac, next_xpac_dt, world),
             )
             conn.commit()
 

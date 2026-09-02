@@ -98,6 +98,12 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     servers_cols = {row[1] for row in conn.execute("PRAGMA table_info(servers)")}
     if "is_default" not in servers_cols:
         conn.execute(_SQL["alter_servers_add_is_default"])
+    # Migrate: upcoming-expansion countdown fields (2026-09). Same rule as
+    # is_default — the pre-existing prod servers table lacks them.
+    if "next_xpac" not in servers_cols:
+        conn.execute(_SQL["alter_servers_add_next_xpac"])
+    if "next_xpac_dt" not in servers_cols:
+        conn.execute(_SQL["alter_servers_add_next_xpac_dt"])
     # Ensure exactly one default exists. On a fresh DB or after ADD COLUMN every
     # row has is_default=0 until we set one. Default to the EQ2_WORLD server.
     if conn.execute(_SQL["count_default_servers"]).fetchone()[0] == 0:

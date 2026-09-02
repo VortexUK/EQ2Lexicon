@@ -1,7 +1,10 @@
 /**
- * Countdown timer to the EQ2 server launch.
- * Sources the launch date from useServer() — populated by /api/server.
- * Hides automatically once the launch time has passed or if no date is set.
+ * Countdown timer card — the gilded "Norrath Awakens In…" banner.
+ *
+ * Default export counts down to the EQ2 server launch (launchDt from
+ * useServer(), shown on the login gate). The parameterized CountdownCard is
+ * reused by XpacLaunchBanner for upcoming-expansion releases. Hides
+ * automatically once the target time has passed or if no date is set.
  */
 import { Fragment, useEffect, useState } from 'react'
 import { useServer } from '../hooks/useServer'
@@ -10,21 +13,30 @@ function pad(n: number) {
   return String(n).padStart(2, '0')
 }
 
-export default function ServerLaunchTimer() {
-  const server = useServer()
+export function CountdownCard({
+  targetIso,
+  eyebrow,
+  heading,
+  localTime = false,
+}: {
+  targetIso: string | null
+  eyebrow: string
+  heading: string
+  /** Show the date line in the viewer's timezone instead of UTC. */
+  localTime?: boolean
+}) {
   const [launchMs, setLaunchMs] = useState<number | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
 
-  // Derive launchMs from the server context whenever it loads or changes
+  // Derive launchMs from the target whenever it loads or changes
   useEffect(() => {
-    const dt = server?.launchDt ?? null
-    if (!dt) return
-    const ms = new Date(dt).getTime()
+    if (!targetIso) return
+    const ms = new Date(targetIso).getTime()
     if (!isNaN(ms) && ms > Date.now()) {
       setLaunchMs(ms)
       setTimeLeft(ms - Date.now())
     }
-  }, [server?.launchDt])
+  }, [targetIso])
 
   // Tick every second once we have a launch time
   useEffect(() => {
@@ -44,10 +56,11 @@ export default function ServerLaunchTimer() {
 
   // Human-readable date line derived from the JS Date object
   const launchDate = new Date(launchMs)
+  const tz = localTime ? undefined : 'UTC'
   const dateLabel = launchDate.toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+    day: 'numeric', month: 'long', year: 'numeric', timeZone: tz,
   }) + ' · ' + launchDate.toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short',
+    hour: '2-digit', minute: '2-digit', timeZone: tz, timeZoneName: 'short',
   })
 
   const units = [
@@ -72,7 +85,7 @@ export default function ServerLaunchTimer() {
         className="font-heading text-[0.68rem] font-semibold tracking-[0.2em] uppercase mb-1"
         style={{ color: 'rgba(var(--gold-rgb), 0.55)' }}
       >
-        ✦ &nbsp; Server Launch &nbsp; ✦
+        ✦ &nbsp; {eyebrow} &nbsp; ✦
       </div>
 
       {/* Heading */}
@@ -85,7 +98,7 @@ export default function ServerLaunchTimer() {
           backgroundClip: 'text',
         }}
       >
-        Norrath Awakens In…
+        {heading}
       </div>
 
       {/* Countdown units */}
@@ -132,5 +145,36 @@ export default function ServerLaunchTimer() {
       </div>
 
     </div>
+  )
+}
+
+/** The login-gate countdown to the server launch (the original banner). */
+export default function ServerLaunchTimer() {
+  const server = useServer()
+  return (
+    <CountdownCard
+      targetIso={server?.launchDt ?? null}
+      eyebrow="Server Launch"
+      heading="Norrath Awakens In…"
+    />
+  )
+}
+
+/**
+ * Home-page countdown to the next expansion release. Driven by the
+ * admin-editable next_xpac / next_xpac_dt on the servers registry —
+ * renders nothing until both are set, and hides itself once the release
+ * time passes. Shows the release moment in the viewer's local timezone.
+ */
+export function XpacLaunchBanner() {
+  const server = useServer()
+  if (!server?.nextXpac || !server?.nextXpacDt) return null
+  return (
+    <CountdownCard
+      targetIso={server.nextXpacDt}
+      eyebrow="Expansion Launch"
+      heading={`${server.nextXpac} Arrives In…`}
+      localTime
+    />
   )
 }

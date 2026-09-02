@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
+import { Button } from '../components/ui'
 
 import Breadcrumb from '../components/Breadcrumb'
 import Caret from '../components/Caret'
@@ -220,12 +222,15 @@ function Header({ data, raidZoneCanonical }: { data: ParseDetail; raidZoneCanoni
     : 'var(--gold)'
   return (
     <section className="mb-[1.4rem]">
-      <h1
-        className="font-heading text-[1.7rem] mb-1"
-        style={{ color: titleColor }}
-      >
-        {data.title}
-      </h1>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <h1
+          className="font-heading text-[1.7rem] mb-1"
+          style={{ color: titleColor }}
+        >
+          {data.title}
+        </h1>
+        <AdminPurgeButton data={data} />
+      </div>
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-text-muted text-[0.85rem]">
         {data.zone && (
           <span>
@@ -260,6 +265,54 @@ function Header({ data, raidZoneCanonical }: { data: ParseDetail; raidZoneCanoni
         <span><span className={HDR_KEY_CLS}>K/D:</span> {data.kills} / {data.deaths}</span>
       </div>
     </section>
+  )
+}
+
+/**
+ * Admin-only hard-purge, right on the parse page — so a bad parse spotted
+ * in the rankings can be killed without a round-trip through the admin
+ * table. Same endpoint the admin sanitize view uses (DELETE ?purge=1);
+ * removes the parse from all leaderboards permanently. Renders nothing for
+ * non-admins.
+ */
+function AdminPurgeButton({ data }: { data: ParseDetail }) {
+  const auth = useAuth()
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (auth.status !== 'authenticated' || !auth.user.is_admin) return null
+
+  async function purge() {
+    if (!confirm(
+      `Permanently delete "${data.title}" (parse #${data.id})? ` +
+      'This removes it from all leaderboards and cannot be undone.',
+    )) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/parses/${data.id}?purge=1`, { method: 'DELETE', credentials: 'include' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(body.detail ?? 'Purge failed.')
+        return
+      }
+      navigate('/parses')
+    } catch {
+      setError('Network error — purge failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      {error && <span className="text-danger text-[0.8rem]">{error}</span>}
+      <Button variant="danger" size="sm" onClick={purge} disabled={busy}
+        title={`Hard-delete parse #${data.id} from the site and all leaderboards`}>
+        {busy ? 'Purging…' : 'Purge parse'}
+      </Button>
+    </div>
   )
 }
 

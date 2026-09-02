@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useRefreshServer } from '../../hooks/useServer'
 import { Button } from '../../components/ui'
 import {
   type ServerConfig,
@@ -55,6 +56,19 @@ function resolveXpacShort(
   return ''
 }
 
+/** Find the best-matching expansion FULL NAME for a stored xpac value —
+ *  the next-xpac dropdown keys on names so the banner heading reads well.
+ *  Falls back to the raw stored string when it matches no known expansion. */
+function resolveXpacName(
+  current: string | null,
+  expansions: ExpansionEntry[],
+): string {
+  if (!current) return ''
+  const lower = current.toLowerCase()
+  const match = expansions.find(e => e.name.toLowerCase() === lower || e.short.toLowerCase() === lower)
+  return match ? match.name : current
+}
+
 // ── ServerRow ─────────────────────────────────────────────────────────────────
 
 interface ServerRowProps {
@@ -69,6 +83,10 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
   const [maxLevel,  setMaxLevel]  = useState(server.max_level)
   const [xpacShort, setXpacShort] = useState<string>(() => resolveXpacShort(server.current_xpac, expansions))
   const [launchDt,  setLaunchDt]  = useState(() => isoToDatetimeLocal(server.launch_dt))
+  // Upcoming expansion (home-page countdown banner). Stored as the FULL name
+  // (the banner heading renders it verbatim: "Ruins of Kunark Arrives In…").
+  const [nextXpac,   setNextXpac]   = useState<string>(() => resolveXpacName(server.next_xpac, expansions))
+  const [nextXpacDt, setNextXpacDt] = useState(() => isoToDatetimeLocal(server.next_xpac_dt))
   const [busy,      setBusy]      = useState(false)
   const [result,    setResult]    = useState<{ ok: boolean; msg: string } | null>(null)
 
@@ -77,7 +95,8 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
   // the server prop changes. Done in an effect — never set state during render.
   useEffect(() => {
     setXpacShort(resolveXpacShort(server.current_xpac, expansions))
-  }, [expansions, server.current_xpac])
+    setNextXpac(resolveXpacName(server.next_xpac, expansions))
+  }, [expansions, server.current_xpac, server.next_xpac])
 
   const isDefault = defaultWorld === server.world
 
@@ -95,6 +114,8 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
         max_level:    maxLevel,
         current_xpac,
         launch_dt:    datetimeLocalToIso(launchDt),
+        next_xpac:    nextXpac || null,
+        next_xpac_dt: datetimeLocalToIso(nextXpacDt),
       }
 
       // Only send is_default:true when this row is the default. Don't send
@@ -214,6 +235,47 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
             className={`${inputCls} [color-scheme:dark]`}
           />
         </div>
+
+        {/* Next expansion (home-page countdown banner) */}
+        <div>
+          <label className="block text-[0.72rem] uppercase tracking-[0.06em] text-text-muted font-semibold mb-1">
+            Next Expansion
+          </label>
+          {noExpansions ? (
+            <div className="w-full appearance-none bg-surface border border-border rounded-md px-3 py-1.5 text-text-muted text-[0.88rem] opacity-60 cursor-not-allowed">
+              {server.next_xpac ?? '—'}
+            </div>
+          ) : (
+            <select
+              value={nextXpac}
+              onChange={e => setNextXpac(e.target.value)}
+              className={`${inputCls} cursor-pointer`}
+            >
+              <option value="">— none —</option>
+              {expansions.map(ex => (
+                <option key={ex.short} value={ex.name}>
+                  {ex.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="text-[0.7rem] text-text-muted mt-1 italic">
+            Shows a countdown banner on the home page until release
+          </p>
+        </div>
+
+        {/* Next expansion release (UTC) */}
+        <div>
+          <label className="block text-[0.72rem] uppercase tracking-[0.06em] text-text-muted font-semibold mb-1">
+            Next Expansion Release (UTC)
+          </label>
+          <input
+            type="datetime-local"
+            value={nextXpacDt}
+            onChange={e => setNextXpacDt(e.target.value)}
+            className={`${inputCls} [color-scheme:dark]`}
+          />
+        </div>
       </div>
 
       {/* Save row */}
@@ -241,6 +303,8 @@ export function ServersSection() {
   // Track which world is currently selected as default (may differ from server
   // truth while the user has changed the radio but not yet saved)
   const [defaultWorld, setDefaultWorld] = useState<string>('')
+  // Push saved settings into the app-wide server context (banners, limits)
+  const refreshServer = useRefreshServer()
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -294,7 +358,7 @@ export function ServersSection() {
           expansions={expansions}
           defaultWorld={defaultWorld}
           onDefaultChange={setDefaultWorld}
-          onSaved={fetchData}
+          onSaved={() => { fetchData(); refreshServer() }}
         />
       ))}
     </div>

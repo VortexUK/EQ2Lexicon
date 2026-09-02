@@ -8,6 +8,8 @@ export interface ServerConfig {
   max_level:    number
   current_xpac: string | null
   launch_dt:    string | null
+  next_xpac:    string | null
+  next_xpac_dt: string | null
   is_default:   boolean
 }
 

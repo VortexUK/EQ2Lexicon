@@ -458,10 +458,21 @@ class ParsesStore(BaseCatalogue):
             params.append(before)
         if search:
             like = f"%{search.lower()}%"
-            clauses.append(
-                "(LOWER(title) LIKE ? OR LOWER(IFNULL(uploaded_by, '')) LIKE ? OR LOWER(IFNULL(guild_name, '')) LIKE ?)"
-            )
-            params += [like, like, like]
+            # A numeric search (optionally "#123" — how ids render in the UI)
+            # also matches the encounter id exactly, so an admin can jump from
+            # a parse URL / rankings row straight to the row to sanitize.
+            id_term = search.strip().lstrip("#")
+            if id_term.isdigit():
+                clauses.append(
+                    "(e.id = ? OR LOWER(title) LIKE ? OR LOWER(IFNULL(uploaded_by, '')) LIKE ?"
+                    " OR LOWER(IFNULL(guild_name, '')) LIKE ?)"
+                )
+                params += [int(id_term), like, like, like]
+            else:
+                clauses.append(
+                    "(LOWER(title) LIKE ? OR LOWER(IFNULL(uploaded_by, '')) LIKE ? OR LOWER(IFNULL(guild_name, '')) LIKE ?)"
+                )
+                params += [like, like, like]
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         sql = _SQL["list_encounters_for_admin"].format(where=where)
         return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]

@@ -18,5 +18,7 @@ async def get_active_server() -> dict:
         "max_level": s.max_level,
         "current_xpac": s.current_xpac,
         "launch_dt": s.launch_dt,
+        "next_xpac": s.next_xpac,
+        "next_xpac_dt": s.next_xpac_dt,
         "servers": list_public_servers(),
     }

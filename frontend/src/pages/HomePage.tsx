@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useClaim } from '../hooks/useClaim'
 import type { Claim } from '../hooks/useClaim'
-import ServerLaunchTimer from '../components/ServerLaunchTimer'
+import ServerLaunchTimer, { XpacLaunchBanner } from '../components/ServerLaunchTimer'
 import CharacterSummaryCard from '../components/CharacterSummaryCard'
 import FavoritesSection from '../components/FavoritesSection'
 import RaidAvailability from '../components/RaidAvailability'
@@ -215,6 +215,7 @@ export default function HomePage() {
           gear and guild rosters across the realm of Norrath.
         </p>
         <ServerLaunchTimer />
+        <XpacLaunchBanner />
       </div>
 
       {/* Characters */}

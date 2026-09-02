@@ -155,6 +155,8 @@ class ServerItem(BaseModel):
     max_level: int
     current_xpac: str | None = None
     launch_dt: str | None = None
+    next_xpac: str | None = None
+    next_xpac_dt: str | None = None
     is_default: bool = False
 
 
@@ -162,6 +164,10 @@ class ServerSettingsUpdate(BaseModel):
     max_level: Annotated[int, Field(gt=0)]
     current_xpac: str | None = None
     launch_dt: str | None = None
+    # Upcoming-expansion countdown (the home-page banner). Clear both to
+    # hide the banner; the frontend also hides it once the date passes.
+    next_xpac: str | None = None
+    next_xpac_dt: str | None = None
     is_default: bool | None = None
 
 
@@ -763,21 +769,24 @@ async def update_server_settings(
     if world not in known_worlds:
         raise HTTPException(status_code=404, detail=f"Server {world!r} not found")
 
-    # Validate launch_dt if provided
-    if body.launch_dt is not None:
-        try:
-            datetime.fromisoformat(body.launch_dt.rstrip("Z"))
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=f"launch_dt is not a valid ISO-8601 date/datetime: {body.launch_dt!r}",
-            ) from exc
+    # Validate the datetime fields if provided
+    for field_name, value in (("launch_dt", body.launch_dt), ("next_xpac_dt", body.next_xpac_dt)):
+        if value is not None:
+            try:
+                datetime.fromisoformat(value.rstrip("Z"))
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{field_name} is not a valid ISO-8601 date/datetime: {value!r}",
+                ) from exc
 
     upsert_server_settings_sync(
         world,
         max_level=body.max_level,
         current_xpac=body.current_xpac,
         launch_dt=body.launch_dt,
+        next_xpac=body.next_xpac,
+        next_xpac_dt=body.next_xpac_dt,
     )
     # If the caller is explicitly setting this server as the default, flip it.
     # We never unset a default via is_default=False/None — you can only SET one.
@@ -790,6 +799,8 @@ async def update_server_settings(
         max_level=body.max_level,
         xpac=body.current_xpac,
         launch_dt=body.launch_dt,
+        next_xpac=body.next_xpac,
+        next_xpac_dt=body.next_xpac_dt,
         is_default=body.is_default,
     )
     # Refresh the in-memory registry immediately so new requests see the change.

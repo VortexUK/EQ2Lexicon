@@ -11,6 +11,7 @@ SELECT * FROM servers WHERE world = ?;
 
 -- :name upsert_server_settings
 UPDATE servers SET max_level = ?, current_xpac = ?, launch_dt = ?,
+       next_xpac = ?, next_xpac_dt = ?,
        updated_at = strftime('%s','now')
 WHERE world = ?;
 

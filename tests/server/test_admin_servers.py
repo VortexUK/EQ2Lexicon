@@ -171,9 +171,58 @@ async def test_put_servers_updates_settings_and_refreshes_registry(app):
         max_level=70,
         current_xpac="Sentinel's Fate",
         launch_dt=None,
+        next_xpac=None,
+        next_xpac_dt=None,
     )
     # Registry MUST be refreshed after writing
     mock_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_put_servers_next_xpac_round_trip(app):
+    """The upcoming-expansion fields flow through to the upsert, and a bad
+    next_xpac_dt is a 422 before anything is written."""
+    servers = [
+        {
+            "world": "Wuoshi",
+            "subdomain": "wuoshi",
+            "display_name": "Wuoshi",
+            "max_level": 70,
+            "current_xpac": None,
+            "launch_dt": None,
+        },
+    ]
+    updated_server = {**servers[0], "next_xpac": "Ruins of Kunark", "next_xpac_dt": "2026-09-09T19:00:00Z"}
+    mock_upsert = MagicMock()
+
+    with (
+        patch("backend.server.api.admin._require_admin", _fake_admin),
+        patch("backend.server.api.admin.list_servers_sync", return_value=servers),
+        patch("backend.server.api.admin.upsert_server_settings_sync", mock_upsert),
+        patch("backend.server.api.admin.server_context.load_registry", MagicMock()),
+        patch("backend.server.api.admin.get_server_by_world_sync", return_value=updated_server),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.put(
+                "/api/admin/servers/Wuoshi",
+                json={
+                    "max_level": 70,
+                    "next_xpac": "Ruins of Kunark",
+                    "next_xpac_dt": "2026-09-09T19:00:00Z",
+                },
+            )
+            bad = await client.put(
+                "/api/admin/servers/Wuoshi",
+                json={"max_level": 70, "next_xpac_dt": "next tuesday"},
+            )
+
+    assert r.status_code == 200
+    assert r.json()["next_xpac"] == "Ruins of Kunark"
+    assert mock_upsert.call_args.kwargs["next_xpac"] == "Ruins of Kunark"
+    assert mock_upsert.call_args.kwargs["next_xpac_dt"] == "2026-09-09T19:00:00Z"
+
+    assert bad.status_code == 422
+    mock_upsert.assert_called_once()  # the invalid-datetime PUT never wrote
 
 
 # ---------------------------------------------------------------------------

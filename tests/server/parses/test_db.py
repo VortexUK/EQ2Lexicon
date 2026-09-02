@@ -421,6 +421,24 @@ class TestInsertHelpers:
         hits = parses_db.store.list_encounters_for_admin(parses_db_conn, search="wuoshi")
         assert [r["id"] for r in hits] == [bid]
 
+    def test_list_encounters_for_admin_search_by_id(self, parses_db_conn):
+        """A numeric search (with or without the UI's '#' prefix) matches the
+        encounter id exactly — so an admin can jump from a parse URL straight
+        to the row. Non-numeric search never touches the id clause."""
+        from dataclasses import replace
+
+        a = _sample_encounter()
+        b = replace(a, encid="boss01", title="Wuoshi")
+        aid = parses_db.store.insert_encounter(parses_db_conn, a, source_dsn="eq2act", ingested_at=1)
+        parses_db.store.insert_encounter(parses_db_conn, b, source_dsn="eq2act", ingested_at=2)
+
+        for term in (str(aid), f"#{aid}", f"  #{aid} "):
+            hits = parses_db.store.list_encounters_for_admin(parses_db_conn, search=term)
+            assert [r["id"] for r in hits] == [aid], f"search {term!r}"
+
+        # A numeric term that is nobody's id (and matches no text) finds nothing.
+        assert parses_db.store.list_encounters_for_admin(parses_db_conn, search="999999") == []
+
 
 class TestUniqueConstraints:
     def test_duplicate_act_encid_rejected(self, parses_db_conn):

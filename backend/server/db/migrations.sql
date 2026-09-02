@@ -122,6 +122,12 @@ VALUES (?, ?, ?, ?, ?, ?);
 -- :name alter_servers_add_is_default
 ALTER TABLE servers ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
 
+-- :name alter_servers_add_next_xpac
+ALTER TABLE servers ADD COLUMN next_xpac TEXT;
+
+-- :name alter_servers_add_next_xpac_dt
+ALTER TABLE servers ADD COLUMN next_xpac_dt TEXT;
+
 -- :name count_default_servers
 SELECT COUNT(*) FROM servers WHERE is_default = 1;
 

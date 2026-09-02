@@ -142,3 +142,31 @@ def test_assert_schema_complete_fires_on_missing_column(tmp_path: Path) -> None:
         with sqlite3.connect(db) as conn:
             with pytest.raises(AssertionError, match="_fake_drift_column"):
                 assert_schema_complete(conn)
+
+
+def test_init_db_migrates_old_servers_table(tmp_path: Path) -> None:
+    """A pre-next_xpac servers table (the 2026-08 prod shape) gains the
+    upcoming-expansion columns on init_db, keeping its rows."""
+    db = tmp_path / "users.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript("""
+            CREATE TABLE servers (
+                world          TEXT PRIMARY KEY,
+                subdomain      TEXT NOT NULL UNIQUE,
+                display_name   TEXT NOT NULL,
+                max_level      INTEGER NOT NULL,
+                current_xpac   TEXT,
+                launch_dt      TEXT,
+                updated_at     INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+            );
+            INSERT INTO servers (world, subdomain, display_name, max_level)
+            VALUES ('Varsoon', 'varsoon', 'Varsoon', 70);
+        """)
+
+    users_db.init_db(db)
+
+    with sqlite3.connect(db) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(servers)")}
+        assert {"is_default", "next_xpac", "next_xpac_dt"} <= cols
+        row = conn.execute("SELECT max_level, next_xpac, next_xpac_dt FROM servers WHERE world='Varsoon'").fetchone()
+        assert row == (70, None, None)  # existing row survived, new cols NULL

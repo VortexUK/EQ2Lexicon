@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS servers (
     max_level      INTEGER NOT NULL,
     current_xpac   TEXT,
     launch_dt      TEXT,
+    next_xpac      TEXT,
+    next_xpac_dt   TEXT,
     updated_at     INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     is_default     INTEGER NOT NULL DEFAULT 0
 );
