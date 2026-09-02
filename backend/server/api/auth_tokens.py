@@ -123,6 +123,10 @@ class WhoAmIResponse(BaseModel):
     # will reach the site; /api/parses/ingest enforces the same list
     # server-side in strict mode.
     allowed_servers: list[str] = []
+    # DB-granted roles (e.g. 'subscriber'). EQ2Parser hides its Raid tab
+    # unless the token's account holds the attendance-preview role or
+    # is_admin — same rule the attendance routes enforce server-side.
+    static_roles: list[str] = []
 
 
 @router.get("/auth/whoami", response_model=WhoAmIResponse)
@@ -141,4 +145,5 @@ async def whoami(request: Request) -> WhoAmIResponse:
         # don't guarantee iteration order, so sort once here rather
         # than asking every plugin install to sort it on receipt.
         allowed_servers=sorted(ALLOWED_SERVERS),
+        static_roles=await users_db.list_roles_for_user(user["id"]),
     )

@@ -317,3 +317,19 @@ async def test_whoami_returns_empty_allowed_servers_when_unset(app):
             r = await client.get("/api/auth/whoami")
     assert r.status_code == 200
     assert r.json()["allowed_servers"] == []
+
+
+@pytest.mark.asyncio
+async def test_whoami_returns_static_roles(app):
+    """static_roles carries DB-granted roles — EQ2Parser reads it (plus
+    is_admin) to decide whether to show its Raid tab (the attendance
+    limited-preview gate)."""
+    with patch("backend.server.api.auth_tokens.require_user_session_or_token", _fake_token_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            before = (await client.get("/api/auth/whoami")).json()
+            from backend.server import db as users_db
+
+            await users_db.grant_role("user-non-admin", "subscriber", granted_by="test")
+            after = (await client.get("/api/auth/whoami")).json()
+    assert before["static_roles"] == []
+    assert after["static_roles"] == ["subscriber"]
