@@ -1,0 +1,29 @@
+{
+  "_source": "census eq2/achievement (category=Raids, subcategory=Rise of Kunark) + live character verification (2026-09-02)",
+  "_notes": "RoK raid-zone progression flags have no census-visible quest — but each tier's final boss awards a kill achievement. Character side: eq2/character achievements.achievement_list entries are {id, completed_timestamp} (per character; verified earned on a Varsoon character DURING its RoK era, so TLE servers grant them). c:show=achievements pulls the character's full 500+ entry list — project narrowly or filter server-side. A tier ticks when every achievement in it is earned. Trakanon himself is additionally gated by the access quest (see trakanon.json).",
+  "tracking": {
+    "earned": "achievement id present in character achievements.achievement_list",
+    "earned_at": "completed_timestamp (unix seconds) on the entry"
+  },
+  "tiers": {
+    "T1": [
+      { "boss": "Imzok's Revenge", "zone": "The Protector's Realm", "achievement": { "name": "Imzok Immolator", "id": 1957990056 } },
+      { "boss": "Pawbuster", "zone": "The Execution Throne Room", "achievement": { "name": "Pawbuster Pounder", "id": 1320853425 } },
+      { "boss": "Tairiza the Widow Mistress", "zone": "The Tomb of Thuuga", "achievement": { "name": "Tairiza Trouncer", "id": 706553905 } }
+    ],
+    "T2": [
+      { "boss": "Selrach Di'Zok", "zone": "The Temple of Kor-Sha", "achievement": { "name": "Overking Overthrower", "id": 1750388152 } },
+      { "boss": "Venril Sathir", "zone": "Venril Sathir's Lair", "achievement": { "name": "Sathir Slayer", "id": 1001388794 } }
+    ],
+    "T3": [
+      { "boss": "The Leviathan", "zone": "The Chamber of Destiny", "achievement": { "name": "Leviathan Lacerator", "id": 559026685 } }
+    ],
+    "T4": [
+      { "boss": "Phara Dar", "zone": "Veeshan's Peak", "achievement": { "name": "Veeshan's Peak Vindicator", "id": 2384371275 } }
+    ]
+  },
+  "extra": [
+    { "boss": "Trakanon", "zone": "Veeshan's Peak", "achievement": { "name": "Trakanon's Tormenter", "id": 1100876855 }, "note": "final VP kill; the fight itself is gated by the Taking on Trakanon quest (trakanon.json)" },
+    { "boss": "Byzola", "zone": "Shard of Hate", "achievement": { "name": "Byzolabane", "id": 3468409063 }, "note": "RoK-era bonus raid zone, outside the tier ladder" }
+  ]
+}
