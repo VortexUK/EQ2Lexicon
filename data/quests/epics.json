@@ -1,0 +1,1440 @@
+{
+  "_source": "EQ2i (eq2.fandom.com) Epic_Weapons + census eq2/quest",
+  "_notes": "A character has the fabled/mythical epic when the chain's final quest crc appears in census character_misc.completed_quest_list (entries carry crc + completion_date; character_misc is keyed by character id). Wiki quest levels reflect current live, not RoK-era, values.",
+  "classes": {
+    "Berserker": {
+      "archetype": "Fighter",
+      "fabled": {
+        "weapon": "Dragon's Temper",
+        "quests": [
+          {
+            "name": "The Consequences of a Berserker's Rage",
+            "crc": 4211717890,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Responsibilities of a Berserker's Rage",
+            "crc": 45819959,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Mystery of the Firewater Crystal",
+            "crc": 2475299688,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Mystery of the Firewater Crystal",
+          "crc": 2475299688,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Dragon's Temper",
+        "quests": [
+          {
+            "name": "Honing the Lust of the Dragon's Temper",
+            "crc": 3497633715,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Honing the Lust of the Dragon's Temper",
+          "crc": 3497633715,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Guardian": {
+      "archetype": "Fighter",
+      "fabled": {
+        "weapon": "Vel'Arek",
+        "quests": [
+          {
+            "name": "The Search for Vel'Arek",
+            "crc": 2192282303,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Search for Vel'Arek",
+          "crc": 2192282303,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Revitalized Vel'Arek",
+        "quests": [
+          {
+            "name": "Revitalizing Vel'Arek",
+            "crc": 463651589,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Revitalizing Vel'Arek",
+          "crc": 463651589,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Bruiser": {
+      "archetype": "Fighter",
+      "fabled": {
+        "weapon": "Gorynn's Fist",
+        "quests": [
+          {
+            "name": "The Fist of War",
+            "crc": 1014284499,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Big Fish Bowl",
+            "crc": 1075181885,
+            "level": 85,
+            "category": "Fens of Nathsar"
+          },
+          {
+            "name": "The Broken Fist",
+            "crc": 2776469865,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Broken Fist",
+          "crc": 2776469865,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Gorynn's Fist",
+        "quests": [
+          {
+            "name": "A Taste of Past Glory",
+            "crc": 3243502180,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "A Taste of Past Glory",
+          "crc": 3243502180,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Monk": {
+      "archetype": "Fighter",
+      "fabled": {
+        "weapon": "The Hand of Serenity",
+        "quests": [
+          {
+            "name": "The Broken Hand",
+            "crc": 1757859439,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Broken Hand: Bones of the Elder",
+            "crc": 709467598,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Broken Hand: Bones of the Elder",
+          "crc": 709467598,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "The Restored Hand of Serenity",
+        "quests": [
+          {
+            "name": "The Mended Hand",
+            "crc": 4056915925,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Mended Hand",
+          "crc": 4056915925,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Paladin": {
+      "archetype": "Fighter",
+      "fabled": {
+        "weapon": "The Truth of Marr",
+        "quests": [
+          {
+            "name": "A Paladin's Crusade",
+            "crc": 4285032864,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Reet's Freedom",
+            "crc": 4001998395,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "A Reet's Freedom",
+          "crc": 4001998395,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "The Truth of Marr",
+        "quests": [
+          {
+            "name": "Acts of Contrition",
+            "crc": 1717647386,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Acts of Contrition",
+          "crc": 1717647386,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Shadowknight": {
+      "archetype": "Fighter",
+      "fabled": {
+        "weapon": "Sedition",
+        "quests": [
+          {
+            "name": "They Have Searched an Age for a Dark Champion...",
+            "crc": 2798344967,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Dingy Little Knick Knack...",
+            "crc": 1878652517,
+            "level": 80,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Dingy Little Knick Knack...",
+          "crc": 1878652517,
+          "level": 80,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Sedition, Sword of the Bloodmoon",
+        "quests": [
+          {
+            "name": "A Bloodmoon Rising!",
+            "crc": 1069681341,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "A Bloodmoon Rising!",
+          "crc": 1069681341,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Warlock": {
+      "archetype": "Mage",
+      "fabled": {
+        "weapon": "Death's Grip",
+        "quests": [
+          {
+            "name": "The Will of Kyrtoxxulous",
+            "crc": 3735858572,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Will of Kyrtoxxulous",
+          "crc": 3735858572,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Death's Grip",
+        "quests": [
+          {
+            "name": "Kyrtoxxulous' Challenge",
+            "crc": 1202060342,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Kyrtoxxulous' Challenge",
+          "crc": 1202060342,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Wizard": {
+      "archetype": "Mage",
+      "fabled": {
+        "weapon": "Dragon's Marrow",
+        "quests": [
+          {
+            "name": "Of Fire and Ice",
+            "crc": 545881434,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Of Fire and Ice: A Codex in Crisis",
+            "crc": 3112185056,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Of Fire and Ice: The Sorcerer-Astronomer",
+            "crc": 3464961142,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Of Fire and Ice: The Flame Disciple's Ring",
+            "crc": 1357089237,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Of Fire and Ice: Band of the Frost Maiden",
+            "crc": 669301059,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Of Fire and Ice: With These Rings I Thee Wonder",
+            "crc": 3203262713,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Of Fire and Ice: Suitable Components",
+            "crc": 3387611247,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Of Fire and Ice: Suitable Components",
+          "crc": 3387611247,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Dragon's Marrow",
+        "quests": [
+          {
+            "name": "Of Fire and Ice: The Dragon's Marrow",
+            "crc": 1498793470,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Of Fire and Ice: The Dragon's Marrow",
+          "crc": 1498793470,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Coercer": {
+      "archetype": "Mage",
+      "fabled": {
+        "weapon": "Eye of the Siren",
+        "quests": [
+          {
+            "name": "Leandre's Shard: Merging",
+            "crc": 868735253,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: Atrophy",
+            "crc": 2865662127,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: Reunion",
+            "crc": 3720984633,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: What's Eating You?",
+            "crc": 1135422874,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: Harvesting Ripe Minds",
+            "crc": 883563788,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: Seeking Pietre",
+            "crc": 2913160374,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: Pietre's Requests",
+            "crc": 3668212768,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: Kunzar Extract",
+            "crc": 1243308465,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: Drusella's Extraction",
+            "crc": 1025265959,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Leandre's Shard: Drusella's Extraction",
+          "crc": 1025265959,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Eye of the Siren",
+        "quests": [
+          {
+            "name": "Leandre's Shard: Daranus",
+            "crc": 2091611588,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Leandre's Shard: The Targets",
+            "crc": 1947840560,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Leandre's Shard: The Targets",
+          "crc": 1947840560,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Illusionist": {
+      "archetype": "Mage",
+      "fabled": {
+        "weapon": "Mirage Star",
+        "quests": [
+          {
+            "name": "The Maiden of Masks",
+            "crc": 3731881827,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Tome: The Maiden of Masks",
+            "crc": null,
+            "note": "not a census quest (book/item step)"
+          },
+          {
+            "name": "Paying Off a Tab: Fish Fry",
+            "crc": 1053827548,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Paying Off a Tab: Redecoration",
+            "crc": 3224659078,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Costume Acting 101",
+            "crc": 2925378118,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Costume Acting 101",
+          "crc": 2925378118,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Mirage Star",
+        "quests": [
+          {
+            "name": "The Mirage Star",
+            "crc": 1197911769,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Mirage Star",
+          "crc": 1197911769,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Conjuror": {
+      "archetype": "Mage",
+      "fabled": {
+        "weapon": "Elemental Dominance",
+        "quests": [
+          {
+            "name": "An Airy Heart",
+            "crc": 559376562,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "An Earthy Heart",
+            "crc": 3207855377,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Watery Heart",
+            "crc": 3358903687,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Fiery Heart",
+            "crc": 1362992189,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Chel'dok's Fiery Cinch",
+            "crc": 1132999635,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Moonglow",
+            "crc": 2911261439,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Sphere of Containment",
+            "crc": 3665912425,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Flow of Pure Water",
+            "crc": 356136346,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Lick of Pure Fire",
+            "crc": 4214510774,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Wisp of Pure Air",
+            "crc": 1648166156,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Into the Chamber of Phrotis",
+            "crc": 1726180367,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Reclaiming the Crystal Foci",
+            "crc": 3730770794,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Domination of Phrotis",
+            "crc": 3437929604,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Phrotis' Exertion: Reckless Strength",
+            "crc": 1396787052,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Phrotis' Exertion: Senile Cunning",
+            "crc": 3393722070,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Phrotis' Exertion: Arrogant Wisdom",
+            "crc": 3176080960,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Phrotis' Exertion: Arrogant Wisdom",
+          "crc": 3176080960,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Elemental Dominance",
+        "quests": [
+          {
+            "name": "The Final Domination of Phrotis",
+            "crc": 1106569346,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Final Domination of Phrotis",
+          "crc": 1106569346,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Necromancer": {
+      "archetype": "Mage",
+      "fabled": {
+        "weapon": "Insanity's Rapture",
+        "quests": [
+          {
+            "name": "The Bones of Insanity",
+            "crc": 3676048079,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Bones of Insanity",
+          "crc": 3676048079,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Vazaelle, the Mad",
+        "quests": [
+          {
+            "name": "Shattered Sanity of the Mad",
+            "crc": 1628859607,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Shattered Sanity of the Mad",
+          "crc": 1628859607,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Fury": {
+      "archetype": "Priest",
+      "fabled": {
+        "weapon": "Wrath of Nature",
+        "quests": [
+          {
+            "name": "Investigate the Death",
+            "crc": 3136446598,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Pride of the Chokidai",
+            "crc": 2174086626,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Vanity of the Cockatrice",
+            "crc": 1872465102,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Cunning of the Trakaraptor",
+            "crc": 4060027245,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Survival of the Rhino",
+            "crc": 412925016,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Find the Fury",
+            "crc": 3516173005,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Restored To Glory",
+            "crc": 3714127230,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Earning Vengeance",
+            "crc": 1394291977,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Earning Vengeance",
+          "crc": 1394291977,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Wrath of Nature",
+        "quests": [
+          {
+            "name": "Exacting Vengeance",
+            "crc": 4063503682,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Exacting Vengeance",
+          "crc": 4063503682,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Warden": {
+      "archetype": "Priest",
+      "fabled": {
+        "weapon": "Bite of the Wolf",
+        "quests": [
+          {
+            "name": "A Broken Barrier",
+            "crc": 2152435848,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Wounded of the Air",
+            "crc": 2466135910,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Wounded of the Water",
+            "crc": 200765148,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Wounded of the Earth",
+            "crc": 2096127562,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Wounded of the Fire",
+            "crc": 3801402345,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Elemental Bindings",
+            "crc": 708990979,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Tilzax V'Reryn",
+            "crc": 3080020154,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: The Bite of the Wolf",
+            "crc": 254347231,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Veryn's Call",
+            "crc": 496805937,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Broken Barrier: Lessons of the Fallen",
+            "crc": 2770390868,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Broken Barrier: Lessons of the Fallen",
+          "crc": 2770390868,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Bite of the Wolf",
+        "quests": [
+          {
+            "name": "Broken Barrier: Sealing of the Blade",
+            "crc": 2653553608,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Broken Barrier: Sealing of the Blade",
+          "crc": 2653553608,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Inquisitor": {
+      "archetype": "Priest",
+      "fabled": {
+        "weapon": "Penitent's Absolution",
+        "quests": [
+          {
+            "name": "Defender of the Faith",
+            "crc": 879424639,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Saga of Yasva V'Alear",
+            "crc": 452800709,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Saga of Yasva V'Alear",
+          "crc": 452800709,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Penitent's Absolution",
+        "quests": [
+          {
+            "name": "The Legacy of Yasva V'Alear",
+            "crc": 2213831039,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Legacy of Yasva V'Alear",
+          "crc": 2213831039,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Templar": {
+      "archetype": "Priest",
+      "fabled": {
+        "weapon": "The Impact of the Sacrosanct",
+        "quests": [
+          {
+            "name": "The Healing of Amree",
+            "crc": 717736212,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Wounds of the Heart",
+            "crc": 525109457,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Wounds of the Heart",
+          "crc": 525109457,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "The Impact of the Sacrosanct",
+        "quests": [
+          {
+            "name": "Bringing the Hammer Down on Venril",
+            "crc": 2252724587,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Bringing the Hammer Down on Venril",
+          "crc": 2252724587,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Defiler": {
+      "archetype": "Priest",
+      "fabled": {
+        "weapon": "Dream Scorcher",
+        "quests": [
+          {
+            "name": "The Dream Scorcher",
+            "crc": 1760641828,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Dream Scorcher",
+          "crc": 1760641828,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Dream Scorcher",
+        "quests": [
+          {
+            "name": "The Dream Scorcher, Part Two",
+            "crc": 4059566750,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Dream Scorcher, Part Two",
+          "crc": 4059566750,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Mystic": {
+      "archetype": "Priest",
+      "fabled": {
+        "weapon": "Cudgel of Obviation",
+        "quests": [
+          {
+            "name": "A Sleeping Stone",
+            "crc": 4032730697,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: Sight of the First",
+            "crc": 2673216136,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: Bones of the Lost",
+            "crc": 1767360499,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: The Stone Awakens",
+            "crc": 508622693,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: Old Man Across the Sea",
+            "crc": 2150916806,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: Dark Shadows",
+            "crc": 4147335760,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: Dark Enlightenment",
+            "crc": 1849295850,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: Restoring Valor",
+            "crc": 2307010285,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: Great Beasts",
+            "crc": 4270136955,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Sleeping Stone: The Cudgel of Obviation",
+            "crc": 690591502,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "A Sleeping Stone: The Cudgel of Obviation",
+          "crc": 690591502,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Cudgel of Obviation",
+        "quests": [
+          {
+            "name": "Awakening the Cudgel",
+            "crc": 3341284898,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Awakening the Cudgel",
+          "crc": 3341284898,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Dirge": {
+      "archetype": "Scout",
+      "fabled": {
+        "weapon": "Lamentation of the Intrepid",
+        "quests": [
+          {
+            "name": "The Everlasting Quill of Ashe Boderra",
+            "crc": 3524180310,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "The Flute of a Thousand Colors",
+            "crc": 2123093413,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Sing a Song of Sorrow",
+            "crc": 1690061521,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Sing a Song of Sorrow",
+          "crc": 1690061521,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Lamentation of the Intrepid",
+        "quests": [
+          {
+            "name": "Restoration of the Lamentation",
+            "crc": 4256504683,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Restoration of the Lamentation",
+          "crc": 4256504683,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Troubador": {
+      "archetype": "Scout",
+      "fabled": {
+        "weapon": "Ayonic Axe",
+        "quests": [
+          {
+            "name": "An Ayonic Journey",
+            "crc": 3621216054,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Feeding the Flame of Yore",
+            "crc": 1404613035,
+            "level": 85,
+            "category": "Jarsath Wastes"
+          }
+        ],
+        "completion_quest": {
+          "name": "Feeding the Flame of Yore",
+          "crc": 1404613035,
+          "level": 85,
+          "category": "Jarsath Wastes"
+        }
+      },
+      "mythical": {
+        "weapon": "Ayonic Axe",
+        "quests": [
+          {
+            "name": "Son'Nia's Song",
+            "crc": 1323175564,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Son'Nia's Song",
+          "crc": 1323175564,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Assassin": {
+      "archetype": "Scout",
+      "fabled": {
+        "weapon": "Fang of Ichor",
+        "quests": [
+          {
+            "name": "A Mysterious Trinket",
+            "crc": 350471290,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Borrowed Time",
+            "crc": 2821966318,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Seek out Controller Kenjedeau",
+            "crc": 326663058,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Speak with Preceptor Nyjuss",
+            "crc": 2322672168,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Catching a Thief",
+            "crc": 945104977,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Catching a Thief",
+          "crc": 945104977,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Fang of Ichor",
+        "quests": [
+          {
+            "name": "For a Better Tomorrow",
+            "crc": 2707192299,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "For a Better Tomorrow",
+          "crc": 2707192299,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Ranger": {
+      "archetype": "Scout",
+      "fabled": {
+        "weapon": "Eagle's Talon",
+        "quests": [
+          {
+            "name": "Removing the Darkness From Within...",
+            "crc": 1710298182,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Removing the Darkness From Within...",
+          "crc": 1710298182,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Eagle's Talon",
+        "quests": [
+          {
+            "name": "The Untapped Power!",
+            "crc": 4244129276,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "For The Swamp!",
+            "crc": 2767593009,
+            "level": 75,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Untapped Power!",
+          "crc": 4244129276,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Brigand": {
+      "archetype": "Scout",
+      "fabled": {
+        "weapon": "Havoc",
+        "quests": [
+          {
+            "name": "The Heart of Treachery",
+            "crc": 1695253836,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Heart of Treachery",
+          "crc": 1695253836,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Havoc, Blade of Treachery",
+        "quests": [
+          {
+            "name": "Greed, Deceit, and Destruction!",
+            "crc": 4228044022,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Greed, Deceit, and Destruction!",
+          "crc": 4228044022,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Swashbuckler": {
+      "archetype": "Scout",
+      "fabled": {
+        "weapon": "Charm's Way",
+        "quests": [
+          {
+            "name": "Rrarwrk",
+            "crc": 2629757267,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Strange Bird",
+            "crc": 3462592742,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Screewoggins Stranded",
+            "crc": 1466673500,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "A Piece of Heart",
+            "crc": 543988170,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Loose Lips Find Ships",
+            "crc": 3188198505,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "In a Pirate's Wake",
+            "crc": 3373219071,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "High Seas Adventure",
+            "crc": 1342598469,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "High Seas Adventure",
+          "crc": 1342598469,
+          "level": 85,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Charm's Way",
+        "quests": [
+          {
+            "name": "The Voice of the Sea",
+            "crc": 654400979,
+            "level": 85,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "The Voice of the Sea",
+          "crc": 654400979,
+          "level": 85,
+          "category": "Signature"
+        }
+      }
+    },
+    "Beastlord": {
+      "archetype": "Scout",
+      "fabled": {
+        "weapon": "Spiritual Claws of Khati Sha",
+        "quests": [
+          {
+            "name": "The Path to Understanding...",
+            "crc": 3221462948,
+            "level": 95,
+            "category": "Signature"
+          },
+          {
+            "name": "One Door Closes, Another Door Opens",
+            "crc": 772669064,
+            "level": 95,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "One Door Closes, Another Door Opens",
+          "crc": 772669064,
+          "level": 95,
+          "category": "Signature"
+        }
+      },
+      "mythical": {
+        "weapon": "Inspirited Spiritual Claws of Khati Sha",
+        "quests": [
+          {
+            "name": "A Chance For Redemption",
+            "crc": 2959698731,
+            "level": 95,
+            "category": "Signature"
+          },
+          {
+            "name": "Fiery Jewel of the Underfoot",
+            "crc": 4005059389,
+            "level": 85,
+            "category": "Signature"
+          },
+          {
+            "name": "Epic Repercussions",
+            "crc": 2008091271,
+            "level": 90,
+            "category": "Signature"
+          }
+        ],
+        "completion_quest": {
+          "name": "Epic Repercussions",
+          "crc": 2008091271,
+          "level": 90,
+          "category": "Signature"
+        }
+      }
+    }
+  }
+}

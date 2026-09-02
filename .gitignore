@@ -345,3 +345,4 @@ data/census/census.db-shm
 # see commit history), gitignore catches it before the next `git add -A`.
 backend/**/data/
 scripts/dev/*_class_refs*/
+scripts/dev/.epics_wikitext_cache.json
