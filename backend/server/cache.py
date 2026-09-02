@@ -15,7 +15,9 @@ from backend.server.core.silent_swallow import swallow
 
 _log = logging.getLogger(__name__)
 
-CacheName = Literal["character", "guild", "claim", "aa", "gear-sets", "lifetime", "rankings", "favorites"]
+CacheName = Literal[
+    "character", "guild", "claim", "aa", "gear-sets", "lifetime", "rankings", "favorites", "progression"
+]
 
 
 class TTLCache:
@@ -212,3 +214,6 @@ aa_cache: TTLCache = TTLCache(name="aa", maxsize=200)
 gear_sets_cache: TTLCache = TTLCache(name="gear-sets", maxsize=200)
 favorite_count_cache: TTLCache = TTLCache(name="favorites", maxsize=1000)
 lifetime_cache: TTLCache = TTLCache(name="lifetime", maxsize=300)
+# RoK progression (character + guild rollups). Changes on raid nights, not
+# minute-to-minute: long stale window, generous hard expiry.
+progression_cache: TTLCache = TTLCache(ttl=900, max_age=6 * 3600, name="progression", maxsize=500)

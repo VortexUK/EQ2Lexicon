@@ -8,6 +8,7 @@ import { FreshnessBadge } from '../components/FreshnessBadge'
 import FavoriteButton from '../components/FavoriteButton'
 import { AAsTab } from './CharacterAAsTab'
 import CharacterRankingsTab, { type CharacterRankings } from './CharacterRankingsTab'
+import { ProgressionTab } from './CharacterProgressionTab'
 import { SpellsTab } from './CharacterSpellsTab'
 import DeltaChip from './compare/DeltaChip'
 import { useCensusStream } from '../hooks/useCensusStream'
@@ -382,9 +383,9 @@ export default function CharacterPage() {
 
 // ── Character view ────────────────────────────────────────────────────────────
 
-type ActiveTab = 'equipment' | 'aas' | 'spells' | 'rankings'
+type ActiveTab = 'equipment' | 'aas' | 'spells' | 'progression' | 'rankings'
 
-const TABS: readonly ActiveTab[] = ['equipment', 'aas', 'spells', 'rankings']
+const TABS: readonly ActiveTab[] = ['equipment', 'aas', 'spells', 'progression', 'rankings']
 
 function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxLevel: number; ratingConfig: RatingConfig }) {
   const { tooltip, showTip, hideTip, moveTip } = useItemTooltip()
@@ -490,10 +491,11 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
 
       {/* Tab bar — Rankings only exists once the character has ≥1 ranked kill */}
       <div className="flex flex-wrap gap-0 border-b border-border mt-4">
-        {(['equipment', 'aas', 'spells', ...(hasRankings ? (['rankings'] as ActiveTab[]) : [])] as ActiveTab[]).map(tab => {
+        {(['equipment', 'aas', 'spells', 'progression', ...(hasRankings ? (['rankings'] as ActiveTab[]) : [])] as ActiveTab[]).map(tab => {
           const label = tab === 'equipment' ? 'Equipment & Stats'
                       : tab === 'aas'       ? 'Alternate Advancements'
                       : tab === 'rankings'  ? 'Rankings'
+                      : tab === 'progression' ? 'Progression'
                       :                       'Spells'
           return (
             <TabButton
@@ -585,6 +587,9 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
 
       {/* Spells tab */}
       {activeTab === 'spells' && <SpellsTab charName={char.name} />}
+
+      {/* RoK progression tab — self-loading */}
+      {activeTab === 'progression' && <ProgressionTab charName={char.name} />}
 
       {activeTab === 'rankings' && rankings && hasRankings && <CharacterRankingsTab data={rankings} />}
 

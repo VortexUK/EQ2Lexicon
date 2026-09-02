@@ -72,6 +72,7 @@ from backend.server.api.item import router as item_router
 from backend.server.api.item_watch import router as item_watch_router
 from backend.server.api.notifications import router as notifications_router
 from backend.server.api.parses import router as parses_router
+from backend.server.api.progression import router as progression_router
 from backend.server.api.raid_planning import router as raid_planning_router
 from backend.server.api.raid_schedule import router as raid_schedule_router
 from backend.server.api.raid_strategies import router as raid_strategies_router
@@ -626,6 +627,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         raid_schedule_router,
         favorites_router,
         downloads_router,
+        progression_router,
         characters_router,
         aa_router,
         notifications_router,

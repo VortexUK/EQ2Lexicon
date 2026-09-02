@@ -452,6 +452,77 @@ class CensusClient:
             sets.append(GearSet(name=name, equipment=equipment))
         return sets
 
+    # ── RoK progression (quests + achievements; see backend/server/progression.py) ──
+
+    async def get_characters_quest_data(self, character_ids: list[int | str]) -> list[dict] | None:
+        """Batched character_misc fetch: completed + active quest lists for up
+        to ~20 characters per call (census accepts comma-joined ids). Returns
+        the raw rows ({id, completed_quest_list, quest_list}) or None on
+        Census failure."""
+        if not character_ids:
+            return []
+        data = await self._census_get(
+            "character_misc/",
+            {
+                "id": ",".join(str(i) for i in character_ids),
+                "c:show": "id,completed_quest_list,quest_list",
+                "c:limit": str(len(character_ids)),
+            },
+            timeout_s=15,
+        )
+        return None if data is None else data.get("character_misc_list", [])
+
+    async def get_characters_achievements(self, character_ids: list[int | str]) -> list[dict] | None:
+        """Batched earned-achievement fetch ({id, achievements.achievement_list}).
+        The list is the character's full 500+ entries — callers reduce it
+        immediately (see progression.reduce_progression) and never store it."""
+        if not character_ids:
+            return []
+        data = await self._census_get(
+            "character/",
+            {
+                "id": ",".join(str(i) for i in character_ids),
+                "c:show": "id,achievements.achievement_list",
+                "c:limit": str(len(character_ids)),
+            },
+            timeout_s=15,
+        )
+        return None if data is None else data.get("character_list", [])
+
+    async def get_guild_id(self, name: str, world: str) -> int | None:
+        """The guild's census id (the character.guild.id join key)."""
+        data = await self._census_get("guild/", {"name": name, "world": world, "c:show": "id,name"})
+        if data is None:
+            return None
+        rows = data.get("guild_list", [])
+        return rows[0].get("id") if rows else None
+
+    async def get_guild_roster_brief(self, guild_id: int | str) -> list[dict] | None:
+        """Every census-known character in the guild (recently-logged-in
+        players only — the standard census caveat) with id/name/level/class,
+        in ONE call via the character.guild.id filter."""
+        data = await self._census_get(
+            "character/",
+            {
+                "guild.id": str(guild_id),
+                "c:show": "id,name.first,type.level,type.class",
+                "c:limit": "500",
+            },
+        )
+        if data is None:
+            return None
+        out = []
+        for c in data.get("character_list", []):
+            out.append(
+                {
+                    "id": c.get("id"),
+                    "name": (c.get("name") or {}).get("first"),
+                    "level": (c.get("type") or {}).get("level"),
+                    "cls": (c.get("type") or {}).get("class"),
+                }
+            )
+        return out
+
     # ── Lifetime statistics (the character.stat aggregate family) ────────────
 
     @staticmethod
@@ -822,7 +893,7 @@ class CensusClient:
         params = {
             "name.first": name,
             "locationdata.world": world,
-            "c:show": "name,type,guild",
+            "c:show": "id,name,type,guild",
             "c:limit": "1",
         }
         data = await self._census_get("character/", params, timeout_s=15)
@@ -837,6 +908,7 @@ class CensusClient:
         guild = char.get("guild") or {}
         char_name = (char.get("name") or {}).get("first", name)
         return {
+            "id": char.get("id"),
             "name": char_name,
             "cls": t.get("class"),
             "class_id": _int(t.get("classid")),
