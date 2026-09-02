@@ -138,3 +138,9 @@ UPDATE servers SET is_default = 1 WHERE world = ?;
 -- :name set_server_default_fallback
 UPDATE servers SET is_default = 1 WHERE world =
 (SELECT world FROM servers ORDER BY display_name LIMIT 1);
+
+-- :name alter_roles_add_placeholder
+ALTER TABLE raid_roster_roles ADD COLUMN placeholder INTEGER NOT NULL DEFAULT 0;
+
+-- :name alter_roles_add_cls
+ALTER TABLE raid_roster_roles ADD COLUMN cls TEXT;

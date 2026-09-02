@@ -112,4 +112,12 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         if conn.execute(_SQL["count_default_servers"]).fetchone()[0] == 0:
             conn.execute(_SQL["set_server_default_fallback"])
 
+    # Migrate: placeholder-raider fields on raid_roster_roles (2026-09) —
+    # census-hidden characters added by hand carry placeholder=1 + a class.
+    roles_cols = {row[1] for row in conn.execute("PRAGMA table_info(raid_roster_roles)")}
+    if "placeholder" not in roles_cols:
+        conn.execute(_SQL["alter_roles_add_placeholder"])
+    if "cls" not in roles_cols:
+        conn.execute(_SQL["alter_roles_add_cls"])
+
     conn.commit()

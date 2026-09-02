@@ -49,11 +49,17 @@ class RaidPlanningStore(AsyncStoreBase):
         character_name: str,
         role: str | None,
         updated_by: str,
+        *,
+        placeholder: bool = False,
+        cls: str | None = None,
     ) -> None:
         """Set (or with ``role=None`` clear) a character's roster designation.
 
         Clearing the role also removes the character from every team layout —
         a character that is no longer a raider can't keep occupying a slot.
+        ``placeholder=True`` marks a hand-added census-hidden character (with
+        ``cls`` carrying its class label); a later normal write for the same
+        name supersedes the placeholder row wholesale.
         """
         if role is not None and role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
@@ -64,7 +70,7 @@ class RaidPlanningStore(AsyncStoreBase):
             else:
                 await db.execute(
                     _SQL["upsert_role"],
-                    (world, guild_name, character_name, role, updated_by),
+                    (world, guild_name, character_name, role, 1 if placeholder else 0, cls, updated_by),
                 )
             await db.commit()
 
@@ -137,6 +143,13 @@ class RaidPlanningStore(AsyncStoreBase):
         async with self._db(row_factory=True) as db:
             async with db.execute(_SQL["select_claims_for_world"], (world,)) as cur:
                 return {r["name_lower"]: r["discord_id"] for r in await cur.fetchall()}
+
+    async def primary_claims(self, world: str) -> set[str]:
+        """Lower-cased names of every primary-claimed character on the world —
+        the tie-breaker when a player has several rostered raiders."""
+        async with self._db(row_factory=True) as db:
+            async with db.execute(_SQL["select_primary_claims_for_world"], (world,)) as cur:
+                return {r["name_lower"] for r in await cur.fetchall()}
 
 
 # The shared default instance — every runtime consumer goes through this.

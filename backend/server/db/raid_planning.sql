@@ -1,16 +1,21 @@
 -- SQL for backend/server/db/raid_planning.py (RaidPlanningStore).
 
 -- :name select_roles
-SELECT character_name, role, updated_at, updated_by
+SELECT character_name, role, placeholder, cls, updated_at, updated_by
 FROM raid_roster_roles
 WHERE world = ? AND guild_name = ?
 ORDER BY LOWER(character_name);
 
+-- A normal (placeholder=0) write for the same name supersedes an earlier
+-- placeholder row wholesale — the census-visible character replaces the
+-- hand-added stand-in.
 -- :name upsert_role
-INSERT INTO raid_roster_roles (world, guild_name, character_name, role, updated_at, updated_by)
-VALUES (?, ?, ?, ?, strftime('%s','now'), ?)
+INSERT INTO raid_roster_roles (world, guild_name, character_name, role, placeholder, cls, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'), ?)
 ON CONFLICT(world, guild_name, character_name) DO UPDATE SET
     role = excluded.role,
+    placeholder = excluded.placeholder,
+    cls = excluded.cls,
     updated_at = excluded.updated_at,
     updated_by = excluded.updated_by;
 
@@ -48,6 +53,13 @@ WHERE world = ? AND guild_name = ? AND team_index >= ?;
 SELECT LOWER(character_name) AS name_lower, discord_id
 FROM character_claims
 WHERE world = ? AND status = 'approved';
+
+-- Primary-claim flags for main resolution (attendance "raid main"
+-- attribution): which of a player's claims is their designated primary.
+-- :name select_primary_claims_for_world
+SELECT LOWER(character_name) AS name_lower
+FROM character_claims
+WHERE world = ? AND status = 'approved' AND is_primary = 1;
 
 -- Is any of these characters on a raid roster anywhere on this world?
 -- Drives the home-page availability panel's is_raider gate. Name matching is

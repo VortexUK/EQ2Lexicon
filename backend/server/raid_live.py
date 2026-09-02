@@ -74,6 +74,12 @@ def _slot_active_now(days: list[int], start_min: int, end_min: int, now_weekday:
     return False
 
 
+def team_scheduled_at(team: dict, ts: int) -> bool:
+    """Was this team inside a scheduled window at unix time ``ts``? The
+    attendance cross-reference — same ±grace semantics as the live check."""
+    return team_scheduled_now(team, now=datetime.fromtimestamp(ts, tz=UTC))
+
+
 def team_scheduled_now(team: dict, now: datetime | None = None) -> bool:
     """Is this team inside one of its raid windows right now (team's tz)?"""
     try:

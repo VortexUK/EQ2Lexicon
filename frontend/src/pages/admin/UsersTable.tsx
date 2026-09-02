@@ -163,6 +163,30 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
               Make supporter
             </Button>
           )}
+          {/* Subscriber — limited-preview gate for the raid-attendance
+              feature set (guild Attendance tab + parser attendance uploads
+              and DKP mains). May be renamed later. */}
+          {user.roles.includes('subscriber') ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => toggleRole('subscriber', false)}
+              disabled={busy}
+              title="Revoke subscriber role (hides raid-attendance tracking)"
+            >
+              Revoke subscriber
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => toggleRole('subscriber', true)}
+              disabled={busy}
+              title="Grant the subscriber role (unlocks the raid-attendance preview: guild Attendance tab + parser uploads)"
+            >
+              Make subscriber
+            </Button>
+          )}
         </div>
       </td>
 

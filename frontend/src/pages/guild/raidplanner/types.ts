@@ -7,6 +7,8 @@ export interface RosterEntry {
   role: 'raider' | 'raid_alt' | null
   rank: string | null
   rank_id: number | null
+  /** Hand-added census-hidden character (superseded when it unhides). */
+  placeholder?: boolean
 }
 
 export interface Placement {

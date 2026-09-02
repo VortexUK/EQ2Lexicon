@@ -66,6 +66,7 @@ function CharChip({
           {entry.cls ?? '—'}
           {entry.level ? ` · ${entry.level}` : ''}
           {entry.role === 'raid_alt' ? ' · alt' : ''}
+          {entry.placeholder ? ' · placeholder' : ''}
         </span>
       </span>
       {availability && (
@@ -88,7 +89,7 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
   teamIndex: number
   raidDays: number[][]
 }) {
-  const { byName, colourFor } = useClasses()
+  const { classes, byName, colourFor } = useClasses()
 
   const [data, setData] = useState<PlannerData | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -107,6 +108,11 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
   const [managing, setManaging] = useState(false)
   const [rosterFilter, setRosterFilter] = useState('')
   const [rankFilter, setRankFilter] = useState<string>('all')
+
+  // "Add placeholder raider" form (census-hidden characters)
+  const [phName, setPhName] = useState('')
+  const [phCls, setPhCls] = useState('')
+  const [phRole, setPhRole] = useState<'raider' | 'raid_alt'>('raider')
 
   const load = useCallback(() => {
     setError(null)
@@ -237,21 +243,47 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
     setDirtySandbox(false)
   }
 
-  async function toggleRole(name: string, role: 'raider' | 'raid_alt' | null) {
+  async function putRole(body: {
+    character_name: string
+    role: 'raider' | 'raid_alt' | null
+    placeholder?: boolean
+    cls?: string | null
+  }): Promise<boolean> {
     try {
       const res = await fetch(`/api/guild/${encodeURIComponent(guildName)}/raid-planning/roles`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ character_name: name, role }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) {
         setSaveError((await res.json().catch(() => ({}))).detail ?? 'Failed to update role')
-        return
+        return false
       }
       load()
+      return true
     } catch (err) {
       setSaveError(toErrorMessage(err))
+      return false
+    }
+  }
+
+  function toggleRole(entry: RosterEntry, role: 'raider' | 'raid_alt' | null) {
+    // A placeholder row keeps its flag + class through role changes; a real
+    // roster member never sends the flag.
+    void putRole({
+      character_name: entry.name,
+      role,
+      placeholder: Boolean(entry.placeholder && role),
+      cls: entry.placeholder ? entry.cls : undefined,
+    })
+  }
+
+  async function addPlaceholder() {
+    const ok = await putRole({ character_name: phName.trim(), role: phRole, placeholder: true, cls: phCls })
+    if (ok) {
+      setPhName('')
+      setSaveError(null)
     }
   }
 
@@ -483,12 +515,13 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
                   <span className="text-[0.82rem] truncate flex-1" style={{ color: colourFor(r.cls) }}>
                     {r.name}
                     <span className="text-text-muted text-[0.7rem]"> {r.cls ?? ''}{r.level ? ` ${r.level}` : ''}</span>
+                    {r.placeholder && <Badge variant="muted" className="ml-1.5 align-middle">placeholder</Badge>}
                   </span>
                   {(['raider', 'raid_alt'] as const).map(role => (
                     <button
                       key={role}
                       type="button"
-                      onClick={() => toggleRole(r.name, r.role === role ? null : role)}
+                      onClick={() => toggleRole(r, r.role === role ? null : role)}
                       className={`appearance-none cursor-pointer text-[0.66rem] px-1.5 py-0.5 rounded-sm border ${
                         r.role === role
                           ? 'bg-gold/20 text-gold border-gold/50'
@@ -500,6 +533,42 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
                   ))}
                 </div>
               ))}
+          </div>
+
+          {/* placeholder raiders: census-hidden characters added by hand */}
+          <div className="border-t border-border/60 pt-2 flex flex-wrap items-center gap-2">
+            <span className="text-[0.75rem] text-text-muted">
+              Hidden on census? Add a placeholder — it's replaced automatically when the character unhides.
+            </span>
+            <input
+              value={phName}
+              onChange={e => setPhName(e.target.value)}
+              placeholder="character name"
+              className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem] w-[150px]"
+            />
+            <select
+              value={phCls}
+              onChange={e => setPhCls(e.target.value)}
+              className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem] max-w-[150px]"
+            >
+              <option value="">class…</option>
+              {classes
+                .filter(c => ['Fighter', 'Priest', 'Scout', 'Mage'].includes(c.archetype))
+                .map(c => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+            </select>
+            <select
+              value={phRole}
+              onChange={e => setPhRole(e.target.value as 'raider' | 'raid_alt')}
+              className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem]"
+            >
+              <option value="raider">Raider</option>
+              <option value="raid_alt">Raid alt</option>
+            </select>
+            <Button variant="secondary" size="sm" onClick={addPlaceholder} disabled={!phName.trim() || !phCls}>
+              Add placeholder
+            </Button>
           </div>
         </div>
       )}

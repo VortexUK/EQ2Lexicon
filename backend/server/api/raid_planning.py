@@ -24,6 +24,7 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from backend.census.constants import ALL_CLASSES
 from backend.core.log_safety import scrub
 from backend.server.api.guild import _fetch_and_cache_guild, _officer_chars, _roster_rank_map
 from backend.server.auth_deps import is_admin
@@ -31,6 +32,7 @@ from backend.server.cache import guild_cache
 from backend.server.core.audit_log import audit_log
 from backend.server.core.cache_keys import guild_roster_key
 from backend.server.core.session_user import SessionUser
+from backend.server.core.validation import validate_character_name
 from backend.server.db import get_active_claims, get_display_names_for_discord_ids
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import VALID_ROLES
@@ -59,6 +61,7 @@ class RosterEntry(BaseModel):
     role: str | None = None  # raider | raid_alt | None
     rank: str | None = None  # guild rank name (Manage Raiders filter)
     rank_id: int | None = None
+    placeholder: bool = False  # hand-added census-hidden character
 
 
 class PlacementModel(BaseModel):
@@ -82,6 +85,8 @@ class PlannerResponse(BaseModel):
 class RoleInput(BaseModel):
     character_name: str = Field(min_length=1, max_length=64)
     role: str | None = None  # raider | raid_alt | None (clear)
+    placeholder: bool = False  # census-hidden character added by hand
+    cls: str | None = Field(default=None, max_length=32)  # class label, placeholder rows only
 
 
 class PlacementsInput(BaseModel):
@@ -191,7 +196,8 @@ async def get_planner(
         raise HTTPException(status_code=404, detail="No such raid team")
 
     members = await _guild_roster(guild_name)
-    roles = {r["character_name"].lower(): r["role"] for r in await planning_db.get_roles(world, guild_name)}
+    role_rows = await planning_db.get_roles(world, guild_name)
+    roles = {r["character_name"].lower(): r["role"] for r in role_rows}
     roster = [
         RosterEntry(
             name=m.name,
@@ -202,6 +208,20 @@ async def get_planner(
             rank_id=getattr(m, "rank_id", None),
         )
         for m in members
+    ]
+    # Placeholder raiders (census-hidden, hand-added) appear only while no
+    # census-visible member of the same name exists — the real roster row
+    # supersedes the stand-in the moment the character unhides.
+    member_lower = {m.name.lower() for m in members}
+    roster += [
+        RosterEntry(
+            name=r["character_name"],
+            cls=r.get("cls"),
+            role=r["role"],
+            placeholder=True,
+        )
+        for r in role_rows
+        if r.get("placeholder") and r["character_name"].lower() not in member_lower
     ]
 
     placements = [PlacementModel(**p) for p in await planning_db.get_placements(world, guild_name, team_index)]
@@ -237,22 +257,49 @@ async def put_role(request: Request, guild_name: str, body: RoleInput) -> dict:
     if body.role is not None and body.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail="role must be raider, raid_alt or null")
 
-    # Only real guild members can be rostered — resolve canonical casing
-    # from the roster so stored names match Census.
     rank_map = await _roster_rank_map(guild_name)
-    if body.character_name.lower() not in rank_map:
-        raise HTTPException(status_code=404, detail=f"'{body.character_name}' is not a member of {guild_name}")
-    canonical = next(m.name for m in await _guild_roster(guild_name) if m.name.lower() == body.character_name.lower())
+    in_roster = body.character_name.lower() in rank_map
 
-    await planning_db.set_role(world, guild_name, canonical, body.role, updated_by=user["id"])
+    placeholder = False
+    cls = None
+    if body.placeholder and body.role is not None and not in_roster:
+        # Census-hidden character added by hand — no roster row to resolve
+        # casing/class from, so validate the name shape and require a class.
+        # If the name IS in the roster the placeholder flag is ignored: the
+        # census-visible character supersedes the stand-in.
+        if validate_character_name(body.character_name) is None:
+            raise HTTPException(status_code=400, detail="Placeholder name must be a plain character name.")
+        cls = (body.cls or "").strip().title()
+        if cls not in ALL_CLASSES:
+            raise HTTPException(status_code=400, detail="Placeholder raiders need a valid class.")
+        canonical = body.character_name.strip().capitalize()
+        placeholder = True
+    else:
+        # Only real guild members can be rostered — resolve canonical casing
+        # from the roster so stored names match Census. Clearing a role is
+        # exempt (a placeholder row has no roster entry to resolve against).
+        if not in_roster:
+            if body.role is None:
+                canonical = body.character_name.strip().capitalize()
+            else:
+                raise HTTPException(status_code=404, detail=f"'{body.character_name}' is not a member of {guild_name}")
+        else:
+            canonical = next(
+                m.name for m in await _guild_roster(guild_name) if m.name.lower() == body.character_name.lower()
+            )
+
+    await planning_db.set_role(
+        world, guild_name, canonical, body.role, updated_by=user["id"], placeholder=placeholder, cls=cls
+    )
     audit_log(
         "raid_role_set",
         actor=user["id"],
         guild=guild_name,
         character=canonical,
         role=body.role or "cleared",
+        placeholder=placeholder,
     )
-    return {"ok": True, "character_name": canonical, "role": body.role}
+    return {"ok": True, "character_name": canonical, "role": body.role, "placeholder": placeholder}
 
 
 @router.put("/guild/{guild_name}/raid-planning/{team_index}/placements")

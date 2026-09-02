@@ -260,10 +260,51 @@ CREATE TABLE IF NOT EXISTS raid_roster_roles (
     role            TEXT    NOT NULL,             -- raider or raid_alt
     updated_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     updated_by      TEXT,                         -- discord id of the officer
+    placeholder     INTEGER NOT NULL DEFAULT 0,   -- 1 = census-hidden character added by hand
+    cls             TEXT,                         -- class label for placeholder rows
     UNIQUE(world, guild_name, character_name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_raid_roles_guild ON raid_roster_roles(world, guild_name);
+
+-- ── Raid attendance ─────────────────────────────────────────────────────────
+-- Canonical merged attendance per guild raid night. Multiple officers upload
+-- cumulative parser snapshots; ingest folds them into one session via
+-- time-gap clustering. The scheduled flag is frozen at ingest so later
+-- schedule edits never rewrite history.
+CREATE TABLE IF NOT EXISTS attendance_sessions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    world        TEXT    NOT NULL,
+    guild_name   TEXT    NOT NULL,               -- canonical Census casing
+    session_day  TEXT    NOT NULL,               -- ISO date bucket (6h evening rollover)
+    seq          INTEGER NOT NULL DEFAULT 0,     -- disambiguates double-headers
+    started_at   INTEGER NOT NULL,               -- min first_seen across merged snapshots
+    ended_at     INTEGER NOT NULL,               -- max last_seen across merged snapshots
+    zones        TEXT    NOT NULL DEFAULT '[]',  -- JSON array of raid zones seen
+    scheduled    INTEGER NOT NULL DEFAULT 0,     -- 1 = overlapped a raid-schedule window
+    team_index   INTEGER,                        -- matched raid_teams index
+    uploaders    TEXT    NOT NULL DEFAULT '{}',  -- JSON audit of contributing discord ids
+    created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE(world, guild_name, session_day, seq)
+);
+
+CREATE INDEX IF NOT EXISTS idx_att_sessions_guild
+    ON attendance_sessions(world, guild_name, started_at);
+
+-- One merged row per (session <-> character <-> kind). kind raid = in the
+-- raid; kind online = guildmate online during the window; kind voice is
+-- reserved for the Phase 3 bot (name column carries a discord id there).
+-- The min/max upsert is commutative so uploader arrival order is irrelevant.
+CREATE TABLE IF NOT EXISTS attendance_observations (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id     INTEGER NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+    character_name TEXT    NOT NULL,             -- canonical capitalised EQ2 name
+    kind           TEXT    NOT NULL,             -- raid or online (voice in phase 3)
+    first_seen     INTEGER NOT NULL,
+    last_seen      INTEGER NOT NULL,
+    UNIQUE(session_id, character_name, kind)
+);
 
 -- Where each rostered character sits in a team's 4x6 layout. Keyed by
 -- team_index (position in the guild's raid_teams list) rather than team id:

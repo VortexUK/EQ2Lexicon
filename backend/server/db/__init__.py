@@ -60,6 +60,7 @@ def init_db(path: Path | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 from backend.server.db.aa_plans import store as aa_plans_store  # noqa: E402
+from backend.server.db.attendance import store as attendance_store  # noqa: E402
 from backend.server.db.availability import store as availability_store  # noqa: E402
 from backend.server.db.claims import store as claims_store  # noqa: E402
 from backend.server.db.downloads import store as downloads_store  # noqa: E402
@@ -126,6 +127,7 @@ withdraw_role_request = users_store.withdraw_role_request
 #: each after re-resolving DB_PATH from the env.
 ALL_STORES = (
     aa_plans_store,
+    attendance_store,
     availability_store,
     claims_store,
     downloads_store,

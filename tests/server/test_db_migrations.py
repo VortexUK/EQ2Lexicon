@@ -170,3 +170,33 @@ def test_init_db_migrates_old_servers_table(tmp_path: Path) -> None:
         assert {"is_default", "next_xpac", "next_xpac_dt"} <= cols
         row = conn.execute("SELECT max_level, next_xpac, next_xpac_dt FROM servers WHERE world='Varsoon'").fetchone()
         assert row == (70, None, None)  # existing row survived, new cols NULL
+
+
+def test_init_db_migrates_pre_placeholder_roles_table(tmp_path: Path) -> None:
+    """raid_roster_roles created before the 2026-09 placeholder-raider
+    migration (no placeholder/cls columns) must upgrade in place with its
+    rows intact."""
+    db = tmp_path / "users.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript("""
+            CREATE TABLE raid_roster_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                world TEXT NOT NULL,
+                guild_name TEXT NOT NULL,
+                character_name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                updated_by TEXT NOT NULL,
+                UNIQUE(world, guild_name, character_name)
+            );
+            INSERT INTO raid_roster_roles (world, guild_name, character_name, role, updated_by)
+            VALUES ('Varsoon', 'Exordium', 'Tanky', 'raider', 'u1');
+        """)
+    users_db.init_db(db)
+    with sqlite3.connect(db) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(raid_roster_roles)")}
+        assert {"placeholder", "cls"} <= cols
+        row = conn.execute(
+            "SELECT role, placeholder, cls FROM raid_roster_roles WHERE character_name='Tanky'"
+        ).fetchone()
+        assert row == ("raider", 0, None)

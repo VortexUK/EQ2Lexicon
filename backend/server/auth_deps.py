@@ -190,7 +190,12 @@ def require_admin(request: Request) -> SessionUser:
 #                 holder's name everywhere it renders. No capability;
 #                 awarded manually by admin in recognition of site
 #                 donations (see /support page + /api/supporters).
-KNOWN_ROLES: frozenset[str] = frozenset({"contributor", "supporter"})
+#   subscriber  — gates the raid-attendance feature set (guild Attendance
+#                 tab + parser ingest/mains endpoints) while it's in
+#                 limited preview. Checked directly by the attendance
+#                 routes (no capability row); admins always pass. The name
+#                 may change later — it's just the preview gate for now.
+KNOWN_ROLES: frozenset[str] = frozenset({"contributor", "supporter", "subscriber"})
 
 # Programmer-facing capability allowlist. `require_capability` raises at
 # route-definition time if a typo'd string is used, so a misnamed capability

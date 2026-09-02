@@ -43,6 +43,13 @@ _FACADE_EXEMPT = {
     "record_download",
     "count_for_slug",
     "counts",
+    # attendance domain bypasses the facade too
+    "apply_snapshot",
+    "list_sessions",
+    "get_session",
+    "observations_for_session",
+    "observations_for_sessions",
+    "delete_session",
     # aa_plans domain bypasses the facade too (routes use the store directly)
     "list_plans",
     "count_plans",
@@ -58,6 +65,7 @@ _FACADE_EXEMPT = {
     "replace_placements",
     "prune_placements_beyond",
     "claims_map",
+    "primary_claims",
     "roles_for_world",
     "get_range",
     "set_days",

@@ -5,7 +5,7 @@ import { mergeParams, safeSetParams } from '../lib/searchParams'
 import Breadcrumb from '../components/Breadcrumb'
 import { FilterPill } from '../components/FilterPill'
 import { useClaim } from '../hooks/useClaim'
-import { useAuth, isAdmin, discordAvatarUrl } from '../hooks/useAuth'
+import { useAuth, isAdmin, isSubscriber, discordAvatarUrl } from '../hooks/useAuth'
 import { Button, Card } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { FreshnessBadge } from '../components/FreshnessBadge'
@@ -14,6 +14,7 @@ import { fmtLocalDate, fmtRelative } from '../formatters'
 import { GuildRosterTab } from './guild/GuildRosterTab'
 import { GuildSpellCheckTab } from './guild/GuildSpellCheckTab'
 import { GuildAdornCheckTab } from './guild/GuildAdornCheckTab'
+import { GuildAttendanceTab } from './guild/GuildAttendanceTab'
 import { GuildProgressionTab } from './guild/GuildProgressionTab'
 import { GuildRaidScheduleTab } from './guild/GuildRaidScheduleTab'
 import type {
@@ -424,7 +425,7 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'progression', 'raids', 'claims', 'watch']
+const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'progression', 'raids', 'attendance', 'claims', 'watch']
 
 export default function GuildPage() {
   const { guildName } = useParams<{ guildName: string }>()
@@ -645,6 +646,9 @@ export default function GuildPage() {
         <TabButton active={tab === 'adorns'} onClick={() => switchTab('adorns')}>Adorn Check</TabButton>
         <TabButton active={tab === 'progression'} onClick={() => switchTab('progression')}>Progression</TabButton>
         <TabButton active={tab === 'raids'} onClick={() => switchTab('raids')}>Raid Schedule</TabButton>
+        {isSubscriber(auth) && (
+          <TabButton active={tab === 'attendance'} onClick={() => switchTab('attendance')}>Attendance</TabButton>
+        )}
         {isOfficer && (
           <TabButton active={tab === 'claims'} onClick={() => switchTab('claims')}>Claim Requests</TabButton>
         )}
@@ -661,7 +665,7 @@ export default function GuildPage() {
       )}
 
       {/* Filters — roster/spell/adorn only (not the self-contained tabs) */}
-      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'progression' && !isLoading && !error && (
+      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && tab !== 'progression' && !isLoading && !error && (
         <div className="mb-3 flex flex-col gap-2">
           <input
             type="text"
@@ -711,7 +715,7 @@ export default function GuildPage() {
       )}
 
       {/* Tables */}
-      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'progression' && !isLoading && !error && (
+      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && tab !== 'progression' && !isLoading && !error && (
         <Card className="p-0 overflow-x-auto">
           {tab === 'roster' && roster && (
             <GuildRosterTab members={roster.members} filter={filter} hiddenRanks={hiddenRanks} myChars={myChars} />
@@ -743,6 +747,13 @@ export default function GuildPage() {
       {tab === 'raids' && guildName && (
         <Card className="p-0">
           <GuildRaidScheduleTab guildName={guildName} isOfficer={isOfficer || isAdmin(auth)} />
+        </Card>
+      )}
+
+      {/* Raid attendance — subscriber-preview + member-gated server-side */}
+      {tab === 'attendance' && isSubscriber(auth) && guildName && (
+        <Card className="p-0">
+          <GuildAttendanceTab guildName={guildName} />
         </Card>
       )}
     </main>

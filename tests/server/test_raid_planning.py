@@ -479,3 +479,90 @@ async def test_planner_roster_includes_rank_fields(app):
         r = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0")
     entry = r.json()["roster"][0]
     assert "rank" in entry and "rank_id" in entry
+
+
+# ---------------------------------------------------------------------------
+# Placeholder raiders (census-hidden characters)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_store_placeholder_roundtrip_and_supersede():
+    await planning_db.set_role(_WORLD, _GUILD, "Ghosty", "raider", updated_by="u1", placeholder=True, cls="Templar")
+    row = (await planning_db.get_roles(_WORLD, _GUILD))[0]
+    assert (row["placeholder"], row["cls"]) == (1, "Templar")
+    # A later normal write supersedes the stand-in wholesale.
+    await planning_db.set_role(_WORLD, _GUILD, "Ghosty", "raider", updated_by="u2")
+    row = (await planning_db.get_roles(_WORLD, _GUILD))[0]
+    assert (row["placeholder"], row["cls"]) == (0, None)
+
+
+@pytest.mark.asyncio
+async def test_role_put_placeholder_bypasses_roster_check(app):
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/roles",
+            {"character_name": "ghosty", "role": "raider", "placeholder": True, "cls": "Templar"},
+        )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "character_name": "Ghosty", "role": "raider", "placeholder": True}
+    row = (await planning_db.get_roles(_WORLD, _GUILD))[0]
+    assert (row["character_name"], row["placeholder"], row["cls"]) == ("Ghosty", 1, "Templar")
+
+
+@pytest.mark.asyncio
+async def test_role_put_placeholder_requires_valid_class(app):
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/roles",
+            {"character_name": "Ghosty", "role": "raider", "placeholder": True, "cls": "Flumph"},
+        )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_role_put_placeholder_ignored_for_real_member(app):
+    """If the name IS on the census roster the flag is dropped — the real
+    record wins."""
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/roles",
+            {"character_name": "tanky", "role": "raider", "placeholder": True, "cls": "Templar"},
+        )
+    assert r.status_code == 200
+    assert r.json()["placeholder"] is False
+    row = (await planning_db.get_roles(_WORLD, _GUILD))[0]
+    assert (row["character_name"], row["placeholder"]) == ("Tanky", 0)
+
+
+@pytest.mark.asyncio
+async def test_role_put_clears_placeholder_row(app):
+    await planning_db.set_role(_WORLD, _GUILD, "Ghosty", "raider", updated_by="u1", placeholder=True, cls="Templar")
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(app, f"/api/guild/{_GUILD}/raid-planning/roles", {"character_name": "Ghosty", "role": None})
+    assert r.status_code == 200
+    assert await planning_db.get_roles(_WORLD, _GUILD) == []
+
+
+@pytest.mark.asyncio
+async def test_planner_roster_appends_placeholder_until_unhidden(app):
+    await planning_db.set_role(_WORLD, _GUILD, "Ghosty", "raider", updated_by="u1", placeholder=True, cls="Templar")
+    await planning_db.set_role(_WORLD, _GUILD, "Tanky", "raider", updated_by="u1", placeholder=True, cls="Guardian")
+    p = _planner_patches(officer=False)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0")
+    assert r.status_code == 200
+    roster = r.json()["roster"]
+    ghosty = [e for e in roster if e["name"] == "Ghosty"]
+    assert len(ghosty) == 1 and ghosty[0]["placeholder"] is True and ghosty[0]["cls"] == "Templar"
+    # Tanky IS on the mock census roster — the real entry supersedes; no
+    # synthetic duplicate appears.
+    tanky = [e for e in roster if e["name"].lower() == "tanky"]
+    assert len(tanky) == 1 and tanky[0]["placeholder"] is False

@@ -55,6 +55,7 @@ from backend.server.api.aa import router as aa_router
 from backend.server.api.aa_plans import router as aa_plans_router
 from backend.server.api.act_triggers import router as act_triggers_router
 from backend.server.api.admin import router as admin_router
+from backend.server.api.attendance import router as attendance_router
 from backend.server.api.auth import router as auth_router
 from backend.server.api.auth_tokens import router as auth_tokens_router
 from backend.server.api.census import router as census_router
@@ -628,6 +629,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         favorites_router,
         downloads_router,
         progression_router,
+        attendance_router,
         characters_router,
         aa_router,
         notifications_router,
