@@ -1,0 +1,31 @@
+{
+  "_source": "census eq2/quest crc=3449518442 + live character_misc verification (2026-09-02)",
+  "_notes": "Trakanon access in Veeshan's Peak is gated by completing this quest. Boss list below is the quest definition's canonical stage-0 branch order. Live caveat: a character's own requiredItem_list may omit bosses (an observed mid-quest character had 11 of the 12 — quest-version drift), so ALWAYS match objectives by parsing the boss name out of progress_text ('I must kill <name>.'), never by list index. stage_num can be absent on the turn-in stage.",
+  "quest": {
+    "name": "Taking on Trakanon",
+    "crc": 3449518442,
+    "level": 80,
+    "category": "Veeshan's Peak"
+  },
+  "bosses": [
+    "Kluzen the Protector",
+    "Elder Ekron",
+    "Nexona",
+    "Druushk",
+    "Taskmaster Nichok",
+    "Milyex Vioren",
+    "Qunard Ashenclaw",
+    "Xygoz",
+    "Hoshkar",
+    "Travenro the Skygazer",
+    "Silverwing",
+    "Phara Dar"
+  ],
+  "turn_in_stage": "I need to let Snyr'dok know that I have defeated all of the dragons and their guardians.",
+  "tracking": {
+    "not_started": "crc absent from both character_misc.quest_list and completed_quest_list",
+    "in_progress": "character_misc.quest_list entry for the crc; per-boss kill state from requiredItem_list progress/quota, boss matched by name from progress_text",
+    "ready_to_turn_in": "quest_list entry whose stage text equals turn_in_stage (all bosses dead, hail pending)",
+    "completed": "crc in character_misc.completed_quest_list — Trakanon access granted; completion_date available"
+  }
+}
