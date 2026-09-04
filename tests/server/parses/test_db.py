@@ -289,22 +289,31 @@ class TestInsertHelpers:
         )
         assert (row["level"], row["guild_name"], row["cls"], row["ilvl"]) == (90, "Exordium", "Templar", 372.2)
 
-    def test_soft_delete_sets_hidden_at(self, parses_db_conn):
+    def test_soft_delete_sets_hidden_at_and_by(self, parses_db_conn):
         enc = _sample_encounter()
         eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
-        assert parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111) is True
-        row = parses_db.store.find_encounter_by_act_encid(parses_db_conn, enc.encid)
-        assert row["hidden_at"] == 1700001111
-        # Idempotent: re-soft-deleting an already-hidden row is a no-op (returns False).
-        assert parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700002222) is False
+        assert (
+            parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111, hidden_by="admin-1")
+            is True
+        )
+        row = parses_db_conn.execute("SELECT hidden_at, hidden_by FROM encounters WHERE id = ?", (eid,)).fetchone()
+        assert tuple(row) == (1700001111, "admin-1")
+        # Idempotent: re-soft-deleting an already-hidden row is a no-op (returns False)
+        # and never overwrites the original actor.
+        assert (
+            parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700002222, hidden_by="admin-2")
+            is False
+        )
+        row = parses_db_conn.execute("SELECT hidden_by FROM encounters WHERE id = ?", (eid,)).fetchone()
+        assert row[0] == "admin-1"
 
     def test_unhide_encounter_clears_marker(self, parses_db_conn):
         enc = _sample_encounter()
         eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
-        parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111)
+        parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111, hidden_by="admin-1")
         assert parses_db.store.unhide_encounter(parses_db_conn, eid) is True
-        row = parses_db.store.find_encounter_by_act_encid(parses_db_conn, enc.encid)
-        assert row["hidden_at"] is None
+        row = parses_db_conn.execute("SELECT hidden_at, hidden_by FROM encounters WHERE id = ?", (eid,)).fetchone()
+        assert tuple(row) == (None, None)
         # Already-visible row → no-op, returns False.
         assert parses_db.store.unhide_encounter(parses_db_conn, eid) is False
 

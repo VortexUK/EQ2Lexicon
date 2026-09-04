@@ -67,6 +67,7 @@ _MIGRATIONS: list[str] = [
     _SQL["alter_encounters_add_hidden_at"],
     _SQL["alter_combatants_add_is_player"],
     _SQL["alter_encounters_add_client_warnings"],
+    _SQL["alter_encounters_add_hidden_by"],
 ]
 
 
@@ -487,14 +488,17 @@ class ParsesStore(BaseCatalogue):
         return cur.rowcount > 0
 
     @staticmethod
-    def soft_delete_encounter(conn: sqlite3.Connection, encounter_id: int, hidden_at: int) -> bool:
+    def soft_delete_encounter(
+        conn: sqlite3.Connection, encounter_id: int, hidden_at: int, hidden_by: str | None = None
+    ) -> bool:
         """Hide an encounter from the parses list without removing it, so any
         leaderboard entry sourced from it survives and its link still opens.
+        ``hidden_by`` records the actor's discord id for the admin view.
         Only acts on a currently-visible row; returns True if it flipped one."""
         with conn:
             cur = conn.execute(
                 _SQL["soft_delete_encounter"],
-                (hidden_at, encounter_id),
+                (hidden_at, hidden_by, encounter_id),
             )
         return cur.rowcount > 0
 

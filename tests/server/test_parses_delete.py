@@ -661,3 +661,101 @@ async def test_bulk_delete_purge_forbidden_for_non_admin(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.delete("/api/parses?guild=Exordium&purge=1")
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# POST /api/parses/{id}/unhide + hidden_by stamping
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_stamps_the_actor(app):
+    """A boss-kill soft-delete records WHO hid it (the admin sanitize view
+    shows it)."""
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:99999",
+        "title": "Wuoshi",  # uppercase = boss → soft-delete path
+        "hidden_at": None,
+    }
+    soft_mock = MagicMock(return_value=True)
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=True),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("backend.server.api.parses.delete.parses_db.soft_delete_encounter", soft_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200
+    args = soft_mock.call_args.args
+    assert args[1] == 1  # encounter id
+    assert args[3] == "123456789"  # hidden_by = the acting user
+
+
+@pytest.mark.asyncio
+async def test_unhide_requires_auth(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/parses/1/unhide")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_unhide_404_when_missing(app):
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_for_fetch(None)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/1/unhide")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_unhide_admin_restores_parse(app):
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:OTHER_USER",
+        "title": "Wuoshi",
+        "hidden_at": 1700001111,
+    }
+    unhide_mock = MagicMock(return_value=True)
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=True),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("backend.server.api.parses.delete.parses_db.unhide_encounter", unhide_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/1/unhide")
+    assert r.status_code == 200
+    assert r.json() == {"unhidden": True}
+    unhide_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unhide_random_user_403(app):
+    """Same authorisation rule as hiding: not admin, not the uploader, not
+    an officer of the guild → 403."""
+    enc = {
+        "id": 1,
+        "guild_name": "Exordium",
+        "source_dsn": "plugin:OTHER_USER",
+        "title": "Wuoshi",
+        "hidden_at": 1700001111,
+    }
+
+    async def fake_officer_chars(discord_id, guild):
+        return set()
+
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=False),
+        patch("backend.server.api.guild._officer_chars", fake_officer_chars),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/1/unhide")
+    assert r.status_code == 403

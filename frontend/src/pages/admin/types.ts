@@ -57,6 +57,11 @@ export interface AdminParse {
   success_level: number   // 1=win, 2=loss, 3=mixed, 0=unknown
   player_count:  number
   hidden:        boolean
+  /** Soft-delete provenance: when + who (discord id and resolved display
+   *  name; name is null for pre-tracking rows or users unknown to the site). */
+  hidden_at:     number | null
+  hidden_by:     string | null
+  hidden_by_name: string | null
   /** Soft warnings the plugin (v0.1.15+) attached at upload time —
    *  currently just `"folder_hint_mismatch"`. null when no warnings
    *  on this parse; the admin row renders a ⚠ chip when non-empty.

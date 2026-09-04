@@ -19,6 +19,7 @@ from backend.server.db import (
     delete_claim,
     delete_claims_for_user,
     get_claim_by_id,
+    get_display_names_for_discord_ids,
     get_role_request,
     get_server_by_world_sync,
     grant_role,
@@ -92,6 +93,12 @@ class AdminParseItem(BaseModel):
     success_level: int
     player_count: int
     hidden: bool
+    # Soft-delete provenance for the sanitize view: when it was hidden and
+    # by whom (discord id + resolved display name; name is None when the
+    # actor never logged into the site or predates hidden_by tracking).
+    hidden_at: int | None = None
+    hidden_by: str | None = None
+    hidden_by_name: str | None = None
     # Soft warnings the plugin (v0.1.15+) attached at upload time —
     # currently just "folder_hint_mismatch". None when the parse had no
     # warnings; admin UI renders a ⚠ chip when non-empty.
@@ -454,6 +461,8 @@ async def list_parses_admin(
             conn.close()
 
     rows = await run_sync(_query)
+    hider_ids = sorted({r["hidden_by"] for r in rows if r.get("hidden_by")})
+    hider_names = await get_display_names_for_discord_ids(hider_ids) if hider_ids else {}
     return [
         AdminParseItem(
             id=r["id"],
@@ -466,6 +475,9 @@ async def list_parses_admin(
             success_level=r["success_level"],
             player_count=r["player_count"],
             hidden=bool(r["hidden_at"]),
+            hidden_at=r["hidden_at"],
+            hidden_by=r.get("hidden_by"),
+            hidden_by_name=hider_names.get(r["hidden_by"]) if r.get("hidden_by") else None,
             client_warnings=_decode_client_warnings(r.get("client_warnings")),
         )
         for r in rows

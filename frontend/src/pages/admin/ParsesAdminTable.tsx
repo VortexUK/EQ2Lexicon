@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui'
-import { fmtLocalDate } from '../../formatters'
+import { fmtLocalDate, fmtLocalDateTime } from '../../formatters'
 import {
   type AdminParse,
   SECTION_TITLE_CLS,
@@ -140,6 +141,24 @@ export function ParsesAdminTable() {
     }
   }
 
+  async function unhideOne(p: AdminParse) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/parses/${p.id}/unhide`, { method: 'POST', credentials: 'include' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(`Error: ${body.detail ?? 'Unhide failed'}`)
+        return
+      }
+      await load()
+    } catch {
+      setError('Network error — unhide failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function purgeSelected() {
     const ids = [...selected]
     if (ids.length === 0) return
@@ -225,6 +244,7 @@ export function ParsesAdminTable() {
                   disabled={rows.length === 0}
                 />
               </th>
+              <th className={TH_CLS}>#</th>
               <th className={TH_CLS}>Title</th>
               <th className={TH_CLS}>Zone</th>
               <th className={TH_CLS}>Guild</th>
@@ -238,11 +258,11 @@ export function ParsesAdminTable() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className={`${TD_CLS} text-text-muted text-center p-6`}>Loading…</td>
+                <td colSpan={10} className={`${TD_CLS} text-text-muted text-center p-6`}>Loading…</td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className={`${TD_CLS} text-text-muted text-center p-6`}>
+                <td colSpan={10} className={`${TD_CLS} text-text-muted text-center p-6`}>
                   {query ? 'No parses match the search.' : 'No parses.'}
                 </td>
               </tr>
@@ -257,11 +277,21 @@ export function ParsesAdminTable() {
                       aria-label={`Select ${p.title}`}
                     />
                   </td>
+                  <td className={`${TD_CLS} text-text-muted font-mono whitespace-nowrap`}>{p.id}</td>
                   <td className={TD_CLS}>
-                    <span className="font-semibold">{p.title}</span>
+                    <Link
+                      to={`/parse/${p.id}`}
+                      className="font-semibold text-text hover:text-gold"
+                      title={`Open parse #${p.id}`}
+                    >
+                      {p.title}
+                    </Link>
                     {p.hidden && (
-                      <span className="ml-2 bg-gold/15 text-gold border border-gold/40 rounded px-1.5 py-0.5 text-[0.7rem] uppercase tracking-[0.05em] align-middle">
-                        Hidden
+                      <span
+                        className="ml-2 bg-gold/15 text-gold border border-gold/40 rounded px-1.5 py-0.5 text-[0.7rem] uppercase tracking-[0.05em] align-middle"
+                        title={p.hidden_at ? `Hidden ${fmtLocalDateTime(p.hidden_at)}` : undefined}
+                      >
+                        Hidden{p.hidden_by ? ` · ${p.hidden_by_name ?? p.hidden_by}` : ''}
                       </span>
                     )}
                     {p.client_warnings && p.client_warnings.length > 0 && (
@@ -287,7 +317,18 @@ export function ParsesAdminTable() {
                   <td className={`${TD_CLS} text-center text-text-muted`}>{p.player_count}</td>
                   <td className={`${TD_CLS} text-text-muted`}>{resultLabel(p.success_level)}</td>
                   <td className={`${TD_CLS} whitespace-nowrap`}>
-                    <Button variant="danger" size="sm" onClick={() => purgeOne(p)} disabled={busy}>
+                    {p.hidden && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => unhideOne(p)}
+                        disabled={busy}
+                        title="Make this parse visible on /parses again"
+                      >
+                        Unhide
+                      </Button>
+                    )}
+                    <Button variant="danger" size="sm" className={p.hidden ? 'ml-1.5' : ''} onClick={() => purgeOne(p)} disabled={busy}>
                       Purge
                     </Button>
                   </td>

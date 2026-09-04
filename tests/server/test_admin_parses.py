@@ -3,7 +3,7 @@ hidden_at → hidden flag mapping."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -38,6 +38,7 @@ async def test_admin_parses_lists_including_hidden(app):
             "duration_s": 60,
             "success_level": 1,
             "hidden_at": 99,
+            "hidden_by": "officer-7",
             "player_count": 24,
         },
         {
@@ -49,6 +50,7 @@ async def test_admin_parses_lists_including_hidden(app):
             "started_at": 90,
             "duration_s": 30,
             "success_level": 1,
+            "hidden_by": None,
             "hidden_at": None,
             "player_count": 1,
         },
@@ -60,6 +62,10 @@ async def test_admin_parses_lists_including_hidden(app):
             MagicMock(return_value=rows),
         ),
         patch("backend.server.api.admin.parses_db.init_db", MagicMock(return_value=MagicMock())),
+        patch(
+            "backend.server.api.admin.get_display_names_for_discord_ids",
+            AsyncMock(return_value={"officer-7": "Vortex"}),
+        ),
         patch("backend.server.api.admin.parses_db.path") as mock_path,
     ):
         mock_path.exists.return_value = True
@@ -68,4 +74,8 @@ async def test_admin_parses_lists_including_hidden(app):
     assert r.status_code == 200
     body = r.json()
     assert body[0]["id"] == 1 and body[0]["hidden"] is True
+    assert body[0]["hidden_at"] == 99
+    assert body[0]["hidden_by"] == "officer-7"
+    assert body[0]["hidden_by_name"] == "Vortex"
     assert body[1]["hidden"] is False
+    assert body[1]["hidden_by"] is None and body[1]["hidden_by_name"] is None

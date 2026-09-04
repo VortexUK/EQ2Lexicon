@@ -66,13 +66,14 @@ def _fetch_encounter_auth_rows(ids: list[int], world: str) -> list[dict]:
         conn.close()
 
 
-def _apply_delete(conn: sqlite3.Connection, enc: dict, *, purge: bool, hidden_at: int) -> bool:
+def _apply_delete(conn: sqlite3.Connection, enc: dict, *, purge: bool, hidden_at: int, hidden_by: str) -> bool:
     """Hard-purge wins; otherwise boss kills are soft-deleted (preserve any
     ranking) and trash is hard-deleted. Caller has already authorised + (for
-    purge) checked admin."""
+    purge) checked admin. ``hidden_by`` stamps who hid the row for the
+    admin sanitize view."""
     if purge or not is_boss(enc.get("title")):
         return parses_db.delete_encounter(conn, enc["id"])
-    return parses_db.soft_delete_encounter(conn, enc["id"], hidden_at)
+    return parses_db.soft_delete_encounter(conn, enc["id"], hidden_at, hidden_by)
 
 
 @router.delete("/parses/batch", response_model=DeleteParsesResponse)
@@ -129,7 +130,9 @@ async def delete_parses_batch(
     def _delete_many() -> int:
         conn = parses_db.init_db()
         try:
-            return sum(1 for enc in allowed_rows if _apply_delete(conn, enc, purge=purge, hidden_at=now))
+            return sum(
+                1 for enc in allowed_rows if _apply_delete(conn, enc, purge=purge, hidden_at=now, hidden_by=user["id"])
+            )
         finally:
             conn.close()
 
@@ -171,7 +174,7 @@ async def delete_parse(
     def _delete_sync() -> bool:
         conn = parses_db.init_db()
         try:
-            return _apply_delete(conn, enc, purge=purge, hidden_at=now)
+            return _apply_delete(conn, enc, purge=purge, hidden_at=now, hidden_by=user["id"])
         finally:
             conn.close()
 
@@ -185,6 +188,39 @@ async def delete_parse(
             purged=purge,
         )
     return DeleteParsesResponse(deleted=1 if removed else 0)
+
+
+@router.post("/parses/{encounter_id}/unhide")
+@limiter.limit("30/minute")
+async def unhide_parse(request: Request, encounter_id: int) -> dict:
+    """Clear a soft-delete: the parse reappears on /parses and its ranking
+    stays intact (it never left — soft-delete preserves the row). Same
+    authorisation rule as hiding: admin, the original uploader, or an
+    officer of the encounter's guild. 404 for unknown ids, `unhidden:
+    false` when the row was already visible."""
+    user = _require_user(request)
+    rows = await run_sync(_fetch_encounter_auth_rows, [encounter_id], current_world())
+    if not rows:
+        raise HTTPException(status_code=404, detail="Parse not found")
+    if not await _can_delete_encounter(user, rows[0]):
+        raise HTTPException(status_code=403, detail="Not authorised to unhide this parse")
+
+    def _unhide_sync() -> bool:
+        conn = parses_db.init_db()
+        try:
+            return parses_db.unhide_encounter(conn, encounter_id)
+        finally:
+            conn.close()
+
+    restored = await run_sync(_unhide_sync)
+    if restored:
+        audit_log(
+            "parse_unhidden",
+            actor=user["id"],
+            encounter_id=encounter_id,
+            title=rows[0]["title"],
+        )
+    return {"unhidden": restored}
 
 
 @router.delete("/parses", response_model=DeleteParsesResponse)
@@ -236,7 +272,9 @@ async def delete_parses_bulk(
                 uploaded_by=uploader,
                 world=_world,
             )
-            return sum(1 for enc in matches if _apply_delete(conn, enc, purge=purge, hidden_at=now))
+            return sum(
+                1 for enc in matches if _apply_delete(conn, enc, purge=purge, hidden_at=now, hidden_by=user["id"])
+            )
         finally:
             conn.close()
 

@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS encounters (
     -- parse is "deleted" so the leaderboard entry + its link survive while the
     -- row is hidden from the /parses list. Hard purge removes the row entirely.
     hidden_at       INTEGER,
+    -- Discord id of whoever hid the row (admin/officer/uploader) — the
+    -- admin sanitize view shows it; cleared on unhide.
+    hidden_by       TEXT,
     UNIQUE (world, act_encid)
 );
 
@@ -248,6 +251,9 @@ ALTER TABLE combatants ADD COLUMN ilvl REAL;
 -- :name alter_encounters_add_hidden_at
 ALTER TABLE encounters ADD COLUMN hidden_at INTEGER;
 
+-- :name alter_encounters_add_hidden_by
+ALTER TABLE encounters ADD COLUMN hidden_by TEXT;
+
 -- :name alter_combatants_add_is_player
 ALTER TABLE combatants ADD COLUMN is_player INTEGER DEFAULT NULL;
 
@@ -423,7 +429,7 @@ SELECT * FROM encounters WHERE world = ? ORDER BY started_at DESC LIMIT ?;
 -- {where} = "WHERE …" composed in Python; embeds a correlated subquery for
 -- the player_count column.
 SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by, e.started_at,
-       e.duration_s, e.success_level, e.hidden_at, e.client_warnings,
+       e.duration_s, e.success_level, e.hidden_at, e.hidden_by, e.client_warnings,
        (SELECT COUNT(*) FROM combatants c
           WHERE c.encounter_id = e.id AND c.ally = 1
             AND c.name != '' AND c.name != 'Unknown'
@@ -437,10 +443,10 @@ LIMIT ?;
 DELETE FROM encounters WHERE id = ?;
 
 -- :name soft_delete_encounter
-UPDATE encounters SET hidden_at = ? WHERE id = ? AND hidden_at IS NULL;
+UPDATE encounters SET hidden_at = ?, hidden_by = ? WHERE id = ? AND hidden_at IS NULL;
 
 -- :name unhide_encounter
-UPDATE encounters SET hidden_at = NULL WHERE id = ? AND hidden_at IS NOT NULL;
+UPDATE encounters SET hidden_at = NULL, hidden_by = NULL WHERE id = ? AND hidden_at IS NOT NULL;
 
 -- :name set_encounter_guild_name
 UPDATE encounters SET guild_name = ? WHERE id = ?;
