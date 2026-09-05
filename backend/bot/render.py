@@ -156,6 +156,43 @@ def build_spell_details(data: CharacterSpells) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# /attendance
+# ---------------------------------------------------------------------------
+
+
+def build_attendance_summary(guild_name: str, entries: list[dict], session_count: int) -> str:
+    """Per-player attendance table over the summarised sessions.
+
+    ``entries``: {name, present, sat_out, afk, awol} per player — pre-
+    aggregated by the cog. Sorted here: attendance desc, then name."""
+    rows = sorted(entries, key=lambda e: (-e["present"], e["name"].lower()))
+
+    headers = ["Player", "Present", "Sat out", "AFK", "AWOL", "Att%"]
+    cells = [
+        [
+            e["name"],
+            str(e["present"]),
+            str(e["sat_out"]),
+            str(e["afk"]),
+            str(e["awol"]),
+            f"{round(100 * e['present'] / session_count)}%" if session_count else "—",
+        ]
+        for e in rows
+    ]
+    widths = [fit_width(headers[i], [row[i] for row in cells], 24 if i == 0 else 8) for i in range(len(headers))]
+
+    lines = [
+        f"{guild_name} — attendance over the last {session_count} raid night(s)",
+        "",
+        format_row(headers, widths),
+        rule(widths),
+    ]
+    for row in cells:
+        lines.append(format_row([truncate(v, widths[i]) for i, v in enumerate(row)], widths))
+    return "\n".join(lines)
+
+
 def build_spell_summary(data: CharacterSpells) -> str:
     entries = _spells.unique_highest_entries(apply_blocklist(data.entries))
 

@@ -185,3 +185,32 @@ def test_blocklist_filters_by_base_name():
         table = build_spell_summary(_spells_data())
     assert "Total" in table
     assert table.splitlines()[-1].rstrip().endswith("1")  # only Heal I survives
+
+
+# ---------------------------------------------------------------------------
+# /attendance summary
+# ---------------------------------------------------------------------------
+
+
+def test_attendance_summary_sorts_and_computes_percentages():
+    from backend.bot.render import build_attendance_summary
+
+    entries = [
+        {"name": "Slacker", "present": 2, "sat_out": 1, "afk": 3, "awol": 4},
+        {"name": "Regular", "present": 9, "sat_out": 1, "afk": 0, "awol": 0},
+        {"name": "Also", "present": 9, "sat_out": 0, "afk": 1, "awol": 0},
+    ]
+    table = build_attendance_summary("Paragon", entries, 10)
+    lines = table.splitlines()
+    assert lines[0] == "Paragon — attendance over the last 10 raid night(s)"
+    names = [ln.split()[0] for ln in lines[4:]]
+    assert names == ["Also", "Regular", "Slacker"]  # present desc, then name
+    assert lines[4].rstrip().endswith("90%")
+    assert lines[6].rstrip().endswith("20%")
+
+
+def test_attendance_summary_zero_sessions_shows_dash():
+    from backend.bot.render import build_attendance_summary
+
+    table = build_attendance_summary("G", [{"name": "X", "present": 0, "sat_out": 0, "afk": 0, "awol": 0}], 0)
+    assert "—" in table.splitlines()[-1]

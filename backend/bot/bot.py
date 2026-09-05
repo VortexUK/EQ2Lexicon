@@ -7,10 +7,13 @@ from discord import app_commands
 from discord.ext import commands
 
 from backend.bot.cogs.aacheck import AaCheckCog
+from backend.bot.cogs.afk import AfkCog
+from backend.bot.cogs.attendance_summary import AttendanceSummaryCog
 from backend.bot.cogs.fun import FunCog
 from backend.bot.cogs.guild import GuildCog
 from backend.bot.cogs.items import ItemsCog
 from backend.bot.cogs.lexicon import LexiconCog
+from backend.bot.cogs.raidcomp import RaidCompCog
 from backend.bot.cogs.spellcheck import SpellcheckCog
 from backend.bot.cogs.voice_attendance import VoiceAttendanceCog
 from backend.census.client import CensusClient
@@ -65,6 +68,9 @@ class EQ2Bot(commands.Bot):
         await self.add_cog(FunCog(self))
         await self.add_cog(LexiconCog(self))
         await self.add_cog(VoiceAttendanceCog(self))
+        await self.add_cog(AfkCog(self))
+        await self.add_cog(AttendanceSummaryCog(self))
+        await self.add_cog(RaidCompCog(self))
         for guild_id in DISCORD_SYNC_GUILD_IDS:
             guild = discord.Object(id=guild_id)
             self.tree.copy_global_to(guild=guild)
