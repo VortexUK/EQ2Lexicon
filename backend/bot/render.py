@@ -157,6 +157,27 @@ def build_spell_details(data: CharacterSpells) -> str:
 
 
 # ---------------------------------------------------------------------------
+# /afksummary
+# ---------------------------------------------------------------------------
+
+
+def build_afk_summary(guild_name: str, entries: list[dict]) -> str:
+    """Upcoming raid days with who has declared AFK on each.
+
+    ``entries``: [{label, names: [str]}] in date order — assembled by the
+    cog. Days with no declarations show a middot placeholder."""
+    label_w = fit_width("Raid day", [e["label"] for e in entries], 16)
+    lines = [
+        f"{guild_name} — declared AFK, next {len(entries)} raid night(s)",
+        "",
+    ]
+    for e in entries:
+        names = ", ".join(sorted(e["names"], key=str.lower)) if e["names"] else "·"
+        lines.append(f"{e['label'].ljust(label_w)}{COL_SEP}{names}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # /attendance
 # ---------------------------------------------------------------------------
 

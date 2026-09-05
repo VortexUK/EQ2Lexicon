@@ -214,3 +214,17 @@ def test_attendance_summary_zero_sessions_shows_dash():
 
     table = build_attendance_summary("G", [{"name": "X", "present": 0, "sat_out": 0, "afk": 0, "awol": 0}], 0)
     assert "—" in table.splitlines()[-1]
+
+
+def test_afk_summary_lists_days_with_placeholders():
+    from backend.bot.render import build_afk_summary
+
+    entries = [
+        {"label": "Fri 05 Sep", "names": ["Slacker", "ghosty"]},
+        {"label": "Tue 09 Sep", "names": []},
+    ]
+    table = build_afk_summary("Paragon", entries)
+    lines = table.splitlines()
+    assert lines[0] == "Paragon — declared AFK, next 2 raid night(s)"
+    assert lines[2].startswith("Fri 05 Sep") and lines[2].endswith("ghosty, Slacker")  # case-insensitive sort
+    assert lines[3].endswith("·")  # nobody declared

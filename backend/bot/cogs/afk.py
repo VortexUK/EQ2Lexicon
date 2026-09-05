@@ -21,8 +21,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from backend.bot.guild_context import resolve_guild_context
+from backend.bot.guild_context import is_guild_officer, resolve_guild_context
+from backend.bot.messaging import send_plan
+from backend.bot.render import build_afk_summary, plan_code_block
+from backend.server import attendance as derive
+from backend.server.auth_deps import ADMIN_IDS
+from backend.server.db import get_display_names_for_discord_ids
 from backend.server.db.availability import store as availability_db
+from backend.server.db.raid_planning import store as planning_db
 from backend.server.db.raid_schedule import store as schedule_db
 
 if TYPE_CHECKING:
@@ -165,3 +171,53 @@ class AfkCog(commands.Cog):
             view=_AfkView(selectable, dict(current)),
             ephemeral=True,
         )
+
+    @app_commands.command(name="afksummary", description="Officers: who has declared AFK on each upcoming raid day")
+    @app_commands.guild_only()
+    async def afksummary(self, interaction: discord.Interaction) -> None:
+        ctx = await resolve_guild_context(interaction.guild_id)
+        if not ctx.linked or ctx.guild_name is None:
+            await interaction.response.send_message(
+                "This server isn't linked to an EQ2 guild — run `/lexicon link` first.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        uid = str(interaction.user.id)
+        if uid not in ADMIN_IDS and not await is_guild_officer(uid, ctx):
+            await interaction.followup.send(
+                f"Only officers of **{ctx.guild_name}** can view the AFK summary.", ephemeral=True
+            )
+            return
+
+        teams = await schedule_db.get_schedule(ctx.world, ctx.guild_name)
+        weekdays = raid_weekdays(teams)
+        today = dt.date.today()
+        if weekdays:
+            days = upcoming_raid_dates(weekdays, today, horizon_days=28)
+        else:
+            days = [(today + dt.timedelta(days=i)).isoformat() for i in range(14)]
+
+        # Label AFK users by their raid main (recognisable in guild chat),
+        # site display name as fallback. Only rostered players matter here.
+        role_rows = await planning_db.get_roles(ctx.world, ctx.guild_name)
+        claims = await planning_db.claims_map(ctx.world)
+        primaries = await planning_db.primary_claims(ctx.world)
+        user_mains, _ = derive.resolve_mains(role_rows, claims, primaries)
+        roled_lower = {r["character_name"].lower() for r in role_rows}
+        rostered_uids = {uid_ for lo, uid_ in claims.items() if lo in roled_lower}
+        display = await get_display_names_for_discord_ids(sorted(rostered_uids))
+
+        entries = []
+        for day in days:
+            statuses = await availability_db.statuses_for_day(day)
+            names = [
+                user_mains.get(u) or display.get(u) or f"User {u[-4:]}"
+                for u, s in statuses.items()
+                if s == "afk" and u in rostered_uids
+            ]
+            entries.append({"label": _day_label(day), "names": names})
+
+        table = build_afk_summary(ctx.guild_name, entries)
+        plan = plan_code_block(table, filename=f"{ctx.guild_name.replace(' ', '_')}_afk.txt")
+        await send_plan(interaction.followup, plan)
