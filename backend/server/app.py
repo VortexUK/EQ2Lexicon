@@ -65,6 +65,7 @@ from backend.server.api.characters import router as characters_router
 from backend.server.api.claim import router as claim_router
 from backend.server.api.classes import router as classes_router
 from backend.server.api.downloads import router as downloads_router
+from backend.server.api.export import router as export_router
 from backend.server.api.favorites import router as favorites_router
 from backend.server.api.guild import router as guild_router
 from backend.server.api.guild_officer import router as guild_officer_router
@@ -628,6 +629,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         raid_schedule_router,
         favorites_router,
         downloads_router,
+        export_router,
         progression_router,
         attendance_router,
         characters_router,

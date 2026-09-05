@@ -195,7 +195,11 @@ def require_admin(request: Request) -> SessionUser:
 #                 limited preview. Checked directly by the attendance
 #                 routes (no capability row); admins always pass. The name
 #                 may change later — it's just the preview gate for now.
-KNOWN_ROLES: frozenset[str] = frozenset({"contributor", "supporter", "subscriber"})
+#   api         — grants the read-only third-party export API
+#                 (/api/export/v1/*, issue #219). Opt-in per account,
+#                 admin-granted; pairs with a bearer token so access is
+#                 attributable and revocable two ways.
+KNOWN_ROLES: frozenset[str] = frozenset({"contributor", "supporter", "subscriber", "api"})
 
 # Programmer-facing capability allowlist. `require_capability` raises at
 # route-definition time if a typo'd string is used, so a misnamed capability

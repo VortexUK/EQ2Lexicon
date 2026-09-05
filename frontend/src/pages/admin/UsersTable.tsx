@@ -187,6 +187,30 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
               Make subscriber
             </Button>
           )}
+          {/* api — read-only third-party export API (/api/export/v1/*,
+              issue #219). Grant sparingly: it pairs with the user's own
+              bearer token, so access is attributable + revocable. */}
+          {user.roles.includes('api') ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => toggleRole('api', false)}
+              disabled={busy}
+              title="Revoke read-API access"
+            >
+              Revoke api
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => toggleRole('api', true)}
+              disabled={busy}
+              title="Grant read-only export-API access (rankings + ability breakdowns for third-party tools)"
+            >
+              Grant api
+            </Button>
+          )}
         </div>
       </td>
 
