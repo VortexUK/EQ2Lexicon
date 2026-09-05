@@ -28,6 +28,8 @@ _FACADE_EXEMPT = {
     "hash_token",
     # servers: only the registry loader path uses it, via the store
     "get_server_by_subdomain_sync",
+    # servers: the xpac-rollover loop calls the store directly
+    "apply_xpac_rollover_sync",
     # favorites + raid_schedule domains bypass the facade entirely
     # (routes import their store instances directly)
     "add_favorite",

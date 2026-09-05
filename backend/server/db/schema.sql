@@ -166,6 +166,10 @@ CREATE TABLE IF NOT EXISTS servers (
     launch_dt      TEXT,
     next_xpac      TEXT,
     next_xpac_dt   TEXT,
+    -- Stamped by the automatic xpac rollover (backend/server/xpac_rollover.py)
+    -- with the instant current_xpac went live. The rankings era-lock cutoff:
+    -- out-of-era raid parses ingested after this stop entering leaderboards.
+    current_xpac_started_dt TEXT,
     updated_at     INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     is_default     INTEGER NOT NULL DEFAULT 0
 );

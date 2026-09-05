@@ -164,6 +164,9 @@ class ServerItem(BaseModel):
     launch_dt: str | None = None
     next_xpac: str | None = None
     next_xpac_dt: str | None = None
+    # Stamped by the automatic xpac rollover — the rankings era-lock cutoff.
+    # Read-only here (the rollover loop owns it).
+    current_xpac_started_dt: str | None = None
     is_default: bool = False
 
 

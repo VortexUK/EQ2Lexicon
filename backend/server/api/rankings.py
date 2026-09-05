@@ -267,6 +267,8 @@ def invalidate_zones_cache() -> None:
         at current data size — flagged as a scalability concern in
         the pet-detection-pipeline spec)
     """
+    global _zone_xpac_cache
+    _zone_xpac_cache = None  # era-lock zone→xpac map rebuilds on next read
     _cached_zones_data.cache_clear()
     # Local imports: parses.list already imports _cached_zones_data
     # from this module, and parses.db is a deeper dependency. Local
@@ -473,6 +475,68 @@ def _build_filters(kills: list[dict]) -> dict:
     return {"scopes": scopes, "raid_expansions": raid_expansions, "default_expansion": default_expansion}
 
 
+# ---------------------------------------------------------------------------
+# Era lock — out-of-era rankings freeze at the xpac rollover instant
+# ---------------------------------------------------------------------------
+
+_zone_xpac_cache: dict[str, str] | None = None
+
+
+def _zone_expansion_map() -> dict[str, str]:
+    """{canonical zone name lower: expansion short} from zones.db. Cached —
+    cleared by invalidate_zones_cache alongside the boss trees."""
+    global _zone_xpac_cache
+    if _zone_xpac_cache is None:
+        mapping: dict[str, str] = {}
+        try:
+            with sqlite3.connect(zones_db.path) as conn:
+                for name_lower, short in conn.execute(
+                    "SELECT name_lower, expansion_short FROM zones WHERE expansion_short IS NOT NULL"
+                ):
+                    mapping[name_lower] = short
+        except sqlite3.Error:  # zones.db missing locally — no lock possible
+            pass
+        _zone_xpac_cache = mapping
+    return _zone_xpac_cache
+
+
+def _era_lock_for(world: str) -> tuple[str, int] | None:
+    """(current_xpac, cutoff_ts) once a server has rolled an expansion —
+    None before the first automatic rollover (no locking, old behaviour)."""
+    from backend.server.db.servers import store as servers_db  # noqa: PLC0415 — local: avoid import cycle
+    from backend.server.xpac_rollover import parse_dt  # noqa: PLC0415
+
+    row = servers_db.get_server_by_world_sync(world)
+    if not row or not row.get("current_xpac"):
+        return None
+    cutoff = parse_dt(row.get("current_xpac_started_dt"))
+    if cutoff is None:
+        return None
+    return row["current_xpac"], int(cutoff.timestamp())
+
+
+def _apply_era_lock(kills: list[dict], lock: tuple[str, int] | None, zone_xpac: dict[str, str]) -> list[dict]:
+    """Freeze out-of-era leaderboards: a kill in a zone from an EARLIER
+    expansion only ranks if it was ingested before the current expansion
+    went live. In-era zones (and zones with no expansion info) are
+    untouched, as is everything when the server has never rolled over.
+    Pure — the raids-page guild progression reads parses directly and is
+    deliberately outside this filter."""
+    if lock is None:
+        return kills
+    current_xpac, cutoff_ts = lock
+    out: list[dict] = []
+    for k in kills:
+        xz = zone_xpac.get((k.get("zone") or "").lower())
+        if xz is None or xz == current_xpac:
+            out.append(k)
+            continue
+        ingested = k.get("ingested_at")
+        if ingested is not None and ingested < cutoff_ts:
+            out.append(k)
+    return out
+
+
 def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
     """Load winning boss-kill encounters, mirror-group them, and return one
     'primary' (longest) upload per fight with its combatants attached. Ignores
@@ -532,12 +596,13 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
                     "guild_name": g.get("guild_name"),
                     "started_at": g["started_at"],
                     "duration_s": g["duration_s"],
+                    "ingested_at": g.get("ingested_at"),
                     "player_count": g.get("player_count") or 0,
                     "scope": scope,
                     "combatants": parses_db.get_combatants_for_encounter(conn, g["id"]),
                 }
             )
-        return kills
+        return _apply_era_lock(kills, _era_lock_for(world), _zone_expansion_map())
     finally:
         conn.close()
 

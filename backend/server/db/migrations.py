@@ -104,6 +104,9 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         conn.execute(_SQL["alter_servers_add_next_xpac"])
     if "next_xpac_dt" not in servers_cols:
         conn.execute(_SQL["alter_servers_add_next_xpac_dt"])
+    # Migrate: xpac-rollover stamp (2026-09) — the rankings era-lock cutoff.
+    if "current_xpac_started_dt" not in servers_cols:
+        conn.execute(_SQL["alter_servers_add_current_xpac_started_dt"])
     # Ensure exactly one default exists. On a fresh DB or after ADD COLUMN every
     # row has is_default=0 until we set one. Default to the EQ2_WORLD server.
     if conn.execute(_SQL["count_default_servers"]).fetchone()[0] == 0:

@@ -128,6 +128,9 @@ ALTER TABLE servers ADD COLUMN next_xpac TEXT;
 -- :name alter_servers_add_next_xpac_dt
 ALTER TABLE servers ADD COLUMN next_xpac_dt TEXT;
 
+-- :name alter_servers_add_current_xpac_started_dt
+ALTER TABLE servers ADD COLUMN current_xpac_started_dt TEXT;
+
 -- :name count_default_servers
 SELECT COUNT(*) FROM servers WHERE is_default = 1;
 

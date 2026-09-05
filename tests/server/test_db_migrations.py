@@ -200,3 +200,32 @@ def test_init_db_migrates_pre_placeholder_roles_table(tmp_path: Path) -> None:
             "SELECT role, placeholder, cls FROM raid_roster_roles WHERE character_name='Tanky'"
         ).fetchone()
         assert row == ("raider", 0, None)
+
+
+def test_init_db_migrates_pre_rollover_servers_table(tmp_path: Path) -> None:
+    """servers created before the xpac-rollover stamp (no
+    current_xpac_started_dt) must upgrade in place with rows intact."""
+    db = tmp_path / "users.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript("""
+            CREATE TABLE servers (
+                world TEXT PRIMARY KEY,
+                subdomain TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                max_level INTEGER NOT NULL,
+                current_xpac TEXT,
+                launch_dt TEXT,
+                next_xpac TEXT,
+                next_xpac_dt TEXT,
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                is_default INTEGER NOT NULL DEFAULT 1
+            );
+            INSERT INTO servers (world, subdomain, display_name, max_level, current_xpac)
+            VALUES ('Wuoshi', 'wuoshi', 'Wuoshi', 70, 'EoF');
+        """)
+    users_db.init_db(db)
+    with sqlite3.connect(db) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(servers)")}
+        assert "current_xpac_started_dt" in cols
+        row = conn.execute("SELECT current_xpac, current_xpac_started_dt FROM servers WHERE world='Wuoshi'").fetchone()
+        assert row == ("EoF", None)

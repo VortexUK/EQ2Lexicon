@@ -38,6 +38,7 @@ class ServersStore(PathBound):
             "launch_dt": row["launch_dt"],
             "next_xpac": row["next_xpac"],
             "next_xpac_dt": row["next_xpac_dt"],
+            "current_xpac_started_dt": row["current_xpac_started_dt"],
             "is_default": bool(row["is_default"]),
         }
 
@@ -74,6 +75,16 @@ class ServersStore(PathBound):
                 (max_level, current_xpac, launch_dt, next_xpac, next_xpac_dt, world),
             )
             conn.commit()
+
+    def apply_xpac_rollover_sync(self, world: str, *, current_xpac: str, max_level: int, started_dt: str) -> bool:
+        """The countdown-hit-zero flip: promote next_xpac to current, bump
+        the level cap, stamp the rollover instant (the rankings era-lock
+        cutoff) and clear the countdown fields. Guarded on next_xpac still
+        being set so a concurrent/repeat call is a no-op."""
+        with sqlite3.connect(self.path) as conn:
+            cur = conn.execute(_SQL["apply_xpac_rollover"], (current_xpac, max_level, started_dt, world))
+            conn.commit()
+            return cur.rowcount > 0
 
     def set_default_server_sync(self, world: str) -> bool:
         """Atomically set one server as the default (is_default=1) and clear all others.
