@@ -21,7 +21,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from backend.bot.guild_context import resolve_guild_context
 from backend.server.db.availability import store as availability_db
+from backend.server.db.raid_schedule import store as schedule_db
 
 if TYPE_CHECKING:
     from backend.bot.bot import EQ2Bot
@@ -29,7 +31,37 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 #: Discord selects cap at 25 options — 3 weeks fits with room to spare.
+#: Used only when the server has no linked raid schedule to filter by.
 HORIZON_DAYS = 21
+
+#: Raid-day mode: how far ahead to look for scheduled raid dates. The
+#: select still caps at 25 options.
+RAID_HORIZON_DAYS = 56
+
+
+def raid_weekdays(teams: list[dict]) -> set[int]:
+    """ISO weekdays (1=Mon..7=Sun) any team raids on. Slot ``days`` arrive
+    as a list from the store or a comma-string from older shapes — accept
+    both. Pure."""
+    out: set[int] = set()
+    for team in teams:
+        for r in team.get("raids", []):
+            days = r.get("days", [])
+            if isinstance(days, str):
+                days = [d for d in days.split(",") if d]
+            out.update(int(d) for d in days)
+    return out
+
+
+def upcoming_raid_dates(weekdays: set[int], today: dt.date, *, horizon_days: int = RAID_HORIZON_DAYS) -> list[str]:
+    """The next raid dates (ISO) within the horizon, capped at Discord's
+    25-option select limit. Pure."""
+    dates = [
+        (today + dt.timedelta(days=i)).isoformat()
+        for i in range(horizon_days)
+        if (today + dt.timedelta(days=i)).isoweekday() in weekdays
+    ]
+    return dates[:25]
 
 
 def compute_afk_changes(current: dict[str, str], chosen: set[str], days: list[str]) -> dict[str, str]:
@@ -94,12 +126,27 @@ class AfkCog(commands.Cog):
     def __init__(self, bot: EQ2Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="afk", description="Mark days you'll miss raids — feeds the raid planner + attendance")
+    @app_commands.command(name="afk", description="Mark raid days you'll miss — feeds the raid planner + attendance")
     async def afk(self, interaction: discord.Interaction) -> None:
         today = dt.date.today()
-        days = [(today + dt.timedelta(days=i)).isoformat() for i in range(HORIZON_DAYS)]
-        current = await availability_db.get_range(str(interaction.user.id), days[0], days[-1])
 
+        # Only offer the guild's actual raid days — nobody cares about AFK
+        # on an off night. Falls back to every day when the server has no
+        # linked schedule to filter by.
+        weekdays: set[int] = set()
+        ctx = await resolve_guild_context(interaction.guild_id)
+        if ctx.linked and ctx.guild_name is not None:
+            teams = await schedule_db.get_schedule(ctx.world, ctx.guild_name)
+            weekdays = raid_weekdays(teams)
+
+        if weekdays:
+            days = upcoming_raid_dates(weekdays, today)
+            intro = f"Pick the **raid days** you'll be AFK (next {len(days)} raid nights"
+        else:
+            days = [(today + dt.timedelta(days=i)).isoformat() for i in range(HORIZON_DAYS)]
+            intro = f"Pick the days you'll be **AFK** over the next {HORIZON_DAYS} days (no raid schedule found to filter by"
+
+        current = await availability_db.get_range(str(interaction.user.id), days[0], days[-1])
         tentative = sorted(d for d, s in current.items() if s == "tentative" and d in days)
         selectable = [d for d in days if current.get(d) != "tentative"]
         note = (
@@ -108,8 +155,7 @@ class AfkCog(commands.Cog):
             else ""
         )
         await interaction.response.send_message(
-            f"Pick the days you'll be **AFK** over the next {HORIZON_DAYS} days "
-            f"(currently-AFK days are preselected — unselect to clear):{note}",
+            f"{intro}; currently-AFK days are preselected — unselect to clear):{note}",
             view=_AfkView(selectable, dict(current)),
             ephemeral=True,
         )

@@ -64,3 +64,33 @@ def test_render_raid_comp_without_sitout_is_shorter():
     tall = render_raid_comp("G", "Z", [[], [], [], []], [{"name": "X", "cls": None, "colour": None}])
     short = render_raid_comp("G", "Z", [[], [], [], []], [])
     assert short.height < tall.height
+
+
+def test_split_afk_classifies_placed_vs_unplaced():
+    from backend.bot.cogs.raidcomp import split_afk
+
+    placements = [
+        {"character_name": "Tanky", "group_num": 1, "slot": 0, "sitout": False},
+        {"character_name": "Benchy", "group_num": None, "slot": None, "sitout": True},
+    ]
+    role_display = {"tanky": "Tanky", "benchy": "Benchy", "ghosty": "Ghosty", "unclaimed": "Unclaimed"}
+    claims = {"tanky": "u1", "benchy": "u2", "ghosty": "u3", "stranger": "u4"}
+    afk_uids = {"u1", "u2", "u3", "u4"}
+    afk_placed, afk_unplaced = split_afk(placements, role_display, claims, afk_uids)
+    assert afk_placed == ["Tanky"]  # in a group AND declared afk -> warning
+    # Benchy (planner sitout) + Ghosty (unplaced) go to the AFK strip;
+    # "stranger" is claimed but unrostered -> ignored.
+    assert afk_unplaced == ["Benchy", "Ghosty"]
+
+
+def test_split_afk_no_afk_users_is_empty():
+    from backend.bot.cogs.raidcomp import split_afk
+
+    assert split_afk([], {"tanky": "Tanky"}, {"tanky": "u1"}, set()) == ([], [])
+
+
+def test_render_raid_comp_afk_strip_extends_height():
+    afk = [{"name": "Ghosty", "cls": "Templar", "colour": "#4ade80"}]
+    with_afk = render_raid_comp("G", "Z", [[], [], [], []], [], afk=afk)
+    without = render_raid_comp("G", "Z", [[], [], [], []], [])
+    assert with_afk.height > without.height

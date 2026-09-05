@@ -80,14 +80,17 @@ def render_raid_comp(
     groups: list[list[dict]],
     sitout: list[dict],
     *,
+    afk: list[dict] | None = None,
     team_name: str | None = None,
     date_str: str | None = None,
 ) -> Image.Image:
+    afk = afk or []
     cols = 2
     grid_rows = 2
     width = _PAD * 2 + cols * _GROUP_W + (cols - 1) * 16
-    sitout_h = 64 if sitout else 0
-    height = 118 + grid_rows * _GROUP_H + 16 + sitout_h + _PAD
+    strip_count = (1 if sitout else 0) + (1 if afk else 0)
+    strips_h = strip_count * 36 + (8 if strip_count else 0)
+    height = 118 + grid_rows * _GROUP_H + 16 + strips_h + _PAD
 
     img = Image.new("RGB", (_z(width), _z(height)), _BG)
     draw = ImageDraw.Draw(img)
@@ -99,7 +102,9 @@ def render_raid_comp(
     f_cls = _load_font(False, _z(12))
 
     # ── header ──
-    title = f"{guild_name} — Raid Composition"
+    # Middot, not em-dash: with no system fonts (Railway container) the
+    # bundled fallback font lacks U+2014 and drew a tofu box — seen live.
+    title = f"{guild_name} · Raid Composition"
     draw.text((_z(_PAD), _z(20)), title, font=f_title, fill=_GOLD)
     sub_bits = [f"Starting zone: {zone_name}"]
     if team_name:
@@ -138,14 +143,21 @@ def render_raid_comp(
                 if m.get("cls"):
                     draw.text((_z(gx + _GROUP_W - 14), _z(sy + 2)), m["cls"], font=f_cls, fill=_MUTED, anchor="ra")
             else:
-                draw.text((_z(gx + 14), _z(sy)), "—", font=f_cls, fill=(70, 62, 50))
+                draw.text((_z(gx + 14), _z(sy)), "·", font=f_cls, fill=(70, 62, 50))
 
-    # ── sitout strip ──
+    # ── sitout / afk strips ──
+    sy = top + grid_rows * _GROUP_H + 16 + 8
     if sitout:
-        sy = top + grid_rows * _GROUP_H + 16 + 8
         draw.text((_z(_PAD), _z(sy)), "Sitting out:", font=f_group, fill=_MUTED)
         names = "   ".join(m["name"] for m in sitout)
         draw.text((_z(_PAD + 104), _z(sy + 1)), names, font=f_name, fill=_TEXT)
+        sy += 36
+    if afk:
+        # Declared unavailable (site calendar / the bot's /afk command)
+        # and not placed in a group — distinct from a chosen sitout.
+        draw.text((_z(_PAD), _z(sy)), "AFK today:", font=f_group, fill=(180, 120, 90))
+        names = "   ".join(m["name"] for m in afk)
+        draw.text((_z(_PAD + 104), _z(sy + 1)), names, font=f_name, fill=_MUTED)
 
     # ── footer ──
     draw.text((_z(width - _PAD), _z(height - 22)), "EQ2Lexicon", font=f_cls, fill=_GOLD_DIM, anchor="ra")

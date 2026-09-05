@@ -27,6 +27,7 @@ from backend.bot.guild_context import GuildContext, resolve_guild_context
 from backend.eq2db.classes import catalogue as classes_db
 from backend.eq2db.zones import catalogue as zones_db
 from backend.image.raid_comp import render_raid_comp
+from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import store as planning_db
 from backend.server.db.raid_schedule import store as schedule_db
 from backend.server.db.servers import store as servers_db
@@ -62,22 +63,42 @@ def build_groups(
 ) -> tuple[list[list[dict]], list[dict]]:
     """Planner placements -> renderer shape: 4 ordered group lists + the
     sitout strip, each member {name, cls, colour}. Pure."""
-
-    def member(name: str) -> dict:
-        cls = cls_by_char.get(name.lower())
-        row = classes_db.find_by_name(cls) if cls else None
-        return {"name": name, "cls": cls, "colour": row["colour"] if row else None}
-
     groups: list[list[dict]] = [[] for _ in range(4)]
     sitout: list[dict] = []
     for p in placements:
         if p["sitout"]:
-            sitout.append(member(p["character_name"]))
+            sitout.append(make_member(p["character_name"], cls_by_char))
         elif p["group_num"] is not None:
             slot = p["slot"] if p["slot"] is not None else 0
-            groups[p["group_num"] - 1].append((slot, member(p["character_name"])))  # type: ignore[arg-type]
+            groups[p["group_num"] - 1].append((slot, make_member(p["character_name"], cls_by_char)))  # type: ignore[arg-type]
     ordered = [[m for _, m in sorted(g, key=lambda t: t[0])] for g in groups]  # type: ignore[misc]
     return ordered, sitout
+
+
+def make_member(name: str, cls_by_char: dict[str, str]) -> dict:
+    """Renderer member dict {name, cls, colour} with the classes.db colour."""
+    cls = cls_by_char.get(name.lower())
+    row = classes_db.find_by_name(cls) if cls else None
+    return {"name": name, "cls": cls, "colour": row["colour"] if row else None}
+
+
+def split_afk(
+    placements: list[dict],
+    role_display: dict[str, str],
+    claims: dict[str, str],
+    afk_user_ids: set[str],
+) -> tuple[list[str], list[str]]:
+    """(afk_but_placed, afk_unplaced) character names for the comp date.
+
+    A rostered character is AFK when its claim owner declared the day afk
+    (site calendar or the bot's /afk). Placed = in a group; the unplaced
+    list feeds the card's dedicated AFK strip (they are NOT sitout — they
+    said they wouldn't be there). Pure."""
+    placed = {p["character_name"].lower() for p in placements if p.get("group_num") is not None}
+    afk_lower = {lo for lo, uid in claims.items() if uid in afk_user_ids and lo in role_display}
+    afk_placed = sorted(role_display[lo] for lo in afk_lower & placed)
+    afk_unplaced = sorted(role_display[lo] for lo in afk_lower - placed)
+    return afk_placed, afk_unplaced
 
 
 class _CustomZoneModal(discord.ui.Modal, title="Custom starting zone"):
@@ -93,13 +114,21 @@ class _CustomZoneModal(discord.ui.Modal, title="Custom starting zone"):
 
 
 class _CompView(discord.ui.View):
-    def __init__(self, cog: RaidCompCog, ctx: GuildContext, zones: list[str], teams: list[dict]) -> None:
+    def __init__(
+        self,
+        cog: RaidCompCog,
+        ctx: GuildContext,
+        zones: list[str],
+        teams: list[dict],
+        afk_warn_by_team: dict[int, list[str]],
+    ) -> None:
         super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.zone_name: str | None = None
         self.team_index = 0
         self.teams = teams
+        self.afk_warn_by_team = afk_warn_by_team
 
         zone_options = [discord.SelectOption(label=z, value=z) for z in zones[:24]]
         zone_options.append(discord.SelectOption(label="Custom zone…", value=_CUSTOM, emoji="✏️"))
@@ -125,7 +154,11 @@ class _CompView(discord.ui.View):
         team = ""
         if len(self.teams) > 1:
             team = f" · team: **{self.teams[self.team_index].get('name') or f'Team {self.team_index + 1}'}**"
-        return f"Raid composition — starting zone: {zone}{team}"
+        msg = f"Raid composition — starting zone: {zone}{team}"
+        afk_placed = self.afk_warn_by_team.get(self.team_index) or []
+        if afk_placed:
+            msg += "\n⚠️ **Placed in groups but marked AFK today:** " + ", ".join(afk_placed)
+        return msg
 
     async def refresh(self, interaction: discord.Interaction) -> None:
         self.post_button.disabled = self.zone_name is None
@@ -192,7 +225,20 @@ class RaidCompCog(commands.Cog):
         zones = await asyncio.to_thread(raid_zone_names, current_xpac)
         teams = await schedule_db.get_schedule(ctx.world, ctx.guild_name)
 
-        view = _CompView(self, ctx, zones, teams)
+        # Per-team AFK warning data (who's placed in groups but declared AFK
+        # today) — computed up front so the picker can warn before posting.
+        role_rows = await planning_db.get_roles(ctx.world, ctx.guild_name)
+        role_display = {r["character_name"].lower(): r["character_name"] for r in role_rows}
+        claims = await planning_db.claims_map(ctx.world)
+        statuses = await availability_db.statuses_for_day(dt.date.today().isoformat())
+        afk_uids = {uid for uid, s in statuses.items() if s == "afk"}
+        afk_warn_by_team: dict[int, list[str]] = {}
+        for i in range(max(1, len(teams))):
+            placements = await planning_db.get_placements(ctx.world, ctx.guild_name, i)
+            afk_placed, _ = split_afk(placements, role_display, claims, afk_uids)
+            afk_warn_by_team[i] = afk_placed
+
+        view = _CompView(self, ctx, zones, teams, afk_warn_by_team)
         await interaction.response.send_message(view._status(), view=view, ephemeral=True)
 
     async def render_card(
@@ -218,6 +264,19 @@ class RaidCompCog(commands.Cog):
                     cls_by_char[m.name.lower()] = m.cls
 
         groups, sitout = build_groups(placements, cls_by_char)
+
+        # AFK strip: rostered characters whose owner declared today AFK and
+        # who aren't in a group. They're not "sitting out" — they said they
+        # wouldn't be here — so they move to their own strip.
+        role_display = {r["character_name"].lower(): r["character_name"] for r in role_rows}
+        claims = await planning_db.claims_map(ctx.world)
+        statuses = await availability_db.statuses_for_day(dt.date.today().isoformat())
+        afk_uids = {uid for uid, s in statuses.items() if s == "afk"}
+        _, afk_unplaced = split_afk(placements, role_display, claims, afk_uids)
+        afk_lower = {n.lower() for n in afk_unplaced}
+        sitout = [m for m in sitout if m["name"].lower() not in afk_lower]
+        afk_members = [make_member(n, cls_by_char) for n in afk_unplaced]
+
         team_name = None
         if len(teams) > 1:
             team_name = teams[team_index].get("name") or f"Team {team_index + 1}"
@@ -228,6 +287,7 @@ class RaidCompCog(commands.Cog):
             zone_name,
             groups,
             sitout,
+            afk=afk_members,
             team_name=team_name,
             date_str=dt.date.today().strftime("%A %d %B"),
         )

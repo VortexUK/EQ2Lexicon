@@ -33,3 +33,26 @@ def test_tentative_days_outside_the_selectable_list_are_untouched():
 
 def test_horizon_fits_discords_select_cap():
     assert HORIZON_DAYS <= 25
+
+
+def test_raid_weekdays_handles_list_and_string_shapes():
+    from backend.bot.cogs.afk import raid_weekdays
+
+    teams = [
+        {"raids": [{"days": [2, 4]}, {"days": "6,7"}]},
+        {"raids": [{"days": []}]},
+    ]
+    assert raid_weekdays(teams) == {2, 4, 6, 7}
+    assert raid_weekdays([]) == set()
+
+
+def test_upcoming_raid_dates_filters_and_caps():
+    import datetime as dt
+
+    from backend.bot.cogs.afk import upcoming_raid_dates
+
+    monday = dt.date(2026, 9, 7)  # a Monday
+    dates = upcoming_raid_dates({2, 4}, monday, horizon_days=14)  # Tue + Thu
+    assert dates == ["2026-09-08", "2026-09-10", "2026-09-15", "2026-09-17"]
+    # Every day over a long horizon still caps at Discord's 25-option limit.
+    assert len(upcoming_raid_dates({1, 2, 3, 4, 5, 6, 7}, monday, horizon_days=60)) == 25
