@@ -101,6 +101,12 @@ def resolve_host(host: str, override: str | None = None) -> Server:
     return srv if srv is not None else default_server()
 
 
+def server_for_world(world: str) -> Server | None:
+    """Registry row for a world name — for non-request contexts (the bot)
+    that need to pin the active server before calling world-aware helpers."""
+    return _by_world.get(world)
+
+
 def current_server() -> Server:
     return _active_server.get() or default_server()
 

@@ -34,6 +34,32 @@ class GuildContext:
 _FALLBACK = GuildContext(world=FALLBACK_WORLD, guild_name=None, voice_channel_id=None, linked=False)
 
 
+async def is_guild_officer(discord_id: str, ctx: GuildContext) -> bool:
+    """Site-officer check for bot commands: does this Discord user hold an
+    approved claim on an officer-ranked character in the linked guild?
+
+    Reuses the web layer's ``_officer_chars`` — which reads the request
+    contextvar ``current_world()`` — by pinning the active server to the
+    link's world for the duration of the call (the bot has no request).
+    Census/roster trouble degrades to False (deny) rather than raising into
+    the command."""
+    if not ctx.linked or ctx.guild_name is None:
+        return False
+    from backend.server import server_context
+    from backend.server.api.guild import _officer_chars
+
+    srv = server_context.server_for_world(ctx.world)
+    token = server_context.set_active_server(srv) if srv is not None else None
+    try:
+        return bool(await _officer_chars(discord_id, ctx.guild_name))
+    except Exception:
+        _log.warning("[bot] officer check failed for %s in %s", discord_id, ctx.guild_name, exc_info=True)
+        return False
+    finally:
+        if token is not None:
+            server_context.reset_active_server(token)
+
+
 async def resolve_guild_context(discord_guild_id: int | None) -> GuildContext:
     """The invoking Discord guild's EQ2 context. ``None`` (DMs) and unknown
     guilds resolve to the fallback. A missing table (bot racing the web

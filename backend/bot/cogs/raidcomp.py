@@ -23,10 +23,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from backend.bot.guild_context import GuildContext, resolve_guild_context
+from backend.bot.guild_context import GuildContext, is_guild_officer, resolve_guild_context
 from backend.eq2db.classes import catalogue as classes_db
 from backend.eq2db.zones import catalogue as zones_db
 from backend.image.raid_comp import render_raid_comp
+from backend.server.auth_deps import ADMIN_IDS
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import store as planning_db
 from backend.server.db.raid_schedule import store as schedule_db
@@ -219,6 +220,18 @@ class RaidCompCog(commands.Cog):
                 ephemeral=True,
             )
             return
+        # Officer-only: the comp announcement is a raid-leader action. Site
+        # admins pass; the officer check needs a moment (roster lookup) so
+        # defer first.
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        uid = str(interaction.user.id)
+        if uid not in ADMIN_IDS and not await is_guild_officer(uid, ctx):
+            await interaction.followup.send(
+                f"Only officers of **{ctx.guild_name}** can post the raid composition "
+                f"(claim an officer-ranked character on the site).",
+                ephemeral=True,
+            )
+            return
 
         server_row = await asyncio.to_thread(servers_db.get_server_by_world_sync, ctx.world)
         current_xpac = (server_row or {}).get("current_xpac")
@@ -239,7 +252,7 @@ class RaidCompCog(commands.Cog):
             afk_warn_by_team[i] = afk_placed
 
         view = _CompView(self, ctx, zones, teams, afk_warn_by_team)
-        await interaction.response.send_message(view._status(), view=view, ephemeral=True)
+        await interaction.followup.send(view._status(), view=view, ephemeral=True)
 
     async def render_card(
         self, ctx: GuildContext, zone_name: str, team_index: int, teams: list[dict]
