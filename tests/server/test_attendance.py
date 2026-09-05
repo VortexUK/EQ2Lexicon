@@ -833,3 +833,129 @@ async def test_delete_session_removes_voice_rows_too():
     await attendance_db.record_voice(res["session_id"], ["111"], T0 + 100)
     await attendance_db.delete_session(res["session_id"])
     assert await attendance_db.observations_for_session(res["session_id"]) == []
+
+
+# ---------------------------------------------------------------------------
+# Officer corrections — override layer + row removal
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_override_store_roundtrip():
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+    await attendance_db.set_override(sid, "Tanky", "afk", set_by="officer-1")
+    await attendance_db.set_override(sid, "Tanky", "sat_out", set_by="officer-2")  # upsert replaces
+    ovs = await attendance_db.overrides_for_session(sid)
+    assert ovs["tanky"]["category"] == "sat_out"
+    assert ovs["tanky"]["set_by"] == "officer-2"
+    assert await attendance_db.clear_override(sid, "TANKY") is True  # case-insensitive
+    assert await attendance_db.overrides_for_session(sid) == {}
+    assert await attendance_db.clear_override(sid, "Tanky") is False
+
+
+def test_derivation_override_beats_everything():
+    obs = [_obs("Tanky", "raid")]
+    roles = {"tanky": "raider", "ghosty": "raider"}
+    overrides = {
+        "tanky": {"character_name": "Tanky", "category": "absent"},  # officer says he wasn't there
+        "ghosty": {"character_name": "Ghosty", "category": "present"},  # officer adds a missed raider
+        "handadded": {"character_name": "Handadded", "category": "present"},  # never observed, unrostered
+    }
+    char_rows, _ = derive_categories(obs, roles, {}, {}, scheduled=True, overrides=overrides)
+    cats = _cats(char_rows)
+    assert cats["Tanky"] == "absent"
+    assert cats["Ghosty"] == "present"  # would have derived awol
+    assert cats["Handadded"] == "present"  # joined the universe via the override
+    flags = {r["name"]: r["overridden"] for r in char_rows}
+    assert flags == {"Tanky": True, "Ghosty": True, "Handadded": True}
+    # Counts follow the corrected categories.
+    assert session_counts(char_rows)["present"] == 2
+
+
+def test_derivation_without_overrides_marks_rows_unoverridden():
+    char_rows, _ = derive_categories([_obs("Tanky", "raid")], {}, {}, {}, scheduled=False)
+    assert char_rows[0]["overridden"] is False
+
+
+@pytest.mark.asyncio
+async def test_override_route_set_and_clear(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+    _, p_officer = _member_gate_patches(officer=True)
+    with p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r1 = await c.put(
+                f"/api/guild/{_GUILD}/attendance/{sid}/override",
+                json={"character_name": "ghosty", "category": "present"},
+            )
+            r_bad = await c.put(
+                f"/api/guild/{_GUILD}/attendance/{sid}/override",
+                json={"character_name": "Ghosty", "category": "vanished"},
+            )
+            r2 = await c.put(
+                f"/api/guild/{_GUILD}/attendance/{sid}/override",
+                json={"character_name": "Ghosty", "category": None},
+            )
+    assert r1.status_code == 200 and r1.json() == {"ok": True, "cleared": False}
+    assert r_bad.status_code == 400
+    assert r2.status_code == 200 and r2.json()["cleared"] is True
+    assert await attendance_db.overrides_for_session(sid) == {}
+
+
+@pytest.mark.asyncio
+async def test_override_appears_in_detail_with_corrector_name(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+    p_member, p_officer = _member_gate_patches(officer=True)
+    with p_member, p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            await c.put(
+                f"/api/guild/{_GUILD}/attendance/{sid}/override",
+                json={"character_name": "Tanky", "category": "afk"},
+            )
+            detail = (await c.get(f"/api/guild/{_GUILD}/attendance/{sid}")).json()
+    tanky = next(r for r in detail["characters"] if r["name"] == "Tanky")
+    assert tanky["category"] == "afk" and tanky["overridden"] is True
+    assert tanky["override_by"]  # corrector id (or display name) present
+    # List counts reflect the correction too.
+    p_member, _ = _member_gate_patches()
+    with p_member:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            listing = (await c.get(f"/api/guild/{_GUILD}/attendance")).json()
+    assert listing["sessions"][0]["counts"] == {"present": 0, "sat_out": 0, "afk": 1, "awol": 0}
+
+
+@pytest.mark.asyncio
+async def test_remove_character_route(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600), _member("Junkname", T0, T0 + 60)])
+    sid = res["session_id"]
+    await attendance_db.set_override(sid, "Junkname", "present", set_by="o1")
+    _, p_officer = _member_gate_patches(officer=True)
+    with p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.delete(f"/api/guild/{_GUILD}/attendance/{sid}/character/Junkname")
+    assert r.status_code == 200 and r.json()["removed"] is True
+    obs = await attendance_db.observations_for_session(sid)
+    assert {o["character_name"] for o in obs} == {"Tanky"}
+    assert await attendance_db.overrides_for_session(sid) == {}
+
+
+@pytest.mark.asyncio
+async def test_correction_routes_are_officer_only(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+
+    async def _not_officer(request, guild_name):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=403, detail="Officer access required")
+
+    with patch("backend.server.api.attendance._require_officer", _not_officer):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r1 = await c.put(
+                f"/api/guild/{_GUILD}/attendance/{sid}/override",
+                json={"character_name": "Tanky", "category": "afk"},
+            )
+            r2 = await c.delete(f"/api/guild/{_GUILD}/attendance/{sid}/character/Tanky")
+    assert r1.status_code == 403 and r2.status_code == 403

@@ -50,6 +50,10 @@ interface CharRow {
   first_seen: number | null
   last_seen: number | null
   owner_discord_id: string | null
+  /** An officer pinned this category (override beats the derived value). */
+  overridden: boolean
+  /** Display name of the correcting officer (detail response only). */
+  override_by?: string
 }
 
 interface UserRow {
@@ -105,6 +109,48 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
     setSelectedId(id)
     setDeleteError(null)
     detail.run(`/api/guild/${encodeURIComponent(guildName)}/attendance/${id}`)
+  }
+
+  function refreshAfterCorrection(id: number) {
+    detail.run(`/api/guild/${encodeURIComponent(guildName)}/attendance/${id}`)
+    list.refetch() // count pills follow the corrected categories
+  }
+
+  async function setCategory(id: number, name: string, category: Category | null) {
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/guild/${encodeURIComponent(guildName)}/attendance/${id}/override`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ character_name: name, category }),
+      })
+      if (!res.ok) {
+        setDeleteError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`)
+        return
+      }
+      refreshAfterCorrection(id)
+    } catch (err) {
+      setDeleteError(toErrorMessage(err))
+    }
+  }
+
+  async function removeCharacter(id: number, name: string) {
+    if (!window.confirm(`Remove ${name} from this session entirely? Use this for junk names — to fix someone's status, change the category instead.`)) return
+    setDeleteError(null)
+    try {
+      const res = await fetch(
+        `/api/guild/${encodeURIComponent(guildName)}/attendance/${id}/character/${encodeURIComponent(name)}`,
+        { method: 'DELETE', credentials: 'include' },
+      )
+      if (!res.ok) {
+        setDeleteError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`)
+        return
+      }
+      refreshAfterCorrection(id)
+    } catch (err) {
+      setDeleteError(toErrorMessage(err))
+    }
   }
 
   async function deleteSession(id: number) {
@@ -205,7 +251,14 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
             {view === 'players' && (
               <PlayersTable users={detail.data.users} characters={detail.data.characters} />
             )}
-            {view === 'characters' && <CharactersTable characters={detail.data.characters} />}
+            {view === 'characters' && (
+              <CharactersTable
+                characters={detail.data.characters}
+                isOfficer={detail.data.is_officer}
+                onSetCategory={(name, cat) => setCategory(selectedId, name, cat)}
+                onRemove={name => removeCharacter(selectedId, name)}
+              />
+            )}
           </>
         )}
       </div>
@@ -306,7 +359,20 @@ function PlayersTable({ users, characters }: { users: UserRow[]; characters: Cha
   )
 }
 
-function CharactersTable({ characters }: { characters: CharRow[] }) {
+function CharactersTable({
+  characters,
+  isOfficer,
+  onSetCategory,
+  onRemove,
+}: {
+  characters: CharRow[]
+  isOfficer: boolean
+  onSetCategory: (name: string, category: Category | null) => void
+  onRemove: (name: string) => void
+}) {
+  const [addName, setAddName] = useState('')
+  const [addCategory, setAddCategory] = useState<Category>('present')
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[0.85rem] border-collapse">
@@ -316,23 +382,92 @@ function CharactersTable({ characters }: { characters: CharRow[] }) {
             <th className="py-1.5 pr-3 font-normal">Role</th>
             <th className="py-1.5 pr-3 font-normal">Status</th>
             <th className="py-1.5 pr-3 font-normal">First seen</th>
-            <th className="py-1.5 font-normal">Last seen</th>
+            <th className="py-1.5 pr-3 font-normal">Last seen</th>
+            {isOfficer && <th className="py-1.5 font-normal">Correct</th>}
           </tr>
         </thead>
         <tbody>
           {characters.map(c => (
             <tr key={c.name} className="border-t border-border/50">
-              <td className="py-1.5 pr-3">{c.name}</td>
+              <td className="py-1.5 pr-3">
+                {c.name}
+                {c.overridden && (
+                  <span
+                    className="ml-1.5 text-gold text-[0.75rem]"
+                    title={`Corrected by ${c.override_by ?? 'an officer'} — the parser's derived status is overridden`}
+                  >
+                    ✎
+                  </span>
+                )}
+              </td>
               <td className="py-1.5 pr-3 text-text-muted">
                 {c.role === 'raid_alt' ? 'raid alt' : c.role ?? '—'}
               </td>
               <td className="py-1.5 pr-3"><CategoryBadge category={c.category} /></td>
               <td className="py-1.5 pr-3 text-text-muted">{c.first_seen ? fmtLocalTime(c.first_seen) : '—'}</td>
-              <td className="py-1.5 text-text-muted">{c.last_seen ? fmtLocalTime(c.last_seen) : '—'}</td>
+              <td className="py-1.5 pr-3 text-text-muted">{c.last_seen ? fmtLocalTime(c.last_seen) : '—'}</td>
+              {isOfficer && (
+                <td className="py-1.5 whitespace-nowrap">
+                  <select
+                    value={c.overridden ? c.category : ''}
+                    onChange={e =>
+                      onSetCategory(c.name, e.target.value === '' ? null : (e.target.value as Category))
+                    }
+                    aria-label={`Correct ${c.name}`}
+                    className="bg-surface border border-border rounded-sm px-1.5 py-0.5 text-[0.78rem]"
+                  >
+                    <option value="">derived{c.overridden ? ' (clear fix)' : ''}</option>
+                    {(Object.keys(CATEGORY_LABEL) as Category[]).map(cat => (
+                      <option key={cat} value={cat}>{CATEGORY_LABEL[cat]}</option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-1"
+                    onClick={() => onRemove(c.name)}
+                    title="Remove this row entirely (junk / mis-parsed names)"
+                  >
+                    ✕
+                  </Button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
+
+      {isOfficer && (
+        <div className="mt-3 pt-2 border-t border-border/50 flex flex-wrap items-center gap-2">
+          <span className="text-[0.75rem] text-text-muted">Missed someone? Add them by hand:</span>
+          <input
+            value={addName}
+            onChange={e => setAddName(e.target.value)}
+            placeholder="character name"
+            className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem] w-[150px]"
+          />
+          <select
+            value={addCategory}
+            onChange={e => setAddCategory(e.target.value as Category)}
+            className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem]"
+          >
+            {(Object.keys(CATEGORY_LABEL) as Category[]).map(cat => (
+              <option key={cat} value={cat}>{CATEGORY_LABEL[cat]}</option>
+            ))}
+          </select>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={!addName.trim()}
+            onClick={() => {
+              onSetCategory(addName.trim(), addCategory)
+              setAddName('')
+            }}
+          >
+            Add correction
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -63,11 +63,42 @@ FROM attendance_observations WHERE session_id = ?;
 SELECT session_id, character_name, kind, first_seen, last_seen
 FROM attendance_observations WHERE session_id IN ({placeholders});
 
+-- Officer category corrections (see attendance_overrides schema comment).
+-- :name upsert_override
+INSERT INTO attendance_overrides (session_id, character_name, category, set_by, set_at)
+VALUES (?, ?, ?, ?, strftime('%s','now'))
+ON CONFLICT(session_id, character_name) DO UPDATE SET
+    category = excluded.category,
+    set_by = excluded.set_by,
+    set_at = excluded.set_at;
+
+-- :name delete_override
+DELETE FROM attendance_overrides WHERE session_id = ? AND LOWER(character_name) = LOWER(?);
+
+-- :name select_overrides
+SELECT character_name, category, set_by, set_at
+FROM attendance_overrides WHERE session_id = ?;
+
+-- :name select_overrides_many
+-- {placeholders} = comma-joined "?" list composed in Python.
+SELECT session_id, character_name, category, set_by, set_at
+FROM attendance_overrides WHERE session_id IN ({placeholders});
+
+-- Row removal for junk names (mis-parses): kill the character's raid/online
+-- observations AND any override in one officer action. Voice rows key by
+-- discord id, not character name — untouched by design.
+-- :name delete_character_observations
+DELETE FROM attendance_observations
+WHERE session_id = ? AND LOWER(character_name) = LOWER(?) AND kind IN ('raid', 'online');
+
 -- users.db connections don't enable PRAGMA foreign_keys (see
 -- AsyncStoreBase._db), so the schema's ON DELETE CASCADE never fires —
 -- observations are deleted explicitly in the same transaction.
 -- :name delete_observations_for_session
 DELETE FROM attendance_observations WHERE session_id = ?;
+
+-- :name delete_overrides_for_session
+DELETE FROM attendance_overrides WHERE session_id = ?;
 
 -- :name delete_session
 DELETE FROM attendance_sessions WHERE id = ?;

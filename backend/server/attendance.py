@@ -81,12 +81,20 @@ def derive_categories(
     afk_by_user: dict[str, str],
     scheduled: bool,
     user_mains: dict[str, str] | None = None,
+    overrides: dict[str, dict] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Returns (char_rows, user_rows).
 
-    char_rows: {name, role, category, first_seen, last_seen, owner_discord_id}
+    char_rows: {name, role, category, first_seen, last_seen,
+                owner_discord_id, overridden}
     user_rows: {discord_id, category, afk_declared, characters: [names],
-                main: raid-main display name or None (see resolve_mains)}
+                main: raid-main display name or None (see resolve_mains),
+                in_voice}
+
+    ``overrides`` ({char_lower: {character_name, category, ...}} from
+    attendance_overrides) beats every derived category — officer corrections
+    are the last word. Overridden names join the universe even when never
+    observed (the "add a missed raider" case).
     """
     raid_obs = {o["character_name"]: o for o in obs if o["kind"] == "raid"}
     online_obs = {o["character_name"]: o for o in obs if o["kind"] == "online"}
@@ -102,6 +110,8 @@ def derive_categories(
             names.setdefault(o["character_name"].lower(), o["character_name"])
     for lower in roles:
         names.setdefault(lower, lower.capitalize())
+    for lower, ov in (overrides or {}).items():
+        names.setdefault(lower, ov.get("character_name") or lower.capitalize())
 
     char_rows: list[dict] = []
     for lower, display in names.items():
@@ -122,6 +132,10 @@ def derive_categories(
         else:
             category = "absent"
 
+        override = (overrides or {}).get(lower)
+        if override is not None:
+            category = override["category"]
+
         o = raid_obs.get(display) or online_obs.get(display)
         char_rows.append(
             {
@@ -131,6 +145,7 @@ def derive_categories(
                 "first_seen": o["first_seen"] if o else None,
                 "last_seen": o["last_seen"] if o else None,
                 "owner_discord_id": owner,
+                "overridden": override is not None,
             }
         )
 

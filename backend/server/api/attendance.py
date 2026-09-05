@@ -249,7 +249,9 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
 
     limit = max(1, min(limit, 100))
     sessions = await attendance_db.list_sessions(world, guild_name, limit=limit, before_id=before)
-    obs_by_session = await attendance_db.observations_for_sessions([s["id"] for s in sessions])
+    session_ids = [s["id"] for s in sessions]
+    obs_by_session = await attendance_db.observations_for_sessions(session_ids)
+    overrides_by_session = await attendance_db.overrides_for_sessions(session_ids)
 
     claims = await planning_db.claims_map(world)
     roles_rows = await planning_db.get_roles(world, guild_name)
@@ -259,7 +261,12 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
     for s in sessions:
         afk_by_user = await availability_db.statuses_for_day(s["session_day"])
         char_rows, _ = derive.derive_categories(
-            obs_by_session.get(s["id"], []), roles, claims, afk_by_user, bool(s["scheduled"])
+            obs_by_session.get(s["id"], []),
+            roles,
+            claims,
+            afk_by_user,
+            bool(s["scheduled"]),
+            overrides=overrides_by_session.get(s["id"], {}),
         )
         out.append(
             {
@@ -285,22 +292,105 @@ async def get_attendance_session(request: Request, guild_name: str, session_id: 
         raise HTTPException(status_code=404, detail="Attendance session not found.")
 
     obs = await attendance_db.observations_for_session(session_id)
+    overrides = await attendance_db.overrides_for_session(session_id)
     roles, claims, afk_by_user, user_mains = await _derivation_inputs(
         world, session["guild_name"], session["session_day"]
     )
     char_rows, user_rows = derive.derive_categories(
-        obs, roles, claims, afk_by_user, bool(session["scheduled"]), user_mains
+        obs, roles, claims, afk_by_user, bool(session["scheduled"]), user_mains, overrides=overrides
     )
 
-    display = await get_display_names_for_discord_ids([u["discord_id"] for u in user_rows])
+    corrector_ids = sorted({ov["set_by"] for ov in overrides.values()})
+    display = await get_display_names_for_discord_ids([u["discord_id"] for u in user_rows] + corrector_ids)
     for u in user_rows:
         u["display_name"] = display.get(u["discord_id"]) or f"User {u['discord_id'][-4:]}"
+    for row in char_rows:
+        if row["overridden"]:
+            ov = overrides[row["name"].lower()]
+            row["override_by"] = display.get(ov["set_by"]) or ov["set_by"]
 
     session["scheduled"] = bool(session["scheduled"])
     session["zones"] = json.loads(session["zones"] or "[]")
     # Uploader discord ids are an audit detail — officers only.
     session["uploaders"] = sorted(json.loads(session["uploaders"] or "{}")) if is_officer else None
     return {"is_officer": is_officer, "session": session, "characters": char_rows, "users": user_rows}
+
+
+class OverrideInput(BaseModel):
+    character_name: str = Field(min_length=1, max_length=32)
+    category: str | None = None  # present/sat_out/afk/awol/absent; null clears
+
+
+async def _officer_session(request: Request, guild_name: str, session_id: int) -> tuple[SessionUser, dict]:
+    """Shared gate for the correction endpoints: officer + subscriber +
+    the session actually belongs to this guild on this world."""
+    _validate_guild_name(guild_name)
+    user = await _require_officer(request, guild_name)
+    await _ensure_subscriber(user)
+    session = await attendance_db.get_session(session_id)
+    if session is None or session["world"] != current_world() or session["guild_name"].lower() != guild_name.lower():
+        raise HTTPException(status_code=404, detail="Attendance session not found.")
+    return user, session
+
+
+@router.put("/guild/{guild_name}/attendance/{session_id}/override")
+@limiter.limit("60/minute")
+async def put_attendance_override(request: Request, guild_name: str, session_id: int, body: OverrideInput) -> dict:
+    """Officer correction: pin a category onto one character for this
+    session (category null clears the correction and the derived truth
+    returns). Works for never-observed characters too — that's how a
+    missed raider is added by hand."""
+    user, _ = await _officer_session(request, guild_name, session_id)
+    name = _validate_character_name(body.character_name)
+    if name is None:
+        raise HTTPException(status_code=400, detail="character_name is invalid.")
+    name = name.capitalize()
+
+    if body.category is None:
+        cleared = await attendance_db.clear_override(session_id, name)
+        if cleared:
+            audit_log(
+                "attendance_override_cleared",
+                actor=str(user["id"]),
+                guild=guild_name,
+                session_id=session_id,
+                character=name,
+            )
+        return {"ok": True, "cleared": cleared}
+
+    if body.category not in derive.CATEGORY_ORDER:
+        raise HTTPException(status_code=400, detail=f"category must be one of {derive.CATEGORY_ORDER}.")
+    await attendance_db.set_override(session_id, name, body.category, set_by=str(user["id"]))
+    audit_log(
+        "attendance_override_set",
+        actor=str(user["id"]),
+        guild=guild_name,
+        session_id=session_id,
+        character=name,
+        category=body.category,
+    )
+    return {"ok": True, "cleared": False}
+
+
+@router.delete("/guild/{guild_name}/attendance/{session_id}/character/{character_name}")
+@limiter.limit("60/minute")
+async def delete_attendance_character(request: Request, guild_name: str, session_id: int, character_name: str) -> dict:
+    """Officer row removal — for junk names (mis-parses): the character's
+    raid/online observations and any override are deleted together."""
+    user, _ = await _officer_session(request, guild_name, session_id)
+    name = _validate_character_name(character_name)
+    if name is None:
+        raise HTTPException(status_code=400, detail="character_name is invalid.")
+    removed = await attendance_db.remove_character(session_id, name)
+    if removed:
+        audit_log(
+            "attendance_character_removed",
+            actor=str(user["id"]),
+            guild=guild_name,
+            session_id=session_id,
+            character=name,
+        )
+    return {"removed": removed}
 
 
 @router.delete("/guild/{guild_name}/attendance/{session_id}")

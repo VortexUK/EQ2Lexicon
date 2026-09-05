@@ -26,6 +26,7 @@ const DETAIL = {
       first_seen: 1_784_500_000,
       last_seen: 1_784_512_000,
       owner_discord_id: 'u1',
+      overridden: false,
     },
     {
       name: 'Alty',
@@ -34,8 +35,9 @@ const DETAIL = {
       first_seen: 1_784_500_000,
       last_seen: 1_784_512_000,
       owner_discord_id: 'u2',
+      overridden: false,
     },
-    { name: 'Ghosty', role: 'raider', category: 'awol', first_seen: null, last_seen: null, owner_discord_id: null },
+    { name: 'Ghosty', role: 'raider', category: 'awol', first_seen: null, last_seen: null, owner_discord_id: null, overridden: false },
   ],
   users: [
     { discord_id: 'u1', category: 'present', afk_declared: false, characters: ['Tanky'], display_name: 'Ben', main: 'Tanky', in_voice: false },
@@ -146,5 +148,36 @@ describe('GuildAttendanceTab', () => {
     expect(await screen.findByText('Ben')).toBeInTheDocument()
     expect(screen.queryByTitle(/raid voice channel/)).not.toBeInTheDocument()
     expect(screen.queryByText('in voice, not in game')).not.toBeInTheDocument()
+  })
+
+  it('shows officer correction controls and fires the override PUT', async () => {
+    const detail = { ...DETAIL, is_officer: true }
+    mockFetch({ is_officer: true, sessions: [SESSION] }, detail)
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByText('By character'))
+    const select = await screen.findByLabelText('Correct Ghosty')
+    fireEvent.change(select, { target: { value: 'present' } })
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const overrideCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/override'))
+    expect(overrideCall).toBeTruthy()
+    expect(overrideCall![1]).toMatchObject({ method: 'PUT' })
+    expect(JSON.parse(overrideCall![1].body)).toEqual({ character_name: 'Ghosty', category: 'present' })
+  })
+
+  it('marks corrected rows and hides controls from non-officers', async () => {
+    const detail = {
+      ...DETAIL,
+      characters: [
+        { ...DETAIL.characters[0], overridden: true, override_by: 'Vortex' },
+      ],
+    }
+    mockFetch({ is_officer: false, sessions: [SESSION] }, detail)
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByText('By character'))
+    expect(await screen.findByTitle(/Corrected by Vortex/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Correct /)).not.toBeInTheDocument()
+    expect(screen.queryByText('Add correction')).not.toBeInTheDocument()
   })
 })

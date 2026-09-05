@@ -369,3 +369,17 @@ CREATE TABLE IF NOT EXISTS discord_guild_links (
     linked_by         TEXT    NOT NULL,             -- discord id of the linker
     updated_at        INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
+
+-- Officer corrections to derived attendance categories, per session per
+-- character. Applied LAST by the derivation (overrides beat observation
+-- evidence); clearing a row restores the derived truth. The observed
+-- record itself is never edited - corrections stay auditable + reversible.
+CREATE TABLE IF NOT EXISTS attendance_overrides (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      INTEGER NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+    character_name  TEXT    NOT NULL,
+    category        TEXT    NOT NULL,             -- present/sat_out/afk/awol/absent
+    set_by          TEXT    NOT NULL,             -- officer discord id
+    set_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE(session_id, character_name)
+);
