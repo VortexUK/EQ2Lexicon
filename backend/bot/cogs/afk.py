@@ -110,9 +110,15 @@ class _AfkSelect(discord.ui.Select):
                     self._current[day] = status
         afk_days = sorted(d for d in self._days if self._current.get(d) == "afk")
         summary = ", ".join(_day_label(d) for d in afk_days) if afk_days else "none"
+        # Rebuild the view so the select's DEFAULTS match the new state:
+        # Discord visually resets a select to its original defaults after
+        # every submit, so without this a cleared day looked ticked again
+        # and the next interaction re-submitted (re-added) it. Seen live.
         await interaction.response.edit_message(
             content=f"Saved. You're marked **AFK** on: {summary}\n"
-            f"(The raid planner and attendance tracking update immediately.)",
+            f"(The raid planner and attendance tracking update immediately. "
+            f"Adjust again below if needed.)",
+            view=_AfkView(self._days, dict(self._current)),
         )
 
 
