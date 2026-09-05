@@ -9,6 +9,17 @@ FROM attendance_sessions
 WHERE world = ? AND guild_name = ? AND started_at <= ? AND ended_at >= ?
 ORDER BY started_at DESC LIMIT 1;
 
+-- Point-in-time probe for the voice poller: the session a snapshot at time
+-- T WOULD merge into (select_overlapping_session with a zero-width window,
+-- widened by the merge gap in Python). NOCASE both keys — the /lexicon
+-- registry stores canonical casing but belt-and-braces costs nothing.
+-- :name select_live_session
+SELECT id, session_day, started_at, ended_at
+FROM attendance_sessions
+WHERE world = ? COLLATE NOCASE AND guild_name = ? COLLATE NOCASE
+  AND started_at <= ? AND ended_at >= ?
+ORDER BY started_at DESC LIMIT 1;
+
 -- :name select_max_seq
 SELECT COALESCE(MAX(seq) + 1, 0) FROM attendance_sessions
 WHERE world = ? AND guild_name = ? AND session_day = ?;

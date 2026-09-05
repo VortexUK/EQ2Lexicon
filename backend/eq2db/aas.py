@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -175,6 +176,19 @@ class AACatalogue(BaseCatalogue):
             rows = self._query("select_node_costs", (tree_id,))
             self._node_costs[tree_id] = {int(r[0]): int(r[1]) for r in rows}
         return self._node_costs[tree_id]
+
+    def resolve_tree_id(self, tree_ids: Iterable[int], wanted_types: set[str]) -> int | None:
+        """First of ``tree_ids`` whose tree type is in ``wanted_types``
+        (e.g. {"tradeskill", "tradeskill_general"} for the bot's Trade
+        choice). None when the character has no matching tree."""
+        index = self.load_tree_index()
+        return next((tid for tid in tree_ids if index.get(tid, {}).get("type") in wanted_types), None)
+
+    def points_spent(self, tree_id: int, allocations: Mapping[int, int]) -> int:
+        """Total AA points a ``{node_id: tier}`` allocation spends in a tree
+        — Σ tier × points_per_tier (unknown nodes cost 1/tier)."""
+        costs = self.tree_node_costs(tree_id)
+        return sum(tier * costs.get(node_id, 1) for node_id, tier in allocations.items())
 
     def tree_max_points(self, tree_id: int) -> int:
         """The tree's fully-maxed point total (precomputed at build). Unknown → 0."""

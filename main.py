@@ -20,11 +20,30 @@ async def run_bot() -> None:
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise SystemExit("DISCORD_TOKEN is not set. Copy .env.example to .env and fill it in.")
+    import discord
+
     from backend.bot.bot import EQ2Bot
 
     bot = EQ2Bot()
-    async with bot:
-        await bot.start(token)
+    try:
+        async with bot:
+            await bot.start(token)
+    except discord.PrivilegedIntentsRequired:
+        # A missing dev-portal toggle must not take the web half down: log
+        # loudly and exit this supervised task cleanly (no restart storm).
+        logging.getLogger("supervisor.bot").critical(
+            "SERVER MEMBERS INTENT is not enabled for this bot. Enable it at "
+            "https://discord.com/developers/applications -> your app -> Bot -> "
+            "Privileged Gateway Intents, then restart. The web server continues without the bot."
+        )
+    except discord.LoginFailure:
+        # Bad token — restarting can't fix it; same clean-exit treatment.
+        logging.getLogger("supervisor.bot").critical(
+            "Discord rejected DISCORD_TOKEN (401). Get a fresh token from "
+            "https://discord.com/developers/applications -> your app -> Bot -> Reset Token, "
+            "update .env (and Railway if you reset it), then restart. "
+            "The web server continues without the bot."
+        )
 
 
 async def run_web() -> None:

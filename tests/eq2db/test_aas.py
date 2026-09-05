@@ -282,3 +282,22 @@ def test_committed_db_meta_stamps():
         assert aas.get_meta(conn, "built_at") is not None
     finally:
         conn.close()
+
+
+class TestBotHelpers:
+    """resolve_tree_id + points_spent — extracted from the /aacheck cog.
+    The instance caches make injection trivial: prime _tree_index /
+    _node_costs directly instead of mocking."""
+
+    def test_resolve_tree_id_first_match(self, cat):
+        cat._tree_index = {10: {"name": "Templar", "type": "subclass"}, 20: {"name": "Priest", "type": "class"}}
+        assert cat.resolve_tree_id([10, 20], {"class"}) == 20
+        assert cat.resolve_tree_id([10, 20], {"subclass"}) == 10
+        # Trade choice accepts either tradeskill type; none here.
+        assert cat.resolve_tree_id([10, 20], {"tradeskill", "tradeskill_general"}) is None
+        assert cat.resolve_tree_id([], {"class"}) is None
+
+    def test_points_spent_uses_per_tier_costs(self, cat):
+        cat._node_costs[5] = {1: 2}
+        # node 1 costs 2/tier; node 99 unknown -> default 1/tier
+        assert cat.points_spent(5, {1: 3, 99: 4}) == 3 * 2 + 4 * 1

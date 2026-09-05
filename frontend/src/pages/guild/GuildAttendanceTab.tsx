@@ -60,6 +60,8 @@ interface UserRow {
   display_name: string
   /** Raid-main character name (claimed raider, primary claim preferred). */
   main: string | null
+  /** Seen in the guild's raid voice channel during this session (Phase 3 bot). */
+  in_voice: boolean
 }
 
 interface AttDetailResponse {
@@ -263,8 +265,16 @@ function PlayersTable({ users, characters }: { users: UserRow[]; characters: Cha
               <td className="py-1.5 pr-3">
                 {u.display_name}
                 {u.main && <span className="text-text-muted text-[0.75rem]"> · {u.main}</span>}
+                {u.in_voice && (
+                  <span className="ml-1.5" title="In the raid voice channel during this session">🎧</span>
+                )}
               </td>
-              <td className="py-1.5 pr-3"><CategoryBadge category={u.category} /></td>
+              <td className="py-1.5 pr-3">
+                <CategoryBadge category={u.category} />
+                {u.category === 'awol' && u.in_voice && (
+                  <Badge variant="warning" className="ml-1.5">in voice, not in game</Badge>
+                )}
+              </td>
               <td className="py-1.5">
                 <span className="flex flex-wrap gap-x-3 gap-y-0.5">
                   {u.characters.map(name => {

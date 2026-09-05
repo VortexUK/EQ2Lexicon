@@ -43,8 +43,16 @@ _FACADE_EXEMPT = {
     "record_download",
     "count_for_slug",
     "counts",
+    # discord_links domain — the bot imports the store directly
+    "upsert_link",
+    "set_voice_channel",
+    "get_link",
+    "delete_link",
+    "list_voice_links",
     # attendance domain bypasses the facade too
     "apply_snapshot",
+    "find_live_session",
+    "record_voice",
     "list_sessions",
     "get_session",
     "observations_for_session",

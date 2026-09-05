@@ -742,3 +742,94 @@ async def test_guild_views_require_subscriber_role(app):
             detail = await c.get(f"/api/guild/{_GUILD}/attendance/{res['session_id']}")
     assert listing.status_code == 403
     assert detail.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — voice cross-check: live-session probe, voice recording, in_voice
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_find_live_session_window_edges():
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 3600)])
+    sid = res["session_id"]
+    # During the window, and within the merge gap after it → live.
+    assert (await attendance_db.find_live_session(_WORLD, _GUILD, T0 + 1800))["id"] == sid
+    assert (await attendance_db.find_live_session(_WORLD, _GUILD, T0 + 3600 + MERGE_GAP_S - 60))["id"] == sid
+    # Beyond the gap → nothing live.
+    assert await attendance_db.find_live_session(_WORLD, _GUILD, T0 + 3600 + MERGE_GAP_S + 60) is None
+    # Other guild / world → nothing.
+    assert await attendance_db.find_live_session(_WORLD, "Otherguild", T0 + 1800) is None
+    assert (
+        await attendance_db.find_live_session("Varsoon" if _WORLD != "Varsoon" else "Wuoshi", _GUILD, T0 + 1800) is None
+    )
+    # Case-insensitive keys (belt-and-braces).
+    assert (await attendance_db.find_live_session(_WORLD.upper(), _GUILD.lower(), T0 + 1800))["id"] == sid
+
+
+@pytest.mark.asyncio
+async def test_record_voice_upserts_commutatively():
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 3600)])
+    sid = res["session_id"]
+    await attendance_db.record_voice(sid, ["111", "222"], T0 + 100)
+    await attendance_db.record_voice(sid, ["111"], T0 + 700)  # later tick extends last_seen
+    await attendance_db.record_voice(sid, [], T0 + 800)  # empty tick is a no-op
+    obs = await attendance_db.observations_for_session(sid)
+    voice = {o["character_name"]: o for o in obs if o["kind"] == "voice"}
+    assert set(voice) == {"111", "222"}
+    assert (voice["111"]["first_seen"], voice["111"]["last_seen"]) == (T0 + 100, T0 + 700)
+    assert (voice["222"]["first_seen"], voice["222"]["last_seen"]) == (T0 + 100, T0 + 100)
+
+
+def test_derivation_in_voice_flags_users_not_characters():
+    obs = [
+        _obs("Tanky", "raid"),
+        _obs("Ghosty", "online"),
+        # voice rows carry DISCORD IDS in character_name
+        {"session_id": 1, "character_name": "u-present", "kind": "voice", "first_seen": T0, "last_seen": T0 + 600},
+        {"session_id": 1, "character_name": "u-awol", "kind": "voice", "first_seen": T0, "last_seen": T0 + 600},
+        {"session_id": 1, "character_name": "u-stranger", "kind": "voice", "first_seen": T0, "last_seen": T0},
+    ]
+    roles = {"tanky": "raider", "ghosty": "raider", "awoly": "raider"}
+    claims = {"tanky": "u-present", "ghosty": "u-bench", "awoly": "u-awol"}
+    char_rows, user_rows = derive_categories(obs, roles, claims, {}, scheduled=True)
+
+    # Voice ids never appear as characters.
+    assert not any(r["name"] in ("u-present", "u-awol", "u-stranger") for r in char_rows)
+
+    users = {u["discord_id"]: u for u in user_rows}
+    assert users["u-present"]["category"] == "present" and users["u-present"]["in_voice"] is True
+    assert users["u-bench"]["in_voice"] is False
+    # THE Phase-3 payoff: AWOL in game but sitting in voice.
+    assert users["u-awol"]["category"] == "awol" and users["u-awol"]["in_voice"] is True
+    # A voice id with no claimed characters produces no user row at all.
+    assert "u-stranger" not in users
+
+
+@pytest.mark.asyncio
+async def test_detail_route_carries_in_voice(app):
+    from backend.server.db.raid_planning import store as planning_store
+
+    await planning_store.set_role(_WORLD, _GUILD, "Tanky", "raider", updated_by="u1")
+    from backend.server.db.claims import store as claims_store
+
+    claim = await claims_store.submit_claim("u-voice", "Tanky", world=_WORLD)
+    await claims_store.review_claim(claim["id"], "approved", admin_id="admin")
+
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    await attendance_db.record_voice(res["session_id"], ["u-voice"], T0 + 100)
+
+    p_member, _ = _member_gate_patches()
+    with p_member:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            detail = (await c.get(f"/api/guild/{_GUILD}/attendance/{res['session_id']}")).json()
+    users = {u["discord_id"]: u for u in detail["users"]}
+    assert users["u-voice"]["in_voice"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_session_removes_voice_rows_too():
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    await attendance_db.record_voice(res["session_id"], ["111"], T0 + 100)
+    await attendance_db.delete_session(res["session_id"])
+    assert await attendance_db.observations_for_session(res["session_id"]) == []

@@ -38,8 +38,8 @@ const DETAIL = {
     { name: 'Ghosty', role: 'raider', category: 'awol', first_seen: null, last_seen: null, owner_discord_id: null },
   ],
   users: [
-    { discord_id: 'u1', category: 'present', afk_declared: false, characters: ['Tanky'], display_name: 'Ben', main: 'Tanky' },
-    { discord_id: 'u2', category: 'present', afk_declared: false, characters: ['Alty'], display_name: 'Sam', main: 'Mainy' },
+    { discord_id: 'u1', category: 'present', afk_declared: false, characters: ['Tanky'], display_name: 'Ben', main: 'Tanky', in_voice: false },
+    { discord_id: 'u2', category: 'present', afk_declared: false, characters: ['Alty'], display_name: 'Sam', main: 'Mainy', in_voice: true },
   ],
 }
 
@@ -103,6 +103,7 @@ describe('GuildAttendanceTab', () => {
     fireEvent.click(await screen.findByText('18 present'))
     expect(await screen.findByText('Ben')).toBeInTheDocument()
     expect(screen.getByText('· Mainy')).toBeInTheDocument() // Sam's raid main shown despite alting
+    expect(screen.getByTitle(/raid voice channel/)).toBeInTheDocument() // Sam's headset marker
     expect(screen.getByText('Alty (alt)')).toBeInTheDocument() // raid alt credits its owner
     expect(screen.getByText(/Unclaimed: Ghosty/)).toBeInTheDocument()
     fireEvent.click(screen.getByText('By character'))
@@ -115,5 +116,35 @@ describe('GuildAttendanceTab', () => {
     render(<GuildAttendanceTab guildName="Exordium" />)
     fireEvent.click(await screen.findByText('18 present'))
     expect(await screen.findByRole('button', { name: /Delete session/ })).toBeInTheDocument()
+  })
+
+  it('flags AWOL players who were sitting in voice', async () => {
+    const detail = {
+      ...DETAIL,
+      users: [
+        {
+          discord_id: 'u3',
+          category: 'awol',
+          afk_declared: false,
+          characters: ['Ghosty'],
+          display_name: 'Lurker',
+          main: 'Ghosty',
+          in_voice: true,
+        },
+      ],
+    }
+    mockFetch({ is_officer: false, sessions: [SESSION] }, detail)
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    expect(await screen.findByText('in voice, not in game')).toBeInTheDocument()
+  })
+
+  it('shows neither voice marker for players not in voice', async () => {
+    mockFetch({ is_officer: false, sessions: [SESSION] }, { ...DETAIL, users: [DETAIL.users[0]] })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    expect(await screen.findByText('Ben')).toBeInTheDocument()
+    expect(screen.queryByTitle(/raid voice channel/)).not.toBeInTheDocument()
+    expect(screen.queryByText('in voice, not in game')).not.toBeInTheDocument()
   })
 })

@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from backend.census.config import WORLD
+from backend.bot.guild_context import resolve_guild_context
 from backend.eq2db.aas import catalogue as aa_db
 from backend.image.aa_tree import render_tree
 
@@ -35,7 +35,6 @@ _TREE_CHOICES = [
 class AaCheckCog(commands.Cog):
     def __init__(self, bot: EQ2Bot) -> None:
         self.bot = bot
-        self.world = WORLD
 
     @app_commands.command(name="aacheck", description="Show a character's AA allocations for a tree")
     @app_commands.describe(
@@ -50,22 +49,18 @@ class AaCheckCog(commands.Cog):
         tree: app_commands.Choice[str],
     ) -> None:
         await interaction.response.defer(thinking=True)
+        ctx = await resolve_guild_context(interaction.guild_id)
 
-        char_aas = await self.bot.census.get_character_aas(character, self.world)
+        char_aas = await self.bot.census.get_character_aas(character, ctx.world)
         if char_aas is None:
             await interaction.followup.send(
-                f"No character found for **{character}** on **{self.world}**.",
+                f"No character found for **{character}** on **{ctx.world}**.",
                 ephemeral=True,
             )
             return
 
-        # Find the tree ID matching the chosen type
-        tree_index = aa_db.load_tree_index()
         wanted_types = _CHOICE_TO_TYPES.get(tree.value, {tree.value})
-        tree_id = next(
-            (tid for tid in char_aas.tree_ids if tree_index.get(tid, {}).get("type") in wanted_types),
-            None,
-        )
+        tree_id = aa_db.resolve_tree_id(char_aas.tree_ids, wanted_types)
         if tree_id is None:
             await interaction.followup.send(
                 f"**{char_aas.character_name}** has no AAs in a **{tree.name}** tree.",
@@ -81,14 +76,12 @@ class AaCheckCog(commands.Cog):
             await interaction.followup.send(f"Failed to render tree: {exc}", ephemeral=True)
             raise
 
-        tree_name = tree_index.get(tree_id, {}).get("name", str(tree_id))
+        tree_name = aa_db.load_tree_index().get(tree_id, {}).get("name", str(tree_id))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
 
-        # Points spent = Σ tier × pointspertier (some nodes cost 2 points/tier).
-        costs = aa_db.tree_node_costs(tree_id)
-        total = sum(tier * costs.get(node_id, 1) for node_id, tier in aa_data.items())
+        total = aa_db.points_spent(tree_id, aa_data)
         await interaction.followup.send(
             content=f"**{char_aas.character_name}** — {tree_name} ({total} AAs)",
             file=discord.File(buf, filename="aacheck.png"),

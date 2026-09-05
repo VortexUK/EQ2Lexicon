@@ -19,6 +19,7 @@ Mirrors the favorites/raid_schedule domain pattern: per-call connections via
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -136,6 +137,30 @@ class AttendanceStore(AsyncStoreBase):
                 await db.rollback()
                 raise
         return {"session_id": session_id, "session_day": session_day, "merged": merged}
+
+    async def find_live_session(self, world: str, guild_name: str, at: int) -> dict | None:
+        """The session a snapshot at time ``at`` would merge into — the
+        voice poller's "is a raid happening right now?" probe. None when
+        nothing is within the merge gap."""
+        async with self._db(row_factory=True) as db:
+            async with db.execute(
+                _SQL["select_live_session"],
+                (world, guild_name, at + MERGE_GAP_S, at - MERGE_GAP_S),
+            ) as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+
+    async def record_voice(self, session_id: int, discord_ids: Sequence[str], seen_at: int) -> None:
+        """Record who was in the raid voice channel at ``seen_at`` — one
+        kind='voice' observation per Discord id (the character_name column
+        carries the id, as the schema reserves). The commutative MIN/MAX
+        upsert makes repeated ticks extend last_seen only."""
+        if not discord_ids:
+            return
+        async with self._db() as db:
+            for did in discord_ids:
+                await db.execute(_SQL["upsert_observation"], (session_id, did, "voice", seen_at, seen_at))
+            await db.commit()
 
     async def list_sessions(
         self, world: str, guild_name: str, *, limit: int = 50, before_id: int | None = None

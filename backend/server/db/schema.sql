@@ -355,3 +355,17 @@ CREATE TABLE IF NOT EXISTS aa_plans (
 );
 
 CREATE INDEX IF NOT EXISTS idx_aa_plans_owner ON aa_plans(discord_id, world, character_name);
+
+-- Per-Discord-guild registry linking a Discord server to an EQ2 guild.
+-- Configured via the bot's /lexicon command group (manage_guild gated).
+-- voice_channel_id is the raid voice channel polled by the Phase 3
+-- voice-attendance cog. Brand-new table so CREATE TABLE IF NOT EXISTS is
+-- enough on existing DBs and no migration entry is needed.
+CREATE TABLE IF NOT EXISTS discord_guild_links (
+    discord_guild_id  TEXT PRIMARY KEY,             -- Discord snowflake as text
+    world             TEXT    NOT NULL,             -- canonical world casing
+    guild_name        TEXT    NOT NULL,             -- canonical Census casing
+    voice_channel_id  TEXT,                         -- NULL = voice polling off
+    linked_by         TEXT    NOT NULL,             -- discord id of the linker
+    updated_at        INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);

@@ -90,6 +90,9 @@ def derive_categories(
     """
     raid_obs = {o["character_name"]: o for o in obs if o["kind"] == "raid"}
     online_obs = {o["character_name"]: o for o in obs if o["kind"] == "online"}
+    # kind='voice' rows carry DISCORD IDS in character_name (Phase 3 bot).
+    # They never enter the character universe — they only flag the player.
+    voice_ids = {o["character_name"] for o in obs if o["kind"] == "voice"}
 
     # Universe: everyone observed + every rostered character (total no-shows
     # must surface for AWOL).
@@ -145,6 +148,7 @@ def derive_categories(
                 "afk_declared": afk_by_user.get(owner) == "afk",
                 "characters": [],
                 "main": (user_mains or {}).get(owner),
+                "in_voice": owner in voice_ids,
             },
         )
         entry["characters"].append(row["name"])
