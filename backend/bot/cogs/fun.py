@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import random
@@ -10,7 +11,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from backend.bot.guild_context import resolve_guild_context
 from backend.census.config import LAUNCH_DT_ISO
+from backend.server.db.servers import store as servers_db
+from backend.server.xpac_rollover import parse_dt
 
 # ---------------------------------------------------------------------------
 # Data paths
@@ -20,13 +24,63 @@ _INSULTS_PATH = _DATA / "insult_creator.json"
 _TIME_METRICS_PATH = _DATA / "time_metrics.json"
 
 # ---------------------------------------------------------------------------
-# Launch target — read from config so it can be updated via env var
+# Launch target — the servers registry is the source of truth (per-guild
+# world via /lexicon link): the server's own launch while it hasn't opened
+# yet, then whichever expansion the admins have scheduled (next_xpac_dt,
+# the same instant the countdown banner and auto-rollover use). The env
+# LAUNCH_DT survives only as a fallback for a missing registry row.
 # ---------------------------------------------------------------------------
 LAUNCH_DT: datetime | None
 try:
     LAUNCH_DT = datetime.fromisoformat(LAUNCH_DT_ISO.replace("Z", "+00:00")) if LAUNCH_DT_ISO else None
 except ValueError:
     LAUNCH_DT = None
+
+#: Expansion short code (as stored in servers.next_xpac) → announcement name.
+_XPAC_FULL_NAMES: dict[str, str] = {
+    "DoF": "Desert of Flames",
+    "KoS": "Kingdom of Sky",
+    "EoF": "Echoes of Faydwer",
+    "RoK": "Rise of Kunark",
+    "TSO": "The Shadow Odyssey",
+    "SF": "Sentinel's Fate",
+    "DoV": "Destiny of Velious",
+    "AoD": "Age of Discovery",
+    "CoE": "Chains of Eternity",
+    "ToV": "Tears of Veeshan",
+    "AoM": "Altar of Malice",
+    "ToT": "Terrors of Thalumbra",
+    "KA": "Kunark Ascending",
+    "PoP": "Planes of Prophecy",
+}
+_XPAC_BY_LOWER = {k.lower(): v for k, v in _XPAC_FULL_NAMES.items()}
+
+
+def xpac_full_name(code: str) -> str:
+    """Announcement name for a short code; unknown codes pass through."""
+    return _XPAC_BY_LOWER.get(code.lower(), code)
+
+
+def next_launch_target(row: dict | None, now: datetime) -> tuple[str, datetime] | None:
+    """(label, instant) of the next launch on this server: the server itself
+    while it hasn't opened yet, else the scheduled expansion. None = nothing
+    on the calendar. A missing registry row falls back to the env date."""
+    if row is None:
+        return ("The server", LAUNCH_DT) if LAUNCH_DT else None
+    launch = parse_dt(row.get("launch_dt"))
+    if launch is not None and launch > now:
+        return ("The server", launch)
+    xpac_dt = parse_dt(row.get("next_xpac_dt"))
+    if row.get("next_xpac") and xpac_dt is not None:
+        return (xpac_full_name(row["next_xpac"]), xpac_dt)
+    return None
+
+
+def format_launch_dt(dt: datetime) -> str:
+    """'14 September 2026, 17:00 UTC' — no %-d (it breaks on Windows)."""
+    dt = dt.astimezone(UTC)
+    return f"{dt.day} {dt:%B %Y}, {dt:%H:%M} UTC"
+
 
 # ---------------------------------------------------------------------------
 # Owner identities  (set OWNER_DISCORD_ID env var to your numeric Discord ID
@@ -94,23 +148,31 @@ class FunCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="when", description="How long until the EQ2 server launch?")
+    @app_commands.command(name="when", description="How long until the next EQ2 launch (server or expansion)?")
     async def when(self, interaction: discord.Interaction) -> None:
-        if LAUNCH_DT is None:
-            await interaction.response.send_message("No launch date configured.", ephemeral=True)
-            return
+        ctx = await resolve_guild_context(interaction.guild_id)
+        row = await asyncio.to_thread(servers_db.get_server_by_world_sync, ctx.world)
 
         now = datetime.now(UTC)
-        delta = (LAUNCH_DT - now).total_seconds()
-        dt_str = LAUNCH_DT.strftime("%-d %B %Y, %H:%M UTC") if hasattr(LAUNCH_DT, "strftime") else LAUNCH_DT_ISO
+        target = next_launch_target(row, now)
+        if target is None:
+            await interaction.response.send_message(
+                "Nothing on the launch calendar right now — no expansion is scheduled yet.",
+                ephemeral=True,
+            )
+            return
 
+        label, when_dt = target
+        delta = (when_dt - now).total_seconds()
         if delta <= 0:
-            await interaction.response.send_message("🎉 **The server is live!** Get in there!", ephemeral=False)
+            await interaction.response.send_message(f"🎉 **{label} is live!** Get in there!", ephemeral=False)
             return
 
         if _is_owner(interaction.user):
             countdown = _normal_countdown(delta)
-            await interaction.response.send_message(f"⏳ Server launches in: {countdown}\n*({dt_str})*")
+            await interaction.response.send_message(
+                f"⏳ {label} launches in: {countdown}\n*({format_launch_dt(when_dt)})*"
+            )
             return
 
         # --- Everyone else gets the obtuse treatment ---
@@ -124,5 +186,5 @@ class FunCog(commands.Cog):
         username = interaction.user.display_name
         article, insult = insult
         await interaction.response.send_message(
-            f"The server launches in approximately **{metric_str}**.\n\nYou're {article} {insult}, {username}."
+            f"**{label}** launches in approximately **{metric_str}**.\n\nYou're {article} {insult}, {username}."
         )
