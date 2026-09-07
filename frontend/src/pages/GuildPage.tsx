@@ -81,13 +81,7 @@ function InfoStat({ label, value }: { label: string; value: string }) {
 
 // ── Claim requests tab (officers only) ───────────────────────────────────────
 
-function ClaimRequestsTab({
-  guildName,
-  currentDiscordId,
-}: {
-  guildName: string
-  currentDiscordId: string
-}) {
+function ClaimRequestsTab({ guildName }: { guildName: string }) {
   const [claims, setClaims]     = useState<GuildClaimItem[] | null>(null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
@@ -149,7 +143,7 @@ function ClaimRequestsTab({
   return (
     <div className="px-4 py-3">
       {claims.map(c => {
-        const isOwn    = c.discord_id === currentDiscordId
+        const isOwn    = c.is_own
         const isBusy   = busy === c.id
         const rejecting = rejectId === c.id
         const age = Math.floor((Date.now() / 1000 - c.requested_at) / 3600)
@@ -554,8 +548,6 @@ export default function GuildPage() {
     if (!isOfficer && (tab === 'claims' || tab === 'watch')) setTab('roster')
   }, [isOfficer, tab])
 
-  const currentDiscordId = auth.status === 'authenticated' ? auth.user.id : ''
-
   const guildDisplayName = roster?.name ?? spells?.guild_name ?? adorns?.guild_name ?? '…'
   const guildWorld = roster?.world ?? ''
   const memberCount = roster?.members.length
@@ -732,7 +724,7 @@ export default function GuildPage() {
       {/* Claim requests — officers only, self-contained loading */}
       {tab === 'claims' && isOfficer && guildName && (
         <Card className="p-0">
-          <ClaimRequestsTab guildName={guildName} currentDiscordId={currentDiscordId} />
+          <ClaimRequestsTab guildName={guildName} />
         </Card>
       )}
 

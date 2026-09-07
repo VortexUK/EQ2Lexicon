@@ -25,6 +25,11 @@ router = APIRouter(tags=["guild"])
 
 class GuildClaimItem(BaseModel):
     id: int
+    # The claimant's Discord id — officers reviewing a claim already see the
+    # claimant's Discord name, and the frontend needs the id to build the
+    # avatar CDN URL (both the custom-avatar path and the default-bucket
+    # fallback derive from it).
+    discord_id: str
     discord_name: str
     avatar: str | None = None
     character_name: str
@@ -74,6 +79,7 @@ async def get_guild_claims(guild_name: str, request: Request) -> list[GuildClaim
     return [
         GuildClaimItem(
             id=c["id"],
+            discord_id=c["discord_id"],
             discord_name=c["discord_name"],
             avatar=c.get("avatar"),
             character_name=c["character_name"],
@@ -107,6 +113,7 @@ async def officer_approve_claim(guild_name: str, claim_id: int, request: Request
     invalidate_user_claim_cache_all_worlds(result["discord_id"])
     return GuildClaimItem(
         id=result["id"],
+        discord_id=result["discord_id"],
         discord_name=result["discord_name"],
         avatar=result.get("avatar"),
         character_name=result["character_name"],

@@ -53,9 +53,17 @@ export function useAuth(): AuthState {
  * Used directly by components that receive (id, avatar) separately
  * (e.g. admin and guild claim lists).
  */
-export function discordAvatarUrl(id: string, avatar: string | null): string {
-  if (avatar) return `https://cdn.discordapp.com/avatars/${id}/${avatar}.png`
-  const index = Number(BigInt(id) >> 22n) % 6
+export function discordAvatarUrl(id: string | undefined, avatar: string | null): string {
+  if (id && avatar) return `https://cdn.discordapp.com/avatars/${id}/${avatar}.png`
+  // Default-bucket index derives from the snowflake. A missing or
+  // non-numeric id must degrade to bucket 0, never crash the page —
+  // BigInt(undefined) throwing here once blanked the guild claims tab.
+  let index = 0
+  try {
+    index = Number(BigInt(id ?? '') >> 22n) % 6
+  } catch {
+    // keep bucket 0
+  }
   return `https://cdn.discordapp.com/embed/avatars/${index}.png`
 }
 

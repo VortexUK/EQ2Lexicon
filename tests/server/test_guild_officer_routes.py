@@ -167,6 +167,10 @@ class TestGetGuildClaims:
         names = [c["character_name"] for c in body]
         assert "Sihtric" in names
         assert "Ghost" not in names
+        # The claimant's discord_id ships to officers — the frontend builds
+        # the avatar CDN URL from it (a missing id once blanked the tab:
+        # BigInt(undefined) in the default-avatar fallback).
+        assert body[0]["discord_id"] == "other-user"
 
     async def test_own_claim_marked_is_own_true(self, app):
         """A claim belonging to the requesting officer has is_own=True."""
