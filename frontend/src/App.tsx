@@ -94,6 +94,7 @@ const PARTNERS = [
   { href: 'https://at-age-s-end.web.app/?utm_source=eq2lexicon', src: '/partner-aae.webp', label: "At Age's End" },
   { href: 'https://eq2tleraid.com/?utm_source=eq2lexicon', src: '/partner-eq2tleraid.webp', label: 'EQ2 TLE Raid' },
   { href: 'https://eq2broker.com/?utm_source=eq2lexicon', src: '/partner-eq2broker.webp', label: 'EQ2 Broker' },
+  { href: 'https://eq2advanced.com/?utm_source=eq2lexicon', src: '/partner-eq2advanced.webp', label: 'EQ2 Advanced' },
 ]
 
 function PartnerLinks() {
