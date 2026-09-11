@@ -53,6 +53,10 @@ _MAX_RAID = 100
 _MAX_ONLINE = 1000
 _CLOCK_PAST_S = 36 * 3600
 _CLOCK_FUTURE_S = 3600
+# One raid night never spans this long. Pre-0.5.4 parsers accumulated state
+# for days (no session lifecycle) and uploaded windows stretching back to
+# the clock clamp — those snapshots minted day-long phantom sessions.
+_MAX_WINDOW_S = 12 * 3600
 
 
 async def _ensure_subscriber(user: SessionUser | TokenUser) -> None:
@@ -147,6 +151,11 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
     # team. The result freezes onto the session so later edits keep history.
     points = [m["first_seen"] for m in raid + online] + [m["last_seen"] for m in raid + online]
     win = (min(points), max(points))
+    if win[1] - win[0] > _MAX_WINDOW_S:
+        raise HTTPException(
+            status_code=422,
+            detail="Snapshot spans an implausibly long window for one raid night — update EQ2Parser.",
+        )
     teams = await schedule_db.get_schedule(world, guild)
     scheduled, team_index = False, None
     for i, team in enumerate(teams):
@@ -391,6 +400,40 @@ async def delete_attendance_character(request: Request, guild_name: str, session
             character=name,
         )
     return {"removed": removed}
+
+
+class BulkDeleteInput(BaseModel):
+    session_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+@router.post("/guild/{guild_name}/attendance/bulk-delete")
+@limiter.limit("10/minute")
+async def bulk_delete_attendance_sessions(request: Request, guild_name: str, body: BulkDeleteInput) -> dict:
+    """Officer moderation at cleanup scale — a broken parser once minted
+    dozens of phantom sessions a day, and deleting them one endpoint call
+    at a time was untenable. Sessions that don't belong to this guild on
+    this world are silently skipped, so a stale id can't fail the batch."""
+    _validate_guild_name(guild_name)
+    user = await _require_officer(request, guild_name)
+    await _ensure_subscriber(user)
+    world = current_world()
+
+    deleted: list[int] = []
+    for session_id in dict.fromkeys(body.session_ids):
+        session = await attendance_db.get_session(session_id)
+        if session is None or session["world"] != world or session["guild_name"].lower() != guild_name.lower():
+            continue
+        if await attendance_db.delete_session(session_id):
+            deleted.append(session_id)
+    if deleted:
+        audit_log(
+            "attendance_sessions_bulk_deleted",
+            actor=str(user["id"]),
+            guild=guild_name,
+            count=len(deleted),
+            session_ids=",".join(map(str, deleted)),
+        )
+    return {"deleted": len(deleted)}
 
 
 @router.delete("/guild/{guild_name}/attendance/{session_id}")

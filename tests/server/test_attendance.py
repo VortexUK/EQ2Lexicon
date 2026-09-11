@@ -520,6 +520,56 @@ async def test_delete_route_officer_only(app):
     assert await attendance_db.get_session(res["session_id"]) is None
 
 
+@pytest.mark.asyncio
+async def test_ingest_window_wider_than_a_raid_night_rejected(app):
+    """Pre-0.5.4 parsers accumulated tracker state for DAYS (no session
+    lifecycle) and uploaded windows stretching back to the 36h clock clamp
+    — every such snapshot minted a phantom day-long session. They bounce
+    at the door now, with a detail pointing at the parser update."""
+    now = int(time.time())
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        res = await _post_ingest(
+            app,
+            _ingest_payload(raid_members=[{"name": "Tanky", "first_seen": now - 20 * 3600, "last_seen": now}]),
+        )
+    assert res.status_code == 422
+    assert "update EQ2Parser" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_removes_only_this_guilds_sessions(app):
+    res1 = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    res2 = await _snapshot("u1", [_member("Healy", T0 + 90_000, T0 + 90_600)])  # next day → own session
+    other = await attendance_db.apply_snapshot(
+        world=_WORLD,
+        guild_name="Other Guild",
+        discord_id="u1",
+        sent_at=T0,
+        raid_members=[_member("Stranger", T0, T0 + 600)],
+        online_guildies=[],
+        zones=[],
+        scheduled=False,
+        team_index=None,
+    )
+    assert res1["session_id"] != res2["session_id"]
+
+    _, p_officer = _member_gate_patches(officer=True)
+    with p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(
+                f"/api/guild/{_GUILD}/attendance/bulk-delete",
+                json={"session_ids": [res1["session_id"], res2["session_id"], other["session_id"], 999_999]},
+            )
+    assert resp.status_code == 200, resp.text
+    # Both of ours went; the other guild's session and the unknown id were
+    # silently skipped rather than failing the batch.
+    assert resp.json()["deleted"] == 2
+    assert await attendance_db.get_session(res1["session_id"]) is None
+    assert await attendance_db.get_session(res2["session_id"]) is None
+    assert await attendance_db.get_session(other["session_id"]) is not None
+
+
 # ---------------------------------------------------------------------------
 # End-to-end: two uploaders, real roles/claims/availability, one merged
 # session with correct categories (the plan's Phase-2 verification scenario)

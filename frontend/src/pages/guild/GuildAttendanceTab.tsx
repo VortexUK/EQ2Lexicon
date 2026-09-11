@@ -104,6 +104,9 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [view, setView] = useState<'players' | 'characters'>('players')
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Officer bulk cleanup: junk sessions arrive in batches (a broken parser
+  // once minted dozens a day) — one-by-one deletion doesn't scale.
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
 
   function openSession(id: number) {
     setSelectedId(id)
@@ -165,6 +168,38 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
         return
       }
       setSelectedId(null)
+      list.refetch()
+    } catch (err) {
+      setDeleteError(toErrorMessage(err))
+    }
+  }
+
+  function toggleChecked(id: number) {
+    setCheckedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkDelete() {
+    const ids = [...checkedIds]
+    if (ids.length === 0) return
+    if (!window.confirm(`Delete ${ids.length} attendance session${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/guild/${encodeURIComponent(guildName)}/attendance/bulk-delete`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_ids: ids }),
+      })
+      if (!res.ok) {
+        setDeleteError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`)
+        return
+      }
+      setCheckedIds(new Set())
       list.refetch()
     } catch (err) {
       setDeleteError(toErrorMessage(err))
@@ -266,11 +301,43 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
   }
 
   // ── list view ──
+  const allChecked = sessions.length > 0 && checkedIds.size === sessions.length
   return (
     <div className="p-4 flex flex-col gap-2">
+      {isOfficer && (
+        <div className="flex items-center gap-2.5 pb-1">
+          <label className="flex items-center gap-1.5 text-[0.8rem] text-text-muted cursor-pointer">
+            <input
+              type="checkbox"
+              className="cursor-pointer"
+              checked={allChecked}
+              onChange={() => setCheckedIds(allChecked ? new Set() : new Set(sessions.map(s => s.id)))}
+            />
+            Select all
+          </label>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={checkedIds.size === 0}
+            onClick={bulkDelete}
+          >
+            Delete selected ({checkedIds.size})
+          </Button>
+          {deleteError && <span className="text-danger text-[0.8rem]">{deleteError}</span>}
+        </div>
+      )}
       {sessions.map(s => (
+        <div key={s.id} className="flex items-center gap-2">
+          {isOfficer && (
+            <input
+              type="checkbox"
+              className="cursor-pointer shrink-0"
+              aria-label={`Select session ${s.id}`}
+              checked={checkedIds.has(s.id)}
+              onChange={() => toggleChecked(s.id)}
+            />
+          )}
         <button
-          key={s.id}
           type="button"
           onClick={() => openSession(s.id)}
           className="appearance-none bg-transparent text-left w-full border border-border rounded-md px-3 py-2 cursor-pointer hover:border-gold/50 transition-colors flex flex-wrap items-center gap-2"
@@ -292,6 +359,7 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
             {s.scheduled && s.counts.awol > 0 && <Badge variant="danger">{s.counts.awol} AWOL</Badge>}
           </span>
         </button>
+        </div>
       ))}
     </div>
   )

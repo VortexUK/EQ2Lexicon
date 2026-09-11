@@ -180,4 +180,32 @@ describe('GuildAttendanceTab', () => {
     expect(screen.queryByLabelText(/Correct /)).not.toBeInTheDocument()
     expect(screen.queryByText('Add correction')).not.toBeInTheDocument()
   })
+
+  it('lets officers select-all and bulk delete, confirming first', async () => {
+    const second = { ...SESSION, id: 8, seq: 1, counts: { present: 60, sat_out: 15, afk: 0, awol: 0 } }
+    mockFetch({ is_officer: true, sessions: [SESSION, second] })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    render(<GuildAttendanceTab guildName="Exordium" />)
+
+    const selectAll = await screen.findByLabelText('Select all')
+    const deleteBtn = screen.getByRole('button', { name: /Delete selected \(0\)/ })
+    expect(deleteBtn).toBeDisabled()
+
+    fireEvent.click(selectAll)
+    fireEvent.click(screen.getByRole('button', { name: /Delete selected \(2\)/ }))
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Delete 2 attendance sessions'))
+    const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const bulk = calls.find(([url]) => String(url).endsWith('/attendance/bulk-delete'))
+    expect(bulk).toBeDefined()
+    expect(JSON.parse((bulk![1] as RequestInit).body as string)).toEqual({ session_ids: [7, 8] })
+  })
+
+  it('hides the bulk-delete controls from non-officers', async () => {
+    mockFetch({ is_officer: false, sessions: [SESSION] })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    await screen.findByText(/18 present/)
+    expect(screen.queryByLabelText('Select all')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Delete selected/ })).not.toBeInTheDocument()
+  })
 })
