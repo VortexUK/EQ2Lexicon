@@ -208,4 +208,50 @@ describe('GuildAttendanceTab', () => {
     expect(screen.queryByLabelText('Select all')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Delete selected/ })).not.toBeInTheDocument()
   })
+
+  it('renders the summary matrix with percentages and clock-in/out tooltips', async () => {
+    const summaryData = {
+      is_officer: false,
+      sessions: [
+        { id: 7, session_day: '2026-09-09', seq: 0, started_at: 1_784_500_000, ended_at: 1_784_512_000, scheduled: true },
+        { id: 8, session_day: '2026-09-08', seq: 1, started_at: 1_784_400_000, ended_at: 1_784_412_000, scheduled: true },
+      ],
+      rows: [
+        {
+          key: 'u:u1', discord_id: 'u1', name: 'Tanky', attended: 2, pct: 100,
+          counts: { present: 2, sat_out: 0, afk: 0, awol: 0, absent: 0 },
+          cells: {
+            '7': { category: 'present', first_seen: 1_784_500_000, last_seen: 1_784_512_000, characters: ['Tanky'] },
+            '8': { category: 'present', first_seen: 1_784_400_000, last_seen: 1_784_412_000, characters: ['Alty'] },
+          },
+        },
+        {
+          key: 'c:solo', discord_id: null, name: 'Solo', attended: 1, pct: 50,
+          counts: { present: 1, sat_out: 0, afk: 0, awol: 1, absent: 0 },
+          cells: { '7': { category: 'awol', first_seen: null, last_seen: null, characters: [] } },
+        },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith('/attendance/summary')) {
+          return { ok: true, status: 200, json: async () => summaryData }
+        }
+        return { ok: true, status: 200, json: async () => ({ is_officer: false, sessions: [SESSION] }) }
+      }) as unknown as typeof fetch,
+    )
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Summary' }))
+
+    expect(await screen.findByText('Tanky')).toBeInTheDocument()
+    expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(screen.getByText('50%')).toBeInTheDocument()
+    // Cell tooltips carry the clock-in/out window + character attribution;
+    // a session with no cell reads as "no record".
+    expect(screen.getByLabelText(/as Alty/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/no record/)).toBeInTheDocument()
+    // Second session of a day is disambiguated in its column header.
+    expect(screen.getByText(/8\/9 #2/)).toBeInTheDocument()
+  })
 })

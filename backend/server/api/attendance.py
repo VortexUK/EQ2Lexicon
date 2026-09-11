@@ -288,6 +288,68 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
     return {"is_officer": is_officer, "sessions": out}
 
 
+@router.get("/guild/{guild_name}/attendance/summary")
+@limiter.limit("30/minute")
+async def attendance_summary(request: Request, guild_name: str, limit: int = 25) -> dict:
+    """The matrix view: one row per player, one cell per session (newest
+    first), with per-row attendance % (present + sat_out over the window).
+    Cells carry first/last-seen + the characters observed so the frontend
+    can tooltip clock-in/out."""
+    _validate_guild_name(guild_name)
+    viewer, is_officer = await _require_member(request, guild_name)
+    await _ensure_subscriber(viewer)
+    world = current_world()
+
+    limit = max(1, min(limit, 50))
+    sessions = await attendance_db.list_sessions(world, guild_name, limit=limit)
+    session_ids = [s["id"] for s in sessions]
+    obs_by_session = await attendance_db.observations_for_sessions(session_ids)
+    overrides_by_session = await attendance_db.overrides_for_sessions(session_ids)
+
+    role_rows = await planning_db.get_roles(world, guild_name)
+    roles = {r["character_name"].lower(): r["role"] for r in role_rows}
+    claims = await planning_db.claims_map(world)
+    primaries = await planning_db.primary_claims(world)
+    user_mains, _ = derive.resolve_mains(role_rows, claims, primaries)
+
+    per_session = []
+    for s in sessions:
+        afk_by_user = await availability_db.statuses_for_day(s["session_day"])
+        char_rows, user_rows = derive.derive_categories(
+            obs_by_session.get(s["id"], []),
+            roles,
+            claims,
+            afk_by_user,
+            bool(s["scheduled"]),
+            user_mains,
+            overrides=overrides_by_session.get(s["id"], {}),
+        )
+        per_session.append((s["id"], char_rows, user_rows))
+
+    rows = derive.summarize_attendance(per_session)
+    # Pure-alt players have no raid main — fall back to their site name.
+    display = await get_display_names_for_discord_ids([r["discord_id"] for r in rows if r["discord_id"]])
+    for r in rows:
+        if r["name"] is None and r["discord_id"] is not None:
+            r["name"] = display.get(r["discord_id"]) or f"User {r['discord_id'][-4:]}"
+
+    return {
+        "is_officer": is_officer,
+        "sessions": [
+            {
+                "id": s["id"],
+                "session_day": s["session_day"],
+                "seq": s["seq"],
+                "started_at": s["started_at"],
+                "ended_at": s["ended_at"],
+                "scheduled": bool(s["scheduled"]),
+            }
+            for s in sessions
+        ],
+        "rows": rows,
+    }
+
+
 @router.get("/guild/{guild_name}/attendance/{session_id}")
 @limiter.limit("30/minute")
 async def get_attendance_session(request: Request, guild_name: str, session_id: int) -> dict:

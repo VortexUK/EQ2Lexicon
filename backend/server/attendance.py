@@ -180,3 +180,78 @@ def session_counts(char_rows: list[dict]) -> dict[str, int]:
     for row in char_rows:
         counts[row["category"]] += 1
     return {"present": counts["present"], "sat_out": counts["sat_out"], "afk": counts["afk"], "awol": counts["awol"]}
+
+
+def summarize_attendance(per_session: list[tuple[int, list[dict], list[dict]]]) -> list[dict]:
+    """Cross-session rollup for the summary matrix (one row per player,
+    one cell per session). ``per_session`` is [(session_id, char_rows,
+    user_rows)] straight from :func:`derive_categories`.
+
+    Row identity: claimed characters credit their OWNER (one row per
+    player, best category per session, combined first/last-seen window
+    across their characters); unclaimed characters stand as their own
+    row. Rows absent in every supplied session are dropped.
+
+    Attendance % counts present + sat_out over ALL supplied sessions —
+    a benched raider showed up (and banks sit-out DKP), so the bench is
+    attendance. Sessions where a row has no cell at all count against
+    the percentage exactly like an absent cell.
+    """
+    rows: dict[str, dict] = {}
+
+    def entry(key: str, name: str | None, discord_id: str | None = None) -> dict:
+        return rows.setdefault(
+            key,
+            {
+                "key": key,
+                "discord_id": discord_id,
+                "name": name,
+                "cells": {},
+                "counts": {c: 0 for c in CATEGORY_ORDER},
+            },
+        )
+
+    n = len(per_session)
+    for sid, char_rows, user_rows in per_session:
+        by_owner: dict[str, list[dict]] = {}
+        for c in char_rows:
+            if c["owner_discord_id"] is not None:
+                by_owner.setdefault(c["owner_discord_id"], []).append(c)
+
+        for u in user_rows:
+            e = entry(f"u:{u['discord_id']}", u["main"], u["discord_id"])
+            if u["main"]:
+                e["name"] = u["main"]
+            chars = [c for c in by_owner.get(u["discord_id"], []) if c["category"] != "absent"]
+            firsts = [c["first_seen"] for c in chars if c["first_seen"] is not None]
+            lasts = [c["last_seen"] for c in chars if c["last_seen"] is not None]
+            e["cells"][sid] = {
+                "category": u["category"],
+                "first_seen": min(firsts) if firsts else None,
+                "last_seen": max(lasts) if lasts else None,
+                "characters": sorted(c["name"] for c in chars),
+            }
+
+        for c in char_rows:
+            if c["owner_discord_id"] is None and c["category"] != "absent":
+                e = entry(f"c:{c['name'].lower()}", c["name"])
+                e["cells"][sid] = {
+                    "category": c["category"],
+                    "first_seen": c["first_seen"],
+                    "last_seen": c["last_seen"],
+                    "characters": [c["name"]],
+                }
+
+    out = []
+    for e in rows.values():
+        cats = [cell["category"] for cell in e["cells"].values()]
+        if all(c == "absent" for c in cats):
+            continue
+        for c in cats:
+            e["counts"][c] += 1
+        attended = e["counts"]["present"] + e["counts"]["sat_out"]
+        e["attended"] = attended
+        e["pct"] = round(100 * attended / n) if n else 0
+        out.append(e)
+    out.sort(key=lambda r: (-r["pct"], (r["name"] or "").lower()))
+    return out

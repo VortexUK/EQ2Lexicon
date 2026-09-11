@@ -75,6 +75,38 @@ interface AttDetailResponse {
   users: UserRow[]
 }
 
+interface SummaryCell {
+  category: Category
+  first_seen: number | null
+  last_seen: number | null
+  characters: string[]
+}
+
+interface SummarySession {
+  id: number
+  session_day: string
+  seq: number
+  started_at: number
+  ended_at: number
+  scheduled: boolean
+}
+
+interface SummaryRow {
+  key: string
+  discord_id: string | null
+  name: string
+  cells: Record<string, SummaryCell>
+  counts: Record<Category, number>
+  attended: number
+  pct: number
+}
+
+interface SummaryResponse {
+  is_officer: boolean
+  sessions: SummarySession[]
+  rows: SummaryRow[]
+}
+
 const CATEGORY_LABEL: Record<Category, string> = {
   present: 'Present',
   sat_out: 'Sat out',
@@ -107,6 +139,16 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
   // Officer bulk cleanup: junk sessions arrive in batches (a broken parser
   // once minted dozens a day) — one-by-one deletion doesn't scale.
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
+  // Sessions list vs the cross-raid summary matrix.
+  const [mode, setMode] = useState<'sessions' | 'summary'>('sessions')
+  const summary = useLazyFetch<SummaryResponse>()
+
+  function switchMode(m: 'sessions' | 'summary') {
+    setMode(m)
+    if (m === 'summary' && !summary.data) {
+      summary.run(`/api/guild/${encodeURIComponent(guildName)}/attendance/summary`)
+    }
+  }
 
   function openSession(id: number) {
     setSelectedId(id)
@@ -300,10 +342,39 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
     )
   }
 
-  // ── list view ──
+  // ── list / summary views ──
+  const modeToggle = (
+    <div className="flex border-b border-border gap-1.5">
+      {(['sessions', 'summary'] as const).map(m => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => switchMode(m)}
+          className={`appearance-none bg-transparent border-0 border-b-2 px-2.5 py-1.5 text-[0.82rem] cursor-pointer ${
+            mode === m ? 'border-gold text-gold' : 'border-transparent text-text-muted hover:text-text'
+          }`}
+        >
+          {m === 'sessions' ? 'Sessions' : 'Summary'}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (mode === 'summary') {
+    return (
+      <div className="p-4 flex flex-col gap-3">
+        {modeToggle}
+        {summary.error && <p className="text-danger text-[0.85rem]">{summary.error}</p>}
+        {summary.loading && <p className="text-text-muted text-[0.85rem]">Building summary…</p>}
+        {summary.data && <SummaryMatrix data={summary.data} />}
+      </div>
+    )
+  }
+
   const allChecked = sessions.length > 0 && checkedIds.size === sessions.length
   return (
     <div className="p-4 flex flex-col gap-2">
+      {modeToggle}
       {isOfficer && (
         <div className="flex items-center gap-2.5 pb-1">
           <label className="flex items-center gap-1.5 text-[0.8rem] text-text-muted cursor-pointer">
@@ -536,6 +607,104 @@ function CharactersTable({
           </Button>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Summary matrix ─────────────────────────────────────────────────────────
+// One row per raider, one cell per session (newest first), attendance % =
+// present + sat_out over the window (the bench earns its DKP). Cell squares
+// carry the clock-in/out tooltip; the whole table scrolls horizontally.
+
+const CELL_CLASS: Record<Category, string> = {
+  present: 'bg-success/80',
+  sat_out: 'bg-warning/70',
+  afk: 'bg-surface-raised border border-border',
+  awol: 'bg-danger/80',
+  absent: 'border border-border/60',
+}
+
+function pctClass(pct: number): string {
+  return pct >= 90 ? 'text-success' : pct >= 60 ? 'text-warning' : 'text-danger'
+}
+
+function sessionShortLabel(s: SummarySession): string {
+  const [, m, d] = s.session_day.split('-')
+  return `${Number(d)}/${Number(m)}${s.seq > 0 ? ` #${s.seq + 1}` : ''}`
+}
+
+function cellTitle(s: SummarySession, cell: SummaryCell | undefined): string {
+  const day = `${fmtLocalDate(s.started_at)}`
+  if (!cell || cell.category === 'absent') return `${day} · no record`
+  const label = CATEGORY_LABEL[cell.category]
+  const times =
+    cell.first_seen !== null && cell.last_seen !== null
+      ? ` · ${fmtLocalTime(cell.first_seen)}–${fmtLocalTime(cell.last_seen)}`
+      : ''
+  const chars = cell.characters.length > 0 ? ` · as ${cell.characters.join(', ')}` : ''
+  return `${day} · ${label}${times}${chars}`
+}
+
+function SummaryMatrix({ data }: { data: SummaryResponse }) {
+  const { sessions, rows } = data
+  if (sessions.length === 0 || rows.length === 0) {
+    return <p className="text-text-muted text-[0.9rem]">No attendance recorded yet.</p>
+  }
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="overflow-x-auto">
+        <table className="border-collapse text-[0.85rem]">
+          <thead>
+            <tr className="text-text-muted text-[0.68rem]">
+              <th className="text-left py-1.5 pr-3 font-normal uppercase tracking-wide sticky left-0 bg-surface">Raider</th>
+              <th className="text-right py-1.5 pr-3 font-normal uppercase tracking-wide">%</th>
+              {sessions.map(s => (
+                <th
+                  key={s.id}
+                  className="px-1 py-1.5 font-normal whitespace-nowrap"
+                  title={`${fmtLocalDate(s.started_at)} · ${fmtLocalTime(s.started_at)}–${fmtLocalTime(s.ended_at)}${s.scheduled ? '' : ' · off-schedule'}`}
+                >
+                  {sessionShortLabel(s)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.key} className="border-t border-border/60">
+                <td className="py-1 pr-3 whitespace-nowrap sticky left-0 bg-surface">{r.name}</td>
+                <td
+                  className={`py-1 pr-3 text-right font-semibold ${pctClass(r.pct)}`}
+                  title={`${r.attended} of ${sessions.length} raids attended (present or sat out)`}
+                >
+                  {r.pct}%
+                </td>
+                {sessions.map(s => {
+                  const cell = r.cells[s.id]
+                  return (
+                    <td key={s.id} className="px-1 py-1">
+                      <div
+                        className={`w-4 h-4 rounded-sm mx-auto ${CELL_CLASS[cell?.category ?? 'absent']}`}
+                        title={cellTitle(s, cell)}
+                        aria-label={cellTitle(s, cell)}
+                      />
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 text-[0.72rem] text-text-muted">
+        {(['present', 'sat_out', 'afk', 'awol', 'absent'] as Category[]).map(cat => (
+          <span key={cat} className="flex items-center gap-1.5">
+            <span className={`inline-block w-3 h-3 rounded-sm ${CELL_CLASS[cat]}`} />
+            {cat === 'absent' ? 'No record' : CATEGORY_LABEL[cat]}
+          </span>
+        ))}
+        <span className="ml-auto">Hover a square for clock-in / clock-out.</span>
+      </div>
     </div>
   )
 }

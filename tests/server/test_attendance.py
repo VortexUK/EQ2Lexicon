@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from backend.server import attendance as derive
 from backend.server.attendance import derive_categories, session_counts
 from backend.server.db import init_db
 from backend.server.db.attendance import (
@@ -518,6 +519,90 @@ async def test_delete_route_officer_only(app):
     assert resp.status_code == 200
     assert resp.json()["deleted"] is True
     assert await attendance_db.get_session(res["session_id"]) is None
+
+
+def test_summarize_attendance_matrix():
+    """Claimed characters credit their owner (combined seen window);
+    unclaimed characters stand alone; % = present+sat_out over ALL
+    sessions; all-absent rows drop."""
+
+    def char(name, cat, owner=None, first=None, last=None, role="raider"):
+        return {
+            "name": name,
+            "role": role,
+            "category": cat,
+            "first_seen": first,
+            "last_seen": last,
+            "owner_discord_id": owner,
+            "overridden": False,
+        }
+
+    def user(uid, cat, main, chars):
+        return {
+            "discord_id": uid,
+            "category": cat,
+            "afk_declared": False,
+            "characters": chars,
+            "main": main,
+            "in_voice": False,
+        }
+
+    s1 = (
+        1,
+        [
+            char("Alty", "present", owner="u1", first=100, last=200, role="raid_alt"),
+            char("Tanky", "sat_out", owner="u1", first=50, last=400),
+            char("Solo", "present", first=100, last=300),
+            char("Ghosty", "absent"),
+        ],
+        [user("u1", "present", "Tanky", ["Alty", "Tanky"])],
+    )
+    s2 = (
+        2,
+        [
+            char("Tanky", "absent", owner="u1"),
+            char("Solo", "awol"),
+            char("Ghosty", "absent"),
+        ],
+        [user("u1", "absent", "Tanky", ["Tanky"])],
+    )
+    rows = derive.summarize_attendance([s1, s2])
+
+    assert [r["name"] for r in rows] == ["Solo", "Tanky"]  # 50% each → name order... see pct below
+    by_key = {r["key"]: r for r in rows}
+    tanky = by_key["u:u1"]
+    assert tanky["pct"] == 50 and tanky["attended"] == 1
+    # Session 1 cell: best category, combined window across the alt + main.
+    assert tanky["cells"][1]["category"] == "present"
+    assert (tanky["cells"][1]["first_seen"], tanky["cells"][1]["last_seen"]) == (50, 400)
+    assert tanky["cells"][1]["characters"] == ["Alty", "Tanky"]
+    assert tanky["cells"][2]["category"] == "absent"
+
+    solo = by_key["c:solo"]
+    assert solo["pct"] == 50 and solo["counts"]["awol"] == 1
+    assert solo["cells"][1]["characters"] == ["Solo"]
+
+    # Ghosty was absent everywhere — no row.
+    assert "c:ghosty" not in by_key
+
+
+@pytest.mark.asyncio
+async def test_summary_route_builds_matrix(app):
+    await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    await _snapshot("u1", [_member("Tanky", T0 + 90_000, T0 + 90_600)])  # next day
+    p_member, _ = _member_gate_patches()
+    with p_member:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            res = await c.get(f"/api/guild/{_GUILD}/attendance/summary")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert len(body["sessions"]) == 2
+    row = next(r for r in body["rows"] if r["name"] == "Tanky")
+    assert row["pct"] == 100 and row["attended"] == 2
+    newest = body["sessions"][0]["id"]  # list_sessions is newest-first
+    cell = row["cells"][str(newest)]
+    assert cell["category"] == "present"
+    assert cell["first_seen"] == T0 + 90_000 and cell["last_seen"] == T0 + 90_600
 
 
 @pytest.mark.asyncio
