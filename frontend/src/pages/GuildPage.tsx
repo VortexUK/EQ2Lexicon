@@ -564,6 +564,15 @@ export default function GuildPage() {
       .map(([name]) => name)
   }, [roster])
 
+  // name (lower) → rank, for tabs whose own data carries no rank (progression).
+  const rankByName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const m of roster?.members ?? []) {
+      if (m.rank) map.set(m.name.toLowerCase(), m.rank)
+    }
+    return map
+  }, [roster])
+
   function toggleRank(rank: string) {
     setHiddenRanks(prev => {
       const next = new Set(prev)
@@ -649,8 +658,9 @@ export default function GuildPage() {
         )}
       </div>
 
-      {/* Filters — the member-table tabs share one bar (progression has no
-          rank data in its census projection, so the pills hide there) */}
+      {/* Filters — the member-table tabs share one bar. Progression's own
+          census projection carries no rank, so its rows join ranks from the
+          eagerly-fetched roster to honour the same pills. */}
       {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && !isLoading && !error && (
         <div className="mb-3 flex flex-col gap-2">
           <input
@@ -660,7 +670,7 @@ export default function GuildPage() {
             onChange={e => setFilter(e.target.value)}
             className="max-w-[300px] box-border"
           />
-          {tab !== 'progression' && ranksOrdered.length > 0 && (
+          {ranksOrdered.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[0.72rem] text-text-muted uppercase tracking-[0.06em] mr-[0.2rem]">
                 Ranks
@@ -704,7 +714,13 @@ export default function GuildPage() {
       {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && !isLoading && !error && (
         <Card className="p-0 overflow-x-auto">
           {tab === 'progression' && guildName && (
-            <GuildProgressionTab guildName={guildName} filter={filter} myChars={myChars} />
+            <GuildProgressionTab
+              guildName={guildName}
+              filter={filter}
+              hiddenRanks={hiddenRanks}
+              rankByName={rankByName}
+              myChars={myChars}
+            />
           )}
           {tab === 'roster' && roster && (
             <GuildRosterTab members={roster.members} filter={filter} hiddenRanks={hiddenRanks} myChars={myChars} />

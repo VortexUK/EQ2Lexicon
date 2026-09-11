@@ -159,10 +159,17 @@ function sortValue(r: Row, key: SortKey): string | number {
 export function GuildProgressionTab({
   guildName,
   filter,
+  hiddenRanks,
+  rankByName,
   myChars,
 }: {
   guildName: string
   filter: string
+  /** Rank pills state, shared with the other member tables. */
+  hiddenRanks: Set<string>
+  /** name (lower) → rank, joined from the roster fetch — the progression
+   * census projection itself carries no rank. */
+  rankByName: Map<string, string>
   myChars: Set<string>
 }) {
   const { data, loading, error } = useFetch<GuildProgressionResponse>(
@@ -180,7 +187,16 @@ export function GuildProgressionTab({
   const rows = useMemo<Row[]>(() => {
     const q = filter.trim().toLowerCase()
     return (data?.members ?? [])
-      .filter(m => !q || m.name.toLowerCase().includes(q) || (m.cls ?? '').toLowerCase().includes(q))
+      .filter(m => {
+        const rank = rankByName.get(m.name.toLowerCase())
+        if (rank && hiddenRanks.has(rank)) return false
+        if (!q) return true
+        return (
+          m.name.toLowerCase().includes(q) ||
+          (m.cls ?? '').toLowerCase().includes(q) ||
+          (rank ?? '').toLowerCase().includes(q)
+        )
+      })
       .map(m => ({
         name: m.name,
         level: m.level,
@@ -195,7 +211,7 @@ export function GuildProgressionTab({
           trak: trakCell(m.progression),
         },
       }))
-  }, [data, filter])
+  }, [data, filter, hiddenRanks, rankByName])
 
   const { sorted, sortKey, sortDir, handleSort } = useSortable<Row, SortKey>(
     rows,
