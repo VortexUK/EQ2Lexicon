@@ -19,11 +19,13 @@ interface SortThProps<K extends string> {
   className?: string
   /** Inline styles — use only for runtime-computed values (e.g. data-driven colours). */
   style?: CSSProperties
+  /** Native hover tooltip for abbreviated column labels. */
+  title?: string
   children: ReactNode
 }
 
 export function SortTh<K extends string>({
-  sortKey, active, dir, onSort, className = '', style, children,
+  sortKey, active, dir, onSort, className = '', style, title, children,
 }: SortThProps<K>) {
   const isActive = active === sortKey
   const caret = isActive ? (dir === 'asc' ? '▲' : '▼') : ''
@@ -34,6 +36,7 @@ export function SortTh<K extends string>({
     <th
       onClick={handleClick}
       style={style}
+      title={title}
       className={[
         'cursor-pointer select-none',
         isActive ? 'text-gold' : '',

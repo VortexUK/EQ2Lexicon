@@ -649,15 +649,9 @@ export default function GuildPage() {
         )}
       </div>
 
-      {/* RoK progression — self-contained loading (own census fetch path) */}
-      {tab === 'progression' && guildName && (
-        <Card>
-          <GuildProgressionTab guildName={guildName} />
-        </Card>
-      )}
-
-      {/* Filters — roster/spell/adorn only (not the self-contained tabs) */}
-      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && tab !== 'progression' && !isLoading && !error && (
+      {/* Filters — the member-table tabs share one bar (progression has no
+          rank data in its census projection, so the pills hide there) */}
+      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && !isLoading && !error && (
         <div className="mb-3 flex flex-col gap-2">
           <input
             type="text"
@@ -666,7 +660,7 @@ export default function GuildPage() {
             onChange={e => setFilter(e.target.value)}
             className="max-w-[300px] box-border"
           />
-          {ranksOrdered.length > 0 && (
+          {tab !== 'progression' && ranksOrdered.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[0.72rem] text-text-muted uppercase tracking-[0.06em] mr-[0.2rem]">
                 Ranks
@@ -707,8 +701,11 @@ export default function GuildPage() {
       )}
 
       {/* Tables */}
-      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && tab !== 'progression' && !isLoading && !error && (
+      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && !isLoading && !error && (
         <Card className="p-0 overflow-x-auto">
+          {tab === 'progression' && guildName && (
+            <GuildProgressionTab guildName={guildName} filter={filter} myChars={myChars} />
+          )}
           {tab === 'roster' && roster && (
             <GuildRosterTab members={roster.members} filter={filter} hiddenRanks={hiddenRanks} myChars={myChars} />
           )}
