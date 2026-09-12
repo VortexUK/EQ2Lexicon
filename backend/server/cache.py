@@ -6,6 +6,7 @@ Safe for single-process asyncio (no locking needed).
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Literal
 
@@ -42,6 +43,12 @@ class TTLCache:
         self._name = name
         self._maxsize = maxsize
         self._store: dict[str, tuple[float, Any]] = {}
+        # Entries are read on the event loop and WRITTEN from executor
+        # threads (kills rebuilds, guild-refresh finishers) — the compound
+        # dict ops (evict + pop-then-set + size counter) need a real lock,
+        # not GIL luck. RLock: the public methods call the _inc/_touch
+        # helpers while holding it.
+        self._gate = threading.RLock()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -87,106 +94,112 @@ class TTLCache:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def get(self, key: str) -> Any | None:
-        """Return value if within TTL, else None (and evict)."""
-        entry = self._store.get(key)
-        if entry is None:
-            self._inc_miss()
-            return None
-        ts, value = entry
-        if time.monotonic() - ts > self._ttl:
-            del self._store[key]
-            self._update_size()
-            self._inc_miss()
-            return None
-        _log.debug("[cache] HIT   %s", scrub(key))
-        self._inc_hit()
-        self._touch(key)
-        return value
+        with self._gate:
+            """Return value if within TTL, else None (and evict)."""
+            entry = self._store.get(key)
+            if entry is None:
+                self._inc_miss()
+                return None
+            ts, value = entry
+            if time.monotonic() - ts > self._ttl:
+                del self._store[key]
+                self._update_size()
+                self._inc_miss()
+                return None
+            _log.debug("[cache] HIT   %s", scrub(key))
+            self._inc_hit()
+            self._touch(key)
+            return value
 
     def get_stale(self, key: str) -> tuple[Any | None, bool]:
-        """
-        Stale-while-revalidate lookup with optional hard expiry.
+        with self._gate:
+            """
+            Stale-while-revalidate lookup with optional hard expiry.
 
-        Returns (value, is_stale):
-          - age <= ttl              → (value, False)   fresh, return as-is
-          - ttl < age <= max_age   → (value, True)    stale, caller should fire background refresh
-          - age > max_age          → (None,  False)   hard-expired, evicted; caller must fetch sync
-          - not in cache           → (None,  False)   cache miss
-        """
-        entry = self._store.get(key)
-        if entry is None:
-            self._inc_miss()
-            return None, False
-        ts, value = entry
-        age = time.monotonic() - ts
-        if self._max_age is not None and age > self._max_age:
-            del self._store[key]
-            self._update_size()
-            _log.debug("[cache] EXPIRED %s (%.1f min old)", scrub(key), age / 60)
-            self._inc_miss()
-            return None, False
-        is_stale = age > self._ttl
-        _log.debug("[cache] %s %s", "STALE" if is_stale else "HIT  ", scrub(key))
-        if is_stale:
-            self._inc_stale()
-        else:
-            self._inc_hit()
-        self._touch(key)
-        return value, is_stale
+            Returns (value, is_stale):
+              - age <= ttl              → (value, False)   fresh, return as-is
+              - ttl < age <= max_age   → (value, True)    stale, caller should fire background refresh
+              - age > max_age          → (None,  False)   hard-expired, evicted; caller must fetch sync
+              - not in cache           → (None,  False)   cache miss
+            """
+            entry = self._store.get(key)
+            if entry is None:
+                self._inc_miss()
+                return None, False
+            ts, value = entry
+            age = time.monotonic() - ts
+            if self._max_age is not None and age > self._max_age:
+                del self._store[key]
+                self._update_size()
+                _log.debug("[cache] EXPIRED %s (%.1f min old)", scrub(key), age / 60)
+                self._inc_miss()
+                return None, False
+            is_stale = age > self._ttl
+            _log.debug("[cache] %s %s", "STALE" if is_stale else "HIT  ", scrub(key))
+            if is_stale:
+                self._inc_stale()
+            else:
+                self._inc_hit()
+            self._touch(key)
+            return value, is_stale
 
     def peek(self, key: str) -> Any | None:
-        """Metric-free, side-effect-free read for OPPORTUNISTIC probes (bulk
-        lookups that treat a miss as "no enrichment, fine"). Returns whatever
-        get_stale would (fresh or stale value; None past max_age) without
-        counting a hit/miss or refreshing the entry's LRU position — so probe
-        sweeps can't distort the hit-ratio dashboards or the eviction order."""
-        entry = self._store.get(key)
-        if entry is None:
-            return None
-        ts, value = entry
-        if self._max_age is not None and time.monotonic() - ts > self._max_age:
-            return None
-        return value
+        with self._gate:
+            """Metric-free, side-effect-free read for OPPORTUNISTIC probes (bulk
+            lookups that treat a miss as "no enrichment, fine"). Returns whatever
+            get_stale would (fresh or stale value; None past max_age) without
+            counting a hit/miss or refreshing the entry's LRU position — so probe
+            sweeps can't distort the hit-ratio dashboards or the eviction order."""
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            ts, value = entry
+            if self._max_age is not None and time.monotonic() - ts > self._max_age:
+                return None
+            return value
 
     def set(self, key: str, value: Any) -> None:
-        _log.debug("[cache] SET   %s", scrub(key))
-        # Evict oldest entry if we're at capacity and this is a new key.
-        if key not in self._store and len(self._store) >= self._maxsize:
-            oldest_key = next(iter(self._store))
-            del self._store[oldest_key]
-            _log.debug("[cache] EVICT (maxsize) %s", oldest_key)
-        # Pop-then-set so an overwrite also moves to the back of the eviction
-        # queue (plain dict assignment keeps the original insertion slot).
-        self._store.pop(key, None)
-        self._store[key] = (time.monotonic(), value)
-        with swallow("metrics"):
-            from backend.server.metrics import CACHE_SETS
+        with self._gate:
+            _log.debug("[cache] SET   %s", scrub(key))
+            # Evict oldest entry if we're at capacity and this is a new key.
+            if key not in self._store and len(self._store) >= self._maxsize:
+                oldest_key = next(iter(self._store))
+                del self._store[oldest_key]
+                _log.debug("[cache] EVICT (maxsize) %s", oldest_key)
+            # Pop-then-set so an overwrite also moves to the back of the eviction
+            # queue (plain dict assignment keeps the original insertion slot).
+            self._store.pop(key, None)
+            self._store[key] = (time.monotonic(), value)
+            with swallow("metrics"):
+                from backend.server.metrics import CACHE_SETS
 
-            CACHE_SETS.labels(cache=self._name).inc()
-        self._update_size()
+                CACHE_SETS.labels(cache=self._name).inc()
+            self._update_size()
 
     def sweep(self) -> int:
-        """
-        Proactively evict all entries that have exceeded max_age.
-        Call periodically (e.g. on a background task) to prevent the store from
-        holding stale entries for keys that are never accessed again.
-        Returns the number of entries removed.
-        """
-        if self._max_age is None:
-            return 0
-        now = time.monotonic()
-        expired = [k for k, (ts, _) in self._store.items() if now - ts > self._max_age]
-        for k in expired:
-            del self._store[k]
-        if expired:
-            _log.debug("[cache] SWEEP removed %d expired entries from %s", len(expired), self._name)
-            self._update_size()
-        return len(expired)
+        with self._gate:
+            """
+            Proactively evict all entries that have exceeded max_age.
+            Call periodically (e.g. on a background task) to prevent the store from
+            holding stale entries for keys that are never accessed again.
+            Returns the number of entries removed.
+            """
+            if self._max_age is None:
+                return 0
+            now = time.monotonic()
+            expired = [k for k, (ts, _) in self._store.items() if now - ts > self._max_age]
+            for k in expired:
+                del self._store[k]
+            if expired:
+                _log.debug("[cache] SWEEP removed %d expired entries from %s", len(expired), self._name)
+                self._update_size()
+            return len(expired)
 
     def delete(self, key: str) -> None:
-        self._store.pop(key, None)
-        _log.debug("[cache] DEL   %s", scrub(key))
-        self._update_size()
+        with self._gate:
+            self._store.pop(key, None)
+            _log.debug("[cache] DEL   %s", scrub(key))
+            self._update_size()
 
 
 # One instance per domain.

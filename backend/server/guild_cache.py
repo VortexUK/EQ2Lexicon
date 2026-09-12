@@ -40,6 +40,7 @@ from backend.eq2db.spells import (
 from backend.server.cache import character_cache, guild_cache
 from backend.server.core.cache_keys import census_refresh_guild_key, guild_info_key, guild_roster_key
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.server_context import current_world
 
 _log = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ _guild_refresh_in_flight: set[str] = set()
 def _prewarm_adorn_cache(
     cache_key: str,
     guild_name: str,
+    world: str,
     overviews: list[CharacterOverview],
     member_rank: dict[str, tuple],
 ) -> None:
@@ -133,7 +135,7 @@ def _prewarm_adorn_cache(
         cache_key,
         GuildAdornCheckResponse(
             guild_name=guild_name,
-            world=current_world(),
+            world=world,
             colors=ordered_colours,
             members=out_members,
         ),
@@ -253,12 +255,14 @@ def _build_spell_check_from_overviews(
 def _prewarm_spell_cache(
     cache_key: str,
     guild_name: str,
+    world: str,
     overviews: list[CharacterOverview],
     member_rank: dict[str, tuple],
 ) -> None:
     """Build and store GuildSpellCheckResponse using the local spells DB.
-    No-op if DB is unavailable or IDs are empty."""
-    result = _build_spell_check_from_overviews(guild_name, current_world(), overviews, member_rank)
+    No-op if DB is unavailable or IDs are empty. ``world`` is passed in —
+    this runs in the EXECUTOR, where the contextvar isn't set."""
+    result = _build_spell_check_from_overviews(guild_name, world, overviews, member_rank)
     if result is not None:
         guild_cache.set(cache_key, result)
 
@@ -266,6 +270,109 @@ def _prewarm_spell_cache(
 # ---------------------------------------------------------------------------
 # Core fetch + cache orchestration
 # ---------------------------------------------------------------------------
+
+
+def _finish_guild_fetch(guild_name: str, world: str, full) -> tuple | None:
+    """The post-census half of a guild refresh: spell/adorn/ilvl
+    derivations and cache writes over the WHOLE roster — synchronous
+    CPU + local-SQLite work that takes tens of seconds for a big guild.
+    Runs in the executor (run_sync): on the event loop it froze every
+    request and blocked the Discord heartbeat (the "Shard ID None
+    heartbeat blocked" dumps pointed exactly here). ``world`` is passed
+    in — the contextvar does not cross into executor threads."""
+    from backend.server.api.guild import GuildInfoResponse, GuildMemberResponse, GuildResponse  # noqa: PLC0415
+
+    guild_data, overviews, guild_info, roster_stubs = full
+    world_lower = world.lower()
+    guild_lower = guild_name.lower()
+    member_rank: dict[str, tuple] = {m.name: (m.rank, m.rank_id) for m in guild_data.members}
+
+    # Cache the full member stubs (every member, resolved AND offline) so
+    # _persist_and_publish_guild can build the best-known merged roster
+    # without a second Census round-trip.
+    guild_cache.set(f"roster_stubs:{guild_lower}:{world_lower}", roster_stubs)
+
+    # Info
+    guild_cache.set(
+        f"info:{guild_lower}:{world_lower}",
+        GuildInfoResponse(**guild_info),
+    )
+
+    # Per-character overviews
+    fails: list[tuple[str, Exception]] = []
+    for ov in overviews:
+        try:
+            character_cache.set(
+                f"{ov.name.lower()}:{world_lower}",
+                _overview_to_char_response(ov),
+            )
+        except Exception as exc:
+            fails.append((ov.name, exc))
+    if fails:
+        _log.warning(
+            "[guild-cache] %d pre-warm failures (first: %s — %s)",
+            len(fails),
+            fails[0][0],
+            fails[0][1],
+        )
+
+    # Adorn + spell derived caches
+    _prewarm_adorn_cache(
+        f"adorns:{guild_lower}:{world_lower}",
+        guild_data.name,
+        world,
+        overviews,
+        member_rank,
+    )
+    _prewarm_spell_cache(
+        f"spells:{guild_lower}:{world_lower}",
+        guild_data.name,
+        world,
+        overviews,
+        member_rank,
+    )
+
+    # Per-member average gear ilvl
+    from backend.eq2db.items import catalogue as _items  # noqa: PLC0415
+    from backend.server.api.character import (  # noqa: PLC0415
+        _equipment_lookup_ids,
+        _ilvl_from_gear,
+    )
+
+    all_ids = list({i for ov in overviews for i in _equipment_lookup_ids(ov.equipment)})
+    gear = _items.gear_for_ids(all_ids)
+    ilvl_by_name = {ov.name.lower(): _ilvl_from_gear(ov.equipment, gear) for ov in overviews}
+
+    # Roster (sorted by rank then level desc)
+    members_sorted = sorted(
+        guild_data.members,
+        key=lambda m: (m.rank_id if m.rank_id is not None else 9999, -(m.level or 0)),
+    )
+    guild_cache.set(
+        f"roster:{guild_lower}:{world_lower}",
+        GuildResponse(
+            name=guild_data.name,
+            world=guild_data.world,
+            members=[
+                GuildMemberResponse(
+                    name=m.name,
+                    level=m.level,
+                    cls=m.cls,
+                    ts_class=m.ts_class,
+                    ts_level=m.ts_level,
+                    aa_level=m.aa_level,
+                    ilvl=ilvl_by_name.get(m.name.lower()),
+                    deity=m.deity,
+                    rank=m.rank,
+                    rank_id=m.rank_id,
+                    guild_status=m.guild_status,
+                    played_time=m.played_time,
+                )
+                for m in members_sorted
+            ],
+        ),
+    )
+    return (guild_data, overviews, guild_info)
 
 
 async def _fetch_and_cache_guild(
@@ -287,7 +394,6 @@ async def _fetch_and_cache_guild(
     Returns (GuildData, overviews, guild_info_dict) on success, None on
     network failure or guild-not-found.
     """
-    from backend.server.api.guild import GuildInfoResponse, GuildMemberResponse, GuildResponse  # noqa: PLC0415
 
     task_key = guild_roster_key(guild_name, current_world())
     existing = _guild_fetch_tasks.get(task_key)
@@ -301,95 +407,9 @@ async def _fetch_and_cache_guild(
         if not full or not full[0].members:
             return None
 
-        guild_data, overviews, guild_info, roster_stubs = full
-        world_lower = world.lower()
-        guild_lower = guild_name.lower()
-        member_rank: dict[str, tuple] = {m.name: (m.rank, m.rank_id) for m in guild_data.members}
-
-        # Cache the full member stubs (every member, resolved AND offline) so
-        # _persist_and_publish_guild can build the best-known merged roster
-        # without a second Census round-trip.
-        guild_cache.set(f"roster_stubs:{guild_lower}:{world_lower}", roster_stubs)
-
-        # Info
-        guild_cache.set(
-            f"info:{guild_lower}:{world_lower}",
-            GuildInfoResponse(**guild_info),
-        )
-
-        # Per-character overviews
-        fails: list[tuple[str, Exception]] = []
-        for ov in overviews:
-            try:
-                character_cache.set(
-                    f"{ov.name.lower()}:{world_lower}",
-                    _overview_to_char_response(ov),
-                )
-            except Exception as exc:
-                fails.append((ov.name, exc))
-        if fails:
-            _log.warning(
-                "[guild-cache] %d pre-warm failures (first: %s — %s)",
-                len(fails),
-                fails[0][0],
-                fails[0][1],
-            )
-
-        # Adorn + spell derived caches
-        _prewarm_adorn_cache(
-            f"adorns:{guild_lower}:{world_lower}",
-            guild_data.name,
-            overviews,
-            member_rank,
-        )
-        _prewarm_spell_cache(
-            f"spells:{guild_lower}:{world_lower}",
-            guild_data.name,
-            overviews,
-            member_rank,
-        )
-
-        # Per-member average gear ilvl
-        from backend.eq2db.items import catalogue as _items  # noqa: PLC0415
-        from backend.server.api.character import (  # noqa: PLC0415
-            _equipment_lookup_ids,
-            _ilvl_from_gear,
-        )
-
-        all_ids = list({i for ov in overviews for i in _equipment_lookup_ids(ov.equipment)})
-        gear = _items.gear_for_ids(all_ids)
-        ilvl_by_name = {ov.name.lower(): _ilvl_from_gear(ov.equipment, gear) for ov in overviews}
-
-        # Roster (sorted by rank then level desc)
-        members_sorted = sorted(
-            guild_data.members,
-            key=lambda m: (m.rank_id if m.rank_id is not None else 9999, -(m.level or 0)),
-        )
-        guild_cache.set(
-            f"roster:{guild_lower}:{world_lower}",
-            GuildResponse(
-                name=guild_data.name,
-                world=guild_data.world,
-                members=[
-                    GuildMemberResponse(
-                        name=m.name,
-                        level=m.level,
-                        cls=m.cls,
-                        ts_class=m.ts_class,
-                        ts_level=m.ts_level,
-                        aa_level=m.aa_level,
-                        ilvl=ilvl_by_name.get(m.name.lower()),
-                        deity=m.deity,
-                        rank=m.rank,
-                        rank_id=m.rank_id,
-                        guild_status=m.guild_status,
-                        played_time=m.played_time,
-                    )
-                    for m in members_sorted
-                ],
-            ),
-        )
-        return (guild_data, overviews, guild_info)
+        # Everything past the census fetch is synchronous CPU + local-
+        # SQLite work over the whole roster — executor, never the loop.
+        return await run_sync(_finish_guild_fetch, guild_name, world, full)
 
     task: asyncio.Task = asyncio.create_task(_do_fetch())
     _guild_fetch_tasks[task_key] = task
