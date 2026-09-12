@@ -166,6 +166,21 @@ async def _roster_rank_map(guild_name: str) -> dict[str, int | None]:
     return {m.name.lower(): m.rank_id for m in guild_data.members}
 
 
+async def _roster_rank_map_cached(guild_name: str) -> dict[str, int | None] | None:
+    """Cache-only variant of :func:`_roster_rank_map` for POLLED endpoints
+    (the notification bell). It must NEVER fall through to the full Census
+    guild fetch: a 60-second poll that can fire a multi-minute roster pull
+    wedged the whole site (2026-09-12 — /api/notifications requests
+    stacked at 10–107s awaiting one shared fetch, Cloudflare 524ing the
+    tail). Returns None on a cold cache; a background warm is kicked
+    (deduped inside _fetch_and_cache_guild) so a later poll succeeds."""
+    roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, current_world()))
+    if roster is not None:
+        return {m.name.lower(): m.rank_id for m in roster.members}
+    asyncio.create_task(_fetch_and_cache_guild(guild_name))
+    return None
+
+
 async def _officer_chars(discord_id: str, guild_name: str) -> set[str]:
     """
     Return the set of this user's approved character names (lower-cased) that

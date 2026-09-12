@@ -114,7 +114,7 @@ async def test_notifications_officer_reports_guild_claims(app):
         patch("backend.server.api.notifications.list_pending_users", new=AsyncMock(return_value=[])),
         patch("backend.server.api.notifications.get_active_claims", new=AsyncMock(return_value={"approved": approved})),
         patch("backend.server.api.notifications.character_cache") as mock_cache,
-        patch("backend.server.api.notifications._roster_rank_map", new=AsyncMock(return_value=rank_map)),
+        patch("backend.server.api.notifications._roster_rank_map_cached", new=AsyncMock(return_value=rank_map)),
         patch("backend.server.api.notifications.list_claims", new=AsyncMock(return_value=pending_claims)),
     ):
         mock_cache.get_stale.return_value = (cached_char, False)
@@ -170,7 +170,7 @@ async def test_notifications_dedupes_claims_across_multi_guild_officer(app):
         patch("backend.server.api.notifications.list_pending_users", new=AsyncMock(return_value=[])),
         patch("backend.server.api.notifications.get_active_claims", new=AsyncMock(return_value={"approved": approved})),
         patch("backend.server.api.notifications.character_cache") as mock_cache,
-        patch("backend.server.api.notifications._roster_rank_map", new=_fake_rank_map),
+        patch("backend.server.api.notifications._roster_rank_map_cached", new=_fake_rank_map),
         patch("backend.server.api.notifications.list_claims", new=AsyncMock(return_value=pending_claims)),
     ):
         mock_cache.get_stale.side_effect = _fake_get_stale
@@ -230,7 +230,7 @@ async def test_notifications_admin_who_is_also_officer_combines(app):
         patch("backend.server.api.notifications.list_pending_users", new=AsyncMock(return_value=fake_pending_users)),
         patch("backend.server.api.notifications.get_active_claims", new=AsyncMock(return_value={"approved": approved})),
         patch("backend.server.api.notifications.character_cache") as mock_cache,
-        patch("backend.server.api.notifications._roster_rank_map", new=AsyncMock(return_value=rank_map)),
+        patch("backend.server.api.notifications._roster_rank_map_cached", new=AsyncMock(return_value=rank_map)),
         patch("backend.server.api.notifications.list_claims", new=AsyncMock(return_value=pending_claims)),
     ):
         mock_cache.get_stale.return_value = (cached_char, False)
@@ -239,3 +239,40 @@ async def test_notifications_admin_who_is_also_officer_combines(app):
     assert body["pending_users"] == 1
     assert body["pending_claims"] == 1
     assert body["officer_guild"] == "Raiders"
+
+
+# ---------------------------------------------------------------------------
+# Scenario 7 — cold roster cache must NOT block the poll on a Census fetch
+# ---------------------------------------------------------------------------
+
+
+async def test_notifications_cold_roster_cache_returns_zeros_without_fetching(app):
+    """The bell is polled every 60s from every open tab: when the roster
+    cache is cold, the poll must return immediately with zero claims for
+    that guild (a background warm is kicked) — the OLD behaviour fell
+    through to the full Census guild fetch and wedged the site
+    (2026-09-12: /api/notifications stacked at 10–107s, Cloudflare 524s)."""
+    import backend.server.api.notifications as nmod
+
+    user = {"id": "user-1", "username": "knight"}
+    approved = [{"character_name": "Sihtric"}]
+    cached_char = MagicMock()
+    cached_char.guild_name = "Exordium"
+
+    with (
+        patch.object(nmod, "_ADMIN_IDS", frozenset()),
+        patch("backend.server.api.notifications.list_pending_users", new=AsyncMock(return_value=[])),
+        patch("backend.server.api.notifications.get_active_claims", new=AsyncMock(return_value={"approved": approved})),
+        patch("backend.server.api.notifications.character_cache") as mock_cache,
+        # Cold cache: the cache-only variant reports None for the guild.
+        patch("backend.server.api.notifications._roster_rank_map_cached", new=AsyncMock(return_value=None)),
+        patch(
+            "backend.server.api.notifications.list_claims",
+            new=AsyncMock(return_value=[{"id": 10, "character_name": "Sihtric"}]),
+        ),
+    ):
+        mock_cache.get_stale.return_value = (cached_char, False)
+        body = await _get_notifications(app, user=user)
+
+    assert body["pending_claims"] == 0
+    assert body["officer_guild"] is None

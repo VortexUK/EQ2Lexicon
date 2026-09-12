@@ -19,7 +19,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from backend.server.api.guild import _OFFICER_RANKS, _roster_rank_map
+from backend.server.api.guild import _OFFICER_RANKS, _roster_rank_map_cached
 from backend.server.auth_deps import ADMIN_IDS as _ADMIN_IDS  # canonical source
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
@@ -78,12 +78,14 @@ async def get_notifications(request: Request) -> NotificationsResponse:
             all_pending = await list_claims(status="pending", world=current_world())
             counted_ids: set[int] = set()
 
-            # Gather roster rank maps concurrently — each is cached after first
-            # fetch, so subsequent polls are cheap, and the gather only matters
-            # when a user belongs to multiple guilds.
+            # Cache-only rank maps: a poll must never block on (or trigger
+            # inline) the full Census guild fetch — a cold cache kicks a
+            # background warm and this guild simply counts on a later poll.
             guilds_list = list(guilds_seen)
-            rank_maps = await asyncio.gather(*[_roster_rank_map(g) for g in guilds_list])
+            rank_maps = await asyncio.gather(*[_roster_rank_map_cached(g) for g in guilds_list])
             for guild_name, rank_map in zip(guilds_list, rank_maps, strict=True):
+                if rank_map is None:
+                    continue  # cold roster cache — background warm in flight
                 # Check officer status inline (avoids a redundant second call)
                 if not any(rank_map.get(n) in _OFFICER_RANKS for n in approved_lower):
                     continue
