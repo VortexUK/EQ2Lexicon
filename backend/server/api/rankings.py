@@ -555,6 +555,9 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
     leaderboard data."""
     if not parses_db.path.exists():
         return []
+    import time as _time  # noqa: PLC0415 — phase timings for the rebuild log
+
+    t0 = _time.monotonic()
     conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
@@ -562,6 +565,7 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
             _SQL["list_winning_encounters_with_player_count"].format(player_count_sql=_PLAYER_COUNT_SQL),
             (world,),
         ).fetchall()
+        t_select = _time.monotonic()
         # Phase 4 lazy backfill: classify combatants for any encounter
         # whose is_player flag is still NULL (pre-migration historic
         # data). The player_count in the SELECT above uses the same
@@ -577,6 +581,7 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
                     (r["id"],),
                 ).fetchone()
                 r["player_count"] = int(refreshed[0])
+        t_classify = _time.monotonic()
         # Gate + canonicalise per row (scope is known from player_count): raid
         # bosses resolve against zones.db, everything else via the heuristic.
         encs: list[dict] = []
@@ -596,7 +601,9 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
             for g in _group_into_fights(encs, conn)
             if (scope := _scope_for(g.get("player_count") or 0)) is not None
         ]
+        t_group = _time.monotonic()
         combatants_by_enc = parses_db.get_combatants_for_encounters(conn, [g["id"] for g, _ in groups])
+        t_combatants = _time.monotonic()
         kills = [
             {
                 "id": g["id"],
@@ -612,7 +619,23 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
             }
             for g, scope in groups
         ]
-        return _apply_era_lock(kills, _era_lock_for(world), _zone_expansion_map())
+        result = _apply_era_lock(kills, _era_lock_for(world), _zone_expansion_map())
+        total = _time.monotonic() - t0
+        # INFO on every rebuild: when a 524 happens, the pasted Railway log
+        # must say exactly which phase ate the time.
+        _log.info(
+            "[rankings] kills rebuild world=%s: %d encounters -> %d kills in %.1fs "
+            "(select=%.1fs classify=%.1fs group=%.1fs combatants=%.1fs)",
+            world,
+            len(rows),
+            len(result),
+            total,
+            t_select - t0,
+            t_classify - t_select,
+            t_group - t_classify,
+            t_combatants - t_group,
+        )
+        return result
     finally:
         conn.close()
 
@@ -702,15 +725,31 @@ async def _kills_background_refresh(world: str) -> None:
         _kills_refresh_inflight.discard(world)
 
 
+_kills_build_tasks: dict[str, asyncio.Task] = {}
+
+
 async def _kills_swr(world: str) -> list[dict]:
     """Stale-while-revalidate kills for the async endpoints: serve whatever
     the cache holds (fresh, or stale up to the cache's max_age) instantly
     and refresh in the background — a leaderboard a minute or two behind
     beats a visitor staring at "Loading…" while the full parses scan runs.
-    Only a completely cold cache builds inline."""
+
+    A completely cold cache builds inline, SINGLE-FLIGHT: N concurrent
+    cold visitors share one executor build instead of stampeding N full
+    scans onto one SQLite file. asyncio.shield keeps a navigation-aborted
+    request (the browser cancels the fetch when the user switches zones)
+    from cancelling the build everyone else is awaiting."""
     kills, is_stale = rankings_cache.get_stale(f"{_KILLS_KEY}:{world}")
     if kills is None:
-        return await run_sync(_cached_kills, world)
+        task = _kills_build_tasks.get(world)
+        if task is None or task.done():
+            task = asyncio.create_task(run_sync(_cached_kills, world))
+            _kills_build_tasks[world] = task
+        try:
+            return await asyncio.shield(task)
+        finally:
+            if task.done():
+                _kills_build_tasks.pop(world, None)
     if is_stale:
         asyncio.create_task(_kills_background_refresh(world))
     return kills

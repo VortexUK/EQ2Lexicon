@@ -250,6 +250,14 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
         elapsed = time.perf_counter() - start
 
         path = request.url.path
+        # Slow-request tripwire: Cloudflare 524s the origin at 100s, and a
+        # request that slow deserves a log line naming itself — dashboards
+        # need Grafana, but the Railway log is what gets pasted into a bug
+        # report. 10s is far beyond any healthy endpoint here.
+        if elapsed > 10:
+            _log.warning(
+                "[slow-request] %s %s took %.1fs (status %s)", request.method, path, elapsed, response.status_code
+            )
         if should_track_path(path):
             route = request.scope.get("route")
             method, label_path = normalize_http_labels(request.method, getattr(route, "path", None))
