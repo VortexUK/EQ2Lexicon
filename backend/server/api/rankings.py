@@ -11,6 +11,8 @@ docs/superpowers/specs/2026-05-25-eq2logs-rankings-design.md.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import sqlite3
 import unicodedata
 from collections import defaultdict
@@ -32,6 +34,8 @@ from backend.server.server_context import current_server, current_world
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["rankings"])
 
@@ -676,15 +680,45 @@ class RankingsResponse(BaseModel):
     total: int
 
 
+_kills_refresh_inflight: set[str] = set()
+
+
+async def _kills_background_refresh(world: str) -> None:
+    """Warm/refresh the per-world kills cache off the request path."""
+    if world in _kills_refresh_inflight:
+        return
+    _kills_refresh_inflight.add(world)
+    try:
+        await run_sync(_cached_kills, world)
+    except Exception as exc:
+        _log.warning("[rankings] background kills refresh failed for %s: %s", world, exc)
+    finally:
+        _kills_refresh_inflight.discard(world)
+
+
 @router.get("/rankings/filters")
 @limiter.limit("60/minute")
 async def get_ranking_filters(request: Request) -> dict:
+    """The dropdown tree. Its authoritative content is STATIC (zones.db,
+    cached for the process lifetime) — kills only contribute the "Other"
+    bucket for heuristic-matched zones not yet curated. So the heavy
+    kills scan must never block (or 500) the dropdowns: serve whatever
+    the cache holds — fresh, stale, or nothing — and refresh it in the
+    background. A cold start briefly shows the curated tree without the
+    "Other" bucket, which is the right trade."""
     _require_user(request)
     # Resolve world in the async handler (contextvar is set here); do NOT read
     # current_world() inside the executor thread — contextvars don't cross threads.
     world = current_world()
-    kills = await run_sync(_cached_kills, world)
-    return _build_filters(kills)
+    kills, is_stale = rankings_cache.get_stale(f"{_KILLS_KEY}:{world}")
+    _, raid_tree, dungeon_tree, _ = _cached_zones_data()
+    if kills is None and not raid_tree and not dungeon_tree:
+        # No curated zones.db (dev/tests): the dropdowns are ENTIRELY
+        # parse-derived there, so the scan is the only source — block once.
+        kills = await run_sync(_cached_kills, world)
+    elif kills is None or is_stale:
+        asyncio.create_task(_kills_background_refresh(world))
+    return _build_filters(kills or [])
 
 
 @router.get("/rankings", response_model=RankingsResponse)

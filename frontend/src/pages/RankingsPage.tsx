@@ -126,12 +126,37 @@ export default function RankingsPage() {
   )
 
   // ── Filters fetch ────────────────────────────────────────────────────────
+  // One transient failure here used to become "No options" until a manual
+  // page refresh (the catch silently set empty scopes). Retry twice with
+  // backoff, and past that surface an error with a retry button instead of
+  // dead dropdowns.
+  const [filtersError, setFiltersError] = useState(false)
+  const [filtersAttempt, setFiltersAttempt] = useState(0)
   useEffect(() => {
-    fetch('/api/rankings/filters', { credentials: 'include' })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((j: FiltersResponse) => setFilters(j))
-      .catch(() => setFilters({ scopes: [] }))
-  }, [])
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let tries = 0
+    function load() {
+      fetch('/api/rankings/filters', { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then((j: FiltersResponse) => {
+          if (cancelled) return
+          setFilters(j)
+          setFiltersError(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          tries += 1
+          if (tries < 3) timer = setTimeout(load, tries === 1 ? 1500 : 4000)
+          else setFiltersError(true)
+        })
+    }
+    load()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [filtersAttempt])
 
   // ── Derived dropdown data ────────────────────────────────────────────────
   const scope = filters.scopes.find(s => s.key === size)
@@ -270,6 +295,17 @@ export default function RankingsPage() {
           <h2 className="font-heading text-[1.8rem] leading-tight text-gold">{zone}</h2>
           <p className="mt-0.5 text-sm text-text-muted">{size === 'raid' ? 'Raid Zone' : 'Dungeon'}</p>
         </div>
+      ) : filtersError && filters.scopes.length === 0 ? (
+        <p className="mb-5 text-danger">
+          Couldn't load the zone list.{' '}
+          <button
+            type="button"
+            onClick={() => setFiltersAttempt(n => n + 1)}
+            className="appearance-none border-0 bg-transparent p-0 text-gold underline cursor-pointer"
+          >
+            Retry
+          </button>
+        </p>
       ) : (
         <p className="mb-5 text-text-muted">Choose a raid or dungeon above to see its rankings.</p>
       )}
