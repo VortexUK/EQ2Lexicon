@@ -193,6 +193,8 @@ CREATE INDEX IF NOT EXISTS idx_damage_types_combatant   ON damage_types (combata
 CREATE INDEX IF NOT EXISTS idx_attack_types_combatant   ON attack_types (combatant_id);
 CREATE INDEX IF NOT EXISTS idx_attack_types_damage_desc ON attack_types (combatant_id, damage DESC);
 CREATE INDEX IF NOT EXISTS idx_combatants_encounter_is_player ON combatants (encounter_id, is_player);
+CREATE INDEX IF NOT EXISTS idx_combatants_rankings_cover ON combatants
+    (encounter_id, ally, is_player, name, cls, level, ilvl, guild_name, encdps, enchps, damage, healed, deaths);
 CREATE INDEX IF NOT EXISTS idx_tamper_reports_unack ON tamper_reports (reported_at DESC) WHERE acknowledged_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tamper_reports_reporter ON tamper_reports (uploader_discord_id, reported_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tamper_reports_world_reported ON tamper_reports (world, reported_at DESC);
@@ -462,7 +464,14 @@ SELECT * FROM combatants WHERE encounter_id = ? ORDER BY damage DESC;
 -- {placeholders} = comma-joined "?,?,..." for the IN list. Batched form of
 -- get_combatants_for_encounter: the rankings rebuild fetches every primary
 -- kill's combatants in a handful of queries instead of one per kill.
-SELECT * FROM combatants WHERE encounter_id IN ({placeholders}) ORDER BY encounter_id, damage DESC;
+-- Narrowed to exactly the columns the rankings/export/character-rankings
+-- pipelines read, and shaped to be COVERED by idx_combatants_rankings_cover:
+-- on the Railway network volume, SELECT * random-paged ~150k wide rows and
+-- turned the Wuoshi kills rebuild into a 14-minute grind (combatants=837s,
+-- 2026-09-12); the covering index turns it into dense index-only scans.
+SELECT encounter_id, name, ally, is_player, cls, level, ilvl, guild_name,
+       encdps, enchps, damage, healed, deaths
+FROM combatants WHERE encounter_id IN ({placeholders}) ORDER BY encounter_id, damage DESC;
 
 -- :name get_top_attacks_by_swing_type
 -- {placeholders} = comma-joined "?,?,..." for the IN list.

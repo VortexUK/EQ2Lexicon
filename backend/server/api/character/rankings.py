@@ -27,7 +27,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
 from backend.server.api.character import router
-from backend.server.api.rankings import _cached_kills, _cached_zones_data, _is_player_combatant
+from backend.server.api.rankings import _cached_zones_data, _is_player_combatant, _kills_swr
 from backend.server.auth_deps import require_user_session as _require_user
 from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_character_name
@@ -116,8 +116,11 @@ def _rank_pct(score: float, pool: list[float]) -> int:
     return round(100 * below / others)
 
 
-def _build_character_rankings(name: str, world: str) -> CharacterRankingsResponse:
-    kills = _cached_kills(world)
+def _build_character_rankings(name: str, world: str, kills: list[dict]) -> CharacterRankingsResponse:
+    # ``kills`` arrives from the route via _kills_swr — this sync builder
+    # must NOT call _cached_kills itself: bypassing the shared build task
+    # once ran a SECOND full 14-minute rebuild in parallel with the
+    # startup prewarm (2026-09-12, two concurrent Wuoshi rebuilds).
     target = name.strip().lower()
     curated, exp_names, exp_order = _curated_content()
 
@@ -252,4 +255,5 @@ async def get_character_rankings(request: Request, name: str) -> CharacterRankin
     # Resolve world in the async handler — contextvars don't cross into the
     # executor thread (same rule as /api/rankings).
     world = current_world()
-    return await run_sync(_build_character_rankings, valid, world)
+    kills = await _kills_swr(world)
+    return await run_sync(_build_character_rankings, valid, world, kills)

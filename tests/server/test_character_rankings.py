@@ -7,7 +7,7 @@ median, All Stars, and gating semantics without any DB plumbing.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -98,7 +98,7 @@ KILLS = [
 
 
 def test_percentiles_are_class_scoped():
-    resp = mod._build_character_rankings("Menlu", "Wuoshi")
+    resp = mod._build_character_rankings("Menlu", "Wuoshi", KILLS)
     assert resp.cls == "Templar"
     (zone,) = resp.zones
     assert (zone.zone, zone.scope) == ("Deathtoll", "raid")
@@ -123,7 +123,7 @@ def test_percentiles_are_class_scoped():
 
 
 def test_wizard_pool_is_independent():
-    resp = mod._build_character_rankings("Wizzy", "Wuoshi")
+    resp = mod._build_character_rankings("Wizzy", "Wuoshi", KILLS)
     (zone,) = resp.zones
     dps = zone.bosses[0].dps
     assert dps is not None
@@ -135,7 +135,7 @@ def test_wizard_pool_is_independent():
 
 
 def test_hps_metric_computed_alongside():
-    resp = mod._build_character_rankings("Menlu", "Wuoshi")
+    resp = mod._build_character_rankings("Menlu", "Wuoshi", KILLS)
     hps = resp.zones[0].bosses[0].hps
     assert hps is not None
     # HPS pool [3000, 2500, 4000]; best 3000 beats 1 of 2 others → 50.
@@ -146,7 +146,7 @@ def test_hps_metric_computed_alongside():
 
 
 def test_zone_allstars_cover_bosses_target_never_killed():
-    resp = mod._build_character_rankings("Menlu", "Wuoshi")
+    resp = mod._build_character_rankings("Menlu", "Wuoshi", KILLS)
     allstars = resp.zones[0].dps_allstars
     assert allstars is not None
     # Menlu: 60 pts (Tarinax only). Elesine: 100 (Tarinax record) + 100
@@ -155,7 +155,7 @@ def test_zone_allstars_cover_bosses_target_never_killed():
     assert allstars.points == 60.0
     assert (allstars.rank, allstars.out_of) == (2, 2)
 
-    elesine = mod._build_character_rankings("Elesine", "Wuoshi")
+    elesine = mod._build_character_rankings("Elesine", "Wuoshi", KILLS)
     e_allstars = elesine.zones[0].dps_allstars
     assert e_allstars is not None
     assert e_allstars.points == 200.0
@@ -163,7 +163,7 @@ def test_zone_allstars_cover_bosses_target_never_killed():
 
 
 def test_unranked_character_gets_empty_zones():
-    resp = mod._build_character_rankings("Ghostchar", "Wuoshi")
+    resp = mod._build_character_rankings("Ghostchar", "Wuoshi", KILLS)
     assert resp.zones == []
     assert resp.cls is None
 
@@ -172,7 +172,7 @@ def test_uncurated_kills_are_excluded_and_expansions_listed():
     """Only curated rankings content surfaces: Menlu's 99,999-DPS kill in
     'Uncurated Keep' must not appear anywhere — no boss row, no pool
     pollution. Zone sections carry the expansion tag for the dropdown."""
-    resp = mod._build_character_rankings("Menlu", "Wuoshi")
+    resp = mod._build_character_rankings("Menlu", "Wuoshi", KILLS)
     (zone,) = resp.zones  # only the curated Deathtoll section
     assert zone.zone == "Deathtoll"
     assert zone.expansion == "KoS"
@@ -187,12 +187,11 @@ def test_uncurated_kills_are_excluded_and_expansions_listed():
 def test_character_with_only_uncurated_kills_gets_empty_zones():
     """A character whose parses are all heuristic-matched noise gets zones=[]
     — the tab stays hidden for them."""
-    solo = mod._build_character_rankings("Menlu", "Wuoshi")
+    solo = mod._build_character_rankings("Menlu", "Wuoshi", KILLS)
     assert solo.zones  # sanity: Menlu has curated kills
 
     uncurated_only = [k for k in KILLS if k["zone"] == "Uncurated Keep"]
-    with patch.object(mod, "_cached_kills", lambda world: uncurated_only):
-        resp = mod._build_character_rankings("Menlu", "Wuoshi")
+    resp = mod._build_character_rankings("Menlu", "Wuoshi", uncurated_only)
     assert resp.zones == []
     assert resp.expansions == []
 
@@ -200,7 +199,7 @@ def test_character_with_only_uncurated_kills_gets_empty_zones():
 @pytest.mark.asyncio
 async def test_endpoint_serves_and_validates(app):
     with (
-        patch.object(mod, "_cached_kills", lambda world: KILLS),
+        patch.object(mod, "_kills_swr", new=AsyncMock(return_value=KILLS)),
         patch("backend.server.api.character.rankings._require_user", _fake_user),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
@@ -215,5 +214,6 @@ async def test_endpoint_serves_and_validates(app):
 
 @pytest.fixture(autouse=True)
 def _fake_kills(monkeypatch):
-    monkeypatch.setattr(mod, "_cached_kills", lambda world: KILLS)
+    # Kills are threaded into the builder explicitly now (the route awaits
+    # the shared _kills_swr build) — only the zones tree needs faking.
     monkeypatch.setattr(mod, "_cached_zones_data", lambda: FAKE_TREES)

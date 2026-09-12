@@ -667,12 +667,19 @@ def benchmarks_for_boss(boss_title: str, world: str | None = None) -> dict[str, 
     {"dps": ({class: best}, overall), "hps": ({class: best}, overall)}.
 
     ``world`` defaults to current_world() — pass explicitly when calling from
-    a thread where the contextvar may not be propagated."""
+    a thread where the contextvar may not be propagated.
+
+    CACHE-ONLY (peek): this rides the parse-detail read path, and a cold
+    kills cache must never trigger the full rebuild inline here — that
+    bypass gave parse pages 124s loads while the cache warmed. An empty
+    benchmark overlay until the (prewarmed/SWR-refreshed) cache fills is
+    the right degradation."""
     dps_by_class: dict[str, float] = {}
     hps_by_class: dict[str, float] = {}
     dps_overall = 0.0
     hps_overall = 0.0
-    for k in _cached_kills(world):
+    kills = rankings_cache.peek(f"{_KILLS_KEY}:{world or current_server().world}") or []
+    for k in kills:
         if k["title"] != boss_title:
             continue
         for c in k["combatants"]:
