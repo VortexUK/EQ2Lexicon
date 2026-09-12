@@ -32,8 +32,8 @@ from backend.server.api.rankings import (
     _apply_percentiles,
     _build_character_board,
     _build_filters,
-    _cached_kills,
     _is_player_combatant,
+    _kills_swr,
 )
 from backend.server.auth_deps import is_admin, require_user_session_or_token
 from backend.server.core.executor import run_sync
@@ -149,7 +149,7 @@ async def export_filters(request: Request) -> dict:
     """Valid sizes/zones/bosses (+ classes per board) for /rankings params."""
     await _require_api_consumer(request)
     world = current_world()
-    kills = await run_sync(_cached_kills, world)
+    kills = await _kills_swr(world)
     return {"schema_version": 1, "world": world, **_build_filters(kills)}
 
 
@@ -170,7 +170,7 @@ async def export_rankings(
         raise HTTPException(status_code=400, detail="metric must be 'dps' or 'hps'")
 
     world = current_world()
-    kills = await run_sync(_cached_kills, world)
+    kills = await _kills_swr(world)
     rows, _classes = _build_character_board(kills, size=size, zone=zone, boss=boss, metric=metric)
     if class_name:
         rows = [r for r in rows if r["cls"] == class_name]

@@ -99,7 +99,11 @@ _SCOPE_LABELS = {"group": "Group", "raid": "Raid"}
 _METRIC_FIELD = {"dps": "encdps", "hps": "enchps"}  # speed handled separately
 
 # Short-lived cache of the expensive load+group step (boards are cheap on top).
-rankings_cache: TTLCache = TTLCache(ttl=60, max_age=600, name="rankings", maxsize=4)
+# ttl=60 keeps boards fresh-ish; max_age=6h means a stale board SERVES
+# instantly (with a background rebuild) rather than blocking a visitor on
+# the full parses scan — only a completely cold cache (deploy, 6h idle)
+# builds inline.
+rankings_cache: TTLCache = TTLCache(ttl=60, max_age=6 * 3600, name="rankings", maxsize=4)
 _KILLS_KEY = "primary_boss_kills"
 
 
@@ -587,25 +591,27 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
             d["zone"] = czone
             d["title"] = ctitle
             encs.append(d)
-        kills: list[dict] = []
-        for g in _group_into_fights(encs, conn):
-            scope = _scope_for(g.get("player_count") or 0)
-            if scope is None:
-                continue
-            kills.append(
-                {
-                    "id": g["id"],
-                    "title": g["title"],
-                    "zone": g["zone"],
-                    "guild_name": g.get("guild_name"),
-                    "started_at": g["started_at"],
-                    "duration_s": g["duration_s"],
-                    "ingested_at": g.get("ingested_at"),
-                    "player_count": g.get("player_count") or 0,
-                    "scope": scope,
-                    "combatants": parses_db.get_combatants_for_encounter(conn, g["id"]),
-                }
-            )
+        groups = [
+            (g, scope)
+            for g in _group_into_fights(encs, conn)
+            if (scope := _scope_for(g.get("player_count") or 0)) is not None
+        ]
+        combatants_by_enc = parses_db.get_combatants_for_encounters(conn, [g["id"] for g, _ in groups])
+        kills = [
+            {
+                "id": g["id"],
+                "title": g["title"],
+                "zone": g["zone"],
+                "guild_name": g.get("guild_name"),
+                "started_at": g["started_at"],
+                "duration_s": g["duration_s"],
+                "ingested_at": g.get("ingested_at"),
+                "player_count": g.get("player_count") or 0,
+                "scope": scope,
+                "combatants": combatants_by_enc.get(g["id"], []),
+            }
+            for g, scope in groups
+        ]
         return _apply_era_lock(kills, _era_lock_for(world), _zone_expansion_map())
     finally:
         conn.close()
@@ -696,6 +702,35 @@ async def _kills_background_refresh(world: str) -> None:
         _kills_refresh_inflight.discard(world)
 
 
+async def _kills_swr(world: str) -> list[dict]:
+    """Stale-while-revalidate kills for the async endpoints: serve whatever
+    the cache holds (fresh, or stale up to the cache's max_age) instantly
+    and refresh in the background — a leaderboard a minute or two behind
+    beats a visitor staring at "Loading…" while the full parses scan runs.
+    Only a completely cold cache builds inline."""
+    kills, is_stale = rankings_cache.get_stale(f"{_KILLS_KEY}:{world}")
+    if kills is None:
+        return await run_sync(_cached_kills, world)
+    if is_stale:
+        asyncio.create_task(_kills_background_refresh(world))
+    return kills
+
+
+async def prewarm_rankings_kills() -> None:
+    """Startup lifespan task: build every registered world's kills cache so
+    the first /rankings visitor after a deploy never pays the scan."""
+    from backend.server.db.servers import store as servers_db  # noqa: PLC0415 — local: avoid import cycle
+
+    try:
+        worlds = [row["world"] for row in await asyncio.to_thread(servers_db.list_servers_sync)]
+    except Exception as exc:
+        _log.warning("[rankings] prewarm skipped — registry unavailable: %s", exc)
+        return
+    for world in worlds:
+        await _kills_background_refresh(world)
+    _log.info("[rankings] kills cache prewarmed for %d world(s)", len(worlds))
+
+
 @router.get("/rankings/filters")
 @limiter.limit("60/minute")
 async def get_ranking_filters(request: Request) -> dict:
@@ -740,7 +775,7 @@ async def get_rankings(
     # Resolve world in the async handler (contextvar is set here); do NOT read
     # current_world() inside the executor thread — contextvars don't cross threads.
     world = current_world()
-    kills = await run_sync(_cached_kills, world)
+    kills = await _kills_swr(world)
 
     if metric == "speed":
         if size == "group":

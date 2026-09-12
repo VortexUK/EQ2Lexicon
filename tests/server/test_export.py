@@ -112,7 +112,7 @@ async def test_export_rankings_rows_and_class_filter(app, users_db):
         _kill(1, [_combatant("Topwiz", "Wizard", 50000), _combatant("Healy", "Templar", 4000)]),
         _kill(2, [_combatant("Topwiz", "Wizard", 61000), _combatant("Otherwiz", "Wizard", 30000)]),
     ]
-    with _auth_patch(), patch("backend.server.api.export._cached_kills", return_value=kills):
+    with _auth_patch(), patch("backend.server.api.export._kills_swr", new=AsyncMock(return_value=kills)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get(
                 "/api/export/v1/rankings",

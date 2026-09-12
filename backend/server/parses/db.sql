@@ -458,6 +458,12 @@ SELECT id, title, guild_name, source_dsn FROM encounters {where};
 -- :name get_combatants_for_encounter
 SELECT * FROM combatants WHERE encounter_id = ? ORDER BY damage DESC;
 
+-- :name get_combatants_for_encounters
+-- {placeholders} = comma-joined "?,?,..." for the IN list. Batched form of
+-- get_combatants_for_encounter: the rankings rebuild fetches every primary
+-- kill's combatants in a handful of queries instead of one per kill.
+SELECT * FROM combatants WHERE encounter_id IN ({placeholders}) ORDER BY encounter_id, damage DESC;
+
 -- :name get_top_attacks_by_swing_type
 -- {placeholders} = comma-joined "?,?,..." for the IN list.
 SELECT * FROM attack_types

@@ -484,10 +484,12 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
         # ---- async background tasks (tracked so shutdown can cancel) ----
         from backend.server import census_health, raid_live, xpac_rollover
+        from backend.server.api.rankings import prewarm_rankings_kills
 
         tasks: list[asyncio.Task] = [
             asyncio.create_task(prewarm_character_cache(), name="prewarm-character-cache"),
             asyncio.create_task(prewarm_server_stats(), name="prewarm-server-stats"),
+            asyncio.create_task(prewarm_rankings_kills(), name="prewarm-rankings-kills"),
             asyncio.create_task(_cache_sweep_loop(), name="cache-sweep-loop"),
             asyncio.create_task(census_health.poll_loop(), name="census-health-poll"),
             asyncio.create_task(_parse_cleanup_loop(), name="parse-cleanup-loop"),

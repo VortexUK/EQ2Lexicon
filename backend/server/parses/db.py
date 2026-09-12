@@ -570,6 +570,25 @@ class ParsesStore(BaseCatalogue):
         return [dict(r) for r in rows]
 
     @staticmethod
+    def get_combatants_for_encounters(conn: sqlite3.Connection, encounter_ids: list[int]) -> dict[int, list[dict]]:
+        """Batched :meth:`get_combatants_for_encounter` — one query per 500
+        encounters instead of one per encounter (the rankings rebuild used
+        to N+1 this over the whole leaderboard). Rows keep the per-encounter
+        damage-DESC order."""
+        conn.row_factory = sqlite3.Row
+        out: dict[int, list[dict]] = {eid: [] for eid in encounter_ids}
+        chunk_size = 500
+        for i in range(0, len(encounter_ids), chunk_size):
+            chunk = encounter_ids[i : i + chunk_size]
+            rows = conn.execute(
+                _SQL["get_combatants_for_encounters"].format(placeholders=",".join("?" * len(chunk))),
+                chunk,
+            ).fetchall()
+            for r in rows:
+                out[r["encounter_id"]].append(dict(r))
+        return out
+
+    @staticmethod
     def get_top_attacks_for_combatant(
         conn: sqlite3.Connection,
         combatant_id: int,
