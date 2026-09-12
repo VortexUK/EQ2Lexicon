@@ -12,13 +12,17 @@ at mint time and never recoverable.
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
+import sqlite3
 import time
 from pathlib import Path
 
 from backend.db_catalogue import AsyncStoreBase
 from backend.server.db import DB_PATH
 from backend.sql_loader import load_sql
+
+_log = logging.getLogger(__name__)
 
 _SQL = load_sql(__file__)
 
@@ -126,11 +130,20 @@ class TokensStore(AsyncStoreBase):
             last_used = row["last_used_at"]
             did_write = last_used is None or (now - int(last_used)) >= 60
             if did_write:
-                await db.execute(
-                    _SQL["update_last_used_at"],
-                    (now, row["token_id"]),
-                )
-                await db.commit()
+                # The touch is COSMETIC bookkeeping — it must never fail the
+                # auth path. Under a raid-night upload burst, concurrent
+                # writers can still contend past the busy timeout; a lost
+                # last-used bump costs nothing, a 500 here fails the whole
+                # upload (seen live 2026-09-12 on /attendance/ingest).
+                try:
+                    await db.execute(
+                        _SQL["update_last_used_at"],
+                        (now, row["token_id"]),
+                    )
+                    await db.commit()
+                except sqlite3.OperationalError as exc:
+                    _log.warning("[tokens] last-used touch skipped (db busy): %s", exc)
+                    did_write = False
         result = dict(row)
         if did_write:
             result["last_used_at"] = now

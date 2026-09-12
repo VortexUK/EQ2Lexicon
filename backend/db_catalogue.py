@@ -294,14 +294,21 @@ class AsyncStoreBase(PathBound):
 
     @asynccontextmanager
     async def _db(self, *, row_factory: bool = False) -> AsyncIterator[aiosqlite.Connection]:
-        """The one place a users.db domain connection is opened — future
-        connection-level policy (busy_timeout, a foreign_keys pragma once
-        the data is audited for violations) lands here, not at N call
-        sites. ``row_factory=True`` sets aiosqlite.Row for dict-shaped
-        reads."""
+        """The one place a users.db domain connection is opened — connection
+        -level policy lands here, not at N call sites (a foreign_keys pragma
+        stays pending a data audit). ``row_factory=True`` sets aiosqlite.Row
+        for dict-shaped reads.
+
+        busy_timeout: a raid-night burst of parser uploads means concurrent
+        writers on users.db (token last-used touches, attendance upserts).
+        Without a busy handler a deferred-transaction write upgrade can fail
+        with "database is locked" the moment another writer has committed —
+        seen live 2026-09-12 as 500s on /attendance/ingest. 10s queues
+        writers instead."""
         import aiosqlite  # deferred: sync-only consumers never pay the import
 
         async with aiosqlite.connect(self.path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
             if row_factory:
                 db.row_factory = aiosqlite.Row
             yield db

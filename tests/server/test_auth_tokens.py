@@ -208,6 +208,25 @@ async def test_db_lookup_rejects_garbage(tmp_users_db):
 
 
 @pytest.mark.asyncio
+async def test_db_lookup_survives_failed_last_used_touch(tmp_users_db, monkeypatch):
+    """The last-used bump is COSMETIC — a busy users.db there must never
+    fail token auth (live 2026-09-12: a raid-night upload burst hit
+    'database is locked' on the touch and 500d /attendance/ingest)."""
+    from backend.server import db as users_db
+    from backend.server.db import tokens as tokens_mod
+
+    raw, _ = await users_db.mint_api_token("user-123", "First")
+    # Force the touch to blow up with OperationalError (same family the
+    # locked-database failure raises).
+    monkeypatch.setitem(tokens_mod._SQL, "update_last_used_at", "UPDATE no_such_table SET x = ? WHERE y = ?")
+
+    found = await users_db.lookup_api_token(raw)
+    assert found is not None
+    assert found["user_id"] == "user-123"
+    assert found["last_used_at"] is None  # the failed touch was not reported as applied
+
+
+@pytest.mark.asyncio
 async def test_db_revoke_scoped_to_user(tmp_users_db):
     """A user can't revoke another user's token."""
     import sqlite3 as _sqlite3
