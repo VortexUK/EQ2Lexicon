@@ -109,6 +109,29 @@ def _ensure_classified(conn: sqlite3.Connection, encounter_id: int, zone: str | 
     needs = conn.execute(_SQL["has_unclassified_combatants"], (encounter_id,)).fetchone()
     if not needs:
         return False
+    return _classify_now(conn, encounter_id, zone)
+
+
+def encounters_needing_classification(conn: sqlite3.Connection, encounter_ids: list[int]) -> set[int]:
+    """Batched probe: which of these encounters still have unclassified
+    ally rows? One chunked query instead of one probe per encounter — at
+    Wuoshi's backlog size the per-encounter probes alone cost the rankings
+    rebuild the better part of a minute."""
+    out: set[int] = set()
+    chunk_size = 500
+    for i in range(0, len(encounter_ids), chunk_size):
+        chunk = encounter_ids[i : i + chunk_size]
+        rows = conn.execute(
+            _SQL["encounters_with_unclassified_combatants"].format(placeholders=",".join("?" * len(chunk))),
+            chunk,
+        ).fetchall()
+        out.update(r[0] for r in rows)
+    return out
+
+
+def _classify_now(conn: sqlite3.Connection, encounter_id: int, zone: str | None) -> bool:
+    """The classify-and-persist half of _ensure_classified, probe already
+    done — callers using the BATCHED probe skip the per-encounter one."""
     rows = parses_db.get_combatants_for_encounter(conn, encounter_id)
     zone_category = _classify_zone(zone)
     classification = classify_combatants(rows, zone_category)
@@ -319,13 +342,16 @@ def _group_into_fights(encounters: list[dict], conn: sqlite3.Connection) -> list
     # closest neighbour.
     sorted_encs = sorted(encounters, key=lambda e: e["started_at"])
     groups: list[dict] = []
+    # A group can only ever merge encounters sharing (title, guild), so
+    # scan candidates per-bucket instead of the whole group list. The flat
+    # scan was quadratic over the entire history — fine at dozens of
+    # encounters, but Wuoshi's backlog turned the rankings rebuild into a
+    # multi-minute grind (2026-09-12: the startup prewarm never finished
+    # inside a 7-minute log window).
+    buckets: dict[tuple, list[dict]] = {}
     for e in sorted_encs:
         attached = False
-        for g in groups:
-            if g["title"] != e["title"]:
-                continue
-            if g.get("guild_name") != e.get("guild_name"):
-                continue
+        for g in buckets.get((e["title"], e.get("guild_name")), ()):
             # A mirror is the SAME fight captured by a DIFFERENT raider. Two
             # uploads from the same uploader are always distinct fights (a
             # same-encid re-upload is deduped at ingest), so never merge
@@ -379,6 +405,9 @@ def _group_into_fights(encounters: list[dict], conn: sqlite3.Connection) -> list
             new_group = dict(e)
             new_group["uploads"] = [e]
             groups.append(new_group)
+            # Same dict reference in both — canonical promotion mutates in
+            # place, and its title/guild never change (the merge gate).
+            buckets.setdefault((e["title"], e.get("guild_name")), []).append(new_group)
 
     # Render order: most-recent fight first.
     groups.sort(key=lambda g: g["started_at"], reverse=True)

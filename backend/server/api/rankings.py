@@ -568,14 +568,19 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
         t_select = _time.monotonic()
         # Phase 4 lazy backfill: classify combatants for any encounter
         # whose is_player flag is still NULL (pre-migration historic
-        # data). The player_count in the SELECT above uses the same
-        # _PLAYER_COUNT_SQL subquery as parses_list — refresh it here
-        # so the post-classifier value drives _scope_for below.
-        from backend.server.api.parses.list import _ensure_classified  # noqa: PLC0415 — local: avoid import cycle
+        # data). BATCHED probe — one chunked query finds the needy set,
+        # only those run the classifier. The player_count in the SELECT
+        # above uses the same _PLAYER_COUNT_SQL subquery as parses_list —
+        # refresh it here so the post-classifier value drives _scope_for.
+        from backend.server.api.parses.list import (  # noqa: PLC0415 — local: avoid import cycle
+            _classify_now,
+            encounters_needing_classification,
+        )
 
         rows = [dict(r) for r in rows]
+        needy = encounters_needing_classification(conn, [r["id"] for r in rows])
         for r in rows:
-            if _ensure_classified(conn, r["id"], r["zone"]):
+            if r["id"] in needy and _classify_now(conn, r["id"], r["zone"]):
                 refreshed = conn.execute(
                     _SQL["count_player_combatants_for_encounter"],
                     (r["id"],),
@@ -709,23 +714,34 @@ class RankingsResponse(BaseModel):
     total: int
 
 
-_kills_refresh_inflight: set[str] = set()
+_kills_build_tasks: dict[str, asyncio.Task] = {}
+
+
+def _kills_build_task(world: str) -> asyncio.Task:
+    """ONE shared rebuild task per world. The startup prewarm, stale
+    background refreshes and cold-cache requests all await the same task —
+    two dedup mechanisms once let a visitor during the prewarm start a
+    SECOND competing multi-minute rebuild against the same SQLite file."""
+    task = _kills_build_tasks.get(world)
+    if task is None or task.done():
+
+        async def _build() -> list[dict]:
+            try:
+                return await run_sync(_cached_kills, world)
+            finally:
+                _kills_build_tasks.pop(world, None)
+
+        task = asyncio.create_task(_build())
+        _kills_build_tasks[world] = task
+    return task
 
 
 async def _kills_background_refresh(world: str) -> None:
     """Warm/refresh the per-world kills cache off the request path."""
-    if world in _kills_refresh_inflight:
-        return
-    _kills_refresh_inflight.add(world)
     try:
-        await run_sync(_cached_kills, world)
+        await asyncio.shield(_kills_build_task(world))
     except Exception as exc:
         _log.warning("[rankings] background kills refresh failed for %s: %s", world, exc)
-    finally:
-        _kills_refresh_inflight.discard(world)
-
-
-_kills_build_tasks: dict[str, asyncio.Task] = {}
 
 
 async def _kills_swr(world: str) -> list[dict]:
@@ -734,22 +750,13 @@ async def _kills_swr(world: str) -> list[dict]:
     and refresh in the background — a leaderboard a minute or two behind
     beats a visitor staring at "Loading…" while the full parses scan runs.
 
-    A completely cold cache builds inline, SINGLE-FLIGHT: N concurrent
-    cold visitors share one executor build instead of stampeding N full
-    scans onto one SQLite file. asyncio.shield keeps a navigation-aborted
-    request (the browser cancels the fetch when the user switches zones)
-    from cancelling the build everyone else is awaiting."""
+    A completely cold cache awaits the SHARED per-world build (the same
+    task the startup prewarm runs). asyncio.shield keeps a navigation-
+    aborted request (the browser cancels the fetch when the user switches
+    zones) from cancelling the build everyone else is awaiting."""
     kills, is_stale = rankings_cache.get_stale(f"{_KILLS_KEY}:{world}")
     if kills is None:
-        task = _kills_build_tasks.get(world)
-        if task is None or task.done():
-            task = asyncio.create_task(run_sync(_cached_kills, world))
-            _kills_build_tasks[world] = task
-        try:
-            return await asyncio.shield(task)
-        finally:
-            if task.done():
-                _kills_build_tasks.pop(world, None)
+        return await asyncio.shield(_kills_build_task(world))
     if is_stale:
         asyncio.create_task(_kills_background_refresh(world))
     return kills

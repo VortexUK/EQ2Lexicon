@@ -54,6 +54,13 @@ WHERE encounter_id = ? AND is_player = 1;
 SELECT 1 FROM combatants
 WHERE encounter_id = ? AND ally = 1 AND is_player IS NULL LIMIT 1;
 
+-- :name encounters_with_unclassified_combatants
+-- {placeholders} = comma-joined "?,?,..." for the IN list. Batched form of
+-- has_unclassified_combatants: the rankings rebuild probes its whole
+-- candidate set in a handful of queries instead of one per encounter.
+SELECT DISTINCT encounter_id FROM combatants
+WHERE encounter_id IN ({placeholders}) AND ally = 1 AND is_player IS NULL;
+
 -- ---------------------------------------------------------------------------
 -- Encounter list + detail
 -- ---------------------------------------------------------------------------
