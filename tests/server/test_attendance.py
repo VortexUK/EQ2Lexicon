@@ -246,9 +246,26 @@ def test_derivation_all_categories():
     assert cats["Randomer"] == "absent"
     assert cats["Afky"] == "afk"  # rostered, declared afk, absent
     assert cats["Ghosty"] == "awol"  # raider, scheduled, absent, undeclared
-    assert cats["Alty"] == "absent"  # raid alts are never AWOL
+    # A never-observed rostered raid alt is roster noise, not a row — it
+    # would read "absent" forever and its ✕ could never remove it (no
+    # observations behind it to delete).
+    assert "Alty" not in cats
     role_by_name = {r["name"]: r["role"] for r in char_rows}
     assert role_by_name["Pugsy"] is None
+
+
+def test_derivation_unseen_alt_appears_only_via_override():
+    """The 'add a missed raider by hand' path still works for alts: an
+    officer override materialises the row even with zero observations."""
+    roles = {"alty": "raid_alt"}
+    overrides = {"alty": {"character_name": "Alty", "category": "present"}}
+    char_rows, _ = derive_categories([], roles, {}, {}, scheduled=True, overrides=overrides)
+    cats = _cats(char_rows)
+    assert cats["Alty"] == "present"
+
+    # Without the override the same alt vanishes entirely.
+    char_rows, _ = derive_categories([], roles, {}, {}, scheduled=True)
+    assert _cats(char_rows) == {}
 
 
 def test_derivation_unscheduled_never_awol():

@@ -102,8 +102,10 @@ def derive_categories(
     # They never enter the character universe — they only flag the player.
     voice_ids = {o["character_name"] for o in obs if o["kind"] == "voice"}
 
-    # Universe: everyone observed + every rostered character (total no-shows
-    # must surface for AWOL).
+    # Universe: everyone observed + every rostered character (raider
+    # no-shows must surface for AWOL; unseen non-raiders are filtered
+    # back out below — they carry no signal and their rows can't be
+    # deleted, having no observations behind them).
     names: dict[str, str] = {}  # lower -> display casing (observed wins)
     for o in obs:
         if o["kind"] in ("raid", "online"):
@@ -137,6 +139,15 @@ def derive_categories(
             category = override["category"]
 
         o = raid_obs.get(display) or online_obs.get(display)
+        # A rostered NON-RAIDER that was never observed (and never hand-
+        # corrected) is pure roster noise: the row reads "absent" forever
+        # and the officer ✕ can't remove it — there are no observations
+        # behind it to delete, so it respawns from the roles table on
+        # every render (live complaint 2026-09-13: three unremovable
+        # raid-alt rows). Raiders keep their no-show row — that IS the
+        # AWOL/absent signal.
+        if category == "absent" and override is None and o is None and role != "raider":
+            continue
         char_rows.append(
             {
                 "name": display,
