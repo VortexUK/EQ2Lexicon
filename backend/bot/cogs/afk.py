@@ -138,7 +138,13 @@ class AfkCog(commands.Cog):
     def __init__(self, bot: EQ2Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="afk", description="Mark raid days you'll miss — feeds the raid planner + attendance")
+    # The description doubles as the "you're not done yet" hint: Discord's
+    # composer stages a slash command on the first Enter and only submits
+    # on the second — users saw "nothing happen" and stopped. The card
+    # showing this text is exactly what they're staring at in that moment.
+    @app_commands.command(
+        name="afk", description="Mark raid days you'll miss — press Enter again and a day picker appears"
+    )
     async def afk(self, interaction: discord.Interaction) -> None:
         today = dt.date.today()
 
