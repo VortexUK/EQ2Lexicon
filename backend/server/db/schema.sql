@@ -341,6 +341,21 @@ CREATE TABLE IF NOT EXISTS user_availability (
     PRIMARY KEY (discord_id, day)
 );
 
+-- Officer-set per-CHARACTER availability. Raiders who never use the site
+-- (placeholder / unclaimed characters) cannot declare their own calendar,
+-- so officers set it from the raid planner. World-scoped (characters are
+-- per-server); character_name stored lower-cased. A player's own
+-- user_availability row wins over this where both exist.
+CREATE TABLE IF NOT EXISTS character_availability (
+    world           TEXT    NOT NULL,
+    character_name  TEXT    NOT NULL,             -- lower-cased
+    day             TEXT    NOT NULL,             -- ISO date YYYY-MM-DD
+    status          TEXT    NOT NULL,             -- tentative or afk
+    set_by          TEXT    NOT NULL,             -- officer discord id
+    updated_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (world, character_name, day)
+);
+
 -- Saved AA planner builds. Owned by a user and pinned to the character they
 -- were planned from (the planner lives on the character page's AA tab).
 -- allocations is JSON {tree_id: {node_id: rank}}. share_slug is minted at

@@ -566,3 +566,81 @@ async def test_planner_roster_appends_placeholder_until_unhidden(app):
     # synthetic duplicate appears.
     tanky = [e for e in roster if e["name"].lower() == "tanky"]
     assert len(tanky) == 1 and tanky[0]["placeholder"] is False
+
+
+# ---------------------------------------------------------------------------
+# Officer-set per-character availability (raiders without site accounts)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_char_availability_store_roundtrip_and_world_scope():
+    await availability_db.set_character_days(_WORLD, "Tanky", {"2026-08-01": "afk"}, set_by="officer-1")
+    assert await availability_db.char_statuses_for_day(_WORLD, "2026-08-01") == {"tanky": "afk"}
+    # World-scoped: another server's day is untouched.
+    assert await availability_db.char_statuses_for_day("Wuoshi", "2026-08-01") == {}
+    # "available" deletes the row (back to default).
+    await availability_db.set_character_days(_WORLD, "TANKY", {"2026-08-01": "available"}, set_by="officer-1")
+    assert await availability_db.char_statuses_for_day(_WORLD, "2026-08-01") == {}
+
+
+@pytest.mark.asyncio
+async def test_char_availability_put_requires_officer(app):
+    import datetime as dt
+
+    today = dt.date.today().isoformat()
+    p = _planner_patches(officer=False)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/availability",
+            {"character_name": "Tanky", "days": {today: "afk"}},
+        )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_char_availability_put_rejects_unrostered(app):
+    import datetime as dt
+
+    today = dt.date.today().isoformat()
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/availability",
+            {"character_name": "Nobody", "days": {today: "afk"}},
+        )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_char_availability_set_shows_in_planner_and_self_declaration_wins(app):
+    """Officer marks a rostered raider AFK for today → the planner overlay
+    carries it. If the player then declares their own status, the player's
+    calendar wins over the officer entry."""
+    import datetime as dt
+
+    today = dt.date.today().isoformat()
+    await _seed_raider("Tanky")
+
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/availability",
+            {"character_name": "Tanky", "days": {today: "afk"}},
+        )
+        assert r.status_code == 200, r.text
+        planner = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0?date={today}")
+    assert planner.json()["availability"] == {"tanky": "afk"}
+
+    # The player (claimed owner of Tanky) declares tentative — wins.
+    from backend.server.db.claims import store as claims_db
+
+    claim = await claims_db.submit_claim(_USER["id"], "Tanky", world=_WORLD)
+    await claims_db.review_claim(claim["id"], "approved", "admin")
+    await availability_db.set_days(_USER["id"], {today: "tentative"})
+    with p[0], p[1], p[2], p[3], p[4]:
+        planner = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0?date={today}")
+    assert planner.json()["availability"] == {"tanky": "tentative"}

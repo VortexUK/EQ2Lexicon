@@ -82,6 +82,7 @@ def derive_categories(
     scheduled: bool,
     user_mains: dict[str, str] | None = None,
     overrides: dict[str, dict] | None = None,
+    afk_by_char: dict[str, str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Returns (char_rows, user_rows).
 
@@ -121,7 +122,12 @@ def derive_categories(
         owner = claims.get(lower)
         in_raid = display in raid_obs or any(k.lower() == lower for k in raid_obs)
         online = display in online_obs or any(k.lower() == lower for k in online_obs)
-        declared_afk = owner is not None and afk_by_user.get(owner) == "afk"
+        # Officer-set per-character AFK (character_availability) covers
+        # raiders with no site account; the user's own calendar is the
+        # other source and either one excuses the no-show.
+        declared_afk = (owner is not None and afk_by_user.get(owner) == "afk") or (afk_by_char or {}).get(
+            lower
+        ) == "afk"
 
         if in_raid:
             category = "present"

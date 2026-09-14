@@ -238,14 +238,15 @@ async def get_raid_mains(request: Request, character: str, server: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def _derivation_inputs(world: str, guild_name: str, session_day: str) -> tuple[dict, dict, dict, dict]:
+async def _derivation_inputs(world: str, guild_name: str, session_day: str) -> tuple[dict, dict, dict, dict, dict]:
     role_rows = await planning_db.get_roles(world, guild_name)
     roles = {r["character_name"].lower(): r["role"] for r in role_rows}
     claims = await planning_db.claims_map(world)
     primaries = await planning_db.primary_claims(world)
     user_mains, _ = derive.resolve_mains(role_rows, claims, primaries)
     afk_by_user = await availability_db.statuses_for_day(session_day)
-    return roles, claims, afk_by_user, user_mains
+    afk_by_char = await availability_db.char_statuses_for_day(world, session_day)
+    return roles, claims, afk_by_user, afk_by_char, user_mains
 
 
 @router.get("/guild/{guild_name}/attendance")
@@ -269,6 +270,7 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
     out = []
     for s in sessions:
         afk_by_user = await availability_db.statuses_for_day(s["session_day"])
+        afk_by_char = await availability_db.char_statuses_for_day(world, s["session_day"])
         char_rows, _ = derive.derive_categories(
             obs_by_session.get(s["id"], []),
             roles,
@@ -276,6 +278,7 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
             afk_by_user,
             bool(s["scheduled"]),
             overrides=overrides_by_session.get(s["id"], {}),
+            afk_by_char=afk_by_char,
         )
         out.append(
             {
@@ -315,6 +318,7 @@ async def attendance_summary(request: Request, guild_name: str, limit: int = 25)
     per_session = []
     for s in sessions:
         afk_by_user = await availability_db.statuses_for_day(s["session_day"])
+        afk_by_char = await availability_db.char_statuses_for_day(world, s["session_day"])
         char_rows, user_rows = derive.derive_categories(
             obs_by_session.get(s["id"], []),
             roles,
@@ -323,6 +327,7 @@ async def attendance_summary(request: Request, guild_name: str, limit: int = 25)
             bool(s["scheduled"]),
             user_mains,
             overrides=overrides_by_session.get(s["id"], {}),
+            afk_by_char=afk_by_char,
         )
         per_session.append((s["id"], char_rows, user_rows))
 
@@ -364,11 +369,18 @@ async def get_attendance_session(request: Request, guild_name: str, session_id: 
 
     obs = await attendance_db.observations_for_session(session_id)
     overrides = await attendance_db.overrides_for_session(session_id)
-    roles, claims, afk_by_user, user_mains = await _derivation_inputs(
+    roles, claims, afk_by_user, afk_by_char, user_mains = await _derivation_inputs(
         world, session["guild_name"], session["session_day"]
     )
     char_rows, user_rows = derive.derive_categories(
-        obs, roles, claims, afk_by_user, bool(session["scheduled"]), user_mains, overrides=overrides
+        obs,
+        roles,
+        claims,
+        afk_by_user,
+        bool(session["scheduled"]),
+        user_mains,
+        overrides=overrides,
+        afk_by_char=afk_by_char,
     )
 
     corrector_ids = sorted({ov["set_by"] for ov in overrides.values()})

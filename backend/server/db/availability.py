@@ -57,6 +57,29 @@ class AvailabilityStore(AsyncStoreBase):
             async with db.execute(_SQL["select_statuses_for_day"], (day,)) as cur:
                 return {r["discord_id"]: r["status"] for r in await cur.fetchall()}
 
+    async def set_character_days(self, world: str, character_name: str, days: dict[str, str], *, set_by: str) -> None:
+        """Officer-set per-CHARACTER calendar — for raiders who never use
+        the site and so can't declare their own. Same semantics as
+        :meth:`set_days`: ``available`` deletes the row (back to default)."""
+        lower = character_name.lower()
+        async with self._db() as db:
+            for day, status in days.items():
+                if status == "available":
+                    await db.execute(_SQL["char_delete_day"], (world, lower, day))
+                elif status in STORED_STATUSES:
+                    await db.execute(_SQL["char_upsert_day"], (world, lower, day, status, set_by))
+                else:
+                    raise ValueError(f"status must be available/tentative/afk, got {status!r}")
+            await db.commit()
+
+    async def char_statuses_for_day(self, world: str, day: str) -> dict[str, str]:
+        """{character_name_lower: status} for officer-set entries on ``day``.
+        Consumers merge this UNDER user self-declarations — a player's own
+        calendar wins where both exist."""
+        async with self._db(row_factory=True) as db:
+            async with db.execute(_SQL["char_statuses_for_day"], (world, day)) as cur:
+                return {r["character_name"]: r["status"] for r in await cur.fetchall()}
+
 
 # The shared default instance — every runtime consumer goes through this.
 store = AvailabilityStore()

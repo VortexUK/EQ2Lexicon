@@ -85,6 +85,8 @@ _FACADE_EXEMPT = {
     "get_range",
     "set_days",
     "statuses_for_day",
+    "set_character_days",
+    "char_statuses_for_day",
     # base-class surface
     "clear_caches",
 }

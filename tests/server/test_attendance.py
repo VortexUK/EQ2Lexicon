@@ -254,6 +254,19 @@ def test_derivation_all_categories():
     assert role_by_name["Pugsy"] is None
 
 
+def test_derivation_officer_set_char_afk_excuses_unclaimed_raider():
+    """The whole point of character_availability: a rostered raider with NO
+    site account (no claim, so no user calendar) marked AFK by an officer
+    reads 'afk' on a scheduled night instead of AWOL."""
+    roles = {"ghosty": "raider"}
+    char_rows, _ = derive_categories([], roles, {}, {}, scheduled=True, afk_by_char={"ghosty": "afk"})
+    assert _cats(char_rows) == {"Ghosty": "afk"}
+
+    # Without the officer entry the same no-show is AWOL.
+    char_rows, _ = derive_categories([], roles, {}, {}, scheduled=True)
+    assert _cats(char_rows) == {"Ghosty": "awol"}
+
+
 def test_derivation_unseen_alt_appears_only_via_override():
     """The 'add a missed raider by hand' path still works for alts: an
     officer override materialises the row even with zero observations."""

@@ -114,6 +114,12 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
   const [phCls, setPhCls] = useState('')
   const [phRole, setPhRole] = useState<'raider' | 'raid_alt'>('raider')
 
+  // Officer-set availability (raiders without site accounts can't declare
+  // their own calendar). Applies to the header's selected date.
+  const [availChar, setAvailChar] = useState('')
+  const [availStatus, setAvailStatus] = useState<'available' | 'tentative' | 'afk'>('afk')
+  const [availMsg, setAvailMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
   const load = useCallback(() => {
     setError(null)
     fetch(
@@ -344,6 +350,72 @@ export function RaidPlanner({ guildName, teamIndex, raidDays }: {
       </div>
 
       {saveError && <p className="text-danger text-[0.8rem]">{saveError}</p>}
+
+      {/* Officer-set availability — raiders without site accounts can't
+          declare their own calendar, so the officer does it here for the
+          selected date. A player's OWN declaration still wins. */}
+      {isOfficer && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[0.78rem] text-text-muted">
+          <span>Set availability for {date}:</span>
+          <select
+            value={availChar}
+            onChange={e => { setAvailChar(e.target.value); setAvailMsg(null) }}
+            className="bg-surface border border-border rounded-sm px-1.5 py-0.5 text-[0.8rem] text-text"
+            aria-label="Character to set availability for"
+          >
+            <option value="">character…</option>
+            {[...data.roster]
+              .filter(r => r.role)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map(r => (
+                <option key={r.name} value={r.name}>{r.name}</option>
+              ))}
+          </select>
+          <select
+            value={availStatus}
+            onChange={e => setAvailStatus(e.target.value as 'available' | 'tentative' | 'afk')}
+            className="bg-surface border border-border rounded-sm px-1.5 py-0.5 text-[0.8rem] text-text"
+            aria-label="Availability status"
+          >
+            <option value="afk">AFK</option>
+            <option value="tentative">Tentative</option>
+            <option value="available">Available</option>
+          </select>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={!availChar}
+            onClick={async () => {
+              setAvailMsg(null)
+              try {
+                const res = await fetch(
+                  `/api/guild/${encodeURIComponent(guildName)}/raid-planning/availability`,
+                  {
+                    method: 'PUT',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ character_name: availChar, days: { [date]: availStatus } }),
+                  },
+                )
+                if (!res.ok) {
+                  setAvailMsg({ ok: false, text: (await res.json().catch(() => ({}))).detail ?? `Error ${res.status}` })
+                  return
+                }
+                setAvailMsg({ ok: true, text: `${availChar}: ${availStatus} on ${date}` })
+                load()
+              } catch (err) {
+                setAvailMsg({ ok: false, text: toErrorMessage(err) })
+              }
+            }}
+          >
+            Set
+          </Button>
+          {availMsg && (
+            <span className={availMsg.ok ? 'text-success' : 'text-danger'}>{availMsg.text}</span>
+          )}
+        </div>
+      )}
+
       {selected && (
         <p className="text-[0.78rem] text-gold">
           Placing <strong>{selected}</strong> — click a slot, the sitout strip or the bench. Click the character again to cancel.

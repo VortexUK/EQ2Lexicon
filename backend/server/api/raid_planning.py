@@ -227,11 +227,15 @@ async def get_planner(
     placements = [PlacementModel(**p) for p in await planning_db.get_placements(world, guild_name, team_index)]
 
     # Availability + player overlay for roled characters only (small set).
+    # Officer-set per-character entries fill the gaps for raiders who never
+    # use the site; a player's own calendar wins where both exist.
     roled_lower = set(roles.keys())
     claims = await planning_db.claims_map(world)
     char_to_user = {n: claims[n] for n in roled_lower if n in claims}
     statuses = await availability_db.statuses_for_day(day)
-    availability = {n: statuses[uid] for n, uid in char_to_user.items() if uid in statuses}
+    char_statuses = await availability_db.char_statuses_for_day(world, day)
+    availability = {n: s for n, s in char_statuses.items() if n in roled_lower}
+    availability.update({n: statuses[uid] for n, uid in char_to_user.items() if uid in statuses})
     display = await get_display_names_for_discord_ids(sorted(set(char_to_user.values())))
     players = {n: display.get(uid, uid) for n, uid in char_to_user.items()}
 
@@ -389,15 +393,11 @@ async def get_my_availability(request: Request) -> AvailabilityResponse:
     return AvailabilityResponse(is_raider=is_raider, horizon_days=AVAILABILITY_HORIZON_DAYS, days=days)
 
 
-@router.put("/me/availability")
-@limiter.limit("30/minute")
-async def put_my_availability(request: Request, body: AvailabilityInput) -> dict:
-    """Bulk-set the viewer's calendar days within the 3-month window."""
-    user = _require_session(request)
+def _validate_days(days: dict[str, str]) -> dict[str, str]:
+    """Shared window/status validation for both availability writers."""
     start, end = _availability_window()
-
     validated: dict[str, str] = {}
-    for day_str, status in body.days.items():
+    for day_str, status in days.items():
         if status not in ("available", "tentative", "afk"):
             raise HTTPException(status_code=400, detail="status must be available, tentative or afk")
         try:
@@ -410,6 +410,47 @@ async def put_my_availability(request: Request, body: AvailabilityInput) -> dict
                 detail=f"dates must be within today..+{AVAILABILITY_HORIZON_DAYS} days",
             )
         validated[day.isoformat()] = status
+    return validated
 
+
+@router.put("/me/availability")
+@limiter.limit("30/minute")
+async def put_my_availability(request: Request, body: AvailabilityInput) -> dict:
+    """Bulk-set the viewer's calendar days within the 3-month window."""
+    user = _require_session(request)
+    validated = _validate_days(body.days)
     await availability_db.set_days(user["id"], validated)
+    return {"ok": True, "count": len(validated)}
+
+
+class CharacterAvailabilityInput(BaseModel):
+    character_name: str = Field(min_length=1, max_length=32)
+    days: dict[str, str] = Field(min_length=1, max_length=120)
+
+
+@router.put("/guild/{guild_name}/raid-planning/availability")
+@limiter.limit("30/minute")
+async def put_character_availability(request: Request, guild_name: str, body: CharacterAvailabilityInput) -> dict:
+    """Officer-set availability for a ROSTERED character. Raiders who never
+    use the site (placeholder/unclaimed characters) have no calendar of
+    their own — the officer sets it here and the planner overlay plus the
+    attendance AWOL derivation honour it. A player's own declaration still
+    wins where both exist."""
+    user = await _require_officer(request, guild_name)
+    world = current_world()
+
+    name = body.character_name.strip()
+    role_rows = await planning_db.get_roles(world, guild_name)
+    if name.lower() not in {r["character_name"].lower() for r in role_rows}:
+        raise HTTPException(status_code=400, detail=f"'{name}' is not on the planner roster.")
+
+    validated = _validate_days(body.days)
+    await availability_db.set_character_days(world, name, validated, set_by=str(user["id"]))
+    audit_log(
+        "character_availability_set",
+        actor=str(user["id"]),
+        guild=guild_name,
+        character=name,
+        days=",".join(f"{d}={s}" for d, s in sorted(validated.items())),
+    )
     return {"ok": True, "count": len(validated)}
