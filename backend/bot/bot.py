@@ -13,6 +13,7 @@ from backend.bot.cogs.fun import FunCog
 from backend.bot.cogs.guild import GuildCog
 from backend.bot.cogs.items import ItemsCog
 from backend.bot.cogs.lexicon import LexiconCog
+from backend.bot.cogs.parse_posts import ParsePostsCog
 from backend.bot.cogs.raidcomp import RaidCompCog
 from backend.bot.cogs.spellcheck import SpellcheckCog
 from backend.bot.cogs.voice_attendance import VoiceAttendanceCog
@@ -68,6 +69,7 @@ class EQ2Bot(commands.Bot):
         await self.add_cog(FunCog(self))
         await self.add_cog(LexiconCog(self))
         await self.add_cog(VoiceAttendanceCog(self))
+        await self.add_cog(ParsePostsCog(self))
         await self.add_cog(AfkCog(self))
         await self.add_cog(AttendanceSummaryCog(self))
         await self.add_cog(RaidCompCog(self))

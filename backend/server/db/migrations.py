@@ -123,4 +123,12 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     if "cls" not in roles_cols:
         conn.execute(_SQL["alter_roles_add_cls"])
 
+    # Migrate: parse-posting fields on discord_guild_links (2026-09) — the
+    # bot posts new raid parses to this channel; the watermark stops reposts.
+    links_cols = {row[1] for row in conn.execute("PRAGMA table_info(discord_guild_links)")}
+    if "parses_channel_id" not in links_cols:
+        conn.execute(_SQL["alter_links_add_parses_channel"])
+    if "parses_posted_at" not in links_cols:
+        conn.execute(_SQL["alter_links_add_parses_posted_at"])
+
     conn.commit()

@@ -90,6 +90,24 @@ class LexiconCog(commands.Cog):
         )
         await interaction.response.send_message(msg, ephemeral=True)
 
+    @lexicon.command(name="parses", description="Set (or clear) the channel where new raid parses are posted")
+    @app_commands.describe(channel="Text channel for parse posts — leave empty to turn posting off")
+    async def parses(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
+        updated = await links_store.set_parses_channel(str(interaction.guild_id), str(channel.id) if channel else None)
+        if not updated:
+            await interaction.response.send_message(
+                "This server isn't linked to an EQ2 guild yet — run `/lexicon link` first.",
+                ephemeral=True,
+            )
+            return
+        msg = (
+            f"Raid parses will be posted to {channel.mention} — one embed per boss fight "
+            f"(raid DPS/HPS + top 5), starting from now."
+            if channel
+            else "Parse posting turned off."
+        )
+        await interaction.response.send_message(msg, ephemeral=True)
+
     @lexicon.command(name="status", description="Show this server's EQ2 link")
     async def status(self, interaction: discord.Interaction) -> None:
         ctx = await resolve_guild_context(interaction.guild_id)
@@ -101,9 +119,13 @@ class LexiconCog(commands.Cog):
             )
             return
         voice = f"<#{ctx.voice_channel_id}>" if ctx.voice_channel_id else "not set (`/lexicon voice`)"
+        link = await links_store.get_link(str(interaction.guild_id))
+        parses_channel = (link or {}).get("parses_channel_id")
+        parses = f"<#{parses_channel}>" if parses_channel else "not set (`/lexicon parses`)"
         lines = [
             f"Linked to **{ctx.guild_name}** on **{ctx.world}**.",
             f"Raid voice channel: {voice}",
+            f"Parse posts channel: {parses}",
         ]
         lines.append(await self._live_session_line(ctx))
         await interaction.response.send_message("\n".join(lines), ephemeral=True)

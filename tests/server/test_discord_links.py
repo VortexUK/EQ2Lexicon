@@ -76,3 +76,34 @@ async def test_delete_link():
     assert await links_db.delete_link(_GID) is True
     assert await links_db.get_link(_GID) is None
     assert await links_db.delete_link(_GID) is False
+
+
+@pytest.mark.asyncio
+async def test_parses_channel_lifecycle():
+    # Not linked yet → refused, same contract as set_voice_channel.
+    assert await links_db.set_parses_channel(_GID, "111") is False
+
+    await links_db.upsert_link(_GID, "Varsoon", "Exordium", "u1")
+    assert await links_db.set_parses_channel(_GID, "111") is True
+    link = await links_db.get_link(_GID)
+    assert link is not None and link["parses_channel_id"] == "111"
+    # Enabling stamps the watermark to now — history is never flooded.
+    assert link["parses_posted_at"] > 0
+
+    rows = await links_db.list_parse_links()
+    assert [r["discord_guild_id"] for r in rows] == [_GID]
+
+    await links_db.set_parses_posted_at(_GID, 123)
+    link = await links_db.get_link(_GID)
+    assert link is not None and link["parses_posted_at"] == 123
+
+    # Relinking preserves the parse channel (same rule as voice).
+    await links_db.upsert_link(_GID, "Varsoon", "Paragon", "u1")
+    link = await links_db.get_link(_GID)
+    assert link is not None and link["parses_channel_id"] == "111"
+
+    # Clearing stops posting but keeps the watermark.
+    assert await links_db.set_parses_channel(_GID, None) is True
+    link = await links_db.get_link(_GID)
+    assert link is not None and link["parses_channel_id"] is None
+    assert await links_db.list_parse_links() == []

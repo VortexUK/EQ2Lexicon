@@ -239,3 +239,81 @@ def build_spell_summary(data: CharacterSpells) -> str:
     lines += [sep, _row("Total", sum(count.values()))]
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Parse posts — the pure half of the parse-posting cog's embeds
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ParsePost:
+    """Everything a Discord embed needs, with no discord import: the cog
+    maps this 1:1 onto discord.Embed."""
+
+    title: str
+    url: str | None
+    color: int
+    description: str
+    fields: list[tuple[str, str, bool]]  # (name, value, inline)
+    footer: str
+
+
+#: Embed accent colours (kill / wipe / unknown-mixed).
+_COLOR_KILL = 0x2EA043
+_COLOR_WIPE = 0xD64545
+_COLOR_NEUTRAL = 0xC9A227
+
+
+def fmt_compact(n: float) -> str:
+    """1234567 → '1.23M' — the site's compact number style for embeds."""
+    n = float(n or 0)
+    for scale, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
+        if abs(n) >= scale:
+            v = n / scale
+            digits = 0 if v >= 100 else 1 if v >= 10 else 2
+            return f"{v:.{digits}f}{suffix}"
+    return f"{n:.0f}"
+
+
+def _fmt_fight_duration(seconds: int) -> str:
+    m, s = divmod(max(int(seconds), 0), 60)
+    return f"{m}m {s:02d}s"
+
+
+def _top_lines(players: list[dict], key: str, limit: int = 5) -> str:
+    ranked = sorted((p for p in players if (p.get(key) or 0) > 0), key=lambda p: p[key], reverse=True)[:limit]
+    lines = []
+    for i, p in enumerate(ranked, start=1):
+        cls = f" · {p['cls']}" if p.get("cls") else ""
+        lines.append(f"`{fmt_compact(p[key]):>7}` {i}. **{p.get('name', '?')}**{cls}")
+    return "\n".join(lines) or "—"
+
+
+def build_parse_post(fight: dict, players: list[dict], url: str | None) -> ParsePost:
+    """One boss fight → one clean embed: outcome + duration in the title,
+    raid-wide DPS/HPS up top, top-5 DPS and HPS side by side.
+
+    ``fight`` is a mirror-grouped encounter dict (canonical upload fields +
+    ``uploads``); ``players`` its ally player combatants."""
+    success = fight.get("success_level") or 0
+    emoji, color = (
+        ("✅", _COLOR_KILL) if success == 1 else ("💀", _COLOR_WIPE) if success == 2 else ("⚔️", _COLOR_NEUTRAL)
+    )
+    wipe = " (wipe)" if success == 2 else ""
+    title = f"{emoji} {fight.get('title') or 'Unknown encounter'} — {_fmt_fight_duration(fight.get('duration_s') or 0)}{wipe}"
+
+    raid_dps = sum(p.get("encdps") or 0 for p in players)
+    raid_hps = sum(p.get("enchps") or 0 for p in players)
+    where = f"{fight['zone']} · " if fight.get("zone") else ""
+    description = (
+        f"{where}{len(players)} players\n**Raid DPS** `{fmt_compact(raid_dps)}` **Raid HPS** `{fmt_compact(raid_hps)}`"
+    )
+
+    fields = [
+        ("Top DPS", _top_lines(players, "encdps"), True),
+        ("Top HPS", _top_lines(players, "enchps"), True),
+    ]
+    uploads = len(fight.get("uploads") or ()) or 1
+    footer = f"EQ2Lexicon · {uploads} upload{'s' if uploads != 1 else ''}"
+    return ParsePost(title=title, url=url, color=color, description=description, fields=fields, footer=footer)

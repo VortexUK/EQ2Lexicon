@@ -65,6 +65,28 @@ class DiscordLinksStore(AsyncStoreBase):
             async with db.execute(_SQL["select_voice_links"]) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
+    async def set_parses_channel(self, discord_guild_id: str, channel_id: str | None) -> bool:
+        """Set (or with None clear) the parse-posting channel. Enabling
+        stamps the watermark to now so history is never flooded into the
+        channel. False when the Discord guild isn't linked yet."""
+        async with self._db() as db:
+            cur = await db.execute(_SQL["set_parses_channel"], (channel_id, channel_id, discord_guild_id))
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def set_parses_posted_at(self, discord_guild_id: str, posted_at: int) -> None:
+        """Advance the parse poster's watermark after a tick."""
+        async with self._db() as db:
+            await db.execute(_SQL["set_parses_posted_at"], (posted_at, discord_guild_id))
+            await db.commit()
+
+    async def list_parse_links(self) -> list[dict]:
+        """Every link with parse posting configured — the parse poster's
+        per-tick work list."""
+        async with self._db(row_factory=True) as db:
+            async with db.execute(_SQL["select_parse_links"]) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+
 
 # The shared default instance — every runtime consumer goes through this.
 store = DiscordLinksStore()

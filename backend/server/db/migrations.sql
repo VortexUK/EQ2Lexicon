@@ -147,3 +147,9 @@ ALTER TABLE raid_roster_roles ADD COLUMN placeholder INTEGER NOT NULL DEFAULT 0;
 
 -- :name alter_roles_add_cls
 ALTER TABLE raid_roster_roles ADD COLUMN cls TEXT;
+
+-- :name alter_links_add_parses_channel
+ALTER TABLE discord_guild_links ADD COLUMN parses_channel_id TEXT;
+
+-- :name alter_links_add_parses_posted_at
+ALTER TABLE discord_guild_links ADD COLUMN parses_posted_at INTEGER NOT NULL DEFAULT 0;

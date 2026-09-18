@@ -229,3 +229,29 @@ def test_init_db_migrates_pre_rollover_servers_table(tmp_path: Path) -> None:
         assert "current_xpac_started_dt" in cols
         row = conn.execute("SELECT current_xpac, current_xpac_started_dt FROM servers WHERE world='Wuoshi'").fetchone()
         assert row == ("EoF", None)
+
+
+def test_init_db_migrates_pre_parse_posting_links_table(tmp_path: Path) -> None:
+    """discord_guild_links created before the 2026-09 parse-posting
+    migration (no parses_channel_id/parses_posted_at) must upgrade in
+    place with its rows intact."""
+    db = tmp_path / "users.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript("""
+            CREATE TABLE discord_guild_links (
+                discord_guild_id TEXT PRIMARY KEY,
+                world TEXT NOT NULL,
+                guild_name TEXT NOT NULL,
+                voice_channel_id TEXT,
+                linked_by TEXT NOT NULL,
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+            );
+            INSERT INTO discord_guild_links (discord_guild_id, world, guild_name, linked_by)
+            VALUES ('648253204760625160', 'Varsoon', 'Exordium', 'u1');
+        """)
+    users_db.init_db(db)
+    with sqlite3.connect(db) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(discord_guild_links)")}
+        assert {"parses_channel_id", "parses_posted_at"} <= cols
+        row = conn.execute("SELECT guild_name, parses_channel_id, parses_posted_at FROM discord_guild_links").fetchone()
+        assert row == ("Exordium", None, 0)

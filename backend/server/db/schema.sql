@@ -386,7 +386,9 @@ CREATE TABLE IF NOT EXISTS discord_guild_links (
     guild_name        TEXT    NOT NULL,             -- canonical Census casing
     voice_channel_id  TEXT,                         -- NULL = voice polling off
     linked_by         TEXT    NOT NULL,             -- discord id of the linker
-    updated_at        INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    updated_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    parses_channel_id TEXT,                         -- NULL = parse posting off
+    parses_posted_at  INTEGER NOT NULL DEFAULT 0    -- poster watermark (unix)
 );
 
 -- Officer corrections to derived attendance categories, per session per

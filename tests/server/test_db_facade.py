@@ -51,6 +51,9 @@ _FACADE_EXEMPT = {
     "get_link",
     "delete_link",
     "list_voice_links",
+    "set_parses_channel",
+    "set_parses_posted_at",
+    "list_parse_links",
     # attendance domain bypasses the facade too
     "apply_snapshot",
     "find_live_session",
