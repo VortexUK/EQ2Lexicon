@@ -96,6 +96,25 @@ def _merge_roster(roster: list[dict], fresh: dict[str, dict], stored: dict[str, 
     return out
 
 
+async def run_character_refresh_now(name: str, world: str) -> None:
+    """Immediate (awaited) refresh for the manual-refresh queue. Same
+    runner as the background path; marks the throttle so a background
+    refresh can't double-fire right after, and joins the in-flight set so
+    the background path dedupes against us."""
+    key = census_refresh_key(name, world)
+    _mark_attempt(key)
+    _in_flight.add(key)
+    await _run_character_refresh(name, key, world)
+
+
+async def run_guild_refresh_now(name: str, world: str) -> None:
+    """Guild counterpart of :func:`run_character_refresh_now`."""
+    key = census_refresh_guild_key(name, world)
+    _mark_attempt(key)
+    _in_flight.add(key)
+    await _run_guild_refresh(name, key, world)
+
+
 def request_guild_refresh(name: str) -> None:
     world = current_world()
     key = census_refresh_guild_key(name, world)

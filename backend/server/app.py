@@ -80,6 +80,7 @@ from backend.server.api.raid_schedule import router as raid_schedule_router
 from backend.server.api.raid_strategies import router as raid_strategies_router
 from backend.server.api.rankings import router as rankings_router
 from backend.server.api.recipes import router as recipes_router
+from backend.server.api.refresh import router as refresh_router
 from backend.server.api.role_requests import router as role_requests_router
 from backend.server.api.server import router as server_router
 from backend.server.api.stats import prewarm_server_stats
@@ -491,13 +492,14 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         APP_INFO_LEGACY.info({"world": _WORLD, "version": "0.1.0"})  # legacy; drop next release
 
         # ---- async background tasks (tracked so shutdown can cancel) ----
-        from backend.server import census_health, raid_live, xpac_rollover
+        from backend.server import census_health, raid_live, refresh_queue, xpac_rollover
         from backend.server.api.rankings import prewarm_rankings_kills
 
         tasks: list[asyncio.Task] = [
             asyncio.create_task(prewarm_character_cache(), name="prewarm-character-cache"),
             asyncio.create_task(prewarm_server_stats(), name="prewarm-server-stats"),
             asyncio.create_task(prewarm_rankings_kills(), name="prewarm-rankings-kills"),
+            asyncio.create_task(refresh_queue.worker_loop(), name="refresh-queue-worker"),
             asyncio.create_task(_cache_sweep_loop(), name="cache-sweep-loop"),
             asyncio.create_task(census_health.poll_loop(), name="census-health-poll"),
             asyncio.create_task(_parse_cleanup_loop(), name="parse-cleanup-loop"),
@@ -647,6 +649,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         aa_router,
         notifications_router,
         recipes_router,
+        refresh_router,
         parses_router,
         rankings_router,
         classes_router,

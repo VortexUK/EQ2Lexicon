@@ -9,6 +9,7 @@ import { useAuth, isAdmin, isSubscriber, discordAvatarUrl } from '../hooks/useAu
 import { Button, Card } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { FreshnessBadge } from '../components/FreshnessBadge'
+import { CensusRefreshControl } from '../components/CensusRefreshControl'
 import { useCensusStream } from '../hooks/useCensusStream'
 import { fmtLocalDate, fmtRelative } from '../formatters'
 import { GuildRosterTab } from './guild/GuildRosterTab'
@@ -616,6 +617,7 @@ export default function GuildPage() {
         )}
         <div className="mb-4">
           <FreshnessBadge stale={roster?.stale} />
+          {guildName && <CensusRefreshControl kind="guild" name={guildName} />}
         </div>
 
         {/* Guild info panel */}

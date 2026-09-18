@@ -5,6 +5,7 @@ import { Card, SectionLabel } from '../components/ui'
 import { TabButton } from '../components/ui/TabButton'
 import { ItemTooltip, useItemTooltip, getCachedItem, prefetchItem, type SetBonus } from '../components/ItemTooltip'
 import { FreshnessBadge } from '../components/FreshnessBadge'
+import { CensusRefreshControl } from '../components/CensusRefreshControl'
 import FavoriteButton from '../components/FavoriteButton'
 import { AAsTab, getAAConfig } from './CharacterAAsTab'
 import CharacterRankingsTab, { type CharacterRankings } from './CharacterRankingsTab'
@@ -861,6 +862,7 @@ function GeneralBanner({ char, equipment, itemsReady, maxLevel, ratingConfig }: 
           {[char.world, char.race, char.gender].filter(Boolean).join(' · ')}
         </div>
         <FreshnessBadge stale={char.stale} />
+        <CensusRefreshControl kind="character" name={char.name} />
         {char.guild_name && (
           <Link
             to={`/guild/${encodeURIComponent(char.guild_name)}`}
