@@ -350,6 +350,24 @@ describe('GuildAttendanceTab', () => {
     ])
   })
 
+  it('lets officers fix the session window with a PUT', async () => {
+    mockFetch({ is_officer: true, sessions: [SESSION] }, { ...DETAIL, is_officer: true })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByRole('button', { name: /Fix times/ }))
+    // Seeded with the current window — save as-is (minute precision).
+    fireEvent.click(await screen.findByRole('button', { name: 'Save times' }))
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/window'))
+    expect(call).toBeTruthy()
+    expect(call![1]).toMatchObject({ method: 'PUT' })
+    expect(JSON.parse(call![1].body)).toEqual({
+      started_at: timeInputToTs(tsToTimeInput(SESSION.started_at), SESSION.started_at, SESSION.ended_at),
+      ended_at: timeInputToTs(tsToTimeInput(SESSION.ended_at), SESSION.started_at, SESSION.ended_at),
+    })
+  })
+
   it('adds a missed player without times via the category override', async () => {
     mockFetch({ is_officer: true, sessions: [SESSION] }, { ...DETAIL, is_officer: true })
     render(<GuildAttendanceTab guildName="Exordium" />)

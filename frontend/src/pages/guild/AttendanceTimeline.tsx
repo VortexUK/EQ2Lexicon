@@ -86,6 +86,64 @@ export function TimelineChips({
   )
 }
 
+// ── Session window fix (officer) ───────────────────────────────────────────
+// A runaway merge chain once stretched a session to 955 minutes — this sets
+// the session's own start/end; derived timelines clip to it server-side.
+
+export function SessionWindowEditor({
+  sessionStart,
+  sessionEnd,
+  onSave,
+  onCancel,
+}: {
+  sessionStart: number
+  sessionEnd: number
+  onSave: (startedAt: number, endedAt: number) => void
+  onCancel: () => void
+}) {
+  const [start, setStart] = useState(tsToTimeInput(sessionStart))
+  const [end, setEnd] = useState(tsToTimeInput(sessionEnd))
+  const [error, setError] = useState<string | null>(null)
+
+  function submit() {
+    const s = timeInputToTs(start, sessionStart, sessionEnd)
+    const e = timeInputToTs(end, sessionStart, sessionEnd)
+    if (s === null || e === null || s >= e) {
+      setError('The session must start before it ends.')
+      return
+    }
+    onSave(s, e)
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[0.8rem]">
+      <span className="text-text-muted">Session ran</span>
+      <input
+        type="time"
+        value={start}
+        onChange={e => setStart(e.target.value)}
+        aria-label="Session start time"
+        className="bg-surface border border-border rounded-sm px-1.5 py-0.5 text-[0.78rem]"
+      />
+      <span className="text-text-muted">–</span>
+      <input
+        type="time"
+        value={end}
+        onChange={e => setEnd(e.target.value)}
+        aria-label="Session end time"
+        className="bg-surface border border-border rounded-sm px-1.5 py-0.5 text-[0.78rem]"
+      />
+      <Button variant="secondary" size="sm" onClick={submit}>Save times</Button>
+      <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+      {error && <span className="text-danger text-[0.78rem]">{error}</span>}
+      <span className="text-[0.72rem] text-text-muted w-full">
+        Clock times on the raid evening. Fixing the window also clips every derived timeline to it — hand-edited
+        timelines are untouched.
+      </span>
+    </div>
+  )
+}
+
 // ── Officer editor ─────────────────────────────────────────────────────────
 
 interface DraftSeg {

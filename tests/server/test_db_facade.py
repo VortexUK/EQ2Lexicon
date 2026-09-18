@@ -62,6 +62,7 @@ _FACADE_EXEMPT = {
     "set_segments",
     "segments_for_session",
     "segments_for_sessions",
+    "set_session_window",
     "remove_character",
     "list_sessions",
     "get_session",

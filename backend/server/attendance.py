@@ -58,6 +58,22 @@ def _derived_segments(raid_o: dict | None, online_o: dict | None, role: str | No
     return segs
 
 
+def _clamp_segments(segs: list[dict], window: tuple[int, int] | None) -> list[dict]:
+    """Clip DERIVED segments to the session window: an overnight parser's
+    online rows can run hours past the raid, and fixing the session window
+    must fix every derived timeline with it. Manual segments are never
+    clamped — the officer's word stands as written."""
+    if window is None:
+        return segs
+    lo, hi = window
+    out = []
+    for s in segs:
+        a, b = max(s["started_at"], lo), min(s["ended_at"], hi)
+        if a < b:
+            out.append({**s, "started_at": a, "ended_at": b})
+    return out
+
+
 def resolve_mains(
     role_rows: list[dict],
     claims: dict[str, str],
@@ -116,6 +132,7 @@ def derive_categories(
     overrides: dict[str, dict] | None = None,
     afk_by_char: dict[str, str] | None = None,
     segments_by_char: dict[str, list[dict]] | None = None,
+    window: tuple[int, int] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Returns (char_rows, user_rows).
 
@@ -135,6 +152,11 @@ def derive_categories(
     REPLACES their derived timeline, sets their times, and — unless a category
     override also exists — their category becomes the best segment state.
     Characters with a manual timeline join the universe like overridden ones.
+
+    ``window`` (the session's started_at/ended_at) clips DERIVED segments
+    and fallback seen-times, so observation tails outside the session (an
+    overnight parser's online rows) never pollute timelines — and an officer
+    window correction repairs every derived timeline in one stroke.
     """
     raid_obs = {o["character_name"]: o for o in obs if o["kind"] == "raid"}
     online_obs = {o["character_name"]: o for o in obs if o["kind"] == "online"}
@@ -177,7 +199,7 @@ def derive_categories(
         segs = (
             [{"category": s["category"], "started_at": s["started_at"], "ended_at": s["ended_at"]} for s in manual_segs]
             if manual_segs
-            else _derived_segments(raid_o, online_o, role)
+            else _clamp_segments(_derived_segments(raid_o, online_o, role), window)
         )
 
         if manual_segs:
@@ -221,6 +243,11 @@ def derive_categories(
             o = raid_o or online_o
             first_seen = o["first_seen"] if o else None
             last_seen = o["last_seen"] if o else None
+            if first_seen is not None and last_seen is not None and window is not None:
+                first_seen = max(first_seen, window[0])
+                last_seen = min(last_seen, window[1])
+                if first_seen >= last_seen:
+                    first_seen = last_seen = None
         char_rows.append(
             {
                 "name": display,

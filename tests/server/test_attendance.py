@@ -75,6 +75,15 @@ def _member(name: str, first: int, last: int) -> dict:
     return {"name": name, "first_seen": first, "last_seen": last}
 
 
+@pytest.fixture
+def low_window_floor():
+    """Window-geometry tests predate MIN_RAID_FOR_WINDOW and drive merges
+    with one raider — lower the floor so they exercise the min/max
+    semantics, not the raid-size gate (which has its own tests)."""
+    with patch("backend.server.db.attendance.MIN_RAID_FOR_WINDOW", 1):
+        yield
+
+
 async def _snapshot(uploader: str, raid: list[dict], online: list[dict] | None = None, **kw) -> dict:
     defaults = dict(
         world=_WORLD,
@@ -124,7 +133,7 @@ async def test_create_then_read_back():
 
 
 @pytest.mark.asyncio
-async def test_two_uploaders_merge_commutatively():
+async def test_two_uploaders_merge_commutatively(low_window_floor):
     """Overlapping snapshots fold into ONE session with min/max windows —
     in either arrival order."""
     snap_a = dict(raid=[_member("Tanky", T0, T0 + 3600)], online=[], zones=["VP"])
@@ -173,7 +182,7 @@ async def test_double_header_gets_new_session_and_seq():
 
 
 @pytest.mark.asyncio
-async def test_max_span_guard_forces_new_session():
+async def test_max_span_guard_forces_new_session(low_window_floor):
     """A snapshot that would stretch the merged session past MAX span starts
     a new session even though it overlaps within the gap."""
     r1 = await _snapshot("u1", [_member("Tanky", T0, T0 + 15 * 3600)])
@@ -1341,3 +1350,92 @@ async def test_segments_route_validation(app):
     assert backwards.status_code == 400
     assert overlap.status_code == 400
     assert far.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Session window — raid-only geometry, the ≥12 extension floor, officer fix
+# (live case: overnight online-only merges walked a session from 19:02 to
+# 10:57 the next day — 955 minutes, right at the runaway cap)
+# ---------------------------------------------------------------------------
+
+
+def _raid_squad(n: int, first: int, last: int) -> list[dict]:
+    return [_member(f"Raider{i}", first, last) for i in range(n)]
+
+
+@pytest.mark.asyncio
+async def test_online_only_merge_never_extends_window():
+    r1 = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    # The parser left running overnight: online guildies hours later.
+    r2 = await _snapshot("u1", [], [_member("Nightowl", T0, T0 + 10 * _H)])
+    assert r2["session_id"] == r1["session_id"] and r2["merged"] is True
+    session = await attendance_db.get_session(r1["session_id"])
+    assert (session["started_at"], session["ended_at"]) == (T0, T0 + 600)
+    # The observations still landed in the session.
+    obs = await attendance_db.observations_for_session(r1["session_id"])
+    assert ("Nightowl", "online") in {(o["character_name"], o["kind"]) for o in obs}
+
+
+@pytest.mark.asyncio
+async def test_small_raid_merge_records_obs_but_freezes_window():
+    r1 = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    r2 = await _snapshot("u2", _raid_squad(6, T0 + 600, T0 + 2 * _H))
+    assert r2["merged"] is True
+    session = await attendance_db.get_session(r1["session_id"])
+    assert (session["started_at"], session["ended_at"]) == (T0, T0 + 600)
+    obs = await attendance_db.observations_for_session(r1["session_id"])
+    assert ("Raider0", "raid") in {(o["character_name"], o["kind"]) for o in obs}
+
+
+@pytest.mark.asyncio
+async def test_full_raid_merge_extends_window():
+    r1 = await _snapshot("u1", _raid_squad(12, T0, T0 + 600))
+    r2 = await _snapshot("u2", _raid_squad(12, T0 + 600, T0 + 2 * _H))
+    assert r2["merged"] is True
+    session = await attendance_db.get_session(r1["session_id"])
+    assert (session["started_at"], session["ended_at"]) == (T0, T0 + 2 * _H)
+
+
+@pytest.mark.asyncio
+async def test_creation_window_ignores_online_tail():
+    """Even at creation, online guildies never define the raid window when
+    raid members exist."""
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)], [_member("Nightowl", T0 - 2 * _H, T0 + 2 * _H)])
+    session = await attendance_db.get_session(res["session_id"])
+    assert (session["started_at"], session["ended_at"]) == (T0, T0 + 600)
+
+
+def test_derivation_window_clamps_overnight_online_tail():
+    """The parser stayed on all night: the raider's online row runs to
+    mid-morning. The session window clips the derived bench tail, so the
+    timeline ends with the session — and a window fix repairs every row."""
+    obs = [
+        _obs("Tanky", "raid", T0, T0 + 3 * _H),
+        _obs("Tanky", "online", T0, T0 + 14 * _H),
+        _obs("Randomer", "online", T0 + 10 * _H, T0 + 14 * _H),  # morning-only guildie
+    ]
+    char_rows, _ = derive_categories(obs, {"tanky": "raider"}, {}, {}, scheduled=True, window=(T0, T0 + 3 * _H))
+    tanky = next(r for r in char_rows if r["name"] == "Tanky")
+    assert [s["category"] for s in tanky["segments"]] == ["present"]
+    assert (tanky["first_seen"], tanky["last_seen"]) == (T0, T0 + 3 * _H)
+    # Entirely outside the window → no seen-times at all.
+    randomer = next(r for r in char_rows if r["name"] == "Randomer")
+    assert (randomer["first_seen"], randomer["last_seen"]) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_window_route_put_fixes_session(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 10 * _H)])
+    sid = res["session_id"]
+    url = f"/api/guild/{_GUILD}/attendance/{sid}/window"
+    _, p_officer = _member_gate_patches(officer=True)
+    with p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            ok = await c.put(url, json={"started_at": T0, "ended_at": T0 + 3 * _H})
+            backwards = await c.put(url, json={"started_at": T0 + 600, "ended_at": T0})
+            too_long = await c.put(url, json={"started_at": T0, "ended_at": T0 + MAX_SESSION_SPAN_S + 600})
+    assert ok.status_code == 200 and ok.json() == {"ok": True}
+    assert backwards.status_code == 400
+    assert too_long.status_code == 400
+    session = await attendance_db.get_session(sid)
+    assert (session["started_at"], session["ended_at"]) == (T0, T0 + 3 * _H)

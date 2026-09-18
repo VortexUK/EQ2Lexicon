@@ -14,7 +14,14 @@ import { Badge, Button } from '../../components/ui'
 import { fmtDuration, fmtLocalDate, fmtLocalTime } from '../../formatters'
 import { useFetch, useLazyFetch } from '../../hooks/useFetch'
 import { toErrorMessage } from '../../lib/errors'
-import { TimelineChips, TimelineEditor, timeInputToTs, type Segment, type SegCategory } from './AttendanceTimeline'
+import {
+  SessionWindowEditor,
+  TimelineChips,
+  TimelineEditor,
+  timeInputToTs,
+  type Segment,
+  type SegCategory,
+} from './AttendanceTimeline'
 
 // ── Types (mirror backend/server/api/attendance.py responses) ──────────────
 
@@ -143,6 +150,8 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [view, setView] = useState<'players' | 'characters'>('players')
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Officer fix for the session's own start/end (runaway-merge cleanup).
+  const [fixingWindow, setFixingWindow] = useState(false)
   // Officer bulk cleanup: junk sessions arrive in batches (a broken parser
   // once minted dozens a day) — one-by-one deletion doesn't scale.
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
@@ -160,6 +169,7 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
   function openSession(id: number) {
     setSelectedId(id)
     setDeleteError(null)
+    setFixingWindow(false)
     detail.run(`/api/guild/${encodeURIComponent(guildName)}/attendance/${id}`)
   }
 
@@ -181,6 +191,26 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
         setDeleteError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`)
         return
       }
+      refreshAfterCorrection(id)
+    } catch (err) {
+      setDeleteError(toErrorMessage(err))
+    }
+  }
+
+  async function saveWindow(id: number, started_at: number, ended_at: number) {
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/guild/${encodeURIComponent(guildName)}/attendance/${id}/window`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ started_at, ended_at }),
+      })
+      if (!res.ok) {
+        setDeleteError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`)
+        return
+      }
+      setFixingWindow(false)
       refreshAfterCorrection(id)
     } catch (err) {
       setDeleteError(toErrorMessage(err))
@@ -317,12 +347,31 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
             </span>
           )}
           {meta && !meta.scheduled && <Badge variant="muted">off-schedule — no AWOL tracking</Badge>}
+          {isOfficer && meta && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setFixingWindow(f => !f)}
+              title="Fix the session's own start/end times — e.g. after a runaway overnight merge"
+            >
+              🕓 Fix times
+            </Button>
+          )}
           {isOfficer && (
             <Button variant="danger" size="sm" className="ml-auto" onClick={() => deleteSession(selectedId)}>
               Delete session
             </Button>
           )}
         </div>
+
+        {isOfficer && fixingWindow && meta && (
+          <SessionWindowEditor
+            sessionStart={meta.started_at}
+            sessionEnd={meta.ended_at}
+            onSave={(s, e) => saveWindow(selectedId, s, e)}
+            onCancel={() => setFixingWindow(false)}
+          />
+        )}
 
         {meta && meta.zones.length > 0 && (
           <div className="flex flex-wrap gap-1.5">

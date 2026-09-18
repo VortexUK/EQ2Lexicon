@@ -84,6 +84,12 @@ FROM attendance_overrides WHERE session_id = ?;
 SELECT session_id, character_name, category, set_by, set_at
 FROM attendance_overrides WHERE session_id IN ({placeholders});
 
+-- Officer window correction — start/end only; day/seq grouping is frozen.
+-- :name update_session_window
+UPDATE attendance_sessions
+   SET started_at = ?, ended_at = ?, updated_at = strftime('%s','now')
+ WHERE id = ?;
+
 -- Officer-authored timelines (attendance_segments): a character's manual
 -- rows replace their derived timeline. Replace = delete + insert in one tx.
 -- :name delete_segments_for_character

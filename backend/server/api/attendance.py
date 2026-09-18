@@ -38,7 +38,7 @@ from backend.server.auth_deps import is_admin, require_user_session_or_token
 from backend.server.core.audit_log import audit_log
 from backend.server.core.session_user import SessionUser, TokenUser
 from backend.server.db import get_display_names_for_discord_ids, has_role
-from backend.server.db.attendance import MERGE_GAP_S
+from backend.server.db.attendance import MAX_SESSION_SPAN_S, MERGE_GAP_S
 from backend.server.db.attendance import store as attendance_db
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import store as planning_db
@@ -282,6 +282,7 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
             overrides=overrides_by_session.get(s["id"], {}),
             afk_by_char=afk_by_char,
             segments_by_char=segments_by_session.get(s["id"], {}),
+            window=(s["started_at"], s["ended_at"]),
         )
         out.append(
             {
@@ -333,6 +334,7 @@ async def attendance_summary(request: Request, guild_name: str, limit: int = 25)
             overrides=overrides_by_session.get(s["id"], {}),
             afk_by_char=afk_by_char,
             segments_by_char=segments_by_session.get(s["id"], {}),
+            window=(s["started_at"], s["ended_at"]),
         )
         per_session.append((s["id"], char_rows, user_rows))
 
@@ -388,6 +390,7 @@ async def get_attendance_session(request: Request, guild_name: str, session_id: 
         overrides=overrides,
         afk_by_char=afk_by_char,
         segments_by_char=segments,
+        window=(session["started_at"], session["ended_at"]),
     )
 
     corrector_ids = sorted(
@@ -466,6 +469,35 @@ async def put_attendance_override(request: Request, guild_name: str, session_id:
         category=body.category,
     )
     return {"ok": True, "cleared": False}
+
+
+class WindowInput(BaseModel):
+    started_at: int
+    ended_at: int
+
+
+@router.put("/guild/{guild_name}/attendance/{session_id}/window")
+@limiter.limit("30/minute")
+async def put_attendance_window(request: Request, guild_name: str, session_id: int, body: WindowInput) -> dict:
+    """Officer fix for a runaway session window (a chain of overnight
+    online-only merges once walked one from 19:02 to 10:57): set the
+    session's own start/end. Derived timelines clamp to the window, so this
+    repairs every polluted row at once. session_day/seq stay frozen."""
+    user, _ = await _officer_session(request, guild_name, session_id)
+    if body.started_at >= body.ended_at:
+        raise HTTPException(status_code=400, detail="The session must start before it ends.")
+    if body.ended_at - body.started_at > MAX_SESSION_SPAN_S:
+        raise HTTPException(status_code=400, detail="Window exceeds the maximum session span.")
+    await attendance_db.set_session_window(session_id, body.started_at, body.ended_at)
+    audit_log(
+        "attendance_window_set",
+        actor=str(user["id"]),
+        guild=guild_name,
+        session_id=session_id,
+        started_at=body.started_at,
+        ended_at=body.ended_at,
+    )
+    return {"ok": True}
 
 
 class SegmentIn(BaseModel):

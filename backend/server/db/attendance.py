@@ -35,6 +35,13 @@ MERGE_GAP_S = 3 * 3600
 MAX_SESSION_SPAN_S = 16 * 3600
 #: Evening rollover: session_day = date(started_at - 6h UTC).
 ROLLOVER_S = 6 * 3600
+#: A merge only widens the session window when the snapshot shows a real
+#: raid in progress (at least this many raid members). Anything smaller
+#: (an overnight parser uploading online guildies, a stray 6-man) still
+#: merges its OBSERVATIONS but can no longer stretch a finished raid —
+#: a chain of online-only merges once walked a session from 19:02 all the
+#: way to 10:57 the next day (955 minutes, right at the runaway cap).
+MIN_RAID_FOR_WINDOW = 12
 
 
 def session_day_for(started_at: int) -> str:
@@ -64,25 +71,37 @@ class AttendanceStore(AsyncStoreBase):
         pre-validated dicts {name, first_seen, last_seen}. ``scheduled`` /
         ``team_index`` are the ROUTE's schedule probe for this snapshot's
         window (the store stays free of raid_live imports)."""
-        win_points = [m["first_seen"] for m in raid_members + online_guildies]
-        win_points += [m["last_seen"] for m in raid_members + online_guildies]
-        win_start = min(win_points) if win_points else sent_at
-        win_end = max(win_points) if win_points else sent_at
+        raid_points = [m["first_seen"] for m in raid_members] + [m["last_seen"] for m in raid_members]
+        all_points = raid_points + [p for m in online_guildies for p in (m["first_seen"], m["last_seen"])]
+        obs_start = min(all_points) if all_points else sent_at
+        obs_end = max(all_points) if all_points else sent_at
+        # The session WINDOW follows the raid — online guildies at 3am are
+        # night owls, not raiders. Online-only snapshots fall back to their
+        # observation window for session CREATION only.
+        win_start = min(raid_points) if raid_points else obs_start
+        win_end = max(raid_points) if raid_points else obs_end
+        extend = len(raid_members) >= MIN_RAID_FOR_WINDOW
 
         async with self._db(row_factory=True) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
+                # Merge matching uses the full observation window so overnight
+                # online rows still land in the right session…
                 row = await (
                     await db.execute(
                         _SQL["select_overlapping_session"],
-                        (world, guild_name, win_end + MERGE_GAP_S, win_start - MERGE_GAP_S),
+                        (world, guild_name, obs_end + MERGE_GAP_S, obs_start - MERGE_GAP_S),
                     )
                 ).fetchone()
 
                 merged = False
                 if row is not None:
-                    new_span = max(row["ended_at"], win_end) - min(row["started_at"], win_start)
-                    if new_span <= MAX_SESSION_SPAN_S:
+                    if extend:
+                        new_span = max(row["ended_at"], win_end) - min(row["started_at"], win_start)
+                        merged = new_span <= MAX_SESSION_SPAN_S
+                    else:
+                        # …but only a real raid may widen the window, so a
+                        # non-extending merge can never blow the span cap.
                         merged = True
 
                 if merged and row is not None:
@@ -94,8 +113,8 @@ class AttendanceStore(AsyncStoreBase):
                     await db.execute(
                         _SQL["merge_session_window"],
                         (
-                            win_start,
-                            win_end,
+                            win_start if extend else row["started_at"],
+                            win_end if extend else row["ended_at"],
                             json.dumps(sorted(zone_set)),
                             json.dumps(uploaders),
                             1 if scheduled else 0,
@@ -225,6 +244,14 @@ class AttendanceStore(AsyncStoreBase):
                 for r in await cur.fetchall():
                     out[r["session_id"]][r["character_name"].lower()] = dict(r)
         return out
+
+    async def set_session_window(self, session_id: int, started_at: int, ended_at: int) -> bool:
+        """Officer correction of the session's own start/end (runaway-merge
+        cleanup). session_day/seq stay frozen — grouping never moves."""
+        async with self._db() as db:
+            cur = await db.execute(_SQL["update_session_window"], (started_at, ended_at, session_id))
+            await db.commit()
+            return cur.rowcount > 0
 
     # ── Officer timelines ────────────────────────────────────────────────────
 
