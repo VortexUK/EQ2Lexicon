@@ -402,3 +402,20 @@ CREATE TABLE IF NOT EXISTS attendance_overrides (
     set_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     UNIQUE(session_id, character_name)
 );
+
+-- Officer-authored attendance timelines: a character's session split into
+-- timed periods (present/sat_out/afk) so a mid-raid bench shows as "sat out
+-- 21:00-22:00" instead of one flat category. Any manual rows for a character
+-- REPLACE that character's derived timeline in the derivation (the parser's
+-- observations stay untouched - reverting is deleting the rows).
+CREATE TABLE IF NOT EXISTS attendance_segments (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      INTEGER NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+    character_name  TEXT    NOT NULL,
+    category        TEXT    NOT NULL,             -- present/sat_out/afk (timed states only)
+    started_at      INTEGER NOT NULL,
+    ended_at        INTEGER NOT NULL,
+    set_by          TEXT    NOT NULL,             -- officer discord id
+    set_at          INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_attendance_segments_session ON attendance_segments(session_id);

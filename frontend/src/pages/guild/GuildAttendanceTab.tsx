@@ -8,12 +8,13 @@
 // availability calendar), awol (scheduled night + raider + absent +
 // undeclared), absent (everyone else).
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { Badge, Button } from '../../components/ui'
 import { fmtDuration, fmtLocalDate, fmtLocalTime } from '../../formatters'
 import { useFetch, useLazyFetch } from '../../hooks/useFetch'
 import { toErrorMessage } from '../../lib/errors'
+import { TimelineChips, TimelineEditor, timeInputToTs, type Segment, type SegCategory } from './AttendanceTimeline'
 
 // ── Types (mirror backend/server/api/attendance.py responses) ──────────────
 
@@ -54,6 +55,12 @@ interface CharRow {
   overridden: boolean
   /** Display name of the correcting officer (detail response only). */
   override_by?: string
+  /** The session as timed periods (derived, or officer-authored). */
+  segments: Segment[]
+  /** An officer hand-wrote this character's timeline. */
+  manual_timeline: boolean
+  /** Display name of the timeline author (detail response only). */
+  timeline_by?: string
 }
 
 interface UserRow {
@@ -169,6 +176,25 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ character_name: name, category }),
+      })
+      if (!res.ok) {
+        setDeleteError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`)
+        return
+      }
+      refreshAfterCorrection(id)
+    } catch (err) {
+      setDeleteError(toErrorMessage(err))
+    }
+  }
+
+  async function saveSegments(id: number, name: string, segments: Segment[]) {
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/guild/${encodeURIComponent(guildName)}/attendance/${id}/segments`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ character_name: name, segments }),
       })
       if (!res.ok) {
         setDeleteError((await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`)
@@ -332,7 +358,10 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
               <CharactersTable
                 characters={detail.data.characters}
                 isOfficer={detail.data.is_officer}
+                sessionStart={detail.data.session.started_at}
+                sessionEnd={detail.data.session.ended_at}
                 onSetCategory={(name, cat) => setCategory(selectedId, name, cat)}
+                onSaveSegments={(name, segs) => saveSegments(selectedId, name, segs)}
                 onRemove={name => removeCharacter(selectedId, name)}
               />
             )}
@@ -498,19 +527,55 @@ function PlayersTable({ users, characters }: { users: UserRow[]; characters: Cha
   )
 }
 
+const SEGMENT_CATEGORIES: SegCategory[] = ['present', 'sat_out', 'afk']
+
 function CharactersTable({
   characters,
   isOfficer,
+  sessionStart,
+  sessionEnd,
   onSetCategory,
+  onSaveSegments,
   onRemove,
 }: {
   characters: CharRow[]
   isOfficer: boolean
+  sessionStart: number
+  sessionEnd: number
   onSetCategory: (name: string, category: Category | null) => void
+  onSaveSegments: (name: string, segments: Segment[]) => void
   onRemove: (name: string) => void
 }) {
   const [addName, setAddName] = useState('')
   const [addCategory, setAddCategory] = useState<Category>('present')
+  const [addFrom, setAddFrom] = useState('')
+  const [addTo, setAddTo] = useState('')
+  const [addError, setAddError] = useState<string | null>(null)
+  // Which character's timeline editor is open (one at a time).
+  const [editingName, setEditingName] = useState<string | null>(null)
+
+  const nCols = isOfficer ? 5 : 4
+  const addWithTimes = SEGMENT_CATEGORIES.includes(addCategory as SegCategory)
+
+  function submitAdd() {
+    const name = addName.trim()
+    if (!name) return
+    setAddError(null)
+    if (addWithTimes && (addFrom || addTo)) {
+      const started_at = timeInputToTs(addFrom, sessionStart, sessionEnd)
+      const ended_at = timeInputToTs(addTo, sessionStart, sessionEnd)
+      if (started_at === null || ended_at === null || started_at >= ended_at) {
+        setAddError('Give both times, start before end — or leave both blank.')
+        return
+      }
+      onSaveSegments(name, [{ category: addCategory as SegCategory, started_at, ended_at }])
+    } else {
+      onSetCategory(name, addCategory)
+    }
+    setAddName('')
+    setAddFrom('')
+    setAddTo('')
+  }
 
   return (
     <div className="overflow-x-auto">
@@ -520,14 +585,14 @@ function CharactersTable({
             <th className="py-1.5 pr-3 font-normal">Character</th>
             <th className="py-1.5 pr-3 font-normal">Role</th>
             <th className="py-1.5 pr-3 font-normal">Status</th>
-            <th className="py-1.5 pr-3 font-normal">First seen</th>
-            <th className="py-1.5 pr-3 font-normal">Last seen</th>
+            <th className="py-1.5 pr-3 font-normal">Timeline</th>
             {isOfficer && <th className="py-1.5 font-normal">Correct</th>}
           </tr>
         </thead>
         <tbody>
           {characters.map(c => (
-            <tr key={c.name} className="border-t border-border/50">
+            <Fragment key={c.name}>
+            <tr className="border-t border-border/50">
               <td className="py-1.5 pr-3">
                 {c.name}
                 {c.overridden && (
@@ -538,13 +603,22 @@ function CharactersTable({
                     ✎
                   </span>
                 )}
+                {c.manual_timeline && (
+                  <span
+                    className="ml-1.5 text-gold text-[0.75rem]"
+                    title={`Timeline hand-edited by ${c.timeline_by ?? 'an officer'} — replaces what the parser recorded`}
+                  >
+                    ⏱
+                  </span>
+                )}
               </td>
               <td className="py-1.5 pr-3 text-text-muted">
                 {c.role === 'raid_alt' ? 'raid alt' : c.role ?? '—'}
               </td>
               <td className="py-1.5 pr-3"><CategoryBadge category={c.category} /></td>
-              <td className="py-1.5 pr-3 text-text-muted">{c.first_seen ? fmtLocalTime(c.first_seen) : '—'}</td>
-              <td className="py-1.5 pr-3 text-text-muted">{c.last_seen ? fmtLocalTime(c.last_seen) : '—'}</td>
+              <td className="py-1.5 pr-3 text-[0.8rem]">
+                <TimelineChips segments={c.segments} firstSeen={c.first_seen} lastSeen={c.last_seen} />
+              </td>
               {isOfficer && (
                 <td className="py-1.5 whitespace-nowrap">
                   <select
@@ -564,6 +638,15 @@ function CharactersTable({
                     variant="ghost"
                     size="sm"
                     className="ml-1"
+                    onClick={() => setEditingName(prev => (prev === c.name ? null : c.name))}
+                    title="Edit this character's timeline (times + mid-raid state changes)"
+                  >
+                    ⏱
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-1"
                     onClick={() => onRemove(c.name)}
                     title="Remove this row entirely (junk / mis-parsed names)"
                   >
@@ -572,6 +655,24 @@ function CharactersTable({
                 </td>
               )}
             </tr>
+            {isOfficer && editingName === c.name && (
+              <tr className="border-t border-border/30">
+                <td colSpan={nCols} className="pl-4 pb-2 bg-surface-raised/40">
+                  <TimelineEditor
+                    initial={c.segments}
+                    sessionStart={sessionStart}
+                    sessionEnd={sessionEnd}
+                    canRevert={c.manual_timeline}
+                    onSave={segs => {
+                      setEditingName(null)
+                      onSaveSegments(c.name, segs)
+                    }}
+                    onCancel={() => setEditingName(null)}
+                  />
+                </td>
+              </tr>
+            )}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -588,23 +689,38 @@ function CharactersTable({
           <select
             value={addCategory}
             onChange={e => setAddCategory(e.target.value as Category)}
+            aria-label="Status for the added character"
             className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem]"
           >
             {(Object.keys(CATEGORY_LABEL) as Category[]).map(cat => (
               <option key={cat} value={cat}>{CATEGORY_LABEL[cat]}</option>
             ))}
           </select>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={!addName.trim()}
-            onClick={() => {
-              onSetCategory(addName.trim(), addCategory)
-              setAddName('')
-            }}
-          >
+          {addWithTimes && (
+            <>
+              <input
+                type="time"
+                value={addFrom}
+                onChange={e => setAddFrom(e.target.value)}
+                aria-label="Clock-in time (optional)"
+                title="Clock-in (optional — times can be edited later)"
+                className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem]"
+              />
+              <span className="text-text-muted text-[0.8rem]">–</span>
+              <input
+                type="time"
+                value={addTo}
+                onChange={e => setAddTo(e.target.value)}
+                aria-label="Clock-out time (optional)"
+                title="Clock-out (optional)"
+                className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.8rem]"
+              />
+            </>
+          )}
+          <Button variant="secondary" size="sm" disabled={!addName.trim()} onClick={submitAdd}>
             Add correction
           </Button>
+          {addError && <span className="text-danger text-[0.78rem]">{addError}</span>}
         </div>
       )}
     </div>

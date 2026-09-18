@@ -1124,3 +1124,220 @@ async def test_correction_routes_are_officer_only(app):
             )
             r2 = await c.delete(f"/api/guild/{_GUILD}/attendance/{sid}/character/Tanky")
     assert r1.status_code == 403 and r2.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Timeline segments — derived bench periods + officer-authored timelines
+# ---------------------------------------------------------------------------
+
+_H = 3600
+
+
+def test_derivation_bench_periods_derived_from_online_window():
+    """Online an hour before the pull and half an hour after the last kill:
+    the lead and tail are real bench periods, not one flat 'present'."""
+    obs = [
+        _obs("Tanky", "raid", T0 + _H, T0 + 4 * _H),
+        _obs("Tanky", "online", T0, T0 + 4 * _H + 1800),
+    ]
+    char_rows, _ = derive_categories(obs, {"tanky": "raider"}, {}, {}, scheduled=True)
+    row = next(r for r in char_rows if r["name"] == "Tanky")
+    assert row["category"] == "present"
+    assert row["manual_timeline"] is False
+    assert [(s["category"], s["started_at"], s["ended_at"]) for s in row["segments"]] == [
+        ("sat_out", T0, T0 + _H),
+        ("present", T0 + _H, T0 + 4 * _H),
+        ("sat_out", T0 + 4 * _H, T0 + 4 * _H + 1800),
+    ]
+    # The seen window covers the whole evening, bench included.
+    assert (row["first_seen"], row["last_seen"]) == (T0, T0 + 4 * _H + 1800)
+
+
+def test_derivation_short_online_lead_is_noise_not_bench():
+    """Everyone logs in a few minutes before the pull — that is not a bench."""
+    obs = [
+        _obs("Tanky", "raid", T0 + 300, T0 + _H),
+        _obs("Tanky", "online", T0, T0 + _H),
+    ]
+    char_rows, _ = derive_categories(obs, {"tanky": "raider"}, {}, {}, scheduled=True)
+    row = next(r for r in char_rows if r["name"] == "Tanky")
+    assert [s["category"] for s in row["segments"]] == ["present"]
+    assert (row["first_seen"], row["last_seen"]) == (T0 + 300, T0 + _H)
+
+
+def test_derivation_unrostered_online_only_keeps_times_without_segments():
+    """Unrostered online guildies keep their absent row + seen window (no
+    bench segments — they were never expected to raid)."""
+    obs = [_obs("Randomer", "online", T0, T0 + 900)]
+    char_rows, _ = derive_categories(obs, {}, {}, {}, scheduled=True)
+    row = next(r for r in char_rows if r["name"] == "Randomer")
+    assert row["category"] == "absent" and row["segments"] == []
+    assert (row["first_seen"], row["last_seen"]) == (T0, T0 + 900)
+
+
+def test_derivation_manual_segments_replace_derived():
+    obs = [_obs("Tanky", "raid", T0, T0 + 4 * _H)]
+    manual = {
+        "tanky": [
+            {"character_name": "Tanky", "category": "present", "started_at": T0, "ended_at": T0 + 2 * _H},
+            {"character_name": "Tanky", "category": "sat_out", "started_at": T0 + 2 * _H, "ended_at": T0 + 3 * _H},
+            {"character_name": "Tanky", "category": "present", "started_at": T0 + 3 * _H, "ended_at": T0 + 4 * _H},
+        ]
+    }
+    char_rows, _ = derive_categories(obs, {"tanky": "raider"}, {}, {}, scheduled=True, segments_by_char=manual)
+    row = next(r for r in char_rows if r["name"] == "Tanky")
+    assert row["manual_timeline"] is True
+    assert row["category"] == "present"  # best state across the timeline
+    assert [s["category"] for s in row["segments"]] == ["present", "sat_out", "present"]
+    assert (row["first_seen"], row["last_seen"]) == (T0, T0 + 4 * _H)
+
+
+def test_derivation_manual_segments_materialize_unseen_character():
+    """The unclaimed-alt case: never observed, not rostered — an officer
+    timeline alone creates the row, with times."""
+    manual = {"altsy": [{"character_name": "Altsy", "category": "sat_out", "started_at": T0, "ended_at": T0 + _H}]}
+    char_rows, _ = derive_categories([], {}, {}, {}, scheduled=True, segments_by_char=manual)
+    row = next(r for r in char_rows if r["name"] == "Altsy")
+    assert row["category"] == "sat_out" and row["manual_timeline"] is True
+    assert (row["first_seen"], row["last_seen"]) == (T0, T0 + _H)
+
+
+def test_derivation_category_override_still_beats_manual_timeline():
+    manual = {"tanky": [{"character_name": "Tanky", "category": "present", "started_at": T0, "ended_at": T0 + _H}]}
+    overrides = {"tanky": {"character_name": "Tanky", "category": "afk"}}
+    char_rows, _ = derive_categories(
+        [], {"tanky": "raider"}, {}, {}, scheduled=True, overrides=overrides, segments_by_char=manual
+    )
+    row = next(r for r in char_rows if r["name"] == "Tanky")
+    assert row["category"] == "afk" and row["overridden"] is True and row["manual_timeline"] is True
+
+
+@pytest.mark.asyncio
+async def test_segments_store_replace_and_clear():
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+    await attendance_db.set_segments(
+        sid, "Tanky", [{"category": "present", "started_at": T0, "ended_at": T0 + 600}], set_by="off-1"
+    )
+    segs = await attendance_db.segments_for_session(sid)
+    assert [s["category"] for s in segs["tanky"]] == ["present"]
+    assert segs["tanky"][0]["set_by"] == "off-1"
+
+    # Replace (case-insensitively), never append.
+    await attendance_db.set_segments(
+        sid,
+        "TANKY",
+        [
+            {"category": "sat_out", "started_at": T0, "ended_at": T0 + 300},
+            {"category": "present", "started_at": T0 + 300, "ended_at": T0 + 600},
+        ],
+        set_by="off-2",
+    )
+    segs = await attendance_db.segments_for_session(sid)
+    assert [s["category"] for s in segs["tanky"]] == ["sat_out", "present"]
+    many = await attendance_db.segments_for_sessions([sid])
+    assert [s["category"] for s in many[sid]["tanky"]] == ["sat_out", "present"]
+
+    # Empty list clears the manual timeline.
+    await attendance_db.set_segments(sid, "Tanky", [], set_by="off-2")
+    assert await attendance_db.segments_for_session(sid) == {}
+
+
+@pytest.mark.asyncio
+async def test_remove_character_and_delete_session_drop_segments():
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+    await attendance_db.set_segments(
+        sid, "Tanky", [{"category": "present", "started_at": T0, "ended_at": T0 + 600}], set_by="o"
+    )
+    assert await attendance_db.remove_character(sid, "tanky") is True
+    assert await attendance_db.segments_for_session(sid) == {}
+
+    await attendance_db.set_segments(
+        sid, "Healy", [{"category": "afk", "started_at": T0, "ended_at": T0 + 60}], set_by="o"
+    )
+    await attendance_db.delete_session(sid)
+    assert await attendance_db.segments_for_session(sid) == {}
+
+
+@pytest.mark.asyncio
+async def test_segments_route_put_then_detail_carries_timeline(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 4 * _H)])
+    sid = res["session_id"]
+    p_member, p_officer = _member_gate_patches(officer=True)
+    body = {
+        "character_name": "Tanky",
+        "segments": [
+            {"category": "present", "started_at": T0, "ended_at": T0 + 2 * _H},
+            {"category": "sat_out", "started_at": T0 + 2 * _H, "ended_at": T0 + 3 * _H},
+        ],
+    }
+    with p_member, p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            put = await c.put(f"/api/guild/{_GUILD}/attendance/{sid}/segments", json=body)
+            assert put.status_code == 200, put.text
+            assert put.json() == {"ok": True, "cleared": False}
+            detail = await c.get(f"/api/guild/{_GUILD}/attendance/{sid}")
+    row = next(r for r in detail.json()["characters"] if r["name"] == "Tanky")
+    assert row["manual_timeline"] is True
+    assert [s["category"] for s in row["segments"]] == ["present", "sat_out"]
+    assert row["timeline_by"]  # the correcting officer is attributed
+    assert (row["first_seen"], row["last_seen"]) == (T0, T0 + 3 * _H)
+
+
+@pytest.mark.asyncio
+async def test_segments_route_clear_reverts_to_derived(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+    p_member, p_officer = _member_gate_patches(officer=True)
+    with p_member, p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            await c.put(
+                f"/api/guild/{_GUILD}/attendance/{sid}/segments",
+                json={
+                    "character_name": "Tanky",
+                    "segments": [{"category": "sat_out", "started_at": T0, "ended_at": T0 + 600}],
+                },
+            )
+            cleared = await c.put(
+                f"/api/guild/{_GUILD}/attendance/{sid}/segments",
+                json={"character_name": "Tanky", "segments": []},
+            )
+            assert cleared.json() == {"ok": True, "cleared": True}
+            detail = await c.get(f"/api/guild/{_GUILD}/attendance/{sid}")
+    row = next(r for r in detail.json()["characters"] if r["name"] == "Tanky")
+    assert row["manual_timeline"] is False
+    assert row["category"] == "present"  # derived truth is back
+
+
+@pytest.mark.asyncio
+async def test_segments_route_validation(app):
+    res = await _snapshot("u1", [_member("Tanky", T0, T0 + 600)])
+    sid = res["session_id"]
+    url = f"/api/guild/{_GUILD}/attendance/{sid}/segments"
+    _, p_officer = _member_gate_patches(officer=True)
+
+    def body(segs):
+        return {"character_name": "Tanky", "segments": segs}
+
+    with p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            bad_cat = await c.put(url, json=body([{"category": "awol", "started_at": T0, "ended_at": T0 + 60}]))
+            backwards = await c.put(url, json=body([{"category": "present", "started_at": T0 + 60, "ended_at": T0}]))
+            overlap = await c.put(
+                url,
+                json=body(
+                    [
+                        {"category": "present", "started_at": T0, "ended_at": T0 + 600},
+                        {"category": "sat_out", "started_at": T0 + 300, "ended_at": T0 + 900},
+                    ]
+                ),
+            )
+            far = await c.put(
+                url,
+                json=body([{"category": "present", "started_at": T0 - MERGE_GAP_S - _H, "ended_at": T0}]),
+            )
+    assert bad_cat.status_code == 400
+    assert backwards.status_code == 400
+    assert overlap.status_code == 400
+    assert far.status_code == 400

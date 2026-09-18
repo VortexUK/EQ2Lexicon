@@ -226,20 +226,60 @@ class AttendanceStore(AsyncStoreBase):
                     out[r["session_id"]][r["character_name"].lower()] = dict(r)
         return out
 
+    # ── Officer timelines ────────────────────────────────────────────────────
+
+    async def set_segments(self, session_id: int, character_name: str, segments: list[dict], set_by: str) -> None:
+        """Replace one character's manual timeline for one session. Segments
+        are pre-validated dicts {category, started_at, ended_at}; an empty
+        list clears the manual timeline (the derived one comes back)."""
+        async with self._db() as db:
+            await db.execute(_SQL["delete_segments_for_character"], (session_id, character_name))
+            for seg in segments:
+                await db.execute(
+                    _SQL["insert_segment"],
+                    (session_id, character_name, seg["category"], seg["started_at"], seg["ended_at"], set_by),
+                )
+            await db.commit()
+
+    async def segments_for_session(self, session_id: int) -> dict[str, list[dict]]:
+        """{character_name_lower: [{character_name, category, started_at,
+        ended_at, set_by}]} ordered by started_at."""
+        out: dict[str, list[dict]] = {}
+        async with self._db(row_factory=True) as db:
+            async with db.execute(_SQL["select_segments"], (session_id,)) as cur:
+                for r in await cur.fetchall():
+                    out.setdefault(r["character_name"].lower(), []).append(dict(r))
+        return out
+
+    async def segments_for_sessions(self, session_ids: list[int]) -> dict[int, dict[str, list[dict]]]:
+        if not session_ids:
+            return {}
+        placeholders = ",".join("?" * len(session_ids))
+        out: dict[int, dict[str, list[dict]]] = {sid: {} for sid in session_ids}
+        async with self._db(row_factory=True) as db:
+            sql = _SQL["select_segments_many"].format(placeholders=placeholders)
+            async with db.execute(sql, session_ids) as cur:
+                for r in await cur.fetchall():
+                    out[r["session_id"]].setdefault(r["character_name"].lower(), []).append(dict(r))
+        return out
+
     async def remove_character(self, session_id: int, character_name: str) -> bool:
         """Officer row removal for junk names: the character's raid/online
-        observations and any override go together. Voice rows (discord-id
-        keyed) are untouched. True when anything was deleted."""
+        observations, any override, and any manual timeline go together.
+        Voice rows (discord-id keyed) are untouched. True when anything
+        was deleted."""
         async with self._db() as db:
             cur1 = await db.execute(_SQL["delete_character_observations"], (session_id, character_name))
             cur2 = await db.execute(_SQL["delete_override"], (session_id, character_name))
+            cur3 = await db.execute(_SQL["delete_segments_for_character"], (session_id, character_name))
             await db.commit()
-            return cur1.rowcount > 0 or cur2.rowcount > 0
+            return cur1.rowcount > 0 or cur2.rowcount > 0 or cur3.rowcount > 0
 
     async def delete_session(self, session_id: int) -> bool:
         async with self._db() as db:
             await db.execute(_SQL["delete_observations_for_session"], (session_id,))
             await db.execute(_SQL["delete_overrides_for_session"], (session_id,))
+            await db.execute(_SQL["delete_segments_for_session"], (session_id,))
             cur = await db.execute(_SQL["delete_session"], (session_id,))
             await db.commit()
             return cur.rowcount > 0

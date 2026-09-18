@@ -25,6 +25,38 @@ from __future__ import annotations
 
 CATEGORY_ORDER = ["present", "sat_out", "afk", "awol", "absent"]
 
+#: The timed states a character can move through WITHIN a session. AWOL and
+#: absent are whole-session judgements — they never carry a time range.
+SEGMENT_CATEGORIES = ("present", "sat_out", "afk")
+
+#: A derived lead/tail sat_out period shorter than this is login noise
+#: (everyone is online a few minutes before the pull), not a real bench.
+MIN_DERIVED_SPLIT_S = 10 * 60
+
+
+def _derived_segments(raid_o: dict | None, online_o: dict | None, role: str | None) -> list[dict]:
+    """A character's timeline as the observations tell it: the raid window is
+    present; rostered characters' online time OUTSIDE the raid window is the
+    bench (sat_out), when long enough to mean something."""
+    segs: list[dict] = []
+    if raid_o is not None:
+        if (
+            online_o is not None
+            and role is not None
+            and raid_o["first_seen"] - online_o["first_seen"] >= MIN_DERIVED_SPLIT_S
+        ):
+            segs.append({"category": "sat_out", "started_at": online_o["first_seen"], "ended_at": raid_o["first_seen"]})
+        segs.append({"category": "present", "started_at": raid_o["first_seen"], "ended_at": raid_o["last_seen"]})
+        if (
+            online_o is not None
+            and role is not None
+            and online_o["last_seen"] - raid_o["last_seen"] >= MIN_DERIVED_SPLIT_S
+        ):
+            segs.append({"category": "sat_out", "started_at": raid_o["last_seen"], "ended_at": online_o["last_seen"]})
+    elif online_o is not None and role is not None:
+        segs.append({"category": "sat_out", "started_at": online_o["first_seen"], "ended_at": online_o["last_seen"]})
+    return segs
+
 
 def resolve_mains(
     role_rows: list[dict],
@@ -83,11 +115,12 @@ def derive_categories(
     user_mains: dict[str, str] | None = None,
     overrides: dict[str, dict] | None = None,
     afk_by_char: dict[str, str] | None = None,
+    segments_by_char: dict[str, list[dict]] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Returns (char_rows, user_rows).
 
     char_rows: {name, role, category, first_seen, last_seen,
-                owner_discord_id, overridden}
+                owner_discord_id, overridden, segments, manual_timeline}
     user_rows: {discord_id, category, afk_declared, characters: [names],
                 main: raid-main display name or None (see resolve_mains),
                 in_voice}
@@ -96,6 +129,12 @@ def derive_categories(
     attendance_overrides) beats every derived category — officer corrections
     are the last word. Overridden names join the universe even when never
     observed (the "add a missed raider" case).
+
+    ``segments_by_char`` ({char_lower: [{category, started_at, ended_at}]}
+    from attendance_segments) is a character's officer-authored timeline: it
+    REPLACES their derived timeline, sets their times, and — unless a category
+    override also exists — their category becomes the best segment state.
+    Characters with a manual timeline join the universe like overridden ones.
     """
     raid_obs = {o["character_name"]: o for o in obs if o["kind"] == "raid"}
     online_obs = {o["character_name"]: o for o in obs if o["kind"] == "online"}
@@ -115,13 +154,18 @@ def derive_categories(
         names.setdefault(lower, lower.capitalize())
     for lower, ov in (overrides or {}).items():
         names.setdefault(lower, ov.get("character_name") or lower.capitalize())
+    for lower, segs in (segments_by_char or {}).items():
+        if segs:
+            names.setdefault(lower, segs[0].get("character_name") or lower.capitalize())
 
     char_rows: list[dict] = []
     for lower, display in names.items():
         role = roles.get(lower)
         owner = claims.get(lower)
-        in_raid = display in raid_obs or any(k.lower() == lower for k in raid_obs)
-        online = display in online_obs or any(k.lower() == lower for k in online_obs)
+        raid_o = raid_obs.get(display) or next((v for k, v in raid_obs.items() if k.lower() == lower), None)
+        online_o = online_obs.get(display) or next((v for k, v in online_obs.items() if k.lower() == lower), None)
+        in_raid = raid_o is not None
+        online = online_o is not None
         # Officer-set per-character AFK (character_availability) covers
         # raiders with no site account; the user's own calendar is the
         # other source and either one excuses the no-show.
@@ -129,7 +173,17 @@ def derive_categories(
             lower
         ) == "afk"
 
-        if in_raid:
+        manual_segs = (segments_by_char or {}).get(lower) or []
+        segs = (
+            [{"category": s["category"], "started_at": s["started_at"], "ended_at": s["ended_at"]} for s in manual_segs]
+            if manual_segs
+            else _derived_segments(raid_o, online_o, role)
+        )
+
+        if manual_segs:
+            # The officer wrote the timeline — the best state in it is the label.
+            category = min((s["category"] for s in segs), key=CATEGORY_ORDER.index)
+        elif in_raid:
             category = "present"
         elif online and role is not None:
             category = "sat_out"
@@ -144,7 +198,6 @@ def derive_categories(
         if override is not None:
             category = override["category"]
 
-        o = raid_obs.get(display) or online_obs.get(display)
         # A rostered NON-RAIDER that was never observed (and never hand-
         # corrected) is pure roster noise: the row reads "absent" forever
         # and the officer ✕ can't remove it — there are no observations
@@ -152,17 +205,33 @@ def derive_categories(
         # every render (live complaint 2026-09-13: three unremovable
         # raid-alt rows). Raiders keep their no-show row — that IS the
         # AWOL/absent signal.
-        if category == "absent" and override is None and o is None and role != "raider":
+        if (
+            category == "absent"
+            and override is None
+            and raid_o is None
+            and online_o is None
+            and not manual_segs
+            and role != "raider"
+        ):
             continue
+        if segs:
+            first_seen: int | None = min(s["started_at"] for s in segs)
+            last_seen: int | None = max(s["ended_at"] for s in segs)
+        else:
+            o = raid_o or online_o
+            first_seen = o["first_seen"] if o else None
+            last_seen = o["last_seen"] if o else None
         char_rows.append(
             {
                 "name": display,
                 "role": role,
                 "category": category,
-                "first_seen": o["first_seen"] if o else None,
-                "last_seen": o["last_seen"] if o else None,
+                "first_seen": first_seen,
+                "last_seen": last_seen,
                 "owner_discord_id": owner,
                 "overridden": override is not None,
+                "segments": segs,
+                "manual_timeline": bool(manual_segs),
             }
         )
 

@@ -84,6 +84,27 @@ FROM attendance_overrides WHERE session_id = ?;
 SELECT session_id, character_name, category, set_by, set_at
 FROM attendance_overrides WHERE session_id IN ({placeholders});
 
+-- Officer-authored timelines (attendance_segments): a character's manual
+-- rows replace their derived timeline. Replace = delete + insert in one tx.
+-- :name delete_segments_for_character
+DELETE FROM attendance_segments WHERE session_id = ? AND LOWER(character_name) = LOWER(?);
+
+-- :name insert_segment
+INSERT INTO attendance_segments (session_id, character_name, category, started_at, ended_at, set_by)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- :name select_segments
+SELECT character_name, category, started_at, ended_at, set_by
+FROM attendance_segments WHERE session_id = ? ORDER BY started_at;
+
+-- :name select_segments_many
+-- {placeholders} = comma-joined "?" list composed in Python.
+SELECT session_id, character_name, category, started_at, ended_at, set_by
+FROM attendance_segments WHERE session_id IN ({placeholders}) ORDER BY started_at;
+
+-- :name delete_segments_for_session
+DELETE FROM attendance_segments WHERE session_id = ?;
+
 -- Row removal for junk names (mis-parses): kill the character's raid/online
 -- observations AND any override in one officer action. Voice rows key by
 -- discord id, not character name — untouched by design.

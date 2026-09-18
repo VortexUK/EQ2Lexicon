@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 import { GuildAttendanceTab } from './GuildAttendanceTab'
+import { timeInputToTs, tsToTimeInput } from './AttendanceTimeline'
 
 const SESSION = {
   id: 7,
@@ -27,6 +28,8 @@ const DETAIL = {
       last_seen: 1_784_512_000,
       owner_discord_id: 'u1',
       overridden: false,
+      segments: [{ category: 'present', started_at: 1_784_500_000, ended_at: 1_784_512_000 }],
+      manual_timeline: false,
     },
     {
       name: 'Alty',
@@ -36,8 +39,23 @@ const DETAIL = {
       last_seen: 1_784_512_000,
       owner_discord_id: 'u2',
       overridden: false,
+      segments: [
+        { category: 'sat_out', started_at: 1_784_500_000, ended_at: 1_784_504_000 },
+        { category: 'present', started_at: 1_784_504_000, ended_at: 1_784_512_000 },
+      ],
+      manual_timeline: false,
     },
-    { name: 'Ghosty', role: 'raider', category: 'awol', first_seen: null, last_seen: null, owner_discord_id: null, overridden: false },
+    {
+      name: 'Ghosty',
+      role: 'raider',
+      category: 'awol',
+      first_seen: null,
+      last_seen: null,
+      owner_discord_id: null,
+      overridden: false,
+      segments: [],
+      manual_timeline: false,
+    },
   ],
   users: [
     { discord_id: 'u1', category: 'present', afk_declared: false, characters: ['Tanky'], display_name: 'Ben', main: 'Tanky', in_voice: false },
@@ -253,5 +271,97 @@ describe('GuildAttendanceTab', () => {
     expect(screen.getByLabelText(/no record/)).toBeInTheDocument()
     // Second session of a day is disambiguated in its column header.
     expect(screen.getByText(/8\/9 #2/)).toBeInTheDocument()
+  })
+
+  it('renders mid-raid state changes as timeline chips', async () => {
+    mockFetch({ is_officer: false, sessions: [SESSION] })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByText('By character'))
+    // Alty's bench-then-raid evening shows both periods, not one flat state.
+    expect(await screen.findByText('sat out')).toBeInTheDocument()
+    expect(screen.getAllByText('present').length).toBeGreaterThan(0)
+  })
+
+  it('lets officers edit a timeline and PUTs the periods', async () => {
+    mockFetch({ is_officer: true, sessions: [SESSION] }, { ...DETAIL, is_officer: true })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByText('By character'))
+    // Open Tanky's editor (first ⏱ button) and save the seeded period as-is.
+    fireEvent.click((await screen.findAllByTitle(/Edit this character's timeline/))[0])
+    fireEvent.click(await screen.findByRole('button', { name: 'Save timeline' }))
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/segments'))
+    expect(call).toBeTruthy()
+    expect(call![1]).toMatchObject({ method: 'PUT' })
+    const body = JSON.parse(call![1].body)
+    expect(body.character_name).toBe('Tanky')
+    // Times survive the HH:MM round-trip (minute precision).
+    const start = timeInputToTs(tsToTimeInput(1_784_500_000), SESSION.started_at, SESSION.ended_at)
+    const end = timeInputToTs(tsToTimeInput(1_784_512_000), SESSION.started_at, SESSION.ended_at)
+    expect(body.segments).toEqual([{ category: 'present', started_at: start, ended_at: end }])
+  })
+
+  it('reverts a hand-edited timeline with an empty segments PUT', async () => {
+    const detail = {
+      ...DETAIL,
+      is_officer: true,
+      characters: [{ ...DETAIL.characters[0], manual_timeline: true, timeline_by: 'Vortex' }],
+    }
+    mockFetch({ is_officer: true, sessions: [SESSION] }, detail)
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByText('By character'))
+    expect(await screen.findByTitle(/Timeline hand-edited by Vortex/)).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle(/Edit this character's timeline/))
+    fireEvent.click(await screen.findByRole('button', { name: 'Revert to parser' }))
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/segments'))
+    expect(call).toBeTruthy()
+    expect(JSON.parse(call![1].body)).toEqual({ character_name: 'Tanky', segments: [] })
+  })
+
+  it('adds a missed player with clock-in/out times via the segments PUT', async () => {
+    mockFetch({ is_officer: true, sessions: [SESSION] }, { ...DETAIL, is_officer: true })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByText('By character'))
+    fireEvent.change(await screen.findByPlaceholderText('character name'), { target: { value: 'Altsy' } })
+    const from = tsToTimeInput(1_784_501_000)
+    const to = tsToTimeInput(1_784_508_000)
+    fireEvent.change(screen.getByLabelText(/Clock-in time/), { target: { value: from } })
+    fireEvent.change(screen.getByLabelText(/Clock-out time/), { target: { value: to } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add correction' }))
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/segments'))
+    expect(call).toBeTruthy()
+    const body = JSON.parse(call![1].body)
+    expect(body.character_name).toBe('Altsy')
+    expect(body.segments).toEqual([
+      {
+        category: 'present',
+        started_at: timeInputToTs(from, SESSION.started_at, SESSION.ended_at),
+        ended_at: timeInputToTs(to, SESSION.started_at, SESSION.ended_at),
+      },
+    ])
+  })
+
+  it('adds a missed player without times via the category override', async () => {
+    mockFetch({ is_officer: true, sessions: [SESSION] }, { ...DETAIL, is_officer: true })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    fireEvent.click(await screen.findByText('18 present'))
+    fireEvent.click(await screen.findByText('By character'))
+    fireEvent.change(await screen.findByPlaceholderText('character name'), { target: { value: 'Altsy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add correction' }))
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/segments'))).toBeUndefined()
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/override'))
+    expect(call).toBeTruthy()
+    expect(JSON.parse(call![1].body)).toEqual({ character_name: 'Altsy', category: 'present' })
   })
 })

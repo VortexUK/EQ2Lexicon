@@ -38,6 +38,7 @@ from backend.server.auth_deps import is_admin, require_user_session_or_token
 from backend.server.core.audit_log import audit_log
 from backend.server.core.session_user import SessionUser, TokenUser
 from backend.server.db import get_display_names_for_discord_ids, has_role
+from backend.server.db.attendance import MERGE_GAP_S
 from backend.server.db.attendance import store as attendance_db
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import store as planning_db
@@ -262,6 +263,7 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
     session_ids = [s["id"] for s in sessions]
     obs_by_session = await attendance_db.observations_for_sessions(session_ids)
     overrides_by_session = await attendance_db.overrides_for_sessions(session_ids)
+    segments_by_session = await attendance_db.segments_for_sessions(session_ids)
 
     claims = await planning_db.claims_map(world)
     roles_rows = await planning_db.get_roles(world, guild_name)
@@ -279,6 +281,7 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
             bool(s["scheduled"]),
             overrides=overrides_by_session.get(s["id"], {}),
             afk_by_char=afk_by_char,
+            segments_by_char=segments_by_session.get(s["id"], {}),
         )
         out.append(
             {
@@ -308,6 +311,7 @@ async def attendance_summary(request: Request, guild_name: str, limit: int = 25)
     session_ids = [s["id"] for s in sessions]
     obs_by_session = await attendance_db.observations_for_sessions(session_ids)
     overrides_by_session = await attendance_db.overrides_for_sessions(session_ids)
+    segments_by_session = await attendance_db.segments_for_sessions(session_ids)
 
     role_rows = await planning_db.get_roles(world, guild_name)
     roles = {r["character_name"].lower(): r["role"] for r in role_rows}
@@ -328,6 +332,7 @@ async def attendance_summary(request: Request, guild_name: str, limit: int = 25)
             user_mains,
             overrides=overrides_by_session.get(s["id"], {}),
             afk_by_char=afk_by_char,
+            segments_by_char=segments_by_session.get(s["id"], {}),
         )
         per_session.append((s["id"], char_rows, user_rows))
 
@@ -369,6 +374,7 @@ async def get_attendance_session(request: Request, guild_name: str, session_id: 
 
     obs = await attendance_db.observations_for_session(session_id)
     overrides = await attendance_db.overrides_for_session(session_id)
+    segments = await attendance_db.segments_for_session(session_id)
     roles, claims, afk_by_user, afk_by_char, user_mains = await _derivation_inputs(
         world, session["guild_name"], session["session_day"]
     )
@@ -381,9 +387,12 @@ async def get_attendance_session(request: Request, guild_name: str, session_id: 
         user_mains,
         overrides=overrides,
         afk_by_char=afk_by_char,
+        segments_by_char=segments,
     )
 
-    corrector_ids = sorted({ov["set_by"] for ov in overrides.values()})
+    corrector_ids = sorted(
+        {ov["set_by"] for ov in overrides.values()} | {segs[0]["set_by"] for segs in segments.values() if segs}
+    )
     display = await get_display_names_for_discord_ids([u["discord_id"] for u in user_rows] + corrector_ids)
     for u in user_rows:
         u["display_name"] = display.get(u["discord_id"]) or f"User {u['discord_id'][-4:]}"
@@ -391,6 +400,10 @@ async def get_attendance_session(request: Request, guild_name: str, session_id: 
         if row["overridden"]:
             ov = overrides[row["name"].lower()]
             row["override_by"] = display.get(ov["set_by"]) or ov["set_by"]
+        if row["manual_timeline"]:
+            segs = segments.get(row["name"].lower())
+            if segs:
+                row["timeline_by"] = display.get(segs[0]["set_by"]) or segs[0]["set_by"]
 
     session["scheduled"] = bool(session["scheduled"])
     session["zones"] = json.loads(session["zones"] or "[]")
@@ -453,6 +466,62 @@ async def put_attendance_override(request: Request, guild_name: str, session_id:
         category=body.category,
     )
     return {"ok": True, "cleared": False}
+
+
+class SegmentIn(BaseModel):
+    category: str
+    started_at: int
+    ended_at: int
+
+
+class SegmentsInput(BaseModel):
+    character_name: str = Field(min_length=1, max_length=32)
+    segments: list[SegmentIn] = Field(default_factory=list, max_length=24)  # [] clears
+
+
+@router.put("/guild/{guild_name}/attendance/{session_id}/segments")
+@limiter.limit("60/minute")
+async def put_attendance_segments(request: Request, guild_name: str, session_id: int, body: SegmentsInput) -> dict:
+    """Officer timeline edit: replace one character's timed periods for this
+    session (present/sat_out/afk with start/end — 'sat out for an hour' is a
+    period, not a whole-night verdict). An empty list reverts to the
+    parser-derived timeline. Works for never-observed characters too — the
+    'add a missed player with times' case."""
+    user, session = await _officer_session(request, guild_name, session_id)
+    name = _validate_character_name(body.character_name)
+    if name is None:
+        raise HTTPException(status_code=400, detail="character_name is invalid.")
+    name = name.capitalize()
+
+    segs = sorted(
+        ({"category": s.category, "started_at": s.started_at, "ended_at": s.ended_at} for s in body.segments),
+        key=lambda s: (s["started_at"], s["ended_at"]),
+    )
+    lo, hi = session["started_at"] - MERGE_GAP_S, session["ended_at"] + MERGE_GAP_S
+    prev_end: int | None = None
+    for s in segs:
+        if s["category"] not in derive.SEGMENT_CATEGORIES:
+            raise HTTPException(
+                status_code=400, detail=f"segment category must be one of {list(derive.SEGMENT_CATEGORIES)}."
+            )
+        if s["started_at"] >= s["ended_at"]:
+            raise HTTPException(status_code=400, detail="A period must start before it ends.")
+        if s["started_at"] < lo or s["ended_at"] > hi:
+            raise HTTPException(status_code=400, detail="Period times fall too far outside the session window.")
+        if prev_end is not None and s["started_at"] < prev_end:
+            raise HTTPException(status_code=400, detail="Periods overlap — they must be sequential.")
+        prev_end = s["ended_at"]
+
+    await attendance_db.set_segments(session_id, name, segs, set_by=str(user["id"]))
+    audit_log(
+        "attendance_timeline_set",
+        actor=str(user["id"]),
+        guild=guild_name,
+        session_id=session_id,
+        character=name,
+        segments=len(segs),
+    )
+    return {"ok": True, "cleared": not segs}
 
 
 @router.delete("/guild/{guild_name}/attendance/{session_id}/character/{character_name}")
