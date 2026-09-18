@@ -125,7 +125,8 @@ async def test_availability_roundtrip_and_default_available():
     await availability_db.set_days("u1", {"2026-08-01": "afk", "2026-08-02": "tentative"})
     days = await availability_db.get_range("u1", "2026-08-01", "2026-08-31")
     assert days == {"2026-08-01": "afk", "2026-08-02": "tentative"}
-    # setting back to available deletes the row
+    # Setting back to available renders as the default again (the stored
+    # newest-wins clear row is filtered out of the calendar).
     await availability_db.set_days("u1", {"2026-08-01": "available"})
     days = await availability_db.get_range("u1", "2026-08-01", "2026-08-31")
     assert days == {"2026-08-02": "tentative"}
@@ -579,9 +580,13 @@ async def test_char_availability_store_roundtrip_and_world_scope():
     assert await availability_db.char_statuses_for_day(_WORLD, "2026-08-01") == {"tanky": "afk"}
     # World-scoped: another server's day is untouched.
     assert await availability_db.char_statuses_for_day("Wuoshi", "2026-08-01") == {}
-    # "available" deletes the row (back to default).
+    # "available" is STORED (an explicit newest-wins clear, so it can beat
+    # an older player AFK in the planner merge) — case-insensitive upsert.
     await availability_db.set_character_days(_WORLD, "TANKY", {"2026-08-01": "available"}, set_by="officer-1")
-    assert await availability_db.char_statuses_for_day(_WORLD, "2026-08-01") == {}
+    assert await availability_db.char_statuses_for_day(_WORLD, "2026-08-01") == {"tanky": "available"}
+    timed = await availability_db.char_statuses_for_day_with_times(_WORLD, "2026-08-01")
+    status, stamp = timed["tanky"]
+    assert status == "available" and stamp > 0
 
 
 @pytest.mark.asyncio
@@ -644,3 +649,77 @@ async def test_char_availability_set_shows_in_planner_and_self_declaration_wins(
     with p[0], p[1], p[2], p[3], p[4]:
         planner = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0?date={today}")
     assert planner.json()["availability"] == {"tanky": "tentative"}
+
+
+def test_merge_availability_newest_wins():
+    from backend.server.db.availability import merge_availability
+
+    char_times = {"tanky": ("tentative", 200), "ghosty": ("afk", 100)}
+    user_times = {"u1": ("afk", 100), "u2": ("tentative", 300)}
+    char_to_user = {"tanky": "u1", "ghosty": "u2", "solo": "u1"}
+    merged = merge_availability(char_times, user_times, char_to_user)
+    assert merged["tanky"] == "tentative"  # officer edit is newer than u1's afk
+    assert merged["ghosty"] == "tentative"  # u2's later declaration beats the officer
+    assert merged["solo"] == "afk"  # no char entry — owner's calendar applies
+    # Ties go to the player.
+    merged = merge_availability({"tanky": ("tentative", 100)}, {"u1": ("afk", 100)}, {"tanky": "u1"})
+    assert merged["tanky"] == "afk"
+
+
+@pytest.mark.asyncio
+async def test_planner_officer_edit_overrides_stale_self_declaration(app):
+    """The live complaint: a player self-declared AFK, the officer changes
+    the character to Tentative on the planner — the newer officer edit must
+    actually show (the old always-player-wins merge silently masked it),
+    and an officer 'Available' must clear the badge, until the player
+    re-declares (newest edit wins again)."""
+    import sqlite3 as _sq
+
+    from backend.server.db import upsert_user
+    from backend.server.db.claims import store as claims_db
+
+    await _seed_raider("Tanky")
+    await upsert_user(discord_id="member-1", discord_name="Member One", discord_username="m1", avatar=None)
+    claim = await claims_db.submit_claim("member-1", "Tanky", world=_WORLD)
+    await claims_db.review_claim(claim["id"], "approved", "admin")
+    today = dt.date.today().isoformat()
+
+    # The player declared AFK a while ago (age the stamp).
+    await availability_db.set_days("member-1", {today: "afk"})
+    with _sq.connect(availability_db.path) as conn:
+        conn.execute("UPDATE user_availability SET updated_at = 1000 WHERE discord_id = 'member-1'")
+        conn.commit()
+
+    # Officer corrects the character to tentative (stamped now → newer).
+    await availability_db.set_character_days(_WORLD, "Tanky", {today: "tentative"}, set_by="officer-1")
+
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0?date={today}")
+    assert r.json()["availability"].get("tanky") == "tentative"
+
+    # Officer clears to Available — the stale player AFK must NOT resurface.
+    await availability_db.set_character_days(_WORLD, "Tanky", {today: "available"}, set_by="officer-1")
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0?date={today}")
+    assert "tanky" not in r.json()["availability"]
+
+    # The player re-declares afterwards — their word wins again.
+    await availability_db.set_days("member-1", {today: "afk"})
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _get(app, f"/api/guild/{_GUILD}/raid-planning/0?date={today}")
+    assert r.json()["availability"].get("tanky") == "afk"
+
+
+@pytest.mark.asyncio
+async def test_user_available_is_stored_but_hidden_from_calendar():
+    """A player's explicit 'available' keeps a stamped row (so it can beat
+    an older officer AFK in the merge) but the calendar still renders it
+    as the default (absent from get_range)."""
+    await availability_db.set_days("u1", {"2026-08-01": "afk", "2026-08-02": "afk"})
+    await availability_db.set_days("u1", {"2026-08-01": "available"})
+    days = await availability_db.get_range("u1", "2026-08-01", "2026-08-31")
+    assert days == {"2026-08-02": "afk"}
+    timed = await availability_db.statuses_for_day_with_times("2026-08-01")
+    status, stamp = timed["u1"]
+    assert status == "available" and stamp > 0

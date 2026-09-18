@@ -40,6 +40,7 @@ from backend.server.core.session_user import SessionUser, TokenUser
 from backend.server.db import get_display_names_for_discord_ids, has_role
 from backend.server.db.attendance import MAX_SESSION_SPAN_S, MERGE_GAP_S
 from backend.server.db.attendance import store as attendance_db
+from backend.server.db.availability import merge_availability
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import store as planning_db
 from backend.server.db.raid_schedule import store as schedule_db
@@ -239,6 +240,15 @@ async def get_raid_mains(request: Request, character: str, server: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+async def _merged_char_availability(world: str, day: str, claims: dict[str, str]) -> dict[str, str]:
+    """Per-character availability verdict for ``day`` — the same
+    newest-edit-wins merge the raid planner shows, so attendance excuses
+    match what officers see there."""
+    user_times = await availability_db.statuses_for_day_with_times(day)
+    char_times = await availability_db.char_statuses_for_day_with_times(world, day)
+    return merge_availability(char_times, user_times, claims)
+
+
 async def _derivation_inputs(world: str, guild_name: str, session_day: str) -> tuple[dict, dict, dict, dict, dict]:
     role_rows = await planning_db.get_roles(world, guild_name)
     roles = {r["character_name"].lower(): r["role"] for r in role_rows}
@@ -246,8 +256,8 @@ async def _derivation_inputs(world: str, guild_name: str, session_day: str) -> t
     primaries = await planning_db.primary_claims(world)
     user_mains, _ = derive.resolve_mains(role_rows, claims, primaries)
     afk_by_user = await availability_db.statuses_for_day(session_day)
-    afk_by_char = await availability_db.char_statuses_for_day(world, session_day)
-    return roles, claims, afk_by_user, afk_by_char, user_mains
+    avail_by_char = await _merged_char_availability(world, session_day, claims)
+    return roles, claims, afk_by_user, avail_by_char, user_mains
 
 
 @router.get("/guild/{guild_name}/attendance")
@@ -272,7 +282,7 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
     out = []
     for s in sessions:
         afk_by_user = await availability_db.statuses_for_day(s["session_day"])
-        afk_by_char = await availability_db.char_statuses_for_day(world, s["session_day"])
+        afk_by_char = await _merged_char_availability(world, s["session_day"], claims)
         char_rows, _ = derive.derive_categories(
             obs_by_session.get(s["id"], []),
             roles,
@@ -323,7 +333,7 @@ async def attendance_summary(request: Request, guild_name: str, limit: int = 25)
     per_session = []
     for s in sessions:
         afk_by_user = await availability_db.statuses_for_day(s["session_day"])
-        afk_by_char = await availability_db.char_statuses_for_day(world, s["session_day"])
+        afk_by_char = await _merged_char_availability(world, s["session_day"], claims)
         char_rows, user_rows = derive.derive_categories(
             obs_by_session.get(s["id"], []),
             roles,

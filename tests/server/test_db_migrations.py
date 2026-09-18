@@ -255,3 +255,26 @@ def test_init_db_migrates_pre_parse_posting_links_table(tmp_path: Path) -> None:
         assert {"parses_channel_id", "parses_posted_at"} <= cols
         row = conn.execute("SELECT guild_name, parses_channel_id, parses_posted_at FROM discord_guild_links").fetchone()
         assert row == ("Exordium", None, 0)
+
+
+def test_init_db_migrates_pre_stamp_user_availability_table(tmp_path: Path) -> None:
+    """user_availability created before the 2026-09 newest-wins migration
+    (no updated_at) must upgrade in place; legacy rows stamp 0 so any
+    stamped edit beats them."""
+    db = tmp_path / "users.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript("""
+            CREATE TABLE user_availability (
+                discord_id TEXT NOT NULL,
+                day TEXT NOT NULL,
+                status TEXT NOT NULL,
+                PRIMARY KEY (discord_id, day)
+            );
+            INSERT INTO user_availability (discord_id, day, status) VALUES ('u1', '2026-08-01', 'afk');
+        """)
+    users_db.init_db(db)
+    with sqlite3.connect(db) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(user_availability)")}
+        assert "updated_at" in cols
+        row = conn.execute("SELECT status, updated_at FROM user_availability WHERE discord_id='u1'").fetchone()
+        assert row == ("afk", 0)

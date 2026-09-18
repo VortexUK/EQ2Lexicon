@@ -338,19 +338,23 @@ CREATE TABLE IF NOT EXISTS user_availability (
     discord_id  TEXT NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
     day         TEXT NOT NULL,                    -- ISO date YYYY-MM-DD
     status      TEXT NOT NULL,                    -- tentative or afk
+    updated_at  INTEGER NOT NULL DEFAULT 0,       -- newest-wins vs officer char entries
     PRIMARY KEY (discord_id, day)
 );
 
 -- Officer-set per-CHARACTER availability. Raiders who never use the site
 -- (placeholder / unclaimed characters) cannot declare their own calendar,
 -- so officers set it from the raid planner. World-scoped (characters are
--- per-server); character_name stored lower-cased. A player's own
--- user_availability row wins over this where both exist.
+-- per-server); character_name stored lower-cased. Where a player's own
+-- user_availability row ALSO exists, the NEWER edit wins (ties go to the
+-- player) — an officer must be able to correct a stale self-declaration,
+-- and a player re-declaring afterwards takes it back. 'available' is
+-- stored here (not deleted) so an officer can clear a stale player AFK.
 CREATE TABLE IF NOT EXISTS character_availability (
     world           TEXT    NOT NULL,
     character_name  TEXT    NOT NULL,             -- lower-cased
     day             TEXT    NOT NULL,             -- ISO date YYYY-MM-DD
-    status          TEXT    NOT NULL,             -- tentative or afk
+    status          TEXT    NOT NULL,             -- available / tentative / afk
     set_by          TEXT    NOT NULL,             -- officer discord id
     updated_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     PRIMARY KEY (world, character_name, day)

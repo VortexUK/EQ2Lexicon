@@ -188,12 +188,17 @@ def derive_categories(
         online_o = online_obs.get(display) or next((v for k, v in online_obs.items() if k.lower() == lower), None)
         in_raid = raid_o is not None
         online = online_o is not None
-        # Officer-set per-character AFK (character_availability) covers
-        # raiders with no site account; the user's own calendar is the
-        # other source and either one excuses the no-show.
-        declared_afk = (owner is not None and afk_by_user.get(owner) == "afk") or (afk_by_char or {}).get(
-            lower
-        ) == "afk"
+        # Per-character availability verdict: routes pass afk_by_char as
+        # the NEWEST-EDIT-WINS merge of officer character entries and the
+        # owner's own calendar (see availability.merge_availability). Where
+        # a per-character verdict exists it decides alone — an explicit
+        # 'available'/'tentative' must not be trumped by a stale owner-level
+        # AFK. Characters with no entry fall back to their owner's calendar.
+        char_status = (afk_by_char or {}).get(lower)
+        if char_status is not None:
+            declared_afk = char_status == "afk"
+        else:
+            declared_afk = owner is not None and afk_by_user.get(owner) == "afk"
 
         manual_segs = (segments_by_char or {}).get(lower) or []
         segs = (

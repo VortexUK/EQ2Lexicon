@@ -153,3 +153,6 @@ ALTER TABLE discord_guild_links ADD COLUMN parses_channel_id TEXT;
 
 -- :name alter_links_add_parses_posted_at
 ALTER TABLE discord_guild_links ADD COLUMN parses_posted_at INTEGER NOT NULL DEFAULT 0;
+
+-- :name alter_user_availability_add_updated_at
+ALTER TABLE user_availability ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;

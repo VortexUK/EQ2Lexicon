@@ -34,6 +34,7 @@ from backend.server.core.cache_keys import guild_roster_key
 from backend.server.core.session_user import SessionUser
 from backend.server.core.validation import validate_character_name
 from backend.server.db import get_active_claims, get_display_names_for_discord_ids
+from backend.server.db.availability import merge_availability
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import VALID_ROLES
 from backend.server.db.raid_planning import store as planning_db
@@ -228,14 +229,16 @@ async def get_planner(
 
     # Availability + player overlay for roled characters only (small set).
     # Officer-set per-character entries fill the gaps for raiders who never
-    # use the site; a player's own calendar wins where both exist.
+    # use the site AND correct stale self-declarations — where both exist
+    # the NEWER edit wins (ties to the player), and an explicit 'available'
+    # clears the badge instead of unmasking the older entry.
     roled_lower = set(roles.keys())
     claims = await planning_db.claims_map(world)
     char_to_user = {n: claims[n] for n in roled_lower if n in claims}
-    statuses = await availability_db.statuses_for_day(day)
-    char_statuses = await availability_db.char_statuses_for_day(world, day)
-    availability = {n: s for n, s in char_statuses.items() if n in roled_lower}
-    availability.update({n: statuses[uid] for n, uid in char_to_user.items() if uid in statuses})
+    user_times = await availability_db.statuses_for_day_with_times(day)
+    char_times = await availability_db.char_statuses_for_day_with_times(world, day)
+    merged = merge_availability(char_times, user_times, char_to_user)
+    availability = {n: s for n, s in merged.items() if n in roled_lower and s != "available"}
     display = await get_display_names_for_discord_ids(sorted(set(char_to_user.values())))
     players = {n: display.get(uid, uid) for n, uid in char_to_user.items()}
 

@@ -19,8 +19,35 @@ from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
-#: Statuses that get a row. "available" is the implicit default (row deleted).
+#: The two non-default statuses. "available" is the default — but it IS
+#: stored once a row has ever been set, carrying its edit stamp, so a
+#: newer "available" can override an older tentative/afk from the other
+#: side of the planner merge (officer vs player). Readers that surface
+#: calendars filter it back out; readers that check for "afk" are
+#: unaffected by its presence.
 STORED_STATUSES = ("tentative", "afk")
+
+
+def merge_availability(
+    char_times: dict[str, tuple[str, int]],
+    user_times: dict[str, tuple[str, int]],
+    char_to_user: dict[str, str],
+) -> dict[str, str]:
+    """Final per-character availability: the NEWER of the officer's
+    character entry and the owning player's self-declaration wins, ties
+    going to the player. Pure — both inputs come from the *_with_times
+    readers; ``char_to_user`` maps character_name_lower → discord id.
+    Values may include 'available' (an explicit newest-wins clear) —
+    display consumers drop those after merging."""
+    merged = dict(char_times)
+    for n, uid in char_to_user.items():
+        u = user_times.get(uid)
+        if u is None:
+            continue
+        c = merged.get(n)
+        if c is None or u[1] >= c[1]:
+            merged[n] = u
+    return {n: s for n, (s, _) in merged.items()}
 
 
 class AvailabilityStore(AsyncStoreBase):
@@ -37,14 +64,14 @@ class AvailabilityStore(AsyncStoreBase):
                 return {r["day"]: r["status"] for r in await cur.fetchall()}
 
     async def set_days(self, discord_id: str, days: dict[str, str]) -> None:
-        """Bulk-set days. ``available`` deletes the row (back to default);
-        ``tentative``/``afk`` upsert. Date-window validation is the route
-        layer's job (this persists what it's given)."""
+        """Bulk-set days. All three statuses upsert (with an edit stamp) —
+        ``available`` is stored rather than deleted so a player's explicit
+        "I'm back" beats an older officer AFK in the newest-wins merge.
+        ``get_range`` filters it out, so the calendar still renders it as
+        the default. Date-window validation is the route layer's job."""
         async with self._db() as db:
             for day, status in days.items():
-                if status == "available":
-                    await db.execute(_SQL["delete_day"], (discord_id, day))
-                elif status in STORED_STATUSES:
+                if status in ("available", *STORED_STATUSES):
                     await db.execute(_SQL["upsert_day"], (discord_id, day, status))
                 else:
                     raise ValueError(f"status must be available/tentative/afk, got {status!r}")
@@ -57,28 +84,43 @@ class AvailabilityStore(AsyncStoreBase):
             async with db.execute(_SQL["select_statuses_for_day"], (day,)) as cur:
                 return {r["discord_id"]: r["status"] for r in await cur.fetchall()}
 
+    async def statuses_for_day_with_times(self, day: str) -> dict[str, tuple[str, int]]:
+        """{discord_id: (status, updated_at)} — for the newest-edit-wins
+        merge against officer character entries. Legacy rows (pre-stamp)
+        carry updated_at 0, so any stamped officer edit beats them."""
+        async with self._db(row_factory=True) as db:
+            async with db.execute(_SQL["select_statuses_for_day_with_times"], (day,)) as cur:
+                return {r["discord_id"]: (r["status"], r["updated_at"]) for r in await cur.fetchall()}
+
     async def set_character_days(self, world: str, character_name: str, days: dict[str, str], *, set_by: str) -> None:
         """Officer-set per-CHARACTER calendar — for raiders who never use
-        the site and so can't declare their own. Same semantics as
-        :meth:`set_days`: ``available`` deletes the row (back to default)."""
+        the site and so can't declare their own, AND for correcting a stale
+        self-declaration (newest edit wins in the planner merge). Unlike
+        :meth:`set_days`, ``available`` is STORED — deleting it would
+        unmask an older player AFK the officer just cleared."""
         lower = character_name.lower()
         async with self._db() as db:
             for day, status in days.items():
-                if status == "available":
-                    await db.execute(_SQL["char_delete_day"], (world, lower, day))
-                elif status in STORED_STATUSES:
+                if status in ("available", *STORED_STATUSES):
                     await db.execute(_SQL["char_upsert_day"], (world, lower, day, status, set_by))
                 else:
                     raise ValueError(f"status must be available/tentative/afk, got {status!r}")
             await db.commit()
 
     async def char_statuses_for_day(self, world: str, day: str) -> dict[str, str]:
-        """{character_name_lower: status} for officer-set entries on ``day``.
-        Consumers merge this UNDER user self-declarations — a player's own
-        calendar wins where both exist."""
+        """{character_name_lower: status} for officer-set entries on ``day``
+        (``available`` rows included — consumers checking for 'afk' are
+        unaffected; the planner merge drops them after precedence)."""
         async with self._db(row_factory=True) as db:
             async with db.execute(_SQL["char_statuses_for_day"], (world, day)) as cur:
                 return {r["character_name"]: r["status"] for r in await cur.fetchall()}
+
+    async def char_statuses_for_day_with_times(self, world: str, day: str) -> dict[str, tuple[str, int]]:
+        """{character_name_lower: (status, updated_at)} — the officer half
+        of the newest-edit-wins planner merge."""
+        async with self._db(row_factory=True) as db:
+            async with db.execute(_SQL["char_statuses_for_day_with_times"], (world, day)) as cur:
+                return {r["character_name"]: (r["status"], r["updated_at"]) for r in await cur.fetchall()}
 
 
 # The shared default instance — every runtime consumer goes through this.

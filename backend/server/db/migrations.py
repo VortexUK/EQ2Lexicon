@@ -131,4 +131,11 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     if "parses_posted_at" not in links_cols:
         conn.execute(_SQL["alter_links_add_parses_posted_at"])
 
+    # Migrate: newest-wins availability (2026-09) — user self-declarations
+    # gain an edit stamp so officer character entries can override stale
+    # ones. Legacy rows default 0 (any stamped edit beats them).
+    avail_cols = {row[1] for row in conn.execute("PRAGMA table_info(user_availability)")}
+    if "updated_at" not in avail_cols:
+        conn.execute(_SQL["alter_user_availability_add_updated_at"])
+
     conn.commit()
