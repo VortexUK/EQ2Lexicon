@@ -434,6 +434,14 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, wo
         _ensure_classified(conn, enc["id"], enc.get("zone"))
 
         combatants = parses_db.get_combatants_for_encounter(conn, enc["id"])
+        # ACT's per-skill DPS divides by the SKILL's own active window
+        # (first hit → last hit), so an ability used for half the fight
+        # reads at double its real contribution (live complaint: 1,040,928
+        # damage over a 7m14s fight shown as 3,884 DPS instead of ~2,398).
+        # Serve every per-ability rate over the FIGHT duration instead,
+        # matching the row-level encDPS semantics. Stored columns are
+        # untouched — this is presentation math.
+        dur = enc.get("duration_s") or 0
         for c in combatants:
             c["top_attacks"] = parses_db.get_top_attacks_for_combatant(conn, c["id"], limit=top_attacks_per_combatant)
             c["top_heals"] = parses_db.get_top_heals_for_combatant(conn, c["id"], limit=top_attacks_per_combatant)
@@ -442,6 +450,13 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, wo
             c["damage_types"] = parses_db.get_damage_types_for_combatant(conn, c["id"])
             c["ally"] = bool(c["ally"])
             c["is_player"] = bool(c.get("is_player"))
+            if dur > 0:
+                for a in c["top_attacks"]:
+                    a["dps"] = (a["damage"] or 0) / dur
+                for h in c["top_heals"]:
+                    h["dps"] = (h["damage"] or 0) / dur  # `damage` = amount healed for swing_type=3
+                for d in c["damage_types"]:
+                    d["dps"] = (d["damage"] or 0) / dur
         enc["combatants"] = combatants
         return enc
     finally:

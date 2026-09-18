@@ -419,3 +419,48 @@ def test_list_encounters_search_filters_title_zone_uploader(tmp_path, monkeypatc
     assert titles("dpsguy") == {"Venril Sathir"}
     # No match → empty.
     assert titles("nonexistent-boss") == set()
+
+
+def test_detail_ability_dps_uses_fight_duration(parses_db_path):
+    """ACT's per-skill DPS divides by the SKILL's own active window, so an
+    ability cast for part of the fight reads inflated (live case: 1,040,928
+    damage over a 7m14s fight shown as 3,884 DPS instead of ~2,398). The
+    detail sync must serve damage over the FIGHT duration — for attacks,
+    heals and damage types alike."""
+    from backend.server.api.parses.list import _encounter_detail_sync
+    from backend.server.parses import db as pdb
+    from backend.server.parses.db import SwingType
+
+    conn = pdb.store.init_db()
+    try:
+        conn.execute(
+            "INSERT INTO encounters (id, world, act_encid, title, started_at, ended_at, duration_s, "
+            "source_dsn, ingested_at) VALUES (1, 'Varsoon', 'E1', 'Tarinax', 0, 434, 434, 'eq2act', 1)"
+        )
+        conn.execute("INSERT INTO combatants (id, encounter_id, name, ally, is_player) VALUES (10, 1, 'Fiix', 1, 1)")
+        conn.execute(
+            "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage, dps, hits, swings) "
+            "VALUES (10, ?, ?, 1040928, 3884.0, 701, 701)",
+            (int(SwingType.NONMELEE), "Larval Outbreak"),
+        )
+        conn.execute(
+            "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage, dps, hits, swings) "
+            "VALUES (10, ?, ?, 86800, 999.0, 10, 10)",
+            (int(SwingType.HEAL), "Bria's Ballad"),
+        )
+        conn.execute(
+            "INSERT INTO damage_types (combatant_id, damage_type, damage, dps) VALUES (10, 'noxious', 1040928, 3884.0)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    detail = _encounter_detail_sync(1, 25, world="Varsoon")
+    assert detail is not None
+    fiix = next(c for c in detail["combatants"] if c["name"] == "Fiix")
+    attack = next(a for a in fiix["top_attacks"] if a["attack_name"] == "Larval Outbreak")
+    assert attack["dps"] == pytest.approx(1_040_928 / 434)  # ≈ 2398, not ACT's 3884
+    heal = next(h for h in fiix["top_heals"] if h["attack_name"] == "Bria's Ballad")
+    assert heal["dps"] == pytest.approx(86_800 / 434)  # HPS over the fight = 200
+    dtype = fiix["damage_types"][0]
+    assert dtype["dps"] == pytest.approx(1_040_928 / 434)
