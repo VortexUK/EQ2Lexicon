@@ -86,6 +86,7 @@ export function normaliseBossName(s: string): string {
 const METRICS_RAID: DropdownOption[] = [
   { value: 'dps', label: 'Damage (DPS)', group: 'Character' },
   { value: 'hps', label: 'Healing (HPS)', group: 'Character' },
+  { value: 'guild_dps', label: 'Guild DPS', group: 'Guild' },
   { value: 'speed', label: 'Speed', group: 'Guild' },
 ]
 
@@ -250,13 +251,16 @@ export default function RankingsPage() {
     u.searchParams.set('zone', zone)
     u.searchParams.set('boss', boss)
     u.searchParams.set('metric', metric)
-    if (cls && metric !== 'speed') u.searchParams.set('class', cls)
+    if (cls && metric !== 'speed' && metric !== 'guild_dps') u.searchParams.set('class', cls)
     return u.toString()
   }, [size, zone, boss, metric, cls])
 
   const { data: board, loading } = useFetch<RankingsResponse>(boardUrl)
 
   const isSpeed = metric === 'speed'
+  // Guild-keyed boards (raid Speed, Guild DPS) drop the class filter and
+  // the per-character columns.
+  const isGuildBoard = metric === 'guild_dps' || (isSpeed && size === 'raid')
   const metrics = size === 'group' ? METRICS_GROUP : METRICS_RAID
 
   return (
@@ -321,7 +325,7 @@ export default function RankingsPage() {
               options={(zoneObj?.bosses ?? []).map(b => ({ value: b, label: b }))}
               onChange={v => setBoss(v)}
             />
-            {!isSpeed && (
+            {!isGuildBoard && (
               <FilterDropdown
                 value={cls}
                 options={buildClassOptions(board?.classes ?? [], c => classByName.get(c)?.archetype)}
@@ -343,11 +347,13 @@ export default function RankingsPage() {
               <tr className="text-text-muted text-left text-[0.72rem] uppercase tracking-wide border-b border-border">
                 <th className="px-3 py-2">#</th>
                 <th className="px-3 py-2">%</th>
-                <th className="px-3 py-2">{isSpeed && size === 'raid' ? 'Guild' : 'Player'}</th>
-                {!isSpeed && <th className="px-3 py-2">Lvl</th>}
-                {!isSpeed && <th className="px-3 py-2">Class</th>}
-                <th className="px-3 py-2 text-right">{isSpeed ? 'Time' : metric === 'hps' ? 'HPS' : 'DPS'}</th>
-                <th className="px-3 py-2 text-right" title={isSpeed ? 'Average raid item level' : 'Character item level'}>iLvl</th>
+                <th className="px-3 py-2">{isGuildBoard ? 'Guild' : 'Player'}</th>
+                {!isGuildBoard && <th className="px-3 py-2">Lvl</th>}
+                {!isGuildBoard && <th className="px-3 py-2">Class</th>}
+                <th className="px-3 py-2 text-right">
+                  {isSpeed ? 'Time' : metric === 'hps' ? 'HPS' : metric === 'guild_dps' ? 'Raid DPS' : 'DPS'}
+                </th>
+                <th className="px-3 py-2 text-right" title={isGuildBoard ? 'Average raid item level' : 'Character item level'}>iLvl</th>
                 <th className="px-3 py-2 text-right">Size</th>
                 <th className="px-3 py-2 text-right">Date</th>
               </tr>
@@ -375,8 +381,8 @@ export default function RankingsPage() {
                       </>
                     )}
                   </td>
-                  {!isSpeed && <td className="px-3 py-2 tabular-nums">{r.level ?? '—'}</td>}
-                  {!isSpeed && <td className="px-3 py-2">{r.cls ?? '—'}</td>}
+                  {!isGuildBoard && <td className="px-3 py-2 tabular-nums">{r.level ?? '—'}</td>}
+                  {!isGuildBoard && <td className="px-3 py-2">{r.cls ?? '—'}</td>}
                   <td className="px-3 py-2 text-right tabular-nums">
                     {isSpeed ? fmtDuration(r.duration_s ?? 0) : fmtNum(Math.round(r.score ?? 0))}
                   </td>

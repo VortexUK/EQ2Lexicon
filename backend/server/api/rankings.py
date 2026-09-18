@@ -192,6 +192,36 @@ def _avg_player_ilvl(combatants: list[dict]) -> float | None:
     return round(sum(vals) / len(vals), 1) if vals else None
 
 
+def _build_guild_dps_board(kills: list[dict], *, size: str, zone: str, boss: str) -> list[dict]:
+    """Per-guild best RAID DPS on a boss: each kill's score is the sum of
+    its player combatants' encDPS (the whole raid's output), and a guild
+    keeps its highest-scoring kill. Purely derived from the existing kills
+    dataset — fully retroactive."""
+    best: dict[str, dict] = {}  # guild.lower() -> entry
+    for k in kills:
+        if k["scope"] != size or k["zone"] != zone or k["title"] != boss:
+            continue
+        guild = (k.get("guild_name") or "").strip()
+        if not guild:
+            continue
+        raid_dps = sum(c.get("encdps") or 0.0 for c in k["combatants"] if _is_player_combatant(c))
+        if raid_dps <= 0:
+            continue
+        cur = best.get(guild.lower())
+        if cur is None or raid_dps > cur["score"]:
+            best[guild.lower()] = {
+                "kind": "guild",
+                "guild_name": guild,
+                "score": raid_dps,
+                "duration_s": k["duration_s"],
+                "ilvl": _avg_player_ilvl(k["combatants"]),
+                "encounter_id": k["id"],
+                "size": k["player_count"],
+                "started_at": k["started_at"],
+            }
+    return sorted(best.values(), key=lambda e: -e["score"])
+
+
 def _build_speed_board(kills: list[dict], *, size: str, zone: str, boss: str) -> list[dict]:
     """Per-guild fastest clear. Returns rows sorted by time asc with percentile."""
     best: dict[str, dict] = {}  # guild.lower() -> entry
@@ -822,15 +852,23 @@ async def get_rankings(
     _require_user(request)
     if size not in _SCOPES:
         raise HTTPException(status_code=400, detail="size must be 'raid' or 'group'")
-    if metric not in ("dps", "hps", "speed"):
-        raise HTTPException(status_code=400, detail="metric must be 'dps', 'hps' or 'speed'")
+    if metric not in ("dps", "hps", "speed", "guild_dps"):
+        raise HTTPException(status_code=400, detail="metric must be 'dps', 'hps', 'speed' or 'guild_dps'")
+    if metric == "guild_dps" and size != "raid":
+        # Dungeons run with mixed-guild groups — guild attribution there is
+        # meaningless (same reasoning as the per-character dungeon Speed).
+        raise HTTPException(status_code=400, detail="guild_dps is a raid metric")
 
     # Resolve world in the async handler (contextvar is set here); do NOT read
     # current_world() inside the executor thread — contextvars don't cross threads.
     world = current_world()
     kills = await _kills_swr(world)
 
-    if metric == "speed":
+    if metric == "guild_dps":
+        rows = _build_guild_dps_board(kills, size=size, zone=zone, boss=boss)
+        _apply_percentiles(rows, score_key="score", higher_better=True)
+        classes = []
+    elif metric == "speed":
         if size == "group":
             rows = _build_speed_board_character(kills, zone=zone, boss=boss)
         else:

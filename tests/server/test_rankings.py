@@ -150,7 +150,7 @@ class TestCharacterBoard:
         assert rows[0]["ilvl"] == 372.2
 
 
-from backend.server.api.rankings import _build_filters, _build_speed_board
+from backend.server.api.rankings import _build_filters, _build_guild_dps_board, _build_speed_board
 
 
 class TestSpeedBoard:
@@ -231,6 +231,71 @@ class TestSpeedBoard:
         ]
         rows = _build_speed_board(kills, size="raid", zone="Z", boss="Tarinax")
         assert rows[0]["ilvl"] == 350.0  # mean(400, 300)
+
+
+class TestGuildDpsBoard:
+    def test_best_raid_dps_per_guild(self):
+        # Two Exordium kills — the higher summed player encDPS wins; the pet
+        # never counts toward the raid total. Fully derived from existing
+        # kills, so historic data ranks retroactively.
+        kills = [
+            _kill(
+                1,
+                zone="Z",
+                title="Tarinax",
+                pcount=24,
+                combatants=[
+                    _c("Menludiir", "Wizard", 900.0),
+                    _c("Buddy", "Templar", 100.0),
+                    _c("a pet thing", "Wizard", 500.0),  # not a player
+                ],
+            ),
+            _kill(
+                2,
+                zone="Z",
+                title="Tarinax",
+                pcount=24,
+                combatants=[
+                    _c("Menludiir", "Wizard", 700.0),
+                    _c("Buddy", "Templar", 100.0),
+                ],
+            ),
+            {
+                "id": 3,
+                "title": "Tarinax",
+                "zone": "Z",
+                "guild_name": "Misfits",
+                "started_at": 3,
+                "duration_s": 211,
+                "player_count": 24,
+                "scope": "raid",
+                "combatants": [_c("Rival", "Assassin", 800.0, guild="Misfits")],
+            },
+        ]
+        rows = _build_guild_dps_board(kills, size="raid", zone="Z", boss="Tarinax")
+        _apply_percentiles(rows, score_key="score", higher_better=True)
+        assert [r["guild_name"] for r in rows] == ["Exordium", "Misfits"]
+        assert rows[0]["score"] == 1000.0 and rows[0]["encounter_id"] == 1
+        assert rows[1]["score"] == 800.0
+        assert rows[0]["percentile"] == 100
+        assert all(r["kind"] == "guild" for r in rows)
+
+    def test_unresolved_guild_and_zero_dps_excluded(self):
+        kills = [
+            _kill(1, zone="Z", title="Tarinax", pcount=24, combatants=[_c("Menludiir", "Wizard", 0.0)]),
+            {
+                "id": 2,
+                "title": "Tarinax",
+                "zone": "Z",
+                "guild_name": None,
+                "started_at": 1,
+                "duration_s": 100,
+                "player_count": 24,
+                "scope": "raid",
+                "combatants": [_c("Someone", "Wizard", 500.0, guild=None)],
+            },
+        ]
+        assert _build_guild_dps_board(kills, size="raid", zone="Z", boss="Tarinax") == []
 
 
 class TestFilters:
