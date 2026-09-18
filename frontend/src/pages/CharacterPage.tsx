@@ -6,10 +6,11 @@ import { TabButton } from '../components/ui/TabButton'
 import { ItemTooltip, useItemTooltip, getCachedItem, prefetchItem, type SetBonus } from '../components/ItemTooltip'
 import { FreshnessBadge } from '../components/FreshnessBadge'
 import FavoriteButton from '../components/FavoriteButton'
-import { AAsTab } from './CharacterAAsTab'
+import { AAsTab, getAAConfig } from './CharacterAAsTab'
 import CharacterRankingsTab, { type CharacterRankings } from './CharacterRankingsTab'
 import { ProgressionTab } from './CharacterProgressionTab'
 import { SpellsTab } from './CharacterSpellsTab'
+import { spellsCache, type CharacterSpellsData } from '../spellConstants'
 import DeltaChip from './compare/DeltaChip'
 import { useCensusStream } from '../hooks/useCensusStream'
 import { useFetch } from '../hooks/useFetch'
@@ -92,6 +93,20 @@ function scoreItem(item: EquipmentSlot, maxLevel: number, cfg: RatingConfig): nu
   const gradeLetter = cfg.matrix[group]?.[band]
   if (!gradeLetter) return null
   return cfg.grade_scores[gradeLetter] ?? 0
+}
+
+/** Average 0–10 gear score across rated slots — the number behind the
+ * equipment tab's grade, reused by the header readiness summary. Null when
+ * nothing has resolved yet (item details still loading). */
+function gearAverage(equipment: EquipmentSlot[], maxLevel: number, cfg: RatingConfig): number | null {
+  const bySlot = buildSlotMap(equipment)
+  const scored: number[] = []
+  for (const [key, item] of bySlot) {
+    if (SKIP_GEAR_SLOTS.has(key) || !item.item_id) continue
+    const s = scoreItem(item, maxLevel, cfg)
+    if (s !== null) scored.push(s)
+  }
+  return scored.length > 0 ? scored.reduce((a, b) => a + b, 0) / scored.length : null
 }
 
 /** Convert a numeric average into a display grade with optional +/− modifier. */
@@ -487,7 +502,7 @@ function CharacterView({ char, maxLevel, ratingConfig }: { char: Character; maxL
   return (
     <div className="mt-6" onMouseMove={moveTip}>
       {/* Full-width general banner */}
-      <GeneralBanner char={char} />
+      <GeneralBanner char={char} equipment={char.equipment} itemsReady={itemsReady} maxLevel={maxLevel} ratingConfig={ratingConfig} />
 
       {/* Tab bar — Rankings only exists once the character has ≥1 ranked kill */}
       <div className="flex flex-wrap gap-0 border-b border-border mt-4">
@@ -709,12 +724,102 @@ function SetBonusesSection({ equipment, ready }: { equipment: EquipmentSlot[]; r
   )
 }
 
+// ── Header readiness summary ─────────────────────────────────────────────────
+
+/** The at-a-glance normalized rating in the header: gear grade + AA% + spell%
+ * folded into one letter, with a per-section checklist. Reuses the exact
+ * numbers the three tabs show — gear from the in-page equipment scoring, AA
+ * from aa_count vs the era cap, spells from the shared spellsCache (one
+ * fetch, shared with the Spells tab). Sections still loading are simply
+ * omitted from the average until they arrive. */
+function ReadinessSummary({ char, equipment, itemsReady, maxLevel, ratingConfig }: {
+  char: Character
+  equipment: EquipmentSlot[]
+  itemsReady: boolean
+  maxLevel: number
+  ratingConfig: RatingConfig
+}) {
+  const [aaCap, setAaCap] = useState<number | null>(null)
+  const [spellPct, setSpellPct] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getAAConfig()
+      .then(c => { if (!cancelled) setAaCap(c.aa_cap) })
+      .catch(() => {})
+    const key = char.name.toLowerCase()
+    const compute = (d: CharacterSpellsData) => {
+      const total = d.spells.length
+      const expert = (d.tier_counts['Expert'] ?? 0) + (d.tier_counts['Master'] ?? 0) + (d.tier_counts['Grandmaster'] ?? 0)
+      return total > 0 ? Math.min(100, Math.round((expert / total) * 100)) : null
+    }
+    const cached = spellsCache.get(key)
+    if (cached) { setSpellPct(compute(cached)); return }
+    fetch(`/api/character/${encodeURIComponent(char.name)}/spells`, { credentials: 'include' })
+      .then(r => (r.ok ? (r.json() as Promise<CharacterSpellsData>) : Promise.reject(new Error(String(r.status)))))
+      .then(d => {
+        if (cancelled) return
+        spellsCache.set(key, d)
+        setSpellPct(compute(d))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [char.name])
+
+  const gearAvg = itemsReady ? gearAverage(equipment, maxLevel, ratingConfig) : null
+  const aaPct = aaCap != null && aaCap > 0 ? Math.min(100, Math.round((char.aa_count / aaCap) * 100)) : null
+
+  const parts: number[] = []
+  if (gearAvg !== null) parts.push(gearAvg)
+  if (aaPct !== null) parts.push(aaPct / 10)
+  if (spellPct !== null) parts.push(spellPct / 10)
+  if (parts.length === 0) return null
+
+  const overall = gradeLabel(parts.reduce((a, b) => a + b, 0) / parts.length, ratingConfig)
+  const gear = gearAvg !== null ? gradeLabel(gearAvg, ratingConfig) : null
+
+  const row = (label: string, value: string, ok: boolean) => (
+    <div className="flex items-baseline justify-between gap-2 text-[0.78rem] leading-snug">
+      <span className="text-text-muted">{label}:</span>
+      <span className="font-semibold whitespace-nowrap">
+        {value}{' '}
+        <span className={ok ? 'text-success' : 'text-danger'}>{ok ? '✓' : '✗'}</span>
+      </span>
+    </div>
+  )
+
+  return (
+    <div className="pl-4 md:ml-4 md:border-l border-border flex items-center gap-3 shrink-0">
+      <div className="flex flex-col items-center">
+        <span className="text-[0.68rem] uppercase tracking-[0.08em] text-gold whitespace-nowrap">Raid Ready</span>
+        <span
+          className="font-heading text-[2.2rem] font-bold leading-none"
+          style={{ color: overall.color, textShadow: `0 0 18px ${overall.color}55` }}
+        >
+          {overall.grade}
+        </span>
+      </div>
+      <div className="flex flex-col gap-0.5 min-w-[7.5rem]">
+        {gear && row('Gear', gear.grade, gear.raidReady)}
+        {aaPct !== null && row('AA', `${aaPct}%`, aaPct >= 90)}
+        {spellPct !== null && row('Spells', `${spellPct}%`, spellPct >= 90)}
+      </div>
+    </div>
+  )
+}
+
 // ── General banner (full width, above equipment) ──────────────────────────────
 
 // Each column holds a top row and an optional bottom row: [label, value]
 type BannerCol = [[string, string], [string, string] | null]
 
-function GeneralBanner({ char }: { char: Character }) {
+function GeneralBanner({ char, equipment, itemsReady, maxLevel, ratingConfig }: {
+  char: Character
+  equipment: EquipmentSlot[]
+  itemsReady: boolean
+  maxLevel: number
+  ratingConfig: RatingConfig
+}) {
   const s = char.stats
 
   const columns: BannerCol[] = [
@@ -782,6 +887,13 @@ function GeneralBanner({ char }: { char: Character }) {
           {bottom && <BannerStat label={bottom[0]} value={bottom[1]} />}
         </div>
       ))}
+      <ReadinessSummary
+        char={char}
+        equipment={equipment}
+        itemsReady={itemsReady}
+        maxLevel={maxLevel}
+        ratingConfig={ratingConfig}
+      />
     </Card>
   )
 }
