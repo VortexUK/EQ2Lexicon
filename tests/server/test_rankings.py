@@ -896,3 +896,91 @@ def test_resolve_boss_curated_zone_rejects_unmatched_titles():
         # An uncurated zone still surfaces via the heuristic.
         ok, zone, title = _resolve_boss("Ripclaw", "Uncurated Keep", "raid")
         assert (ok, zone, title) == (True, "Uncurated Keep", "Ripclaw")
+
+
+# ---------------------------------------------------------------------------
+# Cut-parse gate — multi-mob encounters must be complete to rank
+# ---------------------------------------------------------------------------
+
+
+def _ins_enemy(db_file, title, name, deaths=1):
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(db_file) as conn:
+        eid = conn.execute("SELECT id FROM encounters WHERE title = ?", (title,)).fetchone()[0]
+        conn.execute(
+            "INSERT INTO combatants (encounter_id, name, ally, deaths) VALUES (?, ?, 0, ?)",
+            (eid, name, deaths),
+        )
+        conn.commit()
+
+
+def test_missing_required_mobs():
+    from backend.server.api.rankings import _missing_required_mobs
+
+    requirements = {("Vetrovia", "Tarinax"): frozenset({"tarinax", "xygoz"})}
+    kill = {
+        "zone": "Vetrovia",
+        "title": "Tarinax",
+        "combatants": [
+            {"name": "P0", "ally": 1, "deaths": 2},  # a player dying never counts
+            {"name": "Tarinax", "ally": 0, "deaths": 1},
+        ],
+    }
+    with patch("backend.server.api.rankings._encounter_required_mobs", return_value=requirements):
+        assert _missing_required_mobs(kill) == ["xygoz"]
+        kill["combatants"].append({"name": "Xygoz", "ally": 0, "deaths": 0})  # present but ALIVE
+        assert _missing_required_mobs(kill) == ["xygoz"]
+        kill["combatants"][-1] = {"name": "Xygoz", "ally": 0, "deaths": 1}
+        assert _missing_required_mobs(kill) == []
+        # Encounters with no requirement list (single-mob / uncurated) never gate.
+        assert _missing_required_mobs({"zone": "Vetrovia", "title": "Cazel", "combatants": []}) == []
+
+
+def test_loader_excludes_cut_multi_mob_parse(rankings_db):
+    from backend.server.api import rankings as rk
+
+    requirements = {("Vetrovia", "Tarinax"): frozenset({"tarinax", "xygoz"})}
+    with (
+        patch("backend.server.api.rankings._encounter_required_mobs", return_value=requirements),
+        patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())),
+        patch.object(rk.zones_db, "find_by_name", return_value=None),
+    ):
+        # The fixture's Tarinax kill has no enemy rows at all → both named
+        # missing → the kill never ranks.
+        kills = rk._load_primary_boss_kills()
+        assert kills == []
+        excluded = rk._EXCLUDED_BY_WORLD["Varsoon"]
+        assert len(excluded) == 1
+        assert excluded[0]["title"] == "Tarinax"
+        assert excluded[0]["missing"] == ["tarinax", "xygoz"]
+        assert excluded[0]["uploaded_by"] == "Up"
+
+        # Complete parse — every curated named present and dead → ranks again.
+        _ins_enemy(rankings_db, "Tarinax", "Tarinax")
+        _ins_enemy(rankings_db, "Tarinax", "Xygoz")
+        kills = rk._load_primary_boss_kills()
+        assert [k["title"] for k in kills] == ["Tarinax"]
+        assert rk._EXCLUDED_BY_WORLD["Varsoon"] == []
+
+
+@pytest.mark.asyncio
+async def test_rankings_excluded_endpoint_admin_only(app, rankings_db):
+    from backend.server.api import rankings as rk
+    from tests.fixtures.users import make_fake_admin
+
+    admin = make_fake_admin(id="admin1")
+    requirements = {("Vetrovia", "Tarinax"): frozenset({"tarinax", "xygoz"})}
+    with (
+        patch("backend.server.api.rankings._encounter_required_mobs", return_value=requirements),
+        patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())),
+        patch.object(rk.zones_db, "find_by_name", return_value=None),
+        patch("backend.server.auth_deps.require_admin", return_value=admin),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/rankings/excluded")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["world"] == "Varsoon"
+    assert [e["title"] for e in body["excluded"]] == ["Tarinax"]
+    assert body["excluded"][0]["missing"] == ["tarinax", "xygoz"]

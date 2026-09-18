@@ -316,6 +316,7 @@ def invalidate_zones_cache() -> None:
 
     _classifier_cache_clear()
     parses_db.invalidate_is_player_cache()
+    _encounter_required_mobs.cache_clear()
 
 
 @lru_cache(maxsize=1)
@@ -376,6 +377,49 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
         return dict(boss_index), raid_tree, dungeon_tree, curated_zones
     finally:
         conn.close()
+
+
+@lru_cache(maxsize=1)
+def _encounter_required_mobs() -> dict[tuple[str, str], frozenset[str]]:
+    """(canonical zone, encounter name) → normalised mob keys, for curated
+    encounters with MULTIPLE mobs — the anti-cut-parse gate's requirement
+    lists. Single-mob encounters carry no requirement: the fight ends when
+    the mob dies, so there is nothing to cut. Empty when zones.db is absent
+    (dev/tests). Cleared by invalidate_zones_cache() on curator edits."""
+    path = zones_db.path
+    if not path.exists():
+        return {}
+    by_enc: dict[tuple[str, str], set[str]] = defaultdict(set)
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        for mob_lower, zname, ename in conn.execute(_SQL["list_all_zone_encounter_mobs"]):
+            by_enc[(zname, ename)].add(_normalise_boss_key(mob_lower))
+    finally:
+        conn.close()
+    return {k: frozenset(v) for k, v in by_enc.items() if len(v) > 1}
+
+
+def _missing_required_mobs(kill: dict) -> list[str]:
+    """Anti-cheese gate: an ACT option ends the encounter the moment A mob
+    dies, cutting a multi-mob boss fight short and inflating encDPS. A kill
+    of a curated multi-mob encounter only ranks when EVERY curated mob is in
+    the parse and died at least once. Returns the mobs still missing
+    (normalised keys) — empty means the kill is complete and may rank."""
+    required = _encounter_required_mobs().get((kill["zone"], kill["title"]))
+    if not required:
+        return []
+    dead = {
+        _normalise_boss_key(c["name"]) for c in kill["combatants"] if not c.get("ally") and (c.get("deaths") or 0) > 0
+    }
+    return sorted(required - dead)
+
+
+#: Per-world report of kills the cut-parse gate excluded on the last rebuild
+#: — served by GET /api/rankings/excluded so officers can see who to talk to.
+_EXCLUDED_BY_WORLD: dict[str, list[dict]] = {}
+#: Encounter ids already warned about (per process) — the rebuild runs every
+#: SWR cycle and must not repeat the same warning forever.
+_warned_cut_parses: set[int] = set()
 
 
 def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str | None, str | None]:
@@ -654,16 +698,55 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
             }
             for g, scope in groups
         ]
-        result = _apply_era_lock(kills, _era_lock_for(world), _zone_expansion_map())
+        # Cut-parse gate: a multi-mob curated encounter must contain every
+        # curated named, dead, or the kill never ranks (see
+        # _missing_required_mobs). Uploader comes from the primary upload.
+        uploader_by_id = {g["id"]: g.get("uploaded_by") for g, _ in groups}
+        excluded: list[dict] = []
+        complete: list[dict] = []
+        for k in kills:
+            missing = _missing_required_mobs(k)
+            if not missing:
+                complete.append(k)
+                continue
+            excluded.append(
+                {
+                    "id": k["id"],
+                    "title": k["title"],
+                    "zone": k["zone"],
+                    "guild_name": k["guild_name"],
+                    "started_at": k["started_at"],
+                    "duration_s": k["duration_s"],
+                    "player_count": k["player_count"],
+                    "uploaded_by": uploader_by_id.get(k["id"]),
+                    "missing": missing,
+                }
+            )
+            if k["id"] not in _warned_cut_parses:
+                _warned_cut_parses.add(k["id"])
+                _log.warning(
+                    "[rankings] cut-parse excluded: encounter=%s title=%r zone=%r guild=%r "
+                    "uploaded_by=%r duration=%ss missing_named=%s",
+                    k["id"],
+                    k["title"],
+                    k["zone"],
+                    k["guild_name"],
+                    uploader_by_id.get(k["id"]),
+                    k["duration_s"],
+                    ",".join(missing),
+                )
+        _EXCLUDED_BY_WORLD[world] = excluded
+        result = _apply_era_lock(complete, _era_lock_for(world), _zone_expansion_map())
         total = _time.monotonic() - t0
         # INFO on every rebuild: when a 524 happens, the pasted Railway log
         # must say exactly which phase ate the time.
         _log.info(
-            "[rankings] kills rebuild world=%s: %d encounters -> %d kills in %.1fs "
+            "[rankings] kills rebuild world=%s: %d encounters -> %d kills (%d cut-parse excluded) in %.1fs "
             "(select=%.1fs classify=%.1fs group=%.1fs combatants=%.1fs)",
             world,
             len(rows),
             len(result),
+            len(excluded),
             total,
             t_select - t0,
             t_classify - t_select,
@@ -837,6 +920,20 @@ async def get_ranking_filters(request: Request) -> dict:
     elif kills is None or is_stale:
         asyncio.create_task(_kills_background_refresh(world))
     return _build_filters(kills or [])
+
+
+@router.get("/rankings/excluded")
+@limiter.limit("30/minute")
+async def rankings_excluded(request: Request) -> dict:
+    """Admin report: kills the cut-parse gate kept off the boards on the
+    last rebuild, with the missing named and the uploader — 'who to talk
+    to' when someone runs ACT with end-encounter-on-death enabled."""
+    from backend.server.auth_deps import require_admin  # noqa: PLC0415 — local, matches module style
+
+    require_admin(request)
+    world = current_world()
+    await _kills_swr(world)  # make sure the report reflects a current rebuild
+    return {"world": world, "excluded": _EXCLUDED_BY_WORLD.get(world, [])}
 
 
 @router.get("/rankings", response_model=RankingsResponse)
