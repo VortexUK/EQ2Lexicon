@@ -1439,3 +1439,110 @@ async def test_window_route_put_fixes_session(app):
     assert too_long.status_code == 400
     session = await attendance_db.get_session(sid)
     assert (session["started_at"], session["ended_at"]) == (T0, T0 + 3 * _H)
+
+
+# ---------------------------------------------------------------------------
+# Reconstruction from parses — the "forgot /whoraid" recovery path
+# ---------------------------------------------------------------------------
+
+
+def _seed_parse_fight(
+    db_path,
+    *,
+    title="Trakanon",
+    started_at,
+    duration_s=600,
+    players=(),
+    guild=_GUILD,
+    world=_WORLD,
+    hidden=False,
+):
+    import sqlite3 as _sq
+
+    with _sq.connect(db_path) as conn:
+        cur = conn.execute(
+            "INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at, duration_s, "
+            "success_level, source_dsn, uploaded_by, guild_name, ingested_at, hidden_at) "
+            "VALUES (?, ?, ?, 'Veeshan''s Peak', ?, ?, ?, 1, 'eq2act', 'Up', ?, ?, ?)",
+            (
+                world,
+                f"enc-{started_at}-{title}",
+                title,
+                started_at,
+                started_at + duration_s,
+                duration_s,
+                guild,
+                started_at + duration_s,
+                started_at if hidden else None,
+            ),
+        )
+        eid = int(cur.lastrowid or 0)
+        for name in players:
+            conn.execute(
+                "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, 1, 1)",
+                (eid, name),
+            )
+        conn.commit()
+    return eid
+
+
+# Letter-only names — the character-name validator rejects digits.
+_SQUAD = tuple(f"Raider{c}" for c in "abcdefgh")
+
+
+def test_parse_roster_sync_clusters_and_filters(parses_db_path):
+    """The evening's biggest fight cluster is the raid; small groups, other
+    guilds, hidden parses and out-of-day fights never contribute."""
+    from backend.server.api.attendance import _parse_roster_sync
+
+    day = session_day_for(T0)
+    # The raid: two fights an hour apart; Latey only shows for the second.
+    _seed_parse_fight(parses_db_path, started_at=T0, players=_SQUAD)
+    _seed_parse_fight(parses_db_path, title="Silverwing", started_at=T0 + 3600, players=(*_SQUAD, "Latey"))
+    # Noise: a 5-man earlier, another guild's raid, a hidden fight, and a
+    # lone raid-sized fight far enough before to be its own (smaller) cluster.
+    _seed_parse_fight(parses_db_path, title="Groupmob", started_at=T0 + 300, players=_SQUAD[:5])
+    _seed_parse_fight(parses_db_path, title="Otherraid", started_at=T0 + 600, players=_SQUAD, guild="Other Guild")
+    _seed_parse_fight(parses_db_path, title="Hiddenfight", started_at=T0 + 900, players=_SQUAD, hidden=True)
+    _seed_parse_fight(parses_db_path, title="Earlyfight", started_at=T0 - 5 * 3600, players=_SQUAD[:7])
+
+    guild, members, zones, fights = _parse_roster_sync(_WORLD, _GUILD.lower(), day)
+    assert guild == _GUILD  # canonical casing from the parses, not the URL
+    assert fights == 2
+    by_name = {m["name"]: m for m in members}
+    assert len(by_name) == 9
+    assert (by_name["Raidera"]["first_seen"], by_name["Raidera"]["last_seen"]) == (T0, T0 + 3600 + 600)
+    assert (by_name["Latey"]["first_seen"], by_name["Latey"]["last_seen"]) == (T0 + 3600, T0 + 3600 + 600)
+    assert zones == ["Veeshan's Peak"]
+
+
+@pytest.mark.asyncio
+async def test_reconstruct_route_creates_session_and_is_rerunnable(app, parses_db_path):
+    day = session_day_for(T0)
+    _seed_parse_fight(parses_db_path, started_at=T0, players=_SQUAD)
+    _seed_parse_fight(parses_db_path, title="Silverwing", started_at=T0 + 3600, players=_SQUAD)
+
+    _, p_officer = _member_gate_patches(officer=True)
+    with p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r1 = await c.post(f"/api/guild/{_GUILD}/attendance/reconstruct", json={"date": day})
+            r2 = await c.post(f"/api/guild/{_GUILD}/attendance/reconstruct", json={"date": day})
+            missing = await c.post(f"/api/guild/{_GUILD}/attendance/reconstruct", json={"date": "2020-01-01"})
+            bad = await c.post(f"/api/guild/{_GUILD}/attendance/reconstruct", json={"date": "not-a-date"})
+
+    assert r1.status_code == 200, r1.text
+    body = r1.json()
+    assert body["status"] == "created" and body["raid_members"] == 8 and body["fights"] == 2
+    # Re-running merges into the same session instead of duplicating it.
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "merged" and r2.json()["session_id"] == body["session_id"]
+
+    session = await attendance_db.get_session(body["session_id"])
+    assert session is not None and session["session_day"] == day
+    assert (session["started_at"], session["ended_at"]) == (T0, T0 + 3600 + 600)
+    obs = await attendance_db.observations_for_session(body["session_id"])
+    raid_names = {o["character_name"] for o in obs if o["kind"] == "raid"}
+    assert raid_names == {f"Raider{c}" for c in "abcdefgh"}
+
+    assert missing.status_code == 404
+    assert bad.status_code == 400

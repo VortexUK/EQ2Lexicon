@@ -350,6 +350,28 @@ describe('GuildAttendanceTab', () => {
     ])
   })
 
+  it('lets officers reconstruct a night from parses', async () => {
+    mockFetch({ is_officer: true, sessions: [SESSION] })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    const btn = await screen.findByRole('button', { name: 'Reconstruct from parses' })
+    fireEvent.change(screen.getByLabelText('Raid night to reconstruct'), { target: { value: '2026-07-25' } })
+    fireEvent.click(btn)
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    await screen.findByText(/session/i, { selector: 'span' }).catch(() => null)
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/reconstruct'))
+    expect(call).toBeTruthy()
+    expect(call![1]).toMatchObject({ method: 'POST' })
+    expect(JSON.parse(call![1].body)).toEqual({ date: '2026-07-25' })
+  })
+
+  it('hides the reconstruct control from non-officers', async () => {
+    mockFetch({ is_officer: false, sessions: [SESSION] })
+    render(<GuildAttendanceTab guildName="Exordium" />)
+    await screen.findByText('18 present')
+    expect(screen.queryByRole('button', { name: 'Reconstruct from parses' })).not.toBeInTheDocument()
+  })
+
   it('lets officers fix the session window with a PUT', async () => {
     mockFetch({ is_officer: true, sessions: [SESSION] }, { ...DETAIL, is_officer: true })
     render(<GuildAttendanceTab guildName="Exordium" />)

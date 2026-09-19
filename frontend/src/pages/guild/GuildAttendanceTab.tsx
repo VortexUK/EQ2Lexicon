@@ -158,6 +158,38 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
   // Sessions list vs the cross-raid summary matrix.
   const [mode, setMode] = useState<'sessions' | 'summary'>('sessions')
   const summary = useLazyFetch<SummaryResponse>()
+  // Officer recovery for a forgotten /whoraid — rebuild a night from the
+  // guild's parse uploads. Default day follows the evening rollover.
+  const [rebuildDate, setRebuildDate] = useState(() => new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10))
+  const [rebuildMsg, setRebuildMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [rebuilding, setRebuilding] = useState(false)
+
+  async function reconstructFromParses() {
+    setRebuildMsg(null)
+    setRebuilding(true)
+    try {
+      const res = await fetch(`/api/guild/${encodeURIComponent(guildName)}/attendance/reconstruct`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: rebuildDate }),
+      })
+      if (!res.ok) {
+        setRebuildMsg({ ok: false, text: (await res.json().catch(() => ({}))).detail ?? `Error ${res.status}` })
+        return
+      }
+      const body = await res.json()
+      setRebuildMsg({
+        ok: true,
+        text: `${body.status === 'merged' ? 'Merged into' : 'Created'} session — ${body.raid_members} raiders from ${body.fights} fights.`,
+      })
+      list.refetch()
+    } catch (err) {
+      setRebuildMsg({ ok: false, text: toErrorMessage(err) })
+    } finally {
+      setRebuilding(false)
+    }
+  }
 
   function switchMode(m: 'sessions' | 'summary') {
     setMode(m)
@@ -316,6 +348,23 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
 
   const { is_officer: isOfficer, sessions } = list.data
 
+  const reconstructControl = isOfficer ? (
+    <div className="flex flex-wrap items-center gap-2 text-[0.78rem] text-text-muted">
+      <span>Forgot /whoraid? Rebuild a night from its parses:</span>
+      <input
+        type="date"
+        value={rebuildDate}
+        onChange={e => setRebuildDate(e.target.value)}
+        aria-label="Raid night to reconstruct"
+        className="bg-surface border border-border rounded-sm px-1.5 py-0.5 text-[0.8rem] text-text"
+      />
+      <Button variant="secondary" size="sm" disabled={rebuilding || !rebuildDate} onClick={reconstructFromParses}>
+        {rebuilding ? 'Rebuilding…' : 'Reconstruct from parses'}
+      </Button>
+      {rebuildMsg && <span className={rebuildMsg.ok ? 'text-success' : 'text-danger'}>{rebuildMsg.text}</span>}
+    </div>
+  ) : null
+
   if (sessions.length === 0) {
     return (
       <div className="p-4 text-[0.9rem] text-text-muted flex flex-col gap-1.5">
@@ -324,6 +373,7 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
           Sessions appear automatically when someone runs the EQ2Parser <em>Raid</em> tab during a raid night —
           multiple uploaders merge into one record per night.
         </p>
+        {reconstructControl}
       </div>
     )
   }
@@ -475,6 +525,7 @@ export function GuildAttendanceTab({ guildName }: { guildName: string }) {
           {deleteError && <span className="text-danger text-[0.8rem]">{deleteError}</span>}
         </div>
       )}
+      {reconstructControl}
       {sessions.map(s => (
         <div key={s.id} className="flex items-center gap-2">
           {isOfficer && (

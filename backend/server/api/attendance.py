@@ -15,8 +15,10 @@ and the availability calendar.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
+import sqlite3
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request
@@ -36,15 +38,17 @@ from backend.server.api.parses.ingest import (
 from backend.server.api.raid_planning import _require_member, _require_officer
 from backend.server.auth_deps import is_admin, require_user_session_or_token
 from backend.server.core.audit_log import audit_log
+from backend.server.core.executor import run_sync
 from backend.server.core.session_user import SessionUser, TokenUser
 from backend.server.db import get_display_names_for_discord_ids, has_role
-from backend.server.db.attendance import MAX_SESSION_SPAN_S, MERGE_GAP_S
+from backend.server.db.attendance import MAX_SESSION_SPAN_S, MERGE_GAP_S, ROLLOVER_S
 from backend.server.db.attendance import store as attendance_db
 from backend.server.db.availability import merge_availability
 from backend.server.db.availability import store as availability_db
 from backend.server.db.raid_planning import store as planning_db
 from backend.server.db.raid_schedule import store as schedule_db
 from backend.server.limiter import limiter, upload_rate_key
+from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_world
 
 _log = logging.getLogger(__name__)
@@ -112,6 +116,17 @@ def _clean_members(raw: list[AttendanceMemberIn], now: int) -> list[dict]:
     return out
 
 
+async def _schedule_probe(world: str, guild: str, win: tuple[int, int]) -> tuple[bool, int | None]:
+    """Was any team scheduled during the window? Probes start/mid/end so a
+    raid that started late or ended early still matches its slot."""
+    teams = await schedule_db.get_schedule(world, guild)
+    for i, team in enumerate(teams):
+        for ts in (win[0], (win[0] + win[1]) // 2, win[1]):
+            if raid_live.team_scheduled_at(team, ts):
+                return True, i
+    return False, None
+
+
 @router.post("/attendance/ingest", response_model=AttendanceIngestResponse, status_code=201)
 @limiter.limit("30/minute", key_func=upload_rate_key)
 async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> AttendanceIngestResponse:
@@ -158,15 +173,7 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
             status_code=422,
             detail="Snapshot spans an implausibly long window for one raid night — update EQ2Parser.",
         )
-    teams = await schedule_db.get_schedule(world, guild)
-    scheduled, team_index = False, None
-    for i, team in enumerate(teams):
-        for ts in (win[0], (win[0] + win[1]) // 2, win[1]):
-            if raid_live.team_scheduled_at(team, ts):
-                scheduled, team_index = True, i
-                break
-        if scheduled:
-            break
+    scheduled, team_index = await _schedule_probe(world, guild, win)
 
     result = await attendance_db.apply_snapshot(
         world=world,
@@ -197,6 +204,147 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
         online_guildies=len(online),
         scheduled=scheduled,
     )
+
+
+#: Reconstruction only trusts raid-sized fights (the parses raid bucket) —
+#: a 6-man dungeon earlier that evening is not the raid.
+_RECONSTRUCT_MIN_PLAYERS = 7
+
+
+def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | None, list[dict], list[str], int]:
+    """Rebuild a raid roster for one session-day evening from the guild's
+    parse uploads — the "forgot /whoraid" recovery path. Every ally player
+    across the evening's raid-sized fights becomes a raid member, their
+    first/last-seen spanning the fights they appear in. Fights cluster by
+    the session merge gap and only the largest cluster counts (the raid
+    night, not an afternoon group). Returns (canonical_guild, members,
+    zones, fight_count) — SYNC, runs in the executor."""
+    if not parses_db.path.exists():
+        return None, [], [], 0
+    # API-layer helpers imported locally to keep the module-load DAG
+    # cycle-free (same pattern as cleanup.py / parse_posts.py).
+    from backend.server.api.parses.list import _PLAYER_COUNT_SQL, _ensure_classified  # noqa: PLC0415
+
+    d = dt.date.fromisoformat(day)
+    # session_day = date(started_at - 6h UTC), so day D covers fights whose
+    # started_at falls in [D 06:00 UTC, D+1 06:00 UTC).
+    win_start = int(dt.datetime(d.year, d.month, d.day, tzinfo=dt.UTC).timestamp()) + ROLLOVER_S
+    sql = (
+        f"SELECT e.id, e.guild_name, e.zone, e.started_at, e.ended_at, ({_PLAYER_COUNT_SQL}) AS player_count "
+        "FROM encounters e WHERE e.world = ? AND e.guild_name = ? COLLATE NOCASE AND e.hidden_at IS NULL "
+        "AND e.started_at >= ? AND e.started_at < ?"
+    )
+    conn = parses_db.init_db()
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = [dict(r) for r in conn.execute(sql, (world, guild_name, win_start, win_start + 86_400)).fetchall()]
+        for r in rows:
+            if _ensure_classified(conn, r["id"], r.get("zone")):
+                refreshed = conn.execute(
+                    "SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1", (r["id"],)
+                ).fetchone()
+                r["player_count"] = int(refreshed[0])
+        rows = [r for r in rows if (r.get("player_count") or 0) >= _RECONSTRUCT_MIN_PLAYERS]
+        if not rows:
+            return None, [], [], 0
+
+        rows.sort(key=lambda r: r["started_at"])
+        clusters: list[list[dict]] = [[rows[0]]]
+        for r in rows[1:]:
+            if r["started_at"] - clusters[-1][-1]["ended_at"] > MERGE_GAP_S:
+                clusters.append([])
+            clusters[-1].append(r)
+        fights = max(clusters, key=len)
+
+        combatants = parses_db.get_combatants_for_encounters(conn, [f["id"] for f in fights])
+        members: dict[str, dict] = {}
+        for f in fights:
+            for c in combatants.get(f["id"], []):
+                if not c.get("ally") or not c.get("is_player"):
+                    continue
+                name = _validate_character_name(c.get("name") or "")
+                if name is None:
+                    continue
+                m = members.get(name.lower())
+                if m is None:
+                    members[name.lower()] = {
+                        "name": name.capitalize(),
+                        "first_seen": f["started_at"],
+                        "last_seen": f["ended_at"],
+                    }
+                else:
+                    m["first_seen"] = min(m["first_seen"], f["started_at"])
+                    m["last_seen"] = max(m["last_seen"], f["ended_at"])
+        zones = sorted({f["zone"] for f in fights if f.get("zone")})[:20]
+        return fights[0]["guild_name"], list(members.values()), zones, len(fights)
+    finally:
+        conn.close()
+
+
+class ReconstructInput(BaseModel):
+    date: str = Field(min_length=10, max_length=10)  # session day, YYYY-MM-DD
+
+
+@router.post("/guild/{guild_name}/attendance/reconstruct")
+@limiter.limit("10/minute")
+async def reconstruct_attendance(request: Request, guild_name: str, body: ReconstructInput) -> dict:
+    """Officer recovery for a forgotten /whoraid: rebuild the night's raid
+    roster from the guild's own parse uploads and feed it through the
+    normal snapshot path — merging into whatever partial session exists,
+    or creating the session outright. Re-running is safe (the observation
+    upsert is commutative)."""
+    _validate_guild_name(guild_name)
+    user = await _require_officer(request, guild_name)
+    await _ensure_subscriber(user)
+    world = current_world()
+    try:
+        dt.date.fromisoformat(body.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD") from exc
+
+    guild, members, zones, fight_count = await run_sync(_parse_roster_sync, world, guild_name, body.date)
+    if guild is None or not members:
+        raise HTTPException(
+            status_code=404,
+            detail="No raid-sized parses found for that evening — nothing to reconstruct from.",
+        )
+    members = members[:_MAX_RAID]
+
+    import time as _time  # noqa: PLC0415
+
+    points = [m["first_seen"] for m in members] + [m["last_seen"] for m in members]
+    win = (min(points), max(points))
+    scheduled, team_index = await _schedule_probe(world, guild, win)
+    result = await attendance_db.apply_snapshot(
+        world=world,
+        guild_name=guild,
+        discord_id=str(user["id"]),
+        sent_at=int(_time.time()),
+        raid_members=members,
+        online_guildies=[],
+        zones=zones,
+        scheduled=scheduled,
+        team_index=team_index,
+    )
+    audit_log(
+        "attendance_reconstructed",
+        actor=str(user["id"]),
+        guild=guild,
+        world=world,
+        session_id=result["session_id"],
+        day=body.date,
+        raid=len(members),
+        fights=fight_count,
+        merged=result["merged"],
+    )
+    return {
+        "status": "merged" if result["merged"] else "created",
+        "session_id": result["session_id"],
+        "session_day": result["session_day"],
+        "raid_members": len(members),
+        "fights": fight_count,
+        "scheduled": scheduled,
+    }
 
 
 @router.get("/attendance/mains")
