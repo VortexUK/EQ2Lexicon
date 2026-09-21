@@ -5,6 +5,7 @@ Every ~minute, for each Discord guild with a parses channel set
 guild since the per-link watermark, mirror-group them (five uploaders
 still mean ONE post) and send a clean embed: outcome + duration, raid-wide
 DPS/HPS, top-5 DPS and HPS side by side, linked to the parse page.
+KILLS ONLY — wipes never post (explicit user request, 2026-09-21).
 
 Dedup model: a fight is posted only once its uploads have had ``SETTLE_S``
 to arrive, and only when its EARLIEST upload sits past the watermark — a
@@ -88,7 +89,9 @@ def collect_new_fights(
         rows = [
             dict(r)
             for r in conn.execute(sql, (world, guild_name, posted_until - LOOKBACK_S, until)).fetchall()
-            if is_boss(r["title"])
+            # Kills only (success_level 1, the rankings rule) — a progression
+            # night of wipes stays out of the channel by request.
+            if is_boss(r["title"]) and r["success_level"] == 1
         ]
         for r in rows:
             if _ensure_classified(conn, r["id"], r.get("zone")):

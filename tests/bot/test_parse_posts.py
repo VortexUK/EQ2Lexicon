@@ -110,6 +110,15 @@ def test_collect_other_guild_and_hidden_excluded(seeded_db):
     assert collect_new_fights("Varsoon", "Exordium", 0, NOW + 3600) == []
 
 
+def test_collect_wipes_never_post(seeded_db):
+    """Kills only — a progression night of wipes stays out of the channel."""
+    _insert_fight(seeded_db, success_level=2)  # wipe
+    _insert_fight(seeded_db, started_at=NOW + 500, uploaded_by="RaiderB", success_level=0)  # unknown
+    assert collect_new_fights("Varsoon", "Exordium", 0, NOW + 3600) == []
+    _insert_fight(seeded_db, started_at=NOW + 900, uploaded_by="RaiderC", success_level=1)
+    assert len(collect_new_fights("Varsoon", "Exordium", 0, NOW + 3600)) == 1
+
+
 def test_site_url_for(monkeypatch):
     monkeypatch.delenv("SESSION_COOKIE_DOMAIN", raising=False)
     assert site_url_for("Wuoshi", 5) is None
