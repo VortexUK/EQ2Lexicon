@@ -98,12 +98,13 @@ export const CONSUMABLE_SHEETS: ConsumableSheet[] = [
       },
       {
         title: 'Totems',
-        blurb: 'Woodworker-made utility — everyone should carry a stack.',
+        blurb: 'Woodworker-made utility — everyone should carry a stack. (Level-80 totems like Sabertooth/Void are next-tier books, not in era.)',
         entries: [
-          { name: 'Totem of the Void', itemId: '366869117', tag: 'group invis · 10m' },
-          { name: 'Totem of the Sabertooth', itemId: '3427894557', tag: 'run speed +55% · 30m' },
+          { name: 'Spirit Totem of the Chokidai', itemId: '2252027845', tag: 'run speed +45% · 30m' },
+          { name: 'Totem of the Mythic Chameleon', itemId: '1240847606', tag: 'self invis · 15m' },
+          { name: 'Vision Totem of the Cat', itemId: '729207267', tag: 'see invis · 15m' },
           { name: 'Totem of Escape', itemId: '3629878814', tag: 'evac (out of combat)' },
-          { name: 'Totem of the Enduring Spirit', itemId: '1837899702', tag: 'water breathing · 15m' },
+          { name: 'Totem of the Otter', itemId: '613400061', tag: 'water breathing · 15m' },
         ],
       },
       {

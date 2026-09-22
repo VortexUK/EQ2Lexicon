@@ -43,7 +43,7 @@ describe('RaidConsumablesPage', () => {
       '/item/1407485282',
     )
     expect(screen.getByText('Totems')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Totem of the Void' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Spirit Totem of the Chokidai' })).toBeInTheDocument()
     expect(screen.getByText('Potions')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: "Expert's Elixir of Second Sight" })).toBeInTheDocument()
     expect(screen.queryByText(/No sheet curated/)).not.toBeInTheDocument()
