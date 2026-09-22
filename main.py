@@ -1,6 +1,8 @@
 import asyncio
+import contextlib
 import logging
 import os
+import signal
 from collections.abc import Awaitable, Callable
 
 from dotenv import load_dotenv
@@ -16,6 +18,15 @@ from backend.core.logging_config import configure_logging  # noqa: E402
 configure_logging()
 
 
+# Set on SIGTERM/SIGINT — the ONE coordinated stop signal for both halves.
+# Railway deploys send SIGTERM and then wait for the container to exit; the
+# volume can't attach to the new deployment until the old one is gone, so
+# every second the old process lingers is a second of Cloudflare 52x. The
+# web half used to stop on its own (uvicorn's handlers) while the bot ran
+# on until the SIGKILL grace expired — the whole grace period, every deploy.
+_shutdown: asyncio.Event = asyncio.Event()
+
+
 async def run_bot() -> None:
     token = os.getenv("DISCORD_TOKEN")
     if not token:
@@ -27,7 +38,18 @@ async def run_bot() -> None:
     bot = EQ2Bot()
     try:
         async with bot:
-            await bot.start(token)
+            starter = asyncio.create_task(bot.start(token))
+            stopper = asyncio.create_task(_shutdown.wait())
+            done, _ = await asyncio.wait({starter, stopper}, return_when=asyncio.FIRST_COMPLETED)
+            if starter in done:
+                stopper.cancel()
+                starter.result()  # re-raise a crash to the supervisor
+            else:
+                # Shutdown requested: stop the gateway task; `async with bot`
+                # closes the client (and its background tasks) on exit.
+                starter.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await starter
     except discord.PrivilegedIntentsRequired:
         # A missing dev-portal toggle must not take the web half down: log
         # loudly and exit this supervised task cleanly (no restart storm).
@@ -59,9 +81,24 @@ async def run_web() -> None:
         log_level="info",
         # Disable reload in production; enable locally via WEB_RELOAD=1
         reload=os.getenv("WEB_RELOAD", "0") == "1",
+        # Open SSE streams (census stream) never disconnect on their own —
+        # without this cap uvicorn's graceful shutdown waits on them forever
+        # and the old deployment holds the Railway volume until SIGKILL.
+        timeout_graceful_shutdown=5,
     )
     server = uvicorn.Server(config)
-    await server.serve()
+    # main() owns process signals (one coordinated stop for web AND bot) —
+    # uvicorn must not install its own handlers over ours.
+    server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
+    serve = asyncio.create_task(server.serve())
+    stopper = asyncio.create_task(_shutdown.wait())
+    done, _ = await asyncio.wait({serve, stopper}, return_when=asyncio.FIRST_COMPLETED)
+    if serve in done:
+        stopper.cancel()
+        serve.result()  # re-raise a crash to the supervisor
+        return
+    server.should_exit = True
+    await serve
 
 
 async def _supervise(
@@ -94,6 +131,23 @@ async def _supervise(
 
 
 async def main() -> None:
+    # One handler for both halves: SIGTERM (Railway deploys/stops) and
+    # SIGINT set the shared shutdown event; run_web tells uvicorn to exit
+    # (5s graceful cap) and run_bot closes the Discord client, so the
+    # process is gone in seconds instead of hanging until SIGKILL with the
+    # Railway volume still attached.
+    loop = asyncio.get_running_loop()
+    for sig_name in ("SIGTERM", "SIGINT"):
+        sig = getattr(signal, sig_name, None)
+        if sig is None:
+            continue
+        try:
+            loop.add_signal_handler(sig, _shutdown.set)
+        except (NotImplementedError, RuntimeError):
+            # Windows event loops can't add async signal handlers — fall
+            # back to a classic handler that trampolines into the loop.
+            signal.signal(sig, lambda *_: loop.call_soon_threadsafe(_shutdown.set))
+
     await asyncio.gather(
         _supervise("bot", run_bot),
         _supervise("web", run_web),
