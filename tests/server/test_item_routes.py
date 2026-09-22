@@ -487,3 +487,100 @@ async def test_item_detail_cached_and_sets_cache_headers(app):
     assert r1.json() == r2.json()
     for r in (r1, r2):
         assert r.headers["cache-control"].startswith("public, max-age=")
+
+
+async def test_item_detail_includes_crafting_info(app):
+    """Craftable items carry recipe name, crafter class(es) and the full
+    component list (primary + secondaries + fuel)."""
+    from backend.census.models import ItemData
+
+    fake_item = ItemData(
+        id="777002",
+        name="Sathirian Rune of Benediction",
+        quality="Mastercrafted",
+        description="",
+        icon_id="100",
+        icon_bytes=None,
+        slot_type="",
+        armor_type="",
+        mitigation=None,
+        item_level=75,
+        required_level=75,
+        classes=[],
+    )
+    mock_client = AsyncMock()
+    mock_client.get_item = AsyncMock(return_value=fake_item)
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    fake_recipes = MagicMock()
+    fake_recipes.find_by_output_id.return_value = [
+        {
+            "id": 597187850,
+            "name": "Sathirian Rune of Benediction",
+            "primary_comp": "smoldering material",
+            "primary_qty": 1,
+            "secondary_comps": [
+                {"description": "rough kunzite", "quantity": 3},
+                {"description": "redwood lumber", "quantity": 2},
+            ],
+            "fuel_comp": "Smoldering Incense",
+            "fuel_qty": 10,
+        }
+    ]
+    fake_recipes.classes_for_recipe.return_value = ["Sage"]
+
+    with (
+        patch("backend.server.api.item.shared_census_client", return_value=mock_ctx),
+        patch("backend.server.api.item._recipes", fake_recipes),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/item/777002")
+
+    assert r.status_code == 200
+    crafting = r.json()["crafting"]
+    assert crafting["recipe_name"] == "Sathirian Rune of Benediction"
+    assert crafting["crafter_classes"] == ["Sage"]
+    assert crafting["ingredients"] == [
+        {"name": "smoldering material", "qty": 1},
+        {"name": "rough kunzite", "qty": 3},
+        {"name": "redwood lumber", "qty": 2},
+    ]
+    assert crafting["fuel"] == {"name": "Smoldering Incense", "qty": 10}
+    fake_recipes.find_by_output_id.assert_called_once_with(777002)
+
+
+async def test_item_detail_non_craftable_has_null_crafting(app):
+    from backend.census.models import ItemData
+
+    fake_item = ItemData(
+        id="777003",
+        name="Dropped Sword",
+        quality="Fabled",
+        description="",
+        icon_id="100",
+        icon_bytes=None,
+        slot_type="Primary",
+        armor_type="Weapon",
+        mitigation=None,
+        item_level=80,
+        required_level=80,
+        classes=[],
+    )
+    mock_client = AsyncMock()
+    mock_client.get_item = AsyncMock(return_value=fake_item)
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    fake_recipes = MagicMock()
+    fake_recipes.find_by_output_id.return_value = []
+
+    with (
+        patch("backend.server.api.item.shared_census_client", return_value=mock_ctx),
+        patch("backend.server.api.item._recipes", fake_recipes),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/item/777003")
+    assert r.status_code == 200
+    assert r.json()["crafting"] is None

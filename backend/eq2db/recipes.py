@@ -335,6 +335,11 @@ class RecipeCatalogue(BaseCatalogue):
         )
         return [_row_to_dict(r) for r in rows]
 
+    def classes_for_recipe(self, recipe_id: int) -> list[str]:
+        """Tradeskill classes whose books teach this recipe (recipe_classes),
+        e.g. ["Sage"] — drives the item page's "Made by" line."""
+        return [r["class"] for r in self._fetchall(_SQL["classes_for_recipe"], {"id": recipe_id})]
+
 
 # The shared default instance — every runtime consumer goes through this.
 catalogue = RecipeCatalogue()

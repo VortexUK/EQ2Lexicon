@@ -26,6 +26,12 @@ interface ItemDetail {
   flags: string[]
   extra_info: [string, string][]
   recipe_list: { id: string; name: string }[]
+  crafting?: {
+    recipe_name: string
+    crafter_classes: string[]
+    ingredients: { name: string; qty: number }[]
+    fuel: { name: string; qty: number } | null
+  } | null
 }
 
 
@@ -175,6 +181,34 @@ export default function ItemPage() {
                 {s}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Crafting — who makes this and from what (craftable items) */}
+        {item.crafting && (
+          <div className="mt-4">
+            <SectionLabel>Crafting</SectionLabel>
+            <div className="text-[0.85rem] text-text-muted mt-1">
+              Made by{' '}
+              <span className="text-text">
+                {item.crafting.crafter_classes.length > 0 ? item.crafting.crafter_classes.join(', ') : 'any crafter'}
+              </span>
+              {item.crafting.recipe_name !== item.name && (
+                <> — recipe &ldquo;{item.crafting.recipe_name}&rdquo;</>
+              )}
+            </div>
+            <div className="mt-1.5 flex flex-col gap-px text-[0.85rem]">
+              {item.crafting.ingredients.map(ing => (
+                <div key={ing.name}>
+                  <span className="text-gold">{ing.qty}×</span> {ing.name}
+                </div>
+              ))}
+              {item.crafting.fuel && (
+                <div className="text-text-muted">
+                  {item.crafting.fuel.qty}× {item.crafting.fuel.name} (fuel)
+                </div>
+              )}
+            </div>
           </div>
         )}
 

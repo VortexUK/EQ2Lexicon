@@ -397,3 +397,17 @@ class TestUpsertRecipes:
         with recipes_db.init_db() as conn:
             count = recipes_db.upsert_recipes([bad], conn)
         assert count == 0
+
+
+def test_classes_for_recipe(tmp_path):
+    from backend.eq2db.recipes import RecipeCatalogue
+
+    cat = RecipeCatalogue(tmp_path / "recipes.db")
+    conn = cat.init_db()
+    try:
+        conn.execute("INSERT INTO recipe_classes (recipe_id, class) VALUES (42, 'Sage'), (42, 'Alchemist')")
+        conn.commit()
+    finally:
+        conn.close()
+    assert cat.classes_for_recipe(42) == ["Alchemist", "Sage"]  # ordered
+    assert cat.classes_for_recipe(999) == []

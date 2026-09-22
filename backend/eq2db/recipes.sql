@@ -170,3 +170,6 @@ WHERE out_formed_id    = :id
    OR out_simple_id    = :id
    OR out_unfinished_id = :id
 ORDER BY name;
+
+-- :name classes_for_recipe
+SELECT class FROM recipe_classes WHERE recipe_id = :id ORDER BY class;

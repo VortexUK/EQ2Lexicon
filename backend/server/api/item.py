@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import aiosqlite
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -10,6 +12,7 @@ from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
 from backend.eq2db.recipes import catalogue as _recipes
 from backend.server.cache import TTLCache
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.server_context import current_server
 
 router = APIRouter(tags=["item"])
@@ -143,6 +146,21 @@ class RecipeBookEntryResponse(BaseModel):
     name: str
 
 
+class CraftingIngredient(BaseModel):
+    name: str
+    qty: int
+
+
+class CraftingInfo(BaseModel):
+    """Who makes this item and from what — present only for craftable
+    items (a recipe in recipes.db outputs this item id)."""
+
+    recipe_name: str
+    crafter_classes: list[str] = []
+    ingredients: list[CraftingIngredient] = []
+    fuel: CraftingIngredient | None = None
+
+
 class ItemResponse(BaseModel):
     id: str
     name: str
@@ -165,6 +183,7 @@ class ItemResponse(BaseModel):
     set_name: str | None = None
     set_bonuses: list[SetBonusResponse] = []
     recipe_list: list[RecipeBookEntryResponse] = []  # recipe-book items only
+    crafting: CraftingInfo | None = None  # craftable items only
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +548,39 @@ async def get_spell_scroll(name: str, tier: str) -> SpellScrollResult:
     return SpellScrollResult(item_id=item_id, craftable=craftable, recipe=recipe)
 
 
+def _crafting_for_item_sync(item_id: int) -> CraftingInfo | None:
+    """SYNC (executor): the recipe that outputs this item, its crafter
+    class(es) and component list. None for non-craftable items or when
+    recipes.db is absent (dev)."""
+    try:
+        recipes = _recipes.find_by_output_id(item_id)
+    except Exception:
+        return None
+    if not recipes:
+        return None
+    # Plain-dict view: RecipeRow is a partial TypedDict and the optional
+    # component columns defeat pyright's subscript narrowing.
+    r: dict[str, Any] = dict(recipes[0])
+    ingredients: list[CraftingIngredient] = []
+    primary = r.get("primary_comp")
+    if primary:
+        ingredients.append(CraftingIngredient(name=primary, qty=r.get("primary_qty") or 1))
+    for comp in r.get("secondary_comps") or []:
+        name = (comp or {}).get("description")
+        if name:
+            ingredients.append(CraftingIngredient(name=name, qty=(comp or {}).get("quantity") or 1))
+    fuel = None
+    fuel_name = r.get("fuel_comp")
+    if fuel_name:
+        fuel = CraftingIngredient(name=fuel_name, qty=r.get("fuel_qty") or 1)
+    return CraftingInfo(
+        recipe_name=r["name"],
+        crafter_classes=_recipes.classes_for_recipe(r["id"]),
+        ingredients=ingredients,
+        fuel=fuel,
+    )
+
+
 # Item detail is immutable reference data yet was rebuilt from the (network-
 # volume) DB on every tooltip hover — 481k requests and 24.5 CUMULATIVE HOURS
 # of user wait in one week (live metrics 2026-09-22). Two layers fix it:
@@ -601,5 +653,6 @@ async def get_item(item_id: str, response: Response) -> ItemResponse:
         ],
         recipe_list=[RecipeBookEntryResponse(id=r.id, name=r.name) for r in item.recipe_list],
     )
+    result.crafting = await run_sync(_crafting_for_item_sync, int(item_id))
     _ITEM_CACHE.set(item_id, result)
     return result

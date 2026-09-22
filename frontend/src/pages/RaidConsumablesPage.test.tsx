@@ -36,6 +36,16 @@ describe('RaidConsumablesPage', () => {
     expect(ale).toHaveAttribute('href', '/item/2044227135')
     expect(screen.getByText('5h · max power/HP')).toBeInTheDocument()
     expect(screen.getByText('Reductions')).toBeInTheDocument()
+    // The crafted-consumable sections (all recipe-verified, no crate items).
+    expect(screen.getByText('Temporary Adornments')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Smoldering Scroll of Tactics' })).toHaveAttribute(
+      'href',
+      '/item/1407485282',
+    )
+    expect(screen.getByText('Totems')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Totem of the Void' })).toBeInTheDocument()
+    expect(screen.getByText('Potions')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: "Expert's Elixir of Second Sight" })).toBeInTheDocument()
     expect(screen.queryByText(/No sheet curated/)).not.toBeInTheDocument()
   })
 
