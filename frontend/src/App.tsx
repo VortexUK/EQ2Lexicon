@@ -28,6 +28,7 @@ const RaidZonesPage     = lazy(() => import('./pages/RaidZonesPage'))
 const ComparePage       = lazy(() => import('./pages/ComparePage'))
 const StatsPage         = lazy(() => import('./pages/StatsPage'))
 const TriggersPage      = lazy(() => import('./pages/TriggersPage'))
+const RaidConsumablesPage = lazy(() => import('./pages/RaidConsumablesPage'))
 const AAPlanSharePage   = lazy(() => import('./pages/AAPlanSharePage'))
 const DownloadsPage     = lazy(() => import('./pages/DownloadsPage'))
 import { useAuth } from './hooks/useAuth'
@@ -146,6 +147,7 @@ const BROWSE_ITEMS: NavSpec[] = [
 const RAIDS_ITEMS: NavSpec[] = [
   { to: '/raids',    label: 'Strategies', also: '/raids/' },
   { to: '/triggers', label: 'Triggers' },
+  { to: '/consumables', label: 'Food & Drink' },
 ]
 
 /** Performance data: uploaded parses, best-parse rankings, server stats. */
@@ -363,6 +365,7 @@ function App() {
         <Route path="/raids/:name"              element={<RaidZonePage />} />
         <Route path="/raids/:name/:bossName"    element={<RaidZonePage />} />
         <Route path="/triggers"    element={<TriggersPage />} />
+        <Route path="/consumables" element={<RaidConsumablesPage />} />
         <Route path="/parses"      element={<ParsesPage />} />
         <Route path="/rankings"    element={<RankingsPage />} />
         <Route path="/stats"       element={<StatsPage />} />

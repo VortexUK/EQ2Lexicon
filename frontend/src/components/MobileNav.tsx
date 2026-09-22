@@ -23,6 +23,7 @@ const GROUPS: NavGroup[] = [
   { heading: 'Raids', items: [
     { to: '/raids',    label: 'Strategies', also: '/raids/' },
     { to: '/triggers', label: 'Triggers' },
+    { to: '/consumables', label: 'Food & Drink' },
   ] },
   { heading: 'Leaderboards', items: [
     { to: '/parses',   label: 'Parses', also: '/parse/' },
