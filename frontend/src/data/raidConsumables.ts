@@ -52,7 +52,7 @@ export const CONSUMABLE_SHEETS: ConsumableSheet[] = [
         blurb: 'Long-duration stat food — pair with your drink.',
         entries: [
           { name: 'Juicy Cranberry Cobbler', itemId: '3972275889', tag: '5h · AGI STR' },
-          { name: 'Cranberry-filled Sweet Pastries', itemId: '630289485', tag: '2h · WIS STA' },
+          { name: 'Cranberry-filled Sweet Pastries', itemId: '630289485', tag: '2h15 · WIS STA' },
           { name: 'Succulent and King Prawn Pie', itemId: '3175143131', tag: '1h · AGI STA' },
           { name: 'Teren Field Ration', itemId: '1225402264', tag: '5h · STA' },
           { name: 'Steamed King Prawn Dumplings', itemId: '769611987', tag: '5h · INT' },
