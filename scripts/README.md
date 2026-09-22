@@ -34,6 +34,7 @@ python scripts/download_recipes.py --restart             # ignore saved offset, 
 ## Zone DB build
 
 ```bash
+python scripts/dev/grafana_pull.py panels|data|render  # pull Grafana Cloud metrics (needs GRAFANA_URL/TOKEN in .env)
 python scripts/dev/clean_eq2_zones.py                   # source JSON → cleaned JSON
 python scripts/build_zones_db.py                        # cleaned JSON → SQLite
 python scripts/dev/_smoke_test_zones.py                 # validate cleaned JSON
