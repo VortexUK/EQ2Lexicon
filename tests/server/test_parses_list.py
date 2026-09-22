@@ -464,3 +464,40 @@ def test_detail_ability_dps_uses_fight_duration(parses_db_path):
     assert heal["dps"] == pytest.approx(86_800 / 434)  # HPS over the fight = 200
     dtype = fiix["damage_types"][0]
     assert dtype["dps"] == pytest.approx(1_040_928 / 434)
+
+
+# ---------------------------------------------------------------------------
+# /parses SWR cache — repeated views serve cached, mutations invalidate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_parses_swr_serves_cached_and_single_flights(app):
+    import asyncio as _asyncio
+
+    fake_list_sync = MagicMock(return_value=[dict(_FAKE_ENCOUNTER, combatant_count=2, player_count=1)])
+    with (
+        patch("backend.server.api.parses.list._require_user", _fake_user),
+        patch("backend.server.api.parses.list._list_encounters_sync", fake_list_sync),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # Concurrent cold hits share ONE build (single-flight)…
+            r1, r2 = await _asyncio.gather(client.get("/api/parses"), client.get("/api/parses"))
+            # …and a fresh sequential hit serves the cache without rebuilding.
+            r3 = await client.get("/api/parses")
+            # A different filter key builds separately.
+            r4 = await client.get("/api/parses?size=group")
+
+    assert r1.status_code == r2.status_code == r3.status_code == 200
+    assert r1.json() == r3.json()
+    assert r4.status_code == 200
+    assert fake_list_sync.call_count == 2  # default key once + filtered key once
+
+
+def test_invalidate_parses_list_cache_clears_entries():
+    from backend.server.api.parses import list as parses_list
+
+    parses_list._LIST_CACHE.set("Varsoon|500||||", ([], [], 0))
+    assert parses_list._LIST_CACHE.get("Varsoon|500||||") is not None
+    parses_list.invalidate_parses_list_cache()
+    assert parses_list._LIST_CACHE.get("Varsoon|500||||") is None

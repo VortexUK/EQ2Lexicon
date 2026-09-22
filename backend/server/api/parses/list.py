@@ -8,9 +8,10 @@ ingest.py (and the read paths import them).
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Literal
 
@@ -38,6 +39,7 @@ from backend.server.auth_deps import (
 from backend.server.auth_deps import (
     require_user_session as _require_user,
 )
+from backend.server.cache import TTLCache
 from backend.server.constants import (
     PARSE_INNER_CAP_FLOOR,
     PARSE_INNER_CAP_MULTIPLIER,
@@ -498,6 +500,120 @@ async def _compute_permissions(
     return out
 
 
+# /parses list SWR cache. The list+classify+group step dominated the route
+# (12s 7-day average vs sub-second warm p95, live metrics 2026-09-22): every
+# cold hit paid the 15k-row scan + mirror grouping, and each deploy's cold
+# start produced minutes-long tails. Same treatment as the rankings kills
+# dataset: 60s freshness, 6h stale amnesty (stale pages serve instantly with
+# a background rebuild), single-flight so concurrent cold hits share ONE
+# build, and a startup prewarm of each world's default view. Keys carry the
+# full filter tuple; maxsize bounds searchers' one-off keys.
+_LIST_CACHE = TTLCache(ttl=60, max_age=6 * 3600, name="parses-list", maxsize=32)
+_list_build_tasks: dict[str, asyncio.Task] = {}
+
+
+def _build_list_dataset(
+    inner_cap: int,
+    zone: str | None,
+    size: str | None,
+    world: str,
+    search: str | None,
+    before: int | None,
+) -> tuple[list[dict], list[dict], int]:
+    """SYNC (executor): the inner-list SQL, Phase-4 lazy classification
+    backfill, then mirror-grouping. Returns (rows, fights, total_fights).
+
+    ``_list_encounters_sync`` opens its own connection for the row SELECT;
+    the grouper gets a second one for its per-pair top-N lookups — keeping
+    the scopes independent preserves the unit-test seams (a test may mock
+    either half alone)."""
+    rows = _list_encounters_sync(inner_cap, zone, size, world, search, before)
+    if not rows:
+        return rows, [], 0
+    conn = parses_db.init_db()
+    try:
+        # Phase 4 lazy backfill: pre-pipeline encounters have is_player=NULL
+        # combatants — classify before the merger so its top-N gate sees the
+        # right flags, and refresh player_count on the same request.
+        for r in rows:
+            if _ensure_classified(conn, r["id"], r.get("zone")):
+                refreshed = conn.execute(
+                    "SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1",
+                    (r["id"],),
+                ).fetchone()
+                r["player_count"] = int(refreshed[0])
+        fights = _group_into_fights(rows, conn)
+    finally:
+        conn.close()
+    return rows, fights, len(fights)
+
+
+def _list_build_task(key: str, builder: Callable[[], tuple]) -> asyncio.Task:
+    """Single-flight: one shared build per cache key."""
+    task = _list_build_tasks.get(key)
+    if task is None or task.done():
+
+        async def _build() -> tuple:
+            try:
+                result = await run_sync(builder)
+                _LIST_CACHE.set(key, result)
+                return result
+            finally:
+                _list_build_tasks.pop(key, None)
+
+        task = asyncio.create_task(_build(), name=f"parses-list-build:{key}")
+        _list_build_tasks[key] = task
+    return task
+
+
+async def _list_swr(key: str, builder: Callable[[], tuple]) -> tuple[list[dict], list[dict], int]:
+    """Serve cached (stale included, with a background rebuild); only a
+    truly cold key builds inline — shielded so a navigation-aborted request
+    can't cancel the build under the other waiters."""
+    cached, is_stale = _LIST_CACHE.get_stale(key)
+    if cached is not None:
+        if is_stale:
+            _list_build_task(key, builder)
+        return cached
+    return await asyncio.shield(_list_build_task(key, builder))
+
+
+def invalidate_parses_list_cache() -> None:
+    """Drop every cached /parses page — call after any mutation that
+    changes what the list shows (delete/hide/purge). Uploads are NOT a
+    trigger: raid nights arrive in bursts and the 60s ttl already bounds
+    their visibility lag."""
+    _LIST_CACHE.clear()
+
+
+async def prewarm_parses_list() -> None:
+    """Startup lifespan task: build every registered world's DEFAULT list
+    view (the exact key the parses page requests) so the first visitor
+    after a deploy never pays the cold scan."""
+    from backend.server.db.servers import store as servers_db  # noqa: PLC0415 — local: avoid import cycle
+
+    try:
+        worlds = [row["world"] for row in await asyncio.to_thread(servers_db.list_servers_sync)]
+    except Exception as exc:
+        _log.warning("[parses] list prewarm skipped — registry unavailable: %s", exc)
+        return
+    limit = PARSE_LIST_MAX_LIMIT
+    inner_cap = max(limit * PARSE_INNER_CAP_MULTIPLIER, PARSE_INNER_CAP_FLOOR)
+    for world in worlds:
+        key = f"{world}|{limit}||||"
+        builder = functools.partial(_build_list_dataset, inner_cap, None, None, world, None, None)
+        try:
+            await _list_build_task(key, builder)
+        except Exception:
+            _log.exception("[parses] list prewarm failed for world %s", world)
+    _log.info("[parses] list cache prewarmed for %d world(s)", len(worlds))
+
+
+def _reset_list_cache_for_test() -> None:
+    _LIST_CACHE.clear()
+    _list_build_tasks.clear()
+
+
 @router.get("/parses", response_model=ParsesListResponse)
 @limiter.limit("30/minute")
 async def list_parses(
@@ -533,54 +649,9 @@ async def list_parses(
     # context — defence in depth.
     active_world = current_world()
 
-    def _list_and_group_sync() -> tuple[list[dict], list[dict], int]:
-        """Run the inner-list SQL, then group into fights.
-
-        ``_list_encounters_sync`` opens its own connection for the row
-        SELECT and closes it. Afterwards this wrapper opens a SECOND
-        connection that the grouper uses for its per-pair top-N lookups
-        — keeping the two scopes independent means a test that mocks
-        only ``_list_encounters_sync`` still produces a fresh grouper
-        connection (and lets unit tests that fake the top-N helpers
-        skip the SQL path entirely). Wrapping both steps in one
-        ``run_sync`` keeps the route handler synchronous-DB-step-free.
-
-        Future micro-optimisation: thread a single conn through both
-        steps. Not done here — the connection cost in WAL mode is
-        sub-millisecond per open, and the API split keeps the test
-        seams clean.
-
-        Phase 4 lazy backfill: any encounter inserted before the pet-
-        detection pipeline shipped has is_player=NULL on its
-        combatants. Classify before the merger runs so its top-N gate
-        sees the correct flag. Also re-query player_count for each
-        backfilled encounter so the response carries the correct
-        number on the same request (no stale-on-first-load glitch)."""
-        rows = _list_encounters_sync(inner_cap, zone, size, active_world, search, before)
-        if not rows:
-            return rows, [], 0
-        conn = parses_db.init_db()
-        try:
-            # Phase 4 lazy backfill: any encounter inserted before the
-            # pet-detection pipeline shipped has is_player=NULL on its
-            # combatants. Classify before the merger runs so its top-N
-            # gate sees the correct flag. Also re-query player_count for
-            # each backfilled encounter so the response carries the
-            # correct number on the same request (no stale-on-first-load
-            # glitch).
-            for r in rows:
-                if _ensure_classified(conn, r["id"], r.get("zone")):
-                    refreshed = conn.execute(
-                        "SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1",
-                        (r["id"],),
-                    ).fetchone()
-                    r["player_count"] = int(refreshed[0])
-            fights = _group_into_fights(rows, conn)
-        finally:
-            conn.close()
-        return rows, fights, len(fights)
-
-    encounters, fights, total_fights = await run_sync(_list_and_group_sync)
+    builder = functools.partial(_build_list_dataset, inner_cap, zone, size, active_world, search, before)
+    key = f"{active_world}|{limit}|{zone or ''}|{size or ''}|{search or ''}|{before or ''}"
+    encounters, fights, total_fights = await _list_swr(key, builder)
     fights = fights[:limit]
 
     # Permission compute needs the flat upload list (perms are per-upload,

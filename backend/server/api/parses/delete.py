@@ -14,7 +14,7 @@ import time
 from fastapi import HTTPException, Request
 
 from backend.server.api.parses import router
-from backend.server.api.parses.list import _uploader_discord_id
+from backend.server.api.parses.list import _uploader_discord_id, invalidate_parses_list_cache
 from backend.server.api.parses.models import DeleteParsesResponse
 from backend.server.auth_deps import (
     is_admin as _is_admin,
@@ -137,6 +137,8 @@ async def delete_parses_batch(
             conn.close()
 
     n = await run_sync(_delete_many)
+    if n:
+        invalidate_parses_list_cache()  # the cached /parses pages now lie
     audit_log(
         "parse_batch_deleted",
         actor=user["id"],
@@ -180,6 +182,7 @@ async def delete_parse(
 
     removed = await run_sync(_delete_sync)
     if removed:
+        invalidate_parses_list_cache()  # the cached /parses pages now lie
         audit_log(
             "parse_deleted",
             actor=user["id"],
@@ -214,6 +217,7 @@ async def unhide_parse(request: Request, encounter_id: int) -> dict:
 
     restored = await run_sync(_unhide_sync)
     if restored:
+        invalidate_parses_list_cache()  # the restored row must show at once
         audit_log(
             "parse_unhidden",
             actor=user["id"],

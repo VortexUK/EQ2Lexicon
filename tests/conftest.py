@@ -224,3 +224,14 @@ def mock_character_cache():
 # directory (the fixtures' module location is implementation detail).
 from tests.fixtures.logging_state import _logging_state_isolation  # noqa: F401,E402
 from tests.fixtures.parses_db import parses_db_conn, parses_db_path  # noqa: F401,E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_parses_list_cache():
+    """The /parses SWR cache is module-global — without a per-test reset a
+    cached page from one test's DB would serve into the next test."""
+    from backend.server.api.parses.list import _reset_list_cache_for_test
+
+    _reset_list_cache_for_test()
+    yield
+    _reset_list_cache_for_test()

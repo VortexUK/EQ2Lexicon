@@ -17,7 +17,7 @@ from backend.server.core.silent_swallow import swallow
 _log = logging.getLogger(__name__)
 
 CacheName = Literal[
-    "character", "guild", "claim", "aa", "gear-sets", "lifetime", "rankings", "favorites", "progression"
+    "character", "guild", "claim", "aa", "gear-sets", "lifetime", "rankings", "favorites", "progression", "parses-list"
 ]
 
 
@@ -199,6 +199,14 @@ class TTLCache:
         with self._gate:
             self._store.pop(key, None)
             _log.debug("[cache] DEL   %s", scrub(key))
+            self._update_size()
+
+    def clear(self) -> None:
+        """Drop every entry — after a mutation that invalidates the whole
+        dataset (parse delete → every cached /parses page), and in tests."""
+        with self._gate:
+            self._store.clear()
+            _log.debug("[cache] CLEAR %s", self._name)
             self._update_size()
 
 
