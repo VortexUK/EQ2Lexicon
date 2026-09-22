@@ -13,6 +13,7 @@ from backend.core.log_safety import scrub as _scrub
 from backend.server.cache import guild_cache
 from backend.server.core.cache_keys import guild_adorns_key, guild_info_key, guild_roster_key, guild_spells_key
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_guild_name as _validate_guild_name_lib
 from backend.server.db import DB_PATH as _USERS_DB_PATH
 from backend.server.db import get_active_claims
@@ -405,6 +406,24 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
     if len(q) > 64:
         return GuildSearchResponse(results=[], total=0)
 
+    # Store-first: instant results for every guild this server has seen
+    # (the census search averaged ~2.4s per keystroke, live metrics
+    # 2026-09-22); census stays the fallback for unseen names.
+    world = current_world()
+
+    def _store_guild_search() -> list[str]:
+        if not census_store.path.exists():
+            return []
+        conn = census_store.init_db()
+        try:
+            return census_store.search_guilds(conn, q, world)
+        finally:
+            conn.close()
+
+    store_names = await run_sync(_store_guild_search)
+    if len(store_names) >= 3:
+        return GuildSearchResponse(results=[GuildNameResult(name=n) for n in store_names], total=len(store_names))
+
     try:
         async with shared_census_client() as client:
             raw = await client.search_guilds_by_name(q, current_world())
@@ -415,6 +434,10 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
     if raw:
         results = [GuildNameResult(name=r["name"]) for r in raw]
         return GuildSearchResponse(results=results, total=len(results))
+    if store_names:
+        # Census empty/failed — partial store matches beat the item-watch-only
+        # fallback below.
+        return GuildSearchResponse(results=[GuildNameResult(name=n) for n in store_names], total=len(store_names))
 
     # Census failed — fall back to locally-tracked guilds in item_watch
     async with aiosqlite.connect(_USERS_DB_PATH) as db:

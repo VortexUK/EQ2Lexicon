@@ -17,7 +17,17 @@ from backend.server.core.silent_swallow import swallow
 _log = logging.getLogger(__name__)
 
 CacheName = Literal[
-    "character", "guild", "claim", "aa", "gear-sets", "lifetime", "rankings", "favorites", "progression", "parses-list"
+    "character",
+    "guild",
+    "claim",
+    "aa",
+    "gear-sets",
+    "lifetime",
+    "rankings",
+    "favorites",
+    "progression",
+    "parses-list",
+    "item",
 ]
 
 

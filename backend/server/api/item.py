@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import aiosqlite
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from backend.census.constants import ARCHETYPES, CLASS_GROUPS
 from backend.eq2db.items import DB_PATH
 from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
 from backend.eq2db.recipes import catalogue as _recipes
+from backend.server.cache import TTLCache
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.server_context import current_server
 
@@ -528,13 +529,27 @@ async def get_spell_scroll(name: str, tier: str) -> SpellScrollResult:
     return SpellScrollResult(item_id=item_id, craftable=craftable, recipe=recipe)
 
 
+# Item detail is immutable reference data yet was rebuilt from the (network-
+# volume) DB on every tooltip hover — 481k requests and 24.5 CUMULATIVE HOURS
+# of user wait in one week (live metrics 2026-09-22). Two layers fix it:
+# an in-process response cache, and Cache-Control so browsers (and the
+# Cloudflare edge, once a cache rule covers /api/item/*) absorb repeats.
+_ITEM_CACHE = TTLCache(ttl=6 * 3600, max_age=24 * 3600, name="item", maxsize=4096)
+_ITEM_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
+
+
 @router.get("/item/{item_id}", response_model=ItemResponse)
-async def get_item(item_id: str) -> ItemResponse:
+async def get_item(item_id: str, response: Response) -> ItemResponse:
     """Return full item detail — local DB first, falls back to Census API if missing."""
     try:
         int(item_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Item ID must be numeric")
+
+    response.headers["Cache-Control"] = _ITEM_CACHE_CONTROL
+    cached = _ITEM_CACHE.get(item_id)
+    if cached is not None:
+        return cached
 
     async with shared_census_client() as client:
         item = await client.get_item(item_id)
@@ -542,7 +557,7 @@ async def get_item(item_id: str) -> ItemResponse:
     if item is None:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
 
-    return ItemResponse(
+    result = ItemResponse(
         id=item.id,
         name=item.name,
         quality=item.quality,
@@ -586,3 +601,5 @@ async def get_item(item_id: str) -> ItemResponse:
         ],
         recipe_list=[RecipeBookEntryResponse(id=r.id, name=r.name) for r in item.recipe_list],
     )
+    _ITEM_CACHE.set(item_id, result)
+    return result

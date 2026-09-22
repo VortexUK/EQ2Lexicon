@@ -449,3 +449,41 @@ async def test_items_filters_returns_server_max_level(app):
     assert "tiers" in body
     assert "slots" in body
     assert "item_types" in body
+
+
+async def test_item_detail_cached_and_sets_cache_headers(app):
+    """Item detail is immutable reference data: the second hit must serve
+    from the in-process cache (one census-client call total) and every
+    response carries Cache-Control so browsers/CF absorb repeats."""
+    from backend.census.models import ItemData
+
+    fake_item = ItemData(
+        id="777001",
+        name="Cached Blade",
+        quality="Fabled",
+        description="",
+        icon_id="100",
+        icon_bytes=None,
+        slot_type="Primary",
+        armor_type="Weapon",
+        mitigation=None,
+        item_level=80,
+        required_level=80,
+        classes=[],
+    )
+    mock_client = AsyncMock()
+    mock_client.get_item = AsyncMock(return_value=fake_item)
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("backend.server.api.item.shared_census_client", return_value=mock_ctx):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r1 = await client.get("/api/item/777001")
+            r2 = await client.get("/api/item/777001")
+
+    assert r1.status_code == r2.status_code == 200
+    assert mock_client.get_item.await_count == 1  # second hit was cached
+    assert r1.json() == r2.json()
+    for r in (r1, r2):
+        assert r.headers["cache-control"].startswith("public, max-age=")

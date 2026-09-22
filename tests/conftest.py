@@ -230,8 +230,11 @@ from tests.fixtures.parses_db import parses_db_conn, parses_db_path  # noqa: F40
 def _reset_parses_list_cache():
     """The /parses SWR cache is module-global — without a per-test reset a
     cached page from one test's DB would serve into the next test."""
+    from backend.server.api.item import _ITEM_CACHE
     from backend.server.api.parses.list import _reset_list_cache_for_test
 
     _reset_list_cache_for_test()
+    _ITEM_CACHE.clear()
     yield
     _reset_list_cache_for_test()
+    _ITEM_CACHE.clear()

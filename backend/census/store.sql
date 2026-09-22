@@ -83,3 +83,16 @@ SELECT data_json, last_resolved_at FROM character_gear_sets WHERE name_lower = ?
 
 -- :name upsert_character_gear_sets
 INSERT OR REPLACE INTO character_gear_sets (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?);
+
+-- Name-prefix search over everything this server has ever seen — the
+-- store-first half of /characters/search and /guilds/search (the census
+-- round-trip stays off the keystroke path). Callers escape LIKE wildcards.
+-- :name search_characters_by_prefix
+SELECT name, level, guild_name, data_json FROM characters
+WHERE world = ? AND name_lower LIKE ? ESCAPE '\'
+ORDER BY name_lower LIMIT ?;
+
+-- :name search_guilds_by_prefix
+SELECT name FROM guilds
+WHERE world = ? AND name_lower LIKE ? ESCAPE '\'
+ORDER BY name_lower LIMIT ?;

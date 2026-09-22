@@ -6,10 +6,12 @@ import aiosqlite
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.db import DB_PATH
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
@@ -45,6 +47,23 @@ class CharSearchResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+#: Below this many store matches, fall through to the live census search —
+#: the store may simply not know the (new/obscure) name yet.
+_STORE_HIT_FLOOR = 3
+
+
+def _store_search_sync(q: str, world: str) -> list[CharNameResult]:
+    """SYNC (executor): census-store name-prefix search."""
+    if not census_store.path.exists():
+        return []
+    conn = census_store.init_db()
+    try:
+        rows = census_store.search_characters(conn, q, world)
+    finally:
+        conn.close()
+    return [CharNameResult(**r) for r in rows]
+
+
 async def _local_search(q: str) -> list[CharNameResult]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -74,6 +93,16 @@ async def search_characters(request: Request, name: str = "") -> CharSearchRespo
     if len(q) > 64:
         return CharSearchResponse(results=[], total=0)
 
+    # Store-first: instant results from every character this server has
+    # ever seen (guild-roster merges pull whole guilds in) — the census
+    # round-trip averaged ~3s per keystroke (live metrics 2026-09-22).
+    # Census stays the fallback when the store knows too few matches
+    # (brand-new or obscure names keep their census-grade completeness).
+    world = current_world()
+    store_hits = await run_sync(_store_search_sync, q, world)
+    if len(store_hits) >= _STORE_HIT_FLOOR:
+        return CharSearchResponse(results=store_hits, total=len(store_hits), source="store")
+
     try:
         async with shared_census_client() as client:
             raw = await client.search_characters_by_name(q, current_world())
@@ -95,7 +124,11 @@ async def search_characters(request: Request, name: str = "") -> CharSearchRespo
         results = [CharNameResult(**r) for r in raw]
         return CharSearchResponse(results=results, total=len(results), source="census")
 
-    # Census returned nothing or failed — fall back to local claims
+    # Census returned nothing or failed — the store's partial matches beat
+    # the claims-only fallback (they cover everyone ever seen, not just
+    # site users).
+    if store_hits:
+        return CharSearchResponse(results=store_hits, total=len(store_hits), source="store")
     results = await _local_search(q)
     return CharSearchResponse(results=results, total=len(results), source="local")
 

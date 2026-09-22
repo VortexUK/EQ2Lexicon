@@ -103,3 +103,74 @@ async def test_lookup_caps_at_50_names(app):
             r = await client.get(f"/api/characters/lookup?names={many}")
     data = r.json()["results"]
     assert len(data) == 50
+
+
+# ---------------------------------------------------------------------------
+# /characters/search — store-first (census stays off the keystroke path)
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+
+def _seed_store_char(name: str, *, world: str = "Varsoon", cls: str = "Wizard", level: int = 80) -> None:
+    from backend.census.store import store as census_store
+
+    conn = census_store.init_db()
+    try:
+        census_store.upsert_character(
+            conn, name, world, {"cls": cls, "level": level, "guild_name": "Paragon"}, resolved=True
+        )
+    finally:
+        conn.close()
+
+
+def _census_ctx(client: object) -> MagicMock:
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=client)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_search_serves_store_hits_without_census(app):
+    for n in ("Zzstorea", "Zzstoreb", "Zzstorec"):
+        _seed_store_char(n)
+    with patch("backend.server.api.characters.shared_census_client") as census:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/characters/search?name=Zzstore")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "store"
+    assert census.call_count == 0  # the 3s round-trip never happened
+    names = {c["name"] for c in body["results"]}
+    assert names == {"Zzstorea", "Zzstoreb", "Zzstorec"}
+    first = body["results"][0]
+    assert first["cls"] == "Wizard" and first["level"] == 80 and first["guild_name"] == "Paragon"
+
+
+@pytest.mark.asyncio
+async def test_search_falls_to_census_when_store_knows_too_few(app):
+    _seed_store_char("Zzcensusa")  # 1 < the store-hit floor
+    fake = MagicMock()
+    fake.search_characters_by_name = AsyncMock(
+        return_value=[{"name": "Zzcensusb", "cls": "Monk", "level": 80, "guild_name": None}]
+    )
+    with patch("backend.server.api.characters.shared_census_client", return_value=_census_ctx(fake)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/characters/search?name=Zzcensus")
+    body = r.json()
+    assert body["source"] == "census"
+    assert {c["name"] for c in body["results"]} == {"Zzcensusb"}
+
+
+@pytest.mark.asyncio
+async def test_search_census_failure_returns_store_partials(app):
+    _seed_store_char("Zzpartial")
+    fake = MagicMock()
+    fake.search_characters_by_name = AsyncMock(side_effect=RuntimeError("census down"))
+    with patch("backend.server.api.characters.shared_census_client", return_value=_census_ctx(fake)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/characters/search?name=Zzpartial")
+    body = r.json()
+    assert body["source"] == "store"
+    assert {c["name"] for c in body["results"]} == {"Zzpartial"}

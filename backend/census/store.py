@@ -128,6 +128,36 @@ class CensusStore(BaseCatalogue):
             return None
         return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
 
+    @staticmethod
+    def _like_prefix(prefix: str) -> str:
+        """Escape LIKE wildcards in user input, then anchor as a prefix."""
+        return prefix.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+    @staticmethod
+    def search_characters(conn: sqlite3.Connection, prefix: str, world: str, limit: int = 20) -> list[dict]:
+        """Name-prefix search over every character this server has seen
+        (guild-roster merges pull whole guilds in) — the instant half of
+        /characters/search. Returns [{name, level, guild_name, cls}]."""
+        rows = conn.execute(
+            _SQL["search_characters_by_prefix"], (world, CensusStore._like_prefix(prefix), limit)
+        ).fetchall()
+        out = []
+        for name, level, guild_name, data_json in rows:
+            try:
+                cls = (json.loads(data_json) or {}).get("cls")
+            except (TypeError, ValueError):
+                cls = None
+            out.append({"name": name, "level": level, "guild_name": guild_name, "cls": cls})
+        return out
+
+    @staticmethod
+    def search_guilds(conn: sqlite3.Connection, prefix: str, world: str, limit: int = 20) -> list[str]:
+        """Name-prefix search over every guild this server has seen."""
+        rows = conn.execute(
+            _SQL["search_guilds_by_prefix"], (world, CensusStore._like_prefix(prefix), limit)
+        ).fetchall()
+        return [r[0] for r in rows]
+
     # ── Guilds ───────────────────────────────────────────────────────────────
 
     @staticmethod
