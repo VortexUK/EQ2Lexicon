@@ -209,7 +209,8 @@ Shared types + className constants for a split page go in a sibling `types.ts`. 
 | `DB_PARSES_PATH` | Override the default `data/backend/server/parses/backend.server.parses.db` location (set on Railway to the persistent-volume mount) |
 | `DB_CENSUS_PATH` | Override the default `data/backend/census/census.db` location (persistent last-known character/guild lookups for resilient caching). Set on Railway to the persistent-volume mount; the `.db` is gitignored + generated at runtime. |
 | `DB_ZONES_PATH` | Override the default `data/zones/zones.db` location. Set on Railway to the persistent-volume mount (the `.db` itself is not committed — uploaded manually; see "Manual upload: zones.db" below). |
-| `DB_RAIDS_PATH` / `DB_ITEMS_PATH` / `DB_SPELLS_PATH` / `DB_RECIPES_PATH` / `DB_CLASSES_PATH` | Same pattern: env-var override of the default `data/<name>/<name>.db` location. See `.env.example` for the grouped block. |
+| `DB_RAIDS_PATH` / `DB_ITEMS_PATH` / `DB_SPELLS_PATH` / `DB_RECIPES_PATH` | Same pattern: env-var override of the default `data/<name>/<name>.db` location. See `.env.example` for the grouped block. |
+| `DB_CLASSES_PATH` | **Ignored** (since 2026-09-22, with a startup warning) — classes.db is committed reference data and the repo copy is always authoritative. A stale volume copy behind this override once served the pre-fix swapped Coercer/Illusionist ids in prod. |
 | `R2_ENDPOINT` | Litestream backups → `https://<account>.r2.cloudflarestorage.com` |
 | `R2_BUCKET` | Litestream backups → bucket name (e.g. `eq2lexicon-backups`) |
 | `R2_ACCESS_KEY_ID` | Litestream backups → R2 API token Access Key ID |

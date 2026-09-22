@@ -31,6 +31,8 @@ Why DB-backed instead of a Python literal:
 
 from __future__ import annotations
 
+import logging
+import os
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -44,7 +46,20 @@ _T = TypeVar("_T")
 
 _SQL = load_sql(__file__)
 
-DB_PATH: Path = resolve_db_path("DB_CLASSES_PATH", "classes", "classes.db")
+# classes.db ships IN the repo (source of truth since #50) and must never be
+# shadowed by a deployment copy: a stale volume file behind DB_CLASSES_PATH
+# served the pre-2026-08 swapped Coercer/Illusionist ids in prod for weeks
+# (live report 2026-09-22 — the stats Explorer queried the wrong classid).
+# The env override is therefore IGNORED with a warning; every deploy reads
+# the committed file.
+DB_PATH: Path = resolve_db_path("_DB_CLASSES_PATH_UNUSED", "classes", "classes.db")
+if os.getenv("DB_CLASSES_PATH"):
+    logging.getLogger(__name__).warning(
+        "[classes-db] DB_CLASSES_PATH is set but deliberately ignored — classes.db is "
+        "committed reference data and the repo copy at %s is authoritative. "
+        "Remove the env var (and the stale volume copy) to silence this.",
+        DB_PATH,
+    )
 
 _ADVENTURE_ARCHETYPES: tuple[str, ...] = ("Fighter", "Priest", "Scout", "Mage")
 _CRAFTER_ARCHETYPE: str = "Crafter"
