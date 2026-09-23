@@ -147,7 +147,7 @@ const BROWSE_ITEMS: NavSpec[] = [
 const RAIDS_ITEMS: NavSpec[] = [
   { to: '/raids',    label: 'Strategies', also: '/raids/' },
   { to: '/triggers', label: 'Triggers' },
-  { to: '/consumables', label: 'Food & Drink' },
+  { to: '/consumables', label: 'Consumables' },
 ]
 
 /** Performance data: uploaded parses, best-parse rankings, server stats. */

@@ -30,7 +30,7 @@ describe('RaidConsumablesPage', () => {
         <RaidConsumablesPage />
       </MemoryRouter>,
     )
-    expect(screen.getByText('Raid Food & Drink')).toBeInTheDocument()
+    expect(screen.getByText('Raid Consumables')).toBeInTheDocument()
     expect(screen.getByText('Rise of Kunark (T8)')).toBeInTheDocument()
     const ale = screen.getByRole('link', { name: 'Overthere Reserve Ale' })
     expect(ale).toHaveAttribute('href', '/item/2044227135')

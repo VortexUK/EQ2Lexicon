@@ -63,7 +63,7 @@ export default function RaidConsumablesPage() {
   return (
     <main className="page-enter mx-auto max-w-5xl px-4 py-6 flex flex-col gap-4" onMouseMove={moveTip}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="font-heading text-gold text-[1.5rem] m-0">Raid Food &amp; Drink</h1>
+        <h1 className="font-heading text-gold text-[1.5rem] m-0">Raid Consumables</h1>
         <span className="text-text-muted text-[0.88rem]">{sheet.label}</span>
       </div>
       {!exact && server?.currentXpac && (
