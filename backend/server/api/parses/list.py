@@ -480,15 +480,29 @@ async def _compute_permissions(
     if _is_admin(user):
         return {e["id"]: ParsePermissions(can_delete=True) for e in encounters}
 
-    # Local import to dodge any circular dependency through web.routes.guild.
-    from backend.server.api.guild import _officer_chars
+    # CACHE-ONLY officer resolution — the list is a hot read path and must
+    # never await a census roster fetch: a cold guild cache held /parses
+    # requests for 60-70s (live metrics 2026-09-23 07–09Z), the same
+    # failure class as the 2026-09-12 notifications wedge. On a cold cache
+    # the officer delete buttons simply don't render for this load (a
+    # background warm is kicked inside _roster_rank_map_cached); explicit
+    # DELETE actions still authorise against the full fetch in delete.py.
+    # Local imports dodge the circular dependency through api.guild.
+    from backend.server.api.guild import _OFFICER_RANKS, _roster_rank_map_cached  # noqa: PLC0415
+    from backend.server.db import get_active_claims  # noqa: PLC0415
 
     user_id = user["id"]
     # Filter→str-cast keeps pyright happy: `e.get("guild_name")` is `Any | None`
     # and a comprehension `if` doesn't narrow the type through the set→list.
     guild_list: list[str] = sorted({str(e["guild_name"]) for e in encounters if e.get("guild_name")})
-    officer_results = await asyncio.gather(*(_officer_chars(user_id, g) for g in guild_list))
-    officer_of = {g for g, chars in zip(guild_list, officer_results, strict=True) if chars}
+    claims_data = await get_active_claims(user_id, world=current_world())
+    approved = {c["character_name"].lower() for c in claims_data["approved"]}
+    officer_of: set[str] = set()
+    if approved and guild_list:
+        rank_maps = await asyncio.gather(*(_roster_rank_map_cached(g) for g in guild_list))
+        for g, rank_map in zip(guild_list, rank_maps, strict=True):
+            if rank_map and any(rank_map.get(n) in _OFFICER_RANKS for n in approved):
+                officer_of.add(g)
 
     out: dict[int, ParsePermissions] = {}
     for e in encounters:
