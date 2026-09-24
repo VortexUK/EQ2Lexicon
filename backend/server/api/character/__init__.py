@@ -5,6 +5,7 @@ Sub-modules:
   - gear_sets — GET /character/{name}/gear-sets (saved in-game equipment sets)
   - rankings — GET /character/{name}/rankings (WCL-style per-boss ranking summary)
   - spells  — GET /character/{name}/spells
+  - rotation — GET /character/{name}/rotation-data (simulator payload)
   - upgrades — GET /character/{name}/upgrade-materials + /upgrade-recipes
 """
 
@@ -16,6 +17,7 @@ router = APIRouter(tags=["character"])
 
 from backend.server.api.character import gear_sets as _gear_sets  # noqa: E402,F401
 from backend.server.api.character import rankings as _rankings  # noqa: E402,F401
+from backend.server.api.character import rotation as _rotation  # noqa: E402,F401
 from backend.server.api.character import spells as _spells  # noqa: E402,F401
 from backend.server.api.character import upgrades as _upgrades  # noqa: E402,F401
 from backend.server.api.character import views as _views  # noqa: E402,F401

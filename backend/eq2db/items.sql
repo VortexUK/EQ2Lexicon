@@ -275,3 +275,13 @@ SELECT raw_json FROM items WHERE {where}
 
 -- :name find_by_name_no_max_level
 SELECT raw_json FROM items WHERE {where}  ORDER BY tierid DESC, last_update DESC LIMIT 1;
+
+-- :name spell_meta_by_names
+-- {placeholders} = comma-joined "?" list. Rotation simulator: spell
+-- duration and power cost exist ONLY on the spellscroll item rows,
+-- keyed "<Spell Name> (<TierName>)" (spell_name == displayname there).
+-- raw_json carries the scroll's effect_list — the properly SCALED damage
+-- text (the spells.db spell-record text is unscaled for some spells,
+-- e.g. Smite Corruption reads "1 - 2" where the scroll says "132 - 161").
+SELECT spell_name, spell_duration, spell_power_cost, raw_json
+FROM items WHERE typeinfo_name = 'spellscroll' AND spell_name IN ({placeholders});

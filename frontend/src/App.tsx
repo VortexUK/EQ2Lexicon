@@ -35,6 +35,7 @@ const PrivacyPage       = lazy(() => import('./pages/PrivacyPage'))
 
 /** Routes readable WITHOUT a login — the privacy policy must be, by definition. */
 const PUBLIC_PATHS = new Set(['/privacy'])
+const SimulatorPage     = lazy(() => import('./pages/SimulatorPage'))
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
 import { ServerProvider } from './hooks/useServer'
@@ -401,6 +402,7 @@ function App() {
         <Route path="/parses"      element={<ParsesPage />} />
         <Route path="/rankings"    element={<RankingsPage />} />
         <Route path="/stats"       element={<StatsPage />} />
+        <Route path="/simulator"   element={<SimulatorPage />} />
         <Route path="/downloads"   element={<DownloadsPage />} />
         <Route path="/parse/:id"   element={<ParsePage />} />
         <Route path="/settings/tokens" element={<TokensPage />} />

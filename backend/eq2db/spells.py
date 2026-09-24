@@ -461,6 +461,28 @@ class SpellCatalogue(BaseCatalogue):
         rows = [r for r in candidate if r.get("crc") in upgradeable]
         return self.unique_highest_entries(rows)
 
+    def character_rotation_spells(self, spell_ids: list[int]) -> list[SpellRow]:
+        """The rotation simulator's ability universe: every castable spell/
+        art the character owns, at each line's highest owned tier.
+
+        Same candidate filter as :meth:`character_upgradeable_spells`
+        (level>0, spells/arts, not AA, blocklist) but WITHOUT the
+        upgradeable-crcs gate — single-tier abilities (utility casts,
+        some temp buffs) must appear in a rotation universe even though
+        the spells tab rightly hides them. Kept separate so the spells
+        tab / upgrade-checker contract never drifts."""
+        spell_db = self.find_by_ids(spell_ids)
+        blocklist = self.load_blocklist()
+        candidate = [
+            r
+            for r in spell_db.values()
+            if (r.get("level") or 0) > 0
+            and r.get("type") in ("spells", "arts")
+            and r.get("given_by") != "alternateadvancement"
+            and self.strip_roman(r.get("name") or "").lower() not in blocklist
+        ]
+        return self.unique_highest_entries(candidate)
+
 
 # The shared default instance — every runtime consumer goes through this.
 catalogue = SpellCatalogue()

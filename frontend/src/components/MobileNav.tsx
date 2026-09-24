@@ -29,6 +29,7 @@ const GROUPS: NavGroup[] = [
     { to: '/parses',   label: 'Parses', also: '/parse/' },
     { to: '/rankings', label: 'Rankings' },
     { to: '/stats',    label: 'Stats' },
+    { to: '/simulator', label: 'Simulator' },
   ] },
   { items: [{ to: '/downloads', label: 'Downloads' }] },
 ]

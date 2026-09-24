@@ -588,6 +588,51 @@ class ItemCatalogue(BaseCatalogue):
         finally:
             conn.close()
 
+    def spell_meta_by_names(self, names: list[str]) -> dict[str, dict]:
+        """{spell_name: {"spell_duration": float|None, "spell_power_cost": int|None,
+        "effects": list[{"description", "indentation"}]}} for the given
+        "<Name> (<TierName>)" spellscroll names — the rotation simulator's
+        duration/power/effect-text join. SYNC; callers run it via run_sync.
+
+        spell_duration is in hundredths of a second (see
+        backend.eq2db.spell_effects.SPELL_DURATION_DIVISOR). ``effects`` is
+        the scroll's effect_list from raw_json — the properly SCALED damage
+        text; the spells.db spell-record text is unscaled for some spells
+        (Smite Corruption reads "1 - 2" where the scroll says "132 - 161"),
+        so consumers prefer this when present."""
+        if not names or not self.path.exists():
+            return {}
+        out: dict[str, dict] = {}
+        conn = self.init_db()
+        try:
+            chunk_size = 500
+            for i in range(0, len(names), chunk_size):
+                chunk = names[i : i + chunk_size]
+                rows = conn.execute(
+                    _SQL["spell_meta_by_names"].format(placeholders=",".join("?" * len(chunk))),
+                    chunk,
+                ).fetchall()
+                for spell_name, duration, power, raw_json in rows:
+                    effects: list[dict] = []
+                    if raw_json:
+                        try:
+                            raw = json.loads(raw_json)
+                            effects = [
+                                {"description": e.get("description"), "indentation": e.get("indentation")}
+                                for e in (raw.get("effect_list") or [])
+                                if isinstance(e, dict)
+                            ]
+                        except (TypeError, ValueError):
+                            effects = []
+                    out[spell_name] = {
+                        "spell_duration": duration,
+                        "spell_power_cost": power,
+                        "effects": effects,
+                    }
+        finally:
+            conn.close()
+        return out
+
     async def find_by_name(self, name: str) -> dict | None:
         """Return raw Census JSON dict for the closest name match, or None."""
         if not self.path.exists():
