@@ -68,6 +68,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         # the contextvar from web/server_context.py, not from here).
         rid_token = request_id_var.set(rid)
         uid_token = user_id_var.set(uid)
+        # Also on the ASGI scope (request.state is scope["state"]) — it
+        # outlives the contextvar reset below, so the outermost
+        # UnhandledErrorMiddleware can still stamp the id on its one-liner.
+        request.state.request_id = rid
         # world_var stays at its outer value (None outside a request).
         try:
             response: Response = await call_next(request)

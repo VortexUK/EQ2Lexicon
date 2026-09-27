@@ -33,3 +33,11 @@ SESSION_COOKIE_DOMAIN: str | None = os.getenv("SESSION_COOKIE_DOMAIN") or None
 # Default off preserves the approve-before-access behaviour. When on, the
 # startup also clears any existing pending backlog (see app.py lifespan).
 OPEN_SIGNUP: bool = os.getenv("OPEN_SIGNUP", "false").strip().lower() in ("1", "true", "yes", "on")
+
+# Per-client-application flood protection for POST /api/parses/ingest:
+# "<User-Agent prefix>=<limit>" pairs, ";" or "," separated, e.g.
+# "EQ2AdvancedDesktop=30/hour;OtherApp=10/minute". Matched clients get a
+# separate, tighter budget on top of the generic per-token ingest limit;
+# unlisted clients (the ACT plugin, EQ2Parser) are unaffected. Set to an
+# empty string to disable. See backend/server/core/client_throttle.py.
+INGEST_CLIENT_LIMITS: str = os.getenv("INGEST_CLIENT_LIMITS", "EQ2AdvancedDesktop=30/hour")

@@ -34,6 +34,9 @@ def test_third_party_loggers_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
     assert logging.getLogger("discord").level == logging.WARNING
     assert logging.getLogger("uvicorn.access").level == logging.WARNING
     assert logging.getLogger("aiohttp.access").level == logging.WARNING
+    # slowapi warns per rejected request; the app logs one coalesced line
+    # per client per minute instead (app.py:_rate_limit_handler).
+    assert logging.getLogger("slowapi").level == logging.ERROR
 
 
 def test_json_format_produces_json_records(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

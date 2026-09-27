@@ -180,9 +180,11 @@ def _reset_rate_limiter():
     pytest process (every test client shares one IP), so heavily-hit routes
     like /api/parses (30/minute) start returning 429 once enough tests have
     run in the same minute. Reset between tests so each starts fresh."""
+    from backend.server.core.client_throttle import client_throttle
     from backend.server.limiter import limiter
 
     limiter.reset()
+    client_throttle.reset()
     yield
 
 

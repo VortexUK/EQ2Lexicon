@@ -96,6 +96,31 @@ def test_collect_straggler_mirror_of_posted_fight_not_reposted(seeded_db):
     assert collect_new_fights("Varsoon", "Exordium", NOW + 300, NOW + 3600) == []
 
 
+def test_collect_straggler_hours_later_not_reposted(seeded_db):
+    """2026-09-27 regression: a raider uploading their log of an already-posted
+    fight the next morning (or a history replay days later) used to stand
+    alone as a 'new' fight because the requery only looked 30 min back in
+    UPLOAD time. Regrouping is on FIGHT time now, so it attaches and skips."""
+    _insert_fight(seeded_db, uploaded_by="RaiderA", ingested_at=NOW + 200)
+    # Posted at the tick where the watermark moved past NOW + 200.
+    assert len(collect_new_fights("Varsoon", "Exordium", 0, NOW + 600)) == 1
+    # Ten hours on, RaiderB uploads the same fight.
+    _insert_fight(seeded_db, started_at=NOW + 10, uploaded_by="RaiderB", ingested_at=NOW + 10 * 3600)
+    assert collect_new_fights("Varsoon", "Exordium", NOW + 600, NOW + 11 * 3600) == []
+
+
+def test_collect_replayed_old_fight_never_posts(seeded_db):
+    """A fresh upload of a fight that HAPPENED days ago is history, not news —
+    the 593-upload EQ2Parser replay must not re-announce last week's raid."""
+    three_days_ago = NOW - 3 * 24 * 3600
+    _insert_fight(seeded_db, started_at=three_days_ago, uploaded_by="RaiderC", ingested_at=NOW + 100)
+    assert collect_new_fights("Varsoon", "Exordium", NOW, NOW + 600) == []
+    # ...while a genuinely recent fight in the same batch still posts.
+    _insert_fight(seeded_db, title="Venril Sathir", started_at=NOW - 3600, uploaded_by="RaiderC", ingested_at=NOW + 100)
+    fights = collect_new_fights("Varsoon", "Exordium", NOW, NOW + 600)
+    assert [f["title"] for f, _ in fights] == ["Venril Sathir"]
+
+
 def test_collect_filters_trash_and_small_groups(seeded_db):
     _insert_fight(seeded_db, title="a krait warrior")  # trash — lowercase article
     _insert_fight(seeded_db, started_at=NOW + 500, uploaded_by="RaiderB", players=5)  # group content

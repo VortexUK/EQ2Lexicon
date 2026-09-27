@@ -9,10 +9,12 @@ KILLS ONLY — wipes never post (explicit user request, 2026-09-21).
 
 Dedup model: a fight is posted only once its uploads have had ``SETTLE_S``
 to arrive, and only when its EARLIEST upload sits past the watermark — a
-late mirror attaching to an already-posted fight regroups with uploads from
-before the watermark (the ``LOOKBACK_S`` requery window exists for exactly
-that) and is skipped. The watermark then advances to now-SETTLE_S, so a
-restart never re-posts either.
+late mirror attaching to an already-posted fight regroups with every earlier
+upload of a fight that started near it (``REGROUP_MARGIN_S`` on fight time,
+not upload time) and is skipped, whether it arrives ten minutes or ten days
+later. A fight older than ``MAX_FIGHT_AGE_S`` never posts at all, so a log
+replay or re-import can't re-announce a past raid. The watermark then
+advances to now-SETTLE_S, so a restart never re-posts either.
 """
 
 from __future__ import annotations
@@ -41,16 +43,25 @@ _log = logging.getLogger(__name__)
 POLL_INTERVAL_S = 60
 #: Grace for mirrors + the combatant/census backfill before a fight posts.
 SETTLE_S = 180
-#: Requery window behind the watermark so a straggler upload regroups with
-#: its already-posted fight instead of standing alone as a "new" one.
-LOOKBACK_S = 1800
+#: Regroup margin around a candidate upload's fight time (started_at): every
+#: earlier upload of a fight that STARTED within this margin is loaded so a
+#: straggler attaches to its already-posted fight whenever it turns up — the
+#: next morning, or a week later in a history replay. (Until 2026-09-28 the
+#: requery was 30 min of *upload* time, so any later mirror stood alone as a
+#: "new" fight and re-posted; a 593-upload EQ2Parser replay re-announced a
+#: whole raid night.) Mirrors chain within PARSE_MIRROR_WINDOW_S of each
+#: other; an hour is generous.
+REGROUP_MARGIN_S = 3600
 #: Raid bucket floor (matches the mirror-grouping's raid threshold) — group
 #: content stays out of the channel.
 MIN_PLAYERS = 7
 #: Flood guard per link per tick (a normal raid night never gets near it).
 MAX_POSTS_PER_TICK = 10
-#: Never post fights older than this, even after downtime.
+#: Never post uploads older than this, even after downtime (watermark floor).
 MAX_AGE_S = 24 * 3600
+#: Never announce a fight that HAPPENED longer ago than this, however fresh
+#: the upload — a replayed or re-imported log is history, not news.
+MAX_FIGHT_AGE_S = 24 * 3600
 
 
 def site_url_for(world: str, encounter_id: int) -> str | None:
@@ -67,7 +78,13 @@ def collect_new_fights(
 ) -> list[tuple[dict, list[dict]]]:
     """SYNC (runs in a thread): the boss fights to post, oldest first, as
     ``(fight, ally_players)`` pairs. A fight qualifies when its earliest
-    upload ingested in ``(posted_until, until]`` and it is raid-sized."""
+    upload ingested in ``(posted_until, until]``, it happened within
+    ``MAX_FIGHT_AGE_S`` of ``until``, and it is raid-sized.
+
+    Two-step select: (1) candidate uploads by ingest time, (2) every other
+    upload of a fight that STARTED near a candidate, regardless of when it
+    was uploaded — so a mirror that arrives hours or days after the fight was
+    first posted regroups with it and is recognised as already posted."""
     if not parses_db.path.exists():
         return []
     # API-layer grouping helpers, imported locally like cleanup.py does —
@@ -78,21 +95,35 @@ def collect_new_fights(
         _group_into_fights,
     )
 
-    sql = (
+    base = (
         f"SELECT e.*, ({_PLAYER_COUNT_SQL}) AS player_count FROM encounters e "
         "WHERE e.world = ? AND e.guild_name = ? COLLATE NOCASE AND e.hidden_at IS NULL "
-        "AND e.ingested_at > ? AND e.ingested_at <= ?"
     )
     conn = parses_db.init_db()
     try:
         conn.row_factory = sqlite3.Row
-        rows = [
-            dict(r)
-            for r in conn.execute(sql, (world, guild_name, posted_until - LOOKBACK_S, until)).fetchall()
+
+        def _kills(rows) -> list[dict]:
             # Kills only (success_level 1, the rankings rule) — a progression
             # night of wipes stays out of the channel by request.
-            if is_boss(r["title"]) and r["success_level"] == 1
-        ]
+            return [dict(r) for r in rows if is_boss(r["title"]) and r["success_level"] == 1]
+
+        candidates = _kills(
+            conn.execute(
+                base + "AND e.ingested_at > ? AND e.ingested_at <= ? AND e.started_at >= ?",
+                (world, guild_name, posted_until, until, until - MAX_FIGHT_AGE_S),
+            ).fetchall()
+        )
+        if not candidates:
+            return []
+        lo = min(c["started_at"] for c in candidates) - REGROUP_MARGIN_S
+        hi = max(c["started_at"] for c in candidates) + REGROUP_MARGIN_S
+        rows = _kills(
+            conn.execute(
+                base + "AND e.started_at BETWEEN ? AND ? AND e.ingested_at <= ?",
+                (world, guild_name, lo, hi, until),
+            ).fetchall()
+        )
         for r in rows:
             if _ensure_classified(conn, r["id"], r.get("zone")):
                 refreshed = conn.execute(

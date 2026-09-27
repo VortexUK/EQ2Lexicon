@@ -373,18 +373,44 @@ async def _http_exception_handler(request: Request, exc: HTTPException) -> Respo
     from backend.server.core.request_context import request_id_var
 
     rid = request_id_var.get() or "-"
+    # Keep whatever headers the raiser attached (Retry-After on a 429,
+    # WWW-Authenticate on a 401) — rebuilding the response used to drop them.
+    headers = {**(exc.headers or {}), "X-Request-ID": rid}
     if request.url.path.startswith("/api/"):
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail, "request_id": rid},
-            headers={"X-Request-ID": rid},
+            headers=headers,
         )
     return Response(
         content=f"{exc.status_code} {exc.detail}",
         status_code=exc.status_code,
         media_type="text/plain",
-        headers={"X-Request-ID": rid},
+        headers=headers,
     )
+
+
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    """slowapi's stock 429 response, with OUR logging: one WARNING per
+    (client identity, path) per minute carrying the count of rejections
+    since. slowapi's own per-request warning (2,600 lines in an hour on
+    2026-09-27) is silenced in logging_config — a flood is the one time a
+    per-request line is worthless."""
+    from backend.server.core.log_coalesce import coalescer
+    from backend.server.limiter import upload_rate_key
+
+    identity = upload_rate_key(request)
+    log_it, suppressed = coalescer.allow(f"429|{request.url.path}|{identity}", 60)
+    if log_it:
+        _log.warning(
+            "[ratelimit] %s %s exceeded %s for %s%s",
+            request.method,
+            request.url.path,
+            exc.detail,
+            identity,
+            f" (+{suppressed} rejections in the last minute)" if suppressed else "",
+        )
+    return _rate_limit_exceeded_handler(request, exc)
 
 
 async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -562,7 +588,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     )
 
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)  # type: ignore[arg-type]
     # Surface X-Request-ID in 4xx/5xx JSON so users can quote it back to support.
     # Register for BOTH FastAPI's HTTPException and Starlette's parent
     # HTTPException. Unmatched-route 404s raise the Starlette parent directly;
@@ -626,6 +652,14 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     # caps the raw incoming body BEFORE gzip inflation or FastAPI parsing can
     # buffer it. Stops the unbounded-plain-POST memory DoS.
     app.add_middleware(BodySizeLimitMiddleware)
+
+    # Very outermost (added last of all): an unhandled exception becomes ONE
+    # log line + a JSON 500 here, and is NOT re-raised — so uvicorn never
+    # dumps the 250-line ExceptionGroup traceback the BaseHTTPMiddleware
+    # stack produces. Full traceback once per (path, exception) per 5 min.
+    from backend.server.core.unhandled_errors import UnhandledErrorMiddleware
+
+    app.add_middleware(UnhandledErrorMiddleware)
 
     # API routers — one entry per router, registered at /api prefix
     _ROUTERS = [

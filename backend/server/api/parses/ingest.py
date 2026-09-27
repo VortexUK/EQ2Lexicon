@@ -14,7 +14,7 @@ import logging
 import sqlite3
 import time
 
-from fastapi import BackgroundTasks, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, HTTPException, Request
 
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
@@ -34,6 +34,7 @@ from backend.server.config import ALLOWED_SERVERS as _ALLOWED_SERVERS
 from backend.server.config import WORLD as _WORLD
 from backend.server.core.audit_log import audit_log
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.client_throttle import client_throttle
 from backend.server.core.executor import run_sync
 from backend.server.core.session_user import TokenUser
 from backend.server.core.validation import sanitize_world as _sanitize_world
@@ -577,6 +578,57 @@ def _attack_types_from_payload(rows: list[IngestAttackType], encid: str) -> list
     return out
 
 
+class DuplicatePayloadRows(ValueError):
+    """The payload carries two rows for one (combatant, type) key that
+    disagree with each other. Raised from the executor thread by
+    ``_ingest_payload_sync`` and turned into a 422 by the route — before
+    2026-09-27 this reached SQLite as a UNIQUE violation and surfaced as a
+    500 with a traceback, which one third-party client then retried every
+    couple of seconds for nine hours."""
+
+    def __init__(self, table: str, keys: list[tuple]) -> None:
+        self.table = table
+        self.keys = keys
+        shown = ", ".join("/".join(str(k) for k in key) for key in keys[:5])
+        more = f" (+{len(keys) - 5} more)" if len(keys) > 5 else ""
+        super().__init__(f"{table} has conflicting duplicate rows for: {shown}{more}")
+
+
+def _collapse_duplicate_rows(
+    damage_types: list[DamageType], attack_types: list[AttackType]
+) -> tuple[list[DamageType], list[AttackType]]:
+    """Enforce the two per-encounter uniqueness rules BEFORE the insert:
+    ``damage_types`` is unique on (combatant, damage_type) and
+    ``attack_types`` on (combatant, swing_type, attack_name).
+
+    Rows that repeat a key with identical content are collapsed to one — a
+    client that sends the same rollup twice loses nothing. Rows that repeat
+    a key with different numbers are a client bug we cannot resolve (which
+    one is right?), so the whole upload is rejected via
+    :class:`DuplicatePayloadRows` and the client gets a 422 naming the keys.
+    """
+
+    def collapse(rows, key_of, table):
+        seen: dict[tuple, object] = {}
+        conflicts: list[tuple] = []
+        out = []
+        for row in rows:
+            key = key_of(row)
+            prior = seen.get(key)
+            if prior is None:
+                seen[key] = row
+                out.append(row)
+            elif prior != row and key not in conflicts:
+                conflicts.append(key)
+        if conflicts:
+            raise DuplicatePayloadRows(table, conflicts)
+        return out
+
+    dts = collapse(damage_types, lambda r: (r.combatant_name, r.damage_type), "damage_types")
+    ats = collapse(attack_types, lambda r: (r.combatant_name, r.swing_type, r.attack_name), "attack_types")
+    return dts, ats
+
+
 def _check_idempotency_sync(
     conn: sqlite3.Connection,
     encid: str,
@@ -724,6 +776,9 @@ def _ingest_payload_sync(
         raise HTTPException(status_code=400, detail="No combatants in payload")
     damage_types = _damage_types_from_payload(payload.damage_types, enc.encid)
     attack_types = _attack_types_from_payload(payload.attack_types, enc.encid)
+    # Raises DuplicatePayloadRows (→ 422 in the route) rather than letting a
+    # UNIQUE violation blow up mid-transaction as a 500.
+    damage_types, attack_types = _collapse_duplicate_rows(damage_types, attack_types)
 
     conn = parses_db.init_db()
     try:
@@ -893,12 +948,36 @@ async def _validate_payload_signature(
         )
 
 
+async def _client_flood_gate(request: Request) -> None:
+    """Per-client-app flood protection (INGEST_CLIENT_LIMITS). A dependency
+    rather than a line in the handler so it runs BEFORE body validation and
+    auth — a runaway client is rejected before it costs a Pydantic parse or
+    a token lookup, whatever it is sending. Keyed on the same hashed-token
+    identity as the generic ``@limiter.limit`` so it never bleeds into
+    another uploader's budget."""
+    verdict = client_throttle.check(
+        request.headers.get("user-agent"),
+        upload_rate_key(request),
+        remote_ip=request.client.host if request.client else None,
+    )
+    if verdict.limited:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"{verdict.prefix} is over its upload budget ({verdict.limit}). "
+                f"Retry after {verdict.retry_after} s. A rejected upload should not be retried unchanged."
+            ),
+            headers={"Retry-After": str(verdict.retry_after)},
+        )
+
+
 @router.post("/parses/ingest", response_model=IngestResponse, status_code=201)
 @limiter.limit("60/minute", key_func=upload_rate_key)
 async def ingest_parse(
     request: Request,
     body: IngestRequest,
     background: BackgroundTasks,
+    _flood_gate: None = Depends(_client_flood_gate),
 ) -> IngestResponse:
     user = await require_user_session_or_token(request)
     await _validate_payload_signature(request, user)
@@ -1067,15 +1146,38 @@ async def ingest_parse(
     # response has already gone out.
     snapshots = _cached_snapshots(player_names, body.logger_server)
 
-    status, encounter_id, n_c, n_dt, n_at = await run_sync(
-        _ingest_payload_sync,
-        body,
-        uploader,
-        guild_name,
-        f"plugin:{user['id']}",  # source_dsn marks the auth path
-        snapshots,
-        parse_world,
-    )
+    try:
+        status, encounter_id, n_c, n_dt, n_at = await run_sync(
+            _ingest_payload_sync,
+            body,
+            uploader,
+            guild_name,
+            f"plugin:{user['id']}",  # source_dsn marks the auth path
+            snapshots,
+            parse_world,
+        )
+    except (DuplicatePayloadRows, sqlite3.IntegrityError) as exc:
+        # A payload that breaks a uniqueness rule is the CLIENT's bug: say
+        # so with a 422 (a 500 reads as "server broke, retry" and one client
+        # did exactly that, every ~2 s, for nine hours on 2026-09-27). Log
+        # enough to name the client without dumping a traceback per attempt.
+        _log.warning(
+            "[parses-ingest] rejected malformed payload (%s) user_id=%s token_id=%s logger=%s encid=%s ua=%r remote_ip=%s",
+            exc,
+            user["id"],
+            user.get("token_id"),
+            scrub(uploader),
+            scrub(body.encounter.encid),
+            (request.headers.get("user-agent") or "")[:80],
+            request.client.host if request.client else None,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Payload violates a uniqueness rule and was not stored: {exc}. "
+                "Fix the exporter rather than retrying the same upload."
+            ),
+        ) from exc
 
     # Schedule the full (Census-backed) resolution off the response path. For
     # freshly-inserted parses, and for revived ones (so the brought-back parse

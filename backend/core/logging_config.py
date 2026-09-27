@@ -128,6 +128,10 @@ def configure_logging() -> None:
     logging.getLogger("discord.client").setLevel(logging.WARNING)
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # slowapi logs a WARNING for EVERY rejected request; the app's own 429
+    # handler (app.py:_rate_limit_handler) logs one coalesced line per
+    # client per minute instead.
+    logging.getLogger("slowapi").setLevel(logging.ERROR)
 
     # LOG-051: announce the config so operators don't have to grep env.
     logging.getLogger("eq2.startup").info(
