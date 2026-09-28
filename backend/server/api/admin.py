@@ -446,14 +446,17 @@ async def list_parses_admin(
     search: str | None = None,
     limit: int = 200,
     before: int | None = None,
+    hidden: bool = False,
 ) -> list[AdminParseItem]:
     """All parse encounters (including hidden/soft-deleted) for the sanitize
     view, scoped to the active server, newest first. Admin only. ``before``
     is the pagination cursor (only rows strictly older than that unix
     timestamp) — the frontend's "Load older" passes the last row's
-    started_at back to page through the full history.
+    started_at back to page through the full history. ``hidden=true``
+    lists only soft-deleted rows (the bulk-restore workflow).
     Hard-purge uses the existing DELETE /api/parses/{id}?purge=1 and
-    /api/parses/batch?ids=...&purge=1."""
+    /api/parses/batch?ids=...&purge=1; restore uses POST
+    /api/parses/batch/unhide?ids=..."""
     _require_admin(request)
     limit = max(1, min(limit, ADMIN_PARSE_LIST_MAX_LIMIT))
     world = current_world()
@@ -463,7 +466,9 @@ async def list_parses_admin(
             return []
         conn = parses_db.init_db()
         try:
-            return parses_db.list_encounters_for_admin(conn, search=search, limit=limit, world=world, before=before)
+            return parses_db.list_encounters_for_admin(
+                conn, search=search, limit=limit, world=world, before=before, hidden_only=hidden
+            )
         finally:
             conn.close()
 

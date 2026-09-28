@@ -430,6 +430,10 @@ class TestInsertHelpers:
         hits = parses_db.store.list_encounters_for_admin(parses_db_conn, search="wuoshi")
         assert [r["id"] for r in hits] == [bid]
 
+        # hidden_only narrows to the soft-deleted rows (the restore workflow).
+        hidden = parses_db.store.list_encounters_for_admin(parses_db_conn, hidden_only=True)
+        assert [r["id"] for r in hidden] == [bid]
+
     def test_list_encounters_for_admin_search_by_id(self, parses_db_conn):
         """A numeric search (with or without the UI's '#' prefix) matches the
         encounter id exactly — so an admin can jump from a parse URL straight

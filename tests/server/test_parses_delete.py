@@ -719,6 +719,110 @@ async def test_unhide_random_user_403(app):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/parses/batch/unhide — bulk restore after a mistaken delete
+# ---------------------------------------------------------------------------
+
+
+def _hidden(enc_id: int, uploader: str = "OTHER_USER") -> dict:
+    return {
+        "id": enc_id,
+        "guild_name": "Exordium",
+        "source_dsn": f"plugin:{uploader}",
+        "title": f"Boss {enc_id}",
+        "hidden_at": 1700001111,
+    }
+
+
+@pytest.mark.asyncio
+async def test_batch_unhide_requires_auth(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/parses/batch/unhide?ids=1,2")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_batch_unhide_admin_restores_every_id_and_audits(app):
+    rows = [_hidden(1), _hidden(2), _hidden(3)]
+    unhide_mock = MagicMock(return_value=True)
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=True),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_multi(rows)),
+        patch("backend.server.api.parses.delete.parses_db.unhide_encounter", unhide_mock),
+        patch("backend.server.api.parses.delete.invalidate_parses_list_cache") as invalidate,
+        patch("backend.server.api.parses.delete.audit_log") as audit,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/batch/unhide?ids=1,2,3,3")
+    assert r.status_code == 200
+    assert r.json() == {"unhidden": 3}
+    assert [c.args[1] for c in unhide_mock.call_args_list] == [1, 2, 3]
+    invalidate.assert_called_once()
+    assert audit.call_args.args[0] == "parse_batch_unhidden"
+    assert audit.call_args.kwargs["count"] == 3
+    assert audit.call_args.kwargs["guilds"] == "Exordium"
+
+
+@pytest.mark.asyncio
+async def test_batch_unhide_skips_ids_the_caller_may_not_touch(app):
+    """A plain uploader restores their own upload and the other id is skipped
+    (same rule as the batch delete), never a whole-request 403."""
+    rows = [_hidden(1, uploader="123456789"), _hidden(2)]
+    unhide_mock = MagicMock(return_value=True)
+
+    async def fake_officer_chars(discord_id, guild):
+        return set()
+
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=False),
+        patch("backend.server.api.guild._officer_chars", fake_officer_chars),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_multi(rows)),
+        patch("backend.server.api.parses.delete.parses_db.unhide_encounter", unhide_mock),
+        patch("backend.server.api.parses.delete.audit_log"),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/batch/unhide?ids=1,2")
+    assert r.status_code == 200
+    assert r.json() == {"unhidden": 1}
+    assert [c.args[1] for c in unhide_mock.call_args_list] == [1]
+
+
+@pytest.mark.asyncio
+async def test_batch_unhide_403_when_nothing_permitted_and_404_when_nothing_found(app):
+    async def fake_officer_chars(discord_id, guild):
+        return set()
+
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=False),
+        patch("backend.server.api.guild._officer_chars", fake_officer_chars),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_multi([_hidden(1)])),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/batch/unhide?ids=1")
+    assert r.status_code == 403
+
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_multi([])),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/batch/unhide?ids=1")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_batch_unhide_rejects_bad_ids(app):
+    with patch("backend.server.api.parses.delete._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            bad = await client.post("/api/parses/batch/unhide?ids=1,x")
+            empty = await client.post("/api/parses/batch/unhide?ids=,")
+    assert bad.status_code == 400
+    assert empty.status_code == 400
+
+
+# ---------------------------------------------------------------------------
 # guild_settings.officers_can_delete_parses — a leader can switch officers off
 # ---------------------------------------------------------------------------
 

@@ -437,6 +437,7 @@ class ParsesStore(BaseCatalogue):
         limit: int = 200,
         world: str | None = None,
         before: int | None = None,
+        hidden_only: bool = False,
     ) -> list[dict]:
         """All encounters INCLUDING hidden (soft-deleted) ones, newest first, for
         the admin sanitize view. Optional case-insensitive search over
@@ -447,13 +448,17 @@ class ParsesStore(BaseCatalogue):
         ``world`` scopes to a single EQ2 server; ``None`` returns all worlds
         (no longer recommended — pass the active server world in all call sites).
         ``before`` is the pagination cursor: only rows strictly older than that
-        unix timestamp (pass the previous page's last started_at)."""
+        unix timestamp (pass the previous page's last started_at).
+        ``hidden_only`` narrows to soft-deleted rows — the restore workflow
+        after a mistaken guild-wide delete."""
         conn.row_factory = sqlite3.Row
         clauses: list[str] = []
         params: list = []
         if world is not None:
             clauses.append("e.world = ?")
             params.append(world)
+        if hidden_only:
+            clauses.append("e.hidden_at IS NOT NULL")
         if before is not None:
             clauses.append("e.started_at < ?")
             params.append(before)

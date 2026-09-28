@@ -98,6 +98,25 @@ def _apply_delete(conn: sqlite3.Connection, enc: dict, *, purge: bool, hidden_at
     return parses_db.soft_delete_encounter(conn, enc["id"], hidden_at, hidden_by)
 
 
+def _parse_batch_ids(ids: str) -> list[int]:
+    """The comma-separated ``ids`` query param of the batch routes → deduped
+    ints, capped at PARSE_BATCH_MAX_IDS. 400 on a non-integer token or an
+    empty list."""
+    id_list: list[int] = []
+    for tok in ids.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            id_list.append(int(tok))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid encounter id: {tok!r}") from None
+    id_list = list(dict.fromkeys(id_list))[:PARSE_BATCH_MAX_IDS]  # dedupe, cap fan-out
+    if not id_list:
+        raise HTTPException(status_code=400, detail="ids must not be empty")
+    return id_list
+
+
 @router.delete("/parses/batch", response_model=DeleteParsesResponse)
 @limiter.limit("30/minute")
 async def delete_parses_batch(
@@ -130,19 +149,7 @@ async def delete_parses_batch(
     if purge and not _is_admin(user):
         raise HTTPException(status_code=403, detail="Only an admin may hard-purge parses")
 
-    id_list: list[int] = []
-    for tok in ids.split(","):
-        tok = tok.strip()
-        if not tok:
-            continue
-        try:
-            id_list.append(int(tok))
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid encounter id: {tok!r}") from None
-    id_list = list(dict.fromkeys(id_list))[:PARSE_BATCH_MAX_IDS]  # dedupe, cap fan-out
-    if not id_list:
-        raise HTTPException(status_code=400, detail="ids must not be empty")
-
+    id_list = _parse_batch_ids(ids)
     rows = await run_sync(_fetch_encounter_auth_rows, id_list, current_world())
     if not rows:
         raise HTTPException(status_code=404, detail="No matching parses")
@@ -219,6 +226,48 @@ async def delete_parse(
             purged=purge,
         )
     return DeleteParsesResponse(deleted=1 if removed else 0)
+
+
+@router.post("/parses/batch/unhide")
+@limiter.limit("30/minute")
+async def unhide_parses_batch(request: Request, ids: str) -> dict:
+    """Restore an explicit set of soft-deleted encounters in one action — the
+    undo for a mistaken guild-wide delete (the 2026-09-27 incident hid a
+    guild's whole boss history). Same per-id authorisation as the batch
+    delete: admin, the uploader, or an officer of the encounter's guild
+    (subject to the guild's officer-delete switch); ids the caller may not
+    touch are skipped, 403 only when none are permitted. Already-visible
+    rows count as untouched. Defined before /parses/{encounter_id}/unhide
+    so the literal path wins."""
+    user = _require_user(request)
+    id_list = _parse_batch_ids(ids)
+    rows = await run_sync(_fetch_encounter_auth_rows, id_list, current_world())
+    if not rows:
+        raise HTTPException(status_code=404, detail="No matching parses")
+
+    guild_ok: dict[str, bool] = {}
+    allowed_rows = [enc for enc in rows if await _can_delete_encounter(user, enc, guild_ok=guild_ok)]
+    if not allowed_rows:
+        raise HTTPException(status_code=403, detail="Not authorised to unhide these parses")
+
+    def _unhide_many() -> int:
+        conn = parses_db.init_db()
+        try:
+            return sum(1 for enc in allowed_rows if parses_db.unhide_encounter(conn, enc["id"]))
+        finally:
+            conn.close()
+
+    n = await run_sync(_unhide_many)
+    if n:
+        invalidate_parses_list_cache()  # the restored rows must show at once
+    audit_log(
+        "parse_batch_unhidden",
+        actor=user["id"],
+        count=n,
+        ids=",".join(str(i) for i in id_list[:20]) + (" …" if len(id_list) > 20 else ""),
+        guilds=",".join(sorted({enc["guild_name"] for enc in allowed_rows if enc.get("guild_name")})),
+    )
+    return {"unhidden": n}
 
 
 @router.post("/parses/{encounter_id}/unhide")

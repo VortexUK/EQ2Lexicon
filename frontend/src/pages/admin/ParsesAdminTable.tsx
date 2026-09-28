@@ -36,6 +36,7 @@ const isTrashTitle = (title: string): boolean => !/^[A-Z]/.test(title)
 export function ParsesAdminTable() {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')          // committed search term that drives fetch
+  const [hiddenOnly, setHiddenOnly] = useState(false)  // ?hidden=true — the bulk-restore view
   const [rows, setRows] = useState<AdminParse[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -48,7 +49,7 @@ export function ParsesAdminTable() {
     setLoading(true)
     setError(null)
     try {
-      const url = `/api/admin/parses?search=${encodeURIComponent(query)}`
+      const url = `/api/admin/parses?search=${encodeURIComponent(query)}${hiddenOnly ? '&hidden=true' : ''}`
       const res = await fetch(url, { credentials: 'include', signal })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -65,7 +66,7 @@ export function ParsesAdminTable() {
     } finally {
       setLoading(false)
     }
-  }, [query])
+  }, [query, hiddenOnly])
 
   // Page down through history: fetch the window strictly older than the
   // last loaded row. Selection is preserved — appending never unchecks.
@@ -75,7 +76,7 @@ export function ParsesAdminTable() {
     setLoadingOlder(true)
     setError(null)
     try {
-      const url = `/api/admin/parses?search=${encodeURIComponent(query)}&before=${oldest.started_at}`
+      const url = `/api/admin/parses?search=${encodeURIComponent(query)}&before=${oldest.started_at}${hiddenOnly ? '&hidden=true' : ''}`
       const res = await fetch(url, { credentials: 'include' })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -93,7 +94,7 @@ export function ParsesAdminTable() {
     } finally {
       setLoadingOlder(false)
     }
-  }, [rows, query, loadingOlder])
+  }, [rows, query, hiddenOnly, loadingOlder])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -119,6 +120,13 @@ export function ParsesAdminTable() {
   function selectAllTrash() {
     setSelected(new Set(rows.filter(r => isTrashTitle(r.title)).map(r => r.id)))
   }
+
+  const hiddenCount = rows.reduce((n, r) => (r.hidden ? n + 1 : n), 0)
+  function selectAllHidden() {
+    setSelected(new Set(rows.filter(r => r.hidden).map(r => r.id)))
+  }
+  // Only hidden rows can be restored; the button counts those in the selection.
+  const selectedHiddenIds = rows.filter(r => r.hidden && selected.has(r.id)).map(r => r.id)
 
   async function purgeOne(p: AdminParse) {
     if (!confirm(`Permanently delete "${p.title}"? This removes it from all leaderboards and cannot be undone.`)) return
@@ -183,6 +191,34 @@ export function ParsesAdminTable() {
     }
   }
 
+  async function unhideSelected() {
+    const ids = selectedHiddenIds
+    if (ids.length === 0) return
+    if (!confirm(`Restore ${ids.length} hidden parse${ids.length === 1 ? '' : 's'} to /parses?`)) return
+    setBusy(true)
+    setError(null)
+    try {
+      let restored = 0
+      for (let i = 0; i < ids.length; i += PARSE_BATCH_CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + PARSE_BATCH_CHUNK_SIZE)
+        const res = await fetch(`/api/parses/batch/unhide?ids=${chunk.join(',')}`, { method: 'POST', credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          setError(`Error after restoring ${restored} of ${ids.length}: ${body.detail ?? 'Bulk unhide failed'}`)
+          return
+        }
+        const body = (await res.json()) as { unhidden: number }
+        restored += body.unhidden
+      }
+      setSelected(new Set())
+      await load()
+    } catch {
+      setError('Network error — bulk unhide failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const selectedCount = selected.size
 
   return (
@@ -206,6 +242,15 @@ export function ParsesAdminTable() {
         <Button variant="secondary" size="sm" type="submit" disabled={busy}>
           Search
         </Button>
+        <label className="flex items-center gap-1.5 text-[0.82rem] text-text-muted whitespace-nowrap cursor-pointer">
+          <input
+            type="checkbox"
+            checked={hiddenOnly}
+            onChange={e => setHiddenOnly(e.target.checked)}
+            disabled={busy}
+          />
+          Hidden only
+        </label>
         <Button
           variant="secondary"
           size="sm"
@@ -215,6 +260,26 @@ export function ParsesAdminTable() {
           title="Select every trash encounter (lowercase title) on this page"
         >
           Select all trash ({trashCount})
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          onClick={selectAllHidden}
+          disabled={busy || hiddenCount === 0}
+          title="Select every hidden (soft-deleted) parse loaded on this page"
+        >
+          Select all hidden ({hiddenCount})
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          type="button"
+          onClick={unhideSelected}
+          disabled={busy || selectedHiddenIds.length === 0}
+          title="Make the selected hidden parses visible on /parses again"
+        >
+          Unhide selected ({selectedHiddenIds.length})
         </Button>
         <Button
           variant="danger"
