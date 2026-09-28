@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -22,6 +23,7 @@ from backend.server.db import (
     get_display_names_for_discord_ids,
     get_role_request,
     get_server_by_world_sync,
+    get_site_setting,
     grant_role,
     list_all_users,
     list_claims,
@@ -33,9 +35,11 @@ from backend.server.db import (
     review_role_request,
     revoke_role,
     set_default_server_sync,
+    set_site_setting,
     set_user_access,
     upsert_server_settings_sync,
 )
+from backend.server.db.site_settings import DISCORD_INVITE_URL_KEY
 from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_world
 
@@ -892,3 +896,47 @@ async def erase_user(discord_id: str, request: Request) -> dict:
         tamper_reports_deleted=result.tamper_reports_deleted,
     )
     return {"ok": True, **result.as_dict()}
+
+
+# ---------------------------------------------------------------------------
+# Site-wide settings (not per-server) — the community Discord invite
+# ---------------------------------------------------------------------------
+
+# Only a real Discord invite: discord.gg/<code> or discord.com/invite/<code>.
+# Anything else (a phishing lookalike, a javascript: URL) is refused.
+_DISCORD_INVITE_RE = re.compile(
+    r"^https://(?:discord\.gg/[A-Za-z0-9-]{2,64}|discord\.com/invite/[A-Za-z0-9-]{2,64})/?$"
+)
+
+
+class SiteSettingsUpdate(BaseModel):
+    discord_invite_url: str | None = None  # None / "" clears the link
+
+
+class SiteSettingsResponse(BaseModel):
+    discord_invite_url: str | None = None
+
+
+@router.get("/admin/site-settings", response_model=SiteSettingsResponse)
+async def get_site_settings(request: Request) -> SiteSettingsResponse:
+    _require_admin(request)
+    return SiteSettingsResponse(discord_invite_url=await get_site_setting(DISCORD_INVITE_URL_KEY))
+
+
+@router.put("/admin/site-settings", response_model=SiteSettingsResponse)
+async def update_site_settings(body: SiteSettingsUpdate, request: Request) -> SiteSettingsResponse:
+    """Set (or clear) the "Join our Discord community" invite shown in the
+    footer and on the Support page on every subdomain. Make it a permanent
+    invite in Discord (Server Settings → Invites → Expire after: Never, Max
+    uses: No limit) — the site shows whatever is saved and does not validate
+    it against Discord."""
+    admin = _require_admin(request)
+    url = (body.discord_invite_url or "").strip() or None
+    if url is not None and not _DISCORD_INVITE_RE.match(url):
+        raise HTTPException(
+            status_code=400,
+            detail="discord_invite_url must be an https://discord.gg/<code> or https://discord.com/invite/<code> link",
+        )
+    await set_site_setting(DISCORD_INVITE_URL_KEY, url, updated_by=admin["id"])
+    audit_log("site_settings_updated", actor=admin["id"], key=DISCORD_INVITE_URL_KEY, value=url or "")
+    return SiteSettingsResponse(discord_invite_url=await get_site_setting(DISCORD_INVITE_URL_KEY))

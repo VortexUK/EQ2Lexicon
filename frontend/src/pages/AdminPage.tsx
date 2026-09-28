@@ -6,6 +6,7 @@ import { ClaimsTable } from './admin/ClaimsTable'
 import { RoleRequestsTable } from './admin/RoleRequestsTable'
 import { ParsesAdminTable } from './admin/ParsesAdminTable'
 import { ServersSection } from './admin/ServersSection'
+import { SiteSettingsSection } from './admin/SiteSettingsSection'
 import { TamperReportsTable } from './admin/TamperReportsTable'
 import type { UserItem, ClaimDetail, RoleRequest } from './admin/types'
 import { SECTION_TITLE_CLS } from './admin/types'
@@ -113,6 +114,11 @@ export default function AdminPage() {
           {/* Servers */}
           <div className={SECTION_CLS}>
             <ServersSection />
+          </div>
+
+          {/* Site-wide settings (Discord invite) */}
+          <div className={SECTION_CLS}>
+            <SiteSettingsSection />
           </div>
 
           {/* Tamper reports — surfaced above the parses-sanitize table

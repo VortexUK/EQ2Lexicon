@@ -5,11 +5,8 @@ import {
   type ServerConfig,
   type ExpansionEntry,
   SECTION_TITLE_CLS,
+  INPUT_CLS as inputCls,
 } from './types'
-
-// ── Shared styles ─────────────────────────────────────────────────────────────
-
-const inputCls = 'w-full appearance-none bg-surface border border-border rounded-md px-3 py-1.5 text-text text-[0.88rem] outline-none focus:border-gold/60'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 

@@ -1,6 +1,9 @@
 // ── Shared types for the admin sub-tables ─────────────────────────────────────
 import { fmtLocalDateTime } from '../../formatters'
 
+/** Text/number/select input styling shared by the admin settings sections. */
+export const INPUT_CLS = 'w-full appearance-none bg-surface border border-border rounded-md px-3 py-1.5 text-text text-[0.88rem] outline-none focus:border-gold/60'
+
 export interface ServerConfig {
   world:        string
   subdomain:    string

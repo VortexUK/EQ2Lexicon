@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { DiscordCommunityLink } from '../components/DiscordCommunityLink'
 import { SupporterBadge } from '../components/SupporterBadge'
 import { LinkButton } from '../components/ui'
 
@@ -128,6 +129,9 @@ export default function SupportPage() {
           rather not appear here, reach out on Discord and the badge stays
           while the listing goes.
         </p>
+        <div className="pt-2">
+          <DiscordCommunityLink variant="button" />
+        </div>
       </section>
     </div>
   )

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from backend.server.db import get_site_setting
+from backend.server.db.site_settings import DISCORD_INVITE_URL_KEY
 from backend.server.server_context import current_server, list_public_servers
 
 router = APIRouter(tags=["server"])
@@ -21,4 +23,7 @@ async def get_active_server() -> dict:
         "next_xpac": s.next_xpac,
         "next_xpac_dt": s.next_xpac_dt,
         "servers": list_public_servers(),
+        # Site-wide (not per-server): the community Discord invite, or null
+        # when an admin hasn't set one. One point read per app load.
+        "discord_invite_url": await get_site_setting(DISCORD_INVITE_URL_KEY),
     }

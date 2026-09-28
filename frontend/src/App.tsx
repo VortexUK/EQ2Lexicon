@@ -44,6 +44,7 @@ import ServerLaunchTimer from './components/ServerLaunchTimer'
 import CensusStatus from './components/CensusStatus'
 import ServerStatus from './components/ServerStatus'
 import { MobileNav } from './components/MobileNav'
+import { DiscordCommunityLink } from './components/DiscordCommunityLink'
 
 function LoginGate() {
   return (
@@ -111,6 +112,8 @@ function SiteFooter() {
       <span>
         <Link to="/privacy" className={FOOTER_LINK_CLS}>Privacy policy</Link>
       </span>
+      {/* Renders nothing until an admin sets the community invite. */}
+      <DiscordCommunityLink variant="footer" />
       <ServerStatus />
       <CensusStatus />
     </footer>

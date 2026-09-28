@@ -439,3 +439,13 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     updated_at                 INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     PRIMARY KEY (world, guild_name)
 );
+
+-- Site-wide (NOT per-server) key/value settings edited from the admin page.
+-- Tiny by design: a handful of string knobs (e.g. discord_invite_url). A
+-- setting is "unset" when its row is absent.
+CREATE TABLE IF NOT EXISTS site_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT    NOT NULL,
+    updated_by TEXT    NOT NULL,                              -- admin discord id
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);

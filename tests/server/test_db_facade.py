@@ -78,6 +78,11 @@ _FACADE_EXEMPT = {
     "get_settings",
     "upsert_settings",
     "officers_can_delete_parses",
+    # site_settings: aliased on the facade under site-specific names
+    # (get_site_setting / set_site_setting / all_site_settings)
+    "get_setting",
+    "set_setting",
+    "all_settings",
     # aa_plans domain bypasses the facade too (routes use the store directly)
     "list_plans",
     "count_plans",

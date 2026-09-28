@@ -23,6 +23,8 @@ export interface ActiveServer {
   /** Upcoming expansion (admin-set) — drives the home-page countdown banner. */
   nextXpac:     string | null
   nextXpacDt:   string | null
+  /** Site-wide "Join our Discord community" invite (admin-set); null hides the link. */
+  discordInviteUrl: string | null
   servers:      ServerEntry[]
 }
 
@@ -35,6 +37,7 @@ interface ApiServerResponse {
   launch_dt:     string | null
   next_xpac?:    string | null
   next_xpac_dt?: string | null
+  discord_invite_url?: string | null
   servers:       { world: string; subdomain: string; display_name: string }[]
 }
 
@@ -47,6 +50,7 @@ function mapResponse(data: ApiServerResponse): ActiveServer {
     launchDt:    data.launch_dt ?? null,
     nextXpac:    data.next_xpac ?? null,
     nextXpacDt:  data.next_xpac_dt ?? null,
+    discordInviteUrl: data.discord_invite_url ?? null,
     servers:     data.servers.map(s => ({
       world:       s.world,
       subdomain:   s.subdomain,

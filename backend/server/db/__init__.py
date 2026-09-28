@@ -71,6 +71,7 @@ from backend.server.db.item_watch import store as item_watch_store  # noqa: E402
 from backend.server.db.raid_planning import store as raid_planning_store  # noqa: E402
 from backend.server.db.raid_schedule import store as raid_schedule_store  # noqa: E402
 from backend.server.db.servers import store as servers_store  # noqa: E402
+from backend.server.db.site_settings import store as site_settings_store  # noqa: E402
 from backend.server.db.tokens import store as tokens_store  # noqa: E402
 from backend.server.db.users import store as users_store  # noqa: E402
 
@@ -96,6 +97,11 @@ get_server_by_world_sync = servers_store.get_server_by_world_sync
 list_servers_sync = servers_store.list_servers_sync
 set_default_server_sync = servers_store.set_default_server_sync
 upsert_server_settings_sync = servers_store.upsert_server_settings_sync
+
+# site-wide settings
+get_site_setting = site_settings_store.get_setting
+set_site_setting = site_settings_store.set_setting
+all_site_settings = site_settings_store.all_settings
 
 # api tokens
 list_api_tokens = tokens_store.list_api_tokens
@@ -140,6 +146,7 @@ ALL_STORES = (
     raid_planning_store,
     raid_schedule_store,
     servers_store,
+    site_settings_store,
     tokens_store,
     users_store,
 )
