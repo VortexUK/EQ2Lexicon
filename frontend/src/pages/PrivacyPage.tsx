@@ -3,9 +3,8 @@
  * PUBLIC_PATHS). The text is derived from a code-level inventory of what
  * the site, the Discord bot and the two upload clients actually collect
  * (2026-09-28); keep it in step with the code, not the other way round.
- *
- * Owner-facing placeholders are marked [confirm: …] and should be resolved
- * before the next revision.
+ * The hosting-log retention figure is Railway's documented Pro-plan value
+ * (docs.railway.com/guides/logs) — revisit it if the plan changes.
  */
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -102,7 +101,7 @@ Because uploads describe whole raids, the site holds in-game **character names**
 | Attendance (characters) | until an officer deletes the session |
 | Voice-channel presence (Discord ids) | 90 days |
 | Tamper and quarantine reports | until reviewed and purged by an administrator |
-| Application and hosting logs | per Railway's retention on our plan [confirm: current plan retention, expected to be days not months] |
+| Application and hosting logs | 30 days (Railway's retention on our plan) |
 | Backups | rolling 7 days |
 | Cached Census data | refreshed on use; not deleted on a schedule |
 
