@@ -58,7 +58,36 @@ export interface GuildAdornCheck {
   members: MemberAdornStats[]
 }
 
-export type Tab = 'roster' | 'spells' | 'adorns' | 'progression' | 'raids' | 'attendance' | 'claims' | 'watch' | 'settings'
+export type Tab =
+  | 'roster'
+  | 'spells'
+  | 'adorns'
+  | 'progression'
+  | 'history'
+  | 'raids'
+  | 'attendance'
+  | 'claims'
+  | 'watch'
+  | 'settings'
+
+/** One row of GET /api/guild/{name}/history — a UTC day's capture. */
+export interface GuildHistoryPoint {
+  day: string
+  captured_at: number
+  level: number | null
+  members: number | null
+  accounts: number | null
+  achievement_count: number | null
+  max_level_members: number | null
+  distinct_classes: number | null
+}
+
+export interface GuildHistoryResponse {
+  guild: string
+  world: string
+  days: number
+  points: GuildHistoryPoint[]
+}
 
 export interface GuildSettings {
   officers_can_delete_parses: boolean

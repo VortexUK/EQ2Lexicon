@@ -47,9 +47,48 @@ CREATE TABLE IF NOT EXISTS character_gear_sets (
     PRIMARY KEY (name_lower, world)
 );
 
+-- One row per guild per UTC day: the headline numbers of a guild refresh
+-- (level / members / accounts / achievements plus two roster reductions).
+-- Feeds the guild page History charts. day is 'YYYY-MM-DD' (UTC); the
+-- 15-minute refresh overwrites the same day's row so the last capture of
+-- the day wins. max_level_members is NULL when the world's registry row
+-- (and so its max level) was unknown at capture time.
+-- :name schema_guild_history
+CREATE TABLE IF NOT EXISTS guild_history (
+    world              TEXT    NOT NULL,
+    name_lower         TEXT    NOT NULL,
+    day                TEXT    NOT NULL,
+    captured_at        INTEGER NOT NULL,
+    level              INTEGER,
+    members            INTEGER,
+    accounts           INTEGER,
+    achievement_count  INTEGER,
+    max_level_members  INTEGER,
+    distinct_classes   INTEGER,
+    PRIMARY KEY (world, name_lower, day)
+);
+
 -- ---------------------------------------------------------------------------
 -- DML
 -- ---------------------------------------------------------------------------
+
+-- :name upsert_guild_history
+INSERT INTO guild_history (world, name_lower, day, captured_at, level, members, accounts,
+                           achievement_count, max_level_members, distinct_classes)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(world, name_lower, day) DO UPDATE SET
+    captured_at=excluded.captured_at, level=excluded.level, members=excluded.members,
+    accounts=excluded.accounts, achievement_count=excluded.achievement_count,
+    max_level_members=excluded.max_level_members, distinct_classes=excluded.distinct_classes;
+
+-- :name prune_guild_history
+DELETE FROM guild_history WHERE world = ? AND name_lower = ? AND day < ?;
+
+-- :name select_guild_history
+SELECT day, captured_at, level, members, accounts, achievement_count, max_level_members, distinct_classes
+FROM guild_history
+WHERE world = ? AND name_lower = ? AND day >= ?
+ORDER BY day;
 
 -- :name upsert_character
 INSERT INTO characters (name_lower, world, name, level, guild_name, data_json, last_resolved_at, updated_at)

@@ -5,13 +5,20 @@ import logging
 import time
 
 import aiosqlite
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _scrub
 from backend.server.cache import guild_cache
-from backend.server.core.cache_keys import guild_adorns_key, guild_info_key, guild_roster_key, guild_spells_key
+from backend.server.constants import GUILD_HISTORY_RETENTION_DAYS
+from backend.server.core.cache_keys import (
+    guild_adorns_key,
+    guild_history_key,
+    guild_info_key,
+    guild_roster_key,
+    guild_spells_key,
+)
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_guild_name as _validate_guild_name_lib
@@ -298,6 +305,56 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
     if result is None:
         raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {current_world()}.")
     return result
+
+
+class GuildHistoryPointResponse(BaseModel):
+    day: str
+    captured_at: int
+    level: int | None = None
+    members: int | None = None
+    accounts: int | None = None
+    achievement_count: int | None = None
+    max_level_members: int | None = None
+    distinct_classes: int | None = None
+
+
+class GuildHistoryResponse(BaseModel):
+    guild: str
+    world: str
+    days: int
+    points: list[GuildHistoryPointResponse]
+
+
+@router.get("/guild/{guild_name}/history", response_model=GuildHistoryResponse)
+@limiter.limit("30/minute")
+async def get_guild_history(
+    request: Request,
+    guild_name: str,
+    days: int = Query(90, ge=1, le=GUILD_HISTORY_RETENTION_DAYS),
+) -> GuildHistoryResponse:
+    """Daily history rows for the guild page charts. Store-only: the rows are
+    written by the guild refresh, so this never touches Census and a guild
+    nobody has refreshed yet answers 200 with an empty list. The full
+    retention window is cached per guild (dropped on every refresh write)
+    and sliced to ``days`` here."""
+    _validate_guild_name(guild_name)
+    world = current_world()
+    key = guild_history_key(guild_name, world)
+    rows = guild_cache.get(key)
+    if rows is None:
+
+        def _read() -> list:
+            conn = census_store.init_db()
+            try:
+                return census_store.get_guild_history(conn, guild_name, world, GUILD_HISTORY_RETENTION_DAYS)
+            finally:
+                conn.close()
+
+        rows = await run_sync(_read)
+        guild_cache.set(key, rows)
+    since = census_store._utc_day(int(time.time()) - days * 86400)
+    points = [GuildHistoryPointResponse(**r) for r in rows if r["day"] >= since]
+    return GuildHistoryResponse(guild=guild_name, world=world, days=days, points=points)
 
 
 @router.get("/guild/{guild_name}", response_model=GuildResponse)

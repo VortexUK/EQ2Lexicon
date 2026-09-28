@@ -26,6 +26,7 @@ from collections import Counter
 
 from backend.census.constants import SPELL_TIER_ORDER as _TIER_ORDER
 from backend.census.models import CharacterOverview, GuildData, SpellEntry
+from backend.census.store import GuildHistorySnapshot
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
 from backend.eq2db.spells import (
@@ -38,10 +39,16 @@ from backend.eq2db.spells import (
     catalogue as _spells,
 )
 from backend.server.cache import character_cache, guild_cache
-from backend.server.core.cache_keys import census_refresh_guild_key, guild_info_key, guild_roster_key
+from backend.server.constants import GUILD_HISTORY_RETENTION_DAYS
+from backend.server.core.cache_keys import (
+    census_refresh_guild_key,
+    guild_history_key,
+    guild_info_key,
+    guild_roster_key,
+)
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
-from backend.server.server_context import current_world
+from backend.server.server_context import current_world, server_for_world
 
 _log = logging.getLogger(__name__)
 
@@ -435,6 +442,32 @@ async def _bg_refresh_guild(guild_name: str) -> None:
         _guild_refresh_in_flight.discard(key)
 
 
+def _world_max_level(world: str) -> int | None:
+    """The registry's max character level for a world — None when the world
+    has no registry row (the snapshot then leaves max_level_members unknown
+    rather than counting against a guessed cap)."""
+    srv = server_for_world(world)
+    return srv.max_level if srv is not None else None
+
+
+def _guild_history_snapshot(info: dict | None, members: list[dict], max_level: int | None) -> GuildHistorySnapshot:
+    """Reduce one refresh to the guild_history row: the info blob's headline
+    counts plus two roster reductions. ``members`` falls back to the merged
+    roster length when Census sent no member count."""
+    info = info or {}
+    levels = [m.get("level") for m in members]
+    return {
+        "level": info.get("level"),
+        "members": info.get("members") if info.get("members") is not None else len(members),
+        "accounts": info.get("accounts"),
+        "achievement_count": info.get("achievement_count"),
+        "max_level_members": (
+            sum(1 for lv in levels if lv is not None and lv >= max_level) if max_level is not None else None
+        ),
+        "distinct_classes": len({m.get("cls") for m in members if m.get("cls")}),
+    }
+
+
 async def _persist_and_publish_guild(guild_name: str, world: str | None = None) -> None:
     """Full guild refresh: fetch + warm the in-memory caches (existing behaviour),
     then build the BEST-KNOWN merged roster (resolved members this fetch + offline
@@ -487,6 +520,15 @@ async def _persist_and_publish_guild(guild_name: str, world: str | None = None) 
 
         blob = {"roster": merged_data, "info": info.model_dump() if info is not None else None}
         census_store.upsert_guild(conn, guild_name, world, blob, now=now)
+        census_store.upsert_guild_history(
+            conn,
+            guild_name,
+            world,
+            _guild_history_snapshot(blob["info"], merged_data["members"], _world_max_level(world)),
+            now=now,
+            retention_days=GUILD_HISTORY_RETENTION_DAYS,
+        )
+        guild_cache.delete(guild_history_key(guild_name, world))
 
         for m in fresh_by_name.values():
             if not m.get("name"):

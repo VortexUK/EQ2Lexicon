@@ -65,12 +65,27 @@ export default defineConfig({
       output: {
         // Function form (rolldown/vite 8 only accepts a function, not the
         // object map). Returns the vendor chunk name for a node_modules id.
+        //
+        // Naming matters: rolldown emits React's CommonJS body (which every
+        // chunk requires) into whichever manual chunk sorts FIRST by name,
+        // whatever this function returns for react itself. With the old
+        // 'vendor-react' name that was vendor-dnd (so every page preloaded
+        // dnd-kit), and adding 'vendor-charts' would have made it the 377 kB
+        // charts chunk. 'core-react' sorts before every 'vendor-*' name, so
+        // React stays in its own chunk and index.html preloads only that.
+        // Verify after touching this: `grep modulepreload dist/index.html`.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
           if (id.includes('@dnd-kit')) return 'vendor-dnd'
+          // Recharts and everything it drags in — only the guild History
+          // tab imports it, and that tab is lazy, so this chunk stays off
+          // the first paint for every other page.
+          if (/[\\/](recharts|victory-vendor|d3-[a-z-]+|react-redux|@reduxjs|immer|reselect|es-toolkit|internmap|use-sync-external-store|redux)[\\/]/.test(id)) {
+            return 'vendor-charts'
+          }
           if (id.includes('react-markdown') || id.includes('remark')) return 'vendor-markdown'
           if (id.includes('react-router') || id.includes('react-dom') || /[\\/]react[\\/]/.test(id)) {
-            return 'vendor-react'
+            return 'core-react'
           }
           return undefined
         },

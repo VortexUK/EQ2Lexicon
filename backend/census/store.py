@@ -17,6 +17,7 @@ import json
 import logging
 import sqlite3
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -35,6 +36,25 @@ class StoreRecord(TypedDict):
 
     data: dict[str, Any]
     last_resolved_at: int
+
+
+class GuildHistorySnapshot(TypedDict, total=False):
+    """The numbers one guild refresh contributes to ``guild_history`` — all
+    optional because a sparse Census info blob leaves some unknown."""
+
+    level: int | None
+    members: int | None
+    accounts: int | None
+    achievement_count: int | None
+    max_level_members: int | None
+    distinct_classes: int | None
+
+
+class GuildHistoryPoint(GuildHistorySnapshot):
+    """One stored ``guild_history`` row: the snapshot plus its day key."""
+
+    day: str
+    captured_at: int
 
 
 _log = logging.getLogger(__name__)
@@ -66,6 +86,7 @@ class CensusStore(BaseCatalogue):
         conn.execute(_SQL["schema_guilds"])
         conn.execute(_SQL["schema_character_aas"])
         conn.execute(_SQL["schema_character_gear_sets"])
+        conn.execute(_SQL["schema_guild_history"])
         self._apply_migrations(conn, _MIGRATIONS)
 
     # ── Characters ───────────────────────────────────────────────────────────
@@ -177,6 +198,68 @@ class CensusStore(BaseCatalogue):
         if row is None:
             return None
         return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
+
+    # ── Guild history ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _utc_day(ts: int) -> str:
+        """``YYYY-MM-DD`` of a Unix timestamp in UTC — the guild_history day key."""
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d")
+
+    @staticmethod
+    def upsert_guild_history(
+        conn: sqlite3.Connection,
+        name: str,
+        world: str,
+        snapshot: GuildHistorySnapshot,
+        *,
+        now: int | None = None,
+        retention_days: int,
+    ) -> None:
+        """Write today's (UTC) history row for a guild, replacing an earlier
+        capture from the same day, then prune this guild's rows older than
+        ``retention_days``. One call per successful guild refresh."""
+        ts = int(time.time()) if now is None else now
+        key = (world, name.lower())
+        conn.execute(
+            _SQL["upsert_guild_history"],
+            (
+                *key,
+                CensusStore._utc_day(ts),
+                ts,
+                snapshot.get("level"),
+                snapshot.get("members"),
+                snapshot.get("accounts"),
+                snapshot.get("achievement_count"),
+                snapshot.get("max_level_members"),
+                snapshot.get("distinct_classes"),
+            ),
+        )
+        conn.execute(_SQL["prune_guild_history"], (*key, CensusStore._utc_day(ts - retention_days * 86400)))
+        conn.commit()
+
+    @staticmethod
+    def get_guild_history(
+        conn: sqlite3.Connection, name: str, world: str, days: int, *, now: int | None = None
+    ) -> list[GuildHistoryPoint]:
+        """The guild's daily rows from ``days`` days ago (UTC) to today, oldest
+        first. Empty list for a guild with no history."""
+        ts = int(time.time()) if now is None else now
+        since = CensusStore._utc_day(ts - days * 86400)
+        rows = conn.execute(_SQL["select_guild_history"], (world, name.lower(), since)).fetchall()
+        return [
+            {
+                "day": r[0],
+                "captured_at": r[1],
+                "level": r[2],
+                "members": r[3],
+                "accounts": r[4],
+                "achievement_count": r[5],
+                "max_level_members": r[6],
+                "distinct_classes": r[7],
+            }
+            for r in rows
+        ]
 
     # ── Character AAs ────────────────────────────────────────────────────────
 

@@ -48,6 +48,13 @@ def guild_spells_key(guild: str, world: str) -> str:
     return f"spells:{guild.lower()}:{world.lower()}"
 
 
+def guild_history_key(guild: str, world: str) -> str:
+    """``guild_cache`` key for the History tab's daily rows (full retention
+    window; the route slices by range). Dropped whenever a refresh writes
+    a new row."""
+    return f"history:{guild.lower()}:{world.lower()}"
+
+
 def census_refresh_key(name: str, world: str) -> str:
     """Key into ``web/census_refresh.py`` ``_last_attempt`` / ``_in_flight``.
     Same shape as ``char_cache_key`` so the throttle + cache line up."""

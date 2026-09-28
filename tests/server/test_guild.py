@@ -475,6 +475,16 @@ async def test_persist_merges_offline_member_from_store(app, tmp_path, monkeypat
         # parse combatant served from the store) still shows the guild. The
         # roster overview itself has no guild_name — it's stamped on persist.
         assert main_rec["data"]["guild_name"] == "TestGuild"
+
+        # The same refresh wrote today's guild_history row from the info blob
+        # + the merged roster (OnlineMain Templar + OfflineAlt Fury; the ghost
+        # contributes nothing).
+        history = census_store.CensusStore.get_guild_history(conn, "TestGuild", _WORLD, 1)
+        assert len(history) == 1
+        assert history[0]["level"] == 300
+        assert history[0]["members"] == 3
+        assert history[0]["accounts"] == 3
+        assert history[0]["distinct_classes"] == 2
     finally:
         conn.close()
 

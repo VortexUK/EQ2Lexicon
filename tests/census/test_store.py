@@ -159,3 +159,103 @@ def test_guild_get_missing_returns_none(tmp_path):
         assert cs.CensusStore.get_guild(conn, "Nope", "Varsoon") is None
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Guild history — one row per guild per UTC day
+# ---------------------------------------------------------------------------
+
+_DAY = 86400
+_T0 = 1_800_000_000  # 2027-01-15T08:00:00Z
+
+
+def _history_conn(tmp_path):
+    return cs.CensusStore(tmp_path / "backend.census.db").init_db()
+
+
+def _write(conn, now: int, level: int = 300, name: str = "Exordium", retention_days: int = 400) -> None:
+    cs.CensusStore.upsert_guild_history(
+        conn,
+        name,
+        "Varsoon",
+        {
+            "level": level,
+            "members": 40,
+            "accounts": 30,
+            "achievement_count": 5,
+            "max_level_members": 12,
+            "distinct_classes": 9,
+        },
+        now=now,
+        retention_days=retention_days,
+    )
+
+
+def test_init_db_creates_guild_history(tmp_path):
+    conn = _history_conn(tmp_path)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(guild_history)")}
+        assert {
+            "world",
+            "name_lower",
+            "day",
+            "captured_at",
+            "level",
+            "members",
+            "accounts",
+            "achievement_count",
+            "max_level_members",
+            "distinct_classes",
+        } == cols
+    finally:
+        conn.close()
+
+
+def test_same_day_writes_collapse_to_one_row_last_capture_wins(tmp_path):
+    conn = _history_conn(tmp_path)
+    try:
+        _write(conn, _T0, level=300)
+        _write(conn, _T0 + 3600, level=301)  # 15-minute refresh later the same UTC day
+        rows = cs.CensusStore.get_guild_history(conn, "exordium", "Varsoon", 7, now=_T0 + 3600)
+        assert len(rows) == 1
+        assert rows[0]["level"] == 301
+        assert rows[0]["captured_at"] == _T0 + 3600
+        assert rows[0]["day"] == cs.CensusStore._utc_day(_T0)
+        assert rows[0]["members"] == 40 and rows[0]["distinct_classes"] == 9
+    finally:
+        conn.close()
+
+
+def test_window_is_inclusive_of_the_boundary_day_and_ordered_oldest_first(tmp_path):
+    conn = _history_conn(tmp_path)
+    try:
+        for d in (10, 7, 3, 0):
+            _write(conn, _T0 - d * _DAY, level=100 + d)
+        week = cs.CensusStore.get_guild_history(conn, "Exordium", "Varsoon", 7, now=_T0)
+        assert [r["level"] for r in week] == [107, 103, 100]
+        assert [r["day"] for r in week] == sorted(r["day"] for r in week)
+        assert cs.CensusStore.get_guild_history(conn, "Exordium", "Varsoon", 400, now=_T0)[0]["level"] == 110
+    finally:
+        conn.close()
+
+
+def test_write_prunes_only_this_guilds_rows_past_retention(tmp_path):
+    conn = _history_conn(tmp_path)
+    try:
+        _write(conn, _T0 - 500 * _DAY, retention_days=400)
+        _write(conn, _T0 - 500 * _DAY, name="Other", retention_days=400)
+        _write(conn, _T0 - 100 * _DAY, retention_days=400)
+        _write(conn, _T0, retention_days=400)  # prunes Exordium's 500-day-old row
+        mine = cs.CensusStore.get_guild_history(conn, "Exordium", "Varsoon", 1000, now=_T0)
+        assert len(mine) == 2
+        assert cs.CensusStore.get_guild_history(conn, "Other", "Varsoon", 1000, now=_T0)  # untouched
+    finally:
+        conn.close()
+
+
+def test_history_missing_guild_is_empty(tmp_path):
+    conn = _history_conn(tmp_path)
+    try:
+        assert cs.CensusStore.get_guild_history(conn, "Nobody", "Varsoon", 90) == []
+    finally:
+        conn.close()

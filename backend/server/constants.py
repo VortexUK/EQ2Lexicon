@@ -102,3 +102,9 @@ PARSE_CLEANUP_INTERVAL_S: int = 6 * 60 * 60  # 6 h
 # 90 days (the privacy policy states this) and sweep them with the parse
 # retention loop.
 VOICE_OBSERVATION_RETENTION_DAYS: int = 90
+
+# Days of per-guild daily history (census.db ``guild_history``) kept for the
+# guild page's History tab. One row per guild per UTC day, written by the
+# 15-minute guild refresh; the 1-year range pill needs 365, 400 leaves slack.
+# Pruned on write, scoped to the guild being refreshed.
+GUILD_HISTORY_RETENTION_DAYS: int = 400
