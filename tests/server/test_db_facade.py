@@ -72,6 +72,7 @@ _FACADE_EXEMPT = {
     "observations_for_session",
     "observations_for_sessions",
     "delete_session",
+    "prune_voice_observations",
     # guild_settings domain bypasses the facade too (routes, delete.py and
     # list.py import the store directly)
     "get_settings",

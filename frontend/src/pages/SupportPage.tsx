@@ -32,15 +32,14 @@ export default function SupportPage() {
     let cancelled = false
     ;(async () => {
       try {
-        // Pull supporter IDs and (best-effort) their display names so the
-        // wall shows recognisable names rather than opaque snowflakes.
-        // Falls back to "anonymous" formatting if the lookup endpoint
-        // doesn't expose names.
-        const r = await fetch('/api/supporters')
+        // The endpoint returns each supporter with the Discord display
+        // name we hold, so the wall shows recognisable names; the id-only
+        // fallback below is for a row whose users record carries no name.
+        const r = await fetch('/api/supporters', { credentials: 'include' })
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const body = (await r.json()) as { supporter_ids: string[] }
+        const body = (await r.json()) as { supporters?: SupporterRow[]; supporter_ids: string[] }
         if (cancelled) return
-        setRows(body.supporter_ids.map((id) => ({ discord_id: id, display_name: null })))
+        setRows(body.supporters ?? body.supporter_ids.map((id) => ({ discord_id: id, display_name: null })))
       } catch {
         if (!cancelled) setRows([])
       } finally {
@@ -125,8 +124,9 @@ export default function SupportPage() {
           </ul>
         )}
         <p className="text-xs text-text-muted pt-2">
-          Names are anonymised by default — if you'd like to be listed by
-          name reach out on Discord.
+          Supporters are listed by their Discord display name. If you&apos;d
+          rather not appear here, reach out on Discord and the badge stays
+          while the listing goes.
         </p>
       </section>
     </div>

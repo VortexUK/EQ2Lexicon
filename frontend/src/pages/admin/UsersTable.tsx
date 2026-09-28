@@ -17,16 +17,21 @@ import {
 function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
   const [busy, setBusy] = useState(false)
   const [kickConfirm, setKickConfirm] = useState(false)
+  const [eraseConfirm, setEraseConfirm] = useState(false)
+  const [eraseTyped, setEraseTyped] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const eraseLabel = user.discord_username || user.discord_name || user.discord_id
 
-  async function doAccess(action: 'approve' | 'deny' | 'kick') {
+  async function doAccess(action: 'approve' | 'deny' | 'kick' | 'erase') {
     setBusy(true)
     setError(null)
     try {
       const url = action === 'kick'
         ? `/api/admin/users/${user.discord_id}/kick`
-        : `/api/admin/users/${user.discord_id}/${action}`
-      const res = await fetch(url, { method: 'POST', credentials: 'include' })
+        : action === 'erase'
+          ? `/api/admin/users/${user.discord_id}`
+          : `/api/admin/users/${user.discord_id}/${action}`
+      const res = await fetch(url, { method: action === 'erase' ? 'DELETE' : 'POST', credentials: 'include' })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         setError(body.detail ?? `HTTP ${res.status}`)
@@ -36,6 +41,8 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
     } finally {
       setBusy(false)
       setKickConfirm(false)
+      setEraseConfirm(false)
+      setEraseTyped('')
     }
   }
 
@@ -225,6 +232,28 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setKickConfirm(false)}>Cancel</Button>
             </div>
+          ) : eraseConfirm ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[0.75rem] text-danger">
+                Erase every record of this account (right to be forgotten)? Type <span className="font-mono">{eraseLabel}</span>:
+              </span>
+              <input
+                type="text"
+                value={eraseTyped}
+                onChange={e => setEraseTyped(e.target.value)}
+                aria-label={`Type ${eraseLabel} to confirm erasure`}
+                className="bg-surface border border-border rounded-sm px-1.5 py-0.5 text-[0.8rem] text-text w-[160px]"
+              />
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => doAccess('erase')}
+                disabled={busy || eraseTyped.trim().toLowerCase() !== eraseLabel.toLowerCase()}
+              >
+                {busy ? '…' : 'Erase'}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setEraseConfirm(false); setEraseTyped('') }}>Cancel</Button>
+            </div>
           ) : (
             <div className="flex gap-1.5 flex-wrap">
               {user.access_status !== 'approved' && (
@@ -245,6 +274,15 @@ function UserRow({ user, onAction }: { user: UserItem; onAction: () => void }) {
                 title="Revoke access and delete all claims"
               >
                 Kick
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEraseConfirm(true)}
+                disabled={busy}
+                title="Erase the account and everything keyed to it; strip their identity from uploads (privacy request)"
+              >
+                Erase
               </Button>
             </div>
           )}

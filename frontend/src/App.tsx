@@ -31,6 +31,10 @@ const TriggersPage      = lazy(() => import('./pages/TriggersPage'))
 const RaidConsumablesPage = lazy(() => import('./pages/RaidConsumablesPage'))
 const AAPlanSharePage   = lazy(() => import('./pages/AAPlanSharePage'))
 const DownloadsPage     = lazy(() => import('./pages/DownloadsPage'))
+const PrivacyPage       = lazy(() => import('./pages/PrivacyPage'))
+
+/** Routes readable WITHOUT a login — the privacy policy must be, by definition. */
+const PUBLIC_PATHS = new Set(['/privacy'])
 import { useAuth } from './hooks/useAuth'
 import { CensusStreamProvider } from './hooks/useCensusStream'
 import { ServerProvider } from './hooks/useServer'
@@ -58,7 +62,58 @@ function LoginGate() {
       </p>
       <ServerLaunchTimer />
       <DiscordButton />
+      <p className="text-text-muted text-[0.78rem] opacity-70">
+        <Link to="/privacy" className="text-[color:inherit] underline underline-offset-[3px]">Privacy policy</Link>
+      </p>
     </main>
+  )
+}
+
+/** Minimal chrome for pages that render without a login: logo, content, footer. */
+function PublicShell() {
+  return (
+    <div className="flex flex-col min-h-screen">
+      <div className="flex items-center py-1.5 px-5 border-b border-border">
+        <Link to="/" className="flex items-center leading-none">
+          <img src={logo} alt="EQ2 Lexicon" className="h-10 w-auto" />
+        </Link>
+      </div>
+      <div className="page-enter flex-1">
+        <Suspense fallback={<div className="p-8 text-text-muted">Loading…</div>}>
+          <Outlet />
+        </Suspense>
+      </div>
+      <SiteFooter />
+    </div>
+  )
+}
+
+const FOOTER_LINK_CLS = 'text-[color:inherit] underline underline-offset-[3px] inline-block py-1 -my-1'
+
+function SiteFooter() {
+  return (
+    <footer className="border-t border-border py-2 px-6 flex items-center justify-between flex-wrap gap-x-4 gap-y-1 text-[0.72rem] text-text-muted opacity-70">
+      <span>
+        © {new Date().getFullYear()}{' '}
+        <a href="https://github.com/VortexUK" target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLS}>
+          VortexUK
+        </a>
+      </span>
+      <span>
+        Game data provided by the{' '}
+        <a href="https://census.daybreakgames.com" target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLS}>
+          Daybreak Games Census API
+        </a>
+      </span>
+      <span>
+        <Link to="/support" className={FOOTER_LINK_CLS}>Support the site</Link>
+      </span>
+      <span>
+        <Link to="/privacy" className={FOOTER_LINK_CLS}>Privacy policy</Link>
+      </span>
+      <ServerStatus />
+      <CensusStatus />
+    </footer>
   )
 }
 
@@ -155,6 +210,7 @@ const LEADERBOARD_ITEMS: NavSpec[] = [
   { to: '/parses',   label: 'Parses', also: '/parse/' },
   { to: '/rankings', label: 'Rankings' },
   { to: '/stats',    label: 'Stats' },
+  { to: '/simulator', label: 'Simulator' },
 ]
 
 function NavDropdown({ label, items }: { label: string; items: NavSpec[] }) {
@@ -259,6 +315,12 @@ function Layout() {
 
   if (auth.status === 'loading') return null
 
+  // The privacy policy (and any future public page) renders for everyone —
+  // logged out, pending, denied — inside a slim shell with no widgets that
+  // would poll authenticated endpoints.
+  const gated = auth.status === 'unauthenticated' || auth.user.access_status !== 'approved'
+  if (gated && PUBLIC_PATHS.has(pathname)) return <PublicShell />
+
   if (auth.status === 'unauthenticated') return <LoginGate />
 
   if (auth.user.access_status === 'pending')  return <AccessPendingGate />
@@ -304,40 +366,7 @@ function Layout() {
             <Outlet />
           </Suspense>
         </div>
-        <footer className="border-t border-border py-2 px-6 flex items-center justify-between flex-wrap gap-x-4 gap-y-1 text-[0.72rem] text-text-muted opacity-70">
-          <span>
-            © {new Date().getFullYear()}{' '}
-            <a
-              href="https://github.com/VortexUK"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[color:inherit] underline underline-offset-[3px] inline-block py-1 -my-1"
-            >
-              VortexUK
-            </a>
-          </span>
-          <span>
-            Game data provided by the{' '}
-            <a
-              href="https://census.daybreakgames.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[color:inherit] underline underline-offset-[3px] inline-block py-1 -my-1"
-            >
-              Daybreak Games Census API
-            </a>
-          </span>
-          <span>
-            <Link
-              to="/support"
-              className="text-[color:inherit] underline underline-offset-[3px] inline-block py-1 -my-1"
-            >
-              Support the site
-            </Link>
-          </span>
-          <ServerStatus />
-          <CensusStatus />
-        </footer>
+        <SiteFooter />
       </div>
     </>
   )
@@ -374,6 +403,7 @@ function App() {
         <Route path="/settings/tokens" element={<TokensPage />} />
         <Route path="/settings/roles" element={<RolesSettingsPage />} />
         <Route path="/support" element={<SupportPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

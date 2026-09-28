@@ -1,8 +1,10 @@
 import React, { useCallback, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import Breadcrumb from '../components/Breadcrumb'
 import { Button, Card } from '../components/ui'
 import { fmtLocalDateTime } from '../formatters'
+import { useAuth } from '../hooks/useAuth'
 import { useFetch } from '../hooks/useFetch'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -181,7 +183,88 @@ export default function TokensPage() {
           />
         </div>
       )}
+
+      <DeleteAccountCard />
     </main>
+  )
+}
+
+// ── Delete my account ────────────────────────────────────────────────────────
+
+/**
+ * Self-service erasure (privacy policy §8). The user types their Discord
+ * username to confirm; the server does the same check. On success the
+ * session is gone, so we hard-navigate home to land on the login gate.
+ */
+function DeleteAccountCard() {
+  const auth = useAuth()
+  const username = auth.status === 'authenticated' ? auth.user.username : ''
+  const [open, setOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const matches = typed.trim().toLowerCase() === username.toLowerCase() && username !== ''
+
+  async function erase() {
+    if (!matches) return
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await fetch('/api/auth/me', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: typed.trim() }),
+      })
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        setError(body.detail ?? `Server error ${r.status}`)
+        return
+      }
+      window.location.assign('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="mt-10 p-4 border-danger/40">
+      <h2 className="font-heading text-[1.05rem] text-danger m-0 mb-2">Delete my account</h2>
+      <p className="text-text-muted text-[0.85rem] mt-0 mb-3">
+        Removes your account, claims, tokens, favourites, saved plans and availability, strips your Discord
+        identity from parses you uploaded (the fights stay as your guild&apos;s records), deletes your voice-presence
+        records, and signs you out. Signing in again later starts a fresh account awaiting approval. See the{' '}
+        <Link to="/privacy" className="text-gold underline">privacy policy</Link>.
+      </p>
+      {!open ? (
+        <Button variant="danger" size="sm" onClick={() => setOpen(true)}>Delete my account…</Button>
+      ) : (
+        <div className="flex flex-col gap-2 max-w-[420px]">
+          <label className="text-[0.82rem] text-text" htmlFor="delete-account-confirm">
+            Type your Discord username <span className="font-mono text-text-muted">{username}</span> to confirm:
+          </label>
+          <input
+            id="delete-account-confirm"
+            type="text"
+            value={typed}
+            onChange={e => setTyped(e.target.value)}
+            autoComplete="off"
+            className="bg-surface border border-border rounded-sm px-2 py-1 text-[0.9rem] text-text"
+          />
+          <div className="flex items-center gap-2">
+            <Button variant="danger" size="sm" onClick={erase} disabled={!matches || busy}>
+              {busy ? 'Deleting…' : 'Permanently delete'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setTyped(''); setError(null) }} disabled={busy}>
+              Cancel
+            </Button>
+          </div>
+          {error && <p className="text-danger text-[0.82rem] m-0">{error}</p>}
+        </div>
+      )}
+    </Card>
   )
 }
 

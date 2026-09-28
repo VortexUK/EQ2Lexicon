@@ -52,7 +52,8 @@ describe('GuildSettingsTab', () => {
     expect(put.url).toBe('/api/guild/Exordium/settings')
     expect(put.init?.credentials).toBe('include')
     expect(JSON.parse(String(put.init?.body))).toEqual({ officers_can_delete_parses: false })
-    expect(await screen.findByText(/by Boss/)).toBeInTheDocument()
+    // The refetch after save lands a beat later; allow for a loaded runner.
+    expect(await screen.findByText(/by Boss/, {}, { timeout: 4000 })).toBeInTheDocument()
   })
 
   it('surfaces the server detail when the caller is not the leader', async () => {

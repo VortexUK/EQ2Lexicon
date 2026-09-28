@@ -93,7 +93,11 @@ from backend.server.cache import aa_cache, character_cache, claim_cache, guild_c
 from backend.server.config import CORS_ORIGINS as _CORS_ORIGINS
 from backend.server.config import SESSION_COOKIE_DOMAIN as _SESSION_COOKIE_DOMAIN
 from backend.server.config import WORLD as _WORLD
-from backend.server.constants import CACHE_SWEEP_INTERVAL_S, PARSE_CLEANUP_INTERVAL_S
+from backend.server.constants import (
+    CACHE_SWEEP_INTERVAL_S,
+    PARSE_CLEANUP_INTERVAL_S,
+    VOICE_OBSERVATION_RETENTION_DAYS,
+)
 from backend.server.core import census_lifecycle
 from backend.server.limiter import limiter
 from backend.server.metrics import (
@@ -574,9 +578,21 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             try:
                 result = await asyncio.to_thread(parse_cleanup.run_parse_cleanup)
                 if result["trash_deleted"] or result["dup_uploads_deleted"]:
-                    _log.info("[parse-cleanup] %s", result)
+                    _log.info("[retention] parses %s", result)
             except Exception:
-                _log.exception("[parse-cleanup] sweep failed")
+                _log.exception("[retention] parse sweep failed")
+            try:
+                # Voice-attendance rows hold Discord ids of everyone in the
+                # raid voice channel; the privacy policy promises 90 days.
+                from backend.server.db.attendance import store as attendance_store
+
+                pruned = await attendance_store.prune_voice_observations(
+                    older_than_days=VOICE_OBSERVATION_RETENTION_DAYS
+                )
+                if pruned:
+                    _log.info("[retention] voice observations pruned=%d", pruned)
+            except Exception:
+                _log.exception("[retention] voice-observation sweep failed")
             await asyncio.sleep(PARSE_CLEANUP_INTERVAL_S)
 
     app = FastAPI(

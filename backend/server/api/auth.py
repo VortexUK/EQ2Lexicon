@@ -200,3 +200,42 @@ async def logout(request: Request) -> JSONResponse:
         audit_log("logout", actor=user["id"])
     request.session.clear()
     return JSONResponse({"ok": True})
+
+
+class DeleteAccountRequest(BaseModel):
+    confirm: str
+
+
+@router.delete("/auth/me")
+async def delete_my_account(body: DeleteAccountRequest, request: Request) -> JSONResponse:
+    """Self-service right-to-erasure (privacy policy, 2026-09-28). The
+    caller types their Discord username to confirm. Everything keyed to the
+    account goes, their uploads lose the Discord identity, the session is
+    cleared. Logging in again later creates a fresh, pending account. See
+    backend/server/db/erasure.py for the exact delete/tombstone rules."""
+    from backend.server import metrics
+    from backend.server.api import supporters
+    from backend.server.api.claim import invalidate_user_claim_cache_all_worlds
+    from backend.server.core.executor import run_sync
+    from backend.server.db.erasure import erase_user_sync
+
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    expected = str(user.get("username") or "")
+    if not expected or body.confirm.strip().lower() != expected.lower():
+        raise HTTPException(status_code=400, detail="Type your Discord username exactly to confirm.")
+    result = await run_sync(erase_user_sync, user["id"])
+    invalidate_user_claim_cache_all_worlds(user["id"])
+    supporters.invalidate()
+    metrics.forget_user(user["id"])
+    audit_log(
+        "user_erased",
+        actor=user["id"],
+        discord_id=user["id"],
+        self_service=True,
+        parses_anonymised=result.parses_anonymised,
+        voice_observations_deleted=result.voice_observations_deleted,
+    )
+    request.session.clear()
+    return JSONResponse({"ok": True, **result.as_dict()})

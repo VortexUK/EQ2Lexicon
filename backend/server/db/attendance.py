@@ -19,6 +19,7 @@ Mirrors the favorites/raid_schedule domain pattern: per-call connections via
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -310,6 +311,16 @@ class AttendanceStore(AsyncStoreBase):
             cur = await db.execute(_SQL["delete_session"], (session_id,))
             await db.commit()
             return cur.rowcount > 0
+
+    async def prune_voice_observations(self, *, older_than_days: int, now: int | None = None) -> int:
+        """Delete voice-channel observations (Discord ids of channel members,
+        site users or not) whose last_seen is older than the retention
+        window. Returns the row count. Run by the retention loop."""
+        cutoff = int(now if now is not None else time.time()) - older_than_days * 86400
+        async with self._db() as db:
+            cur = await db.execute(_SQL["delete_stale_voice_observations"], (cutoff,))
+            await db.commit()
+            return cur.rowcount
 
 
 # The shared default instance — every runtime consumer goes through this.

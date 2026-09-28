@@ -860,3 +860,35 @@ async def kick_user(discord_id: str, request: Request) -> dict:
         claims_deleted=count,
     )
     return {"ok": True, "claims_deleted": count}
+
+
+@router.delete("/admin/users/{discord_id}", status_code=200)
+async def erase_user(discord_id: str, request: Request) -> dict:
+    """Right-to-erasure, admin-initiated (the privacy policy names this as
+    the route for requests that arrive by email). Unlike kick, this removes
+    the users row and everything keyed to it and strips the Discord identity
+    from their uploads; see backend/server/db/erasure.py for exactly what is
+    deleted vs tombstoned. Admin cannot erase themselves here — use the
+    self-service route like everyone else."""
+    from backend.server import metrics
+    from backend.server.api import supporters
+    from backend.server.db.erasure import erase_user_sync
+
+    admin = _require_admin(request)
+    if discord_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Use the account page to delete your own account")
+    result = await run_sync(erase_user_sync, discord_id)
+    if not result.found:
+        raise HTTPException(status_code=404, detail="User not found")
+    invalidate_user_claim_cache_all_worlds(discord_id)
+    supporters.invalidate()
+    metrics.forget_user(discord_id)
+    audit_log(
+        "user_erased",
+        actor=admin["id"],
+        discord_id=discord_id,
+        parses_anonymised=result.parses_anonymised,
+        voice_observations_deleted=result.voice_observations_deleted,
+        tamper_reports_deleted=result.tamper_reports_deleted,
+    )
+    return {"ok": True, **result.as_dict()}

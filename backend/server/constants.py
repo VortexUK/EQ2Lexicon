@@ -95,3 +95,10 @@ CACHE_SWEEP_INTERVAL_S: int = 600  # 10 min
 # 6 h is plenty — the cutoff is days, so cadence only bounds how stale a
 # just-past-cutoff parse can be before it's swept.
 PARSE_CLEANUP_INTERVAL_S: int = 6 * 60 * 60  # 6 h
+
+# Voice-channel attendance observations carry the DISCORD IDS of everyone in
+# the raid voice channel — including people who never used the site. They
+# only ever feed the "in voice, not in game" flag on a session, so keep them
+# 90 days (the privacy policy states this) and sweep them with the parse
+# retention loop.
+VOICE_OBSERVATION_RETENTION_DAYS: int = 90

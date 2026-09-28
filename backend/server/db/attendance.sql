@@ -129,3 +129,9 @@ DELETE FROM attendance_overrides WHERE session_id = ?;
 
 -- :name delete_session
 DELETE FROM attendance_sessions WHERE id = ?;
+
+-- Retention: voice rows carry DISCORD IDS of everyone in the raid voice
+-- channel, site user or not. They only feed the in_voice flag, so they are
+-- swept after VOICE_OBSERVATION_RETENTION_DAYS (the privacy policy says so).
+-- :name delete_stale_voice_observations
+DELETE FROM attendance_observations WHERE kind = 'voice' AND last_seen < ?;

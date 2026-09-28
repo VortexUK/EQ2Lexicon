@@ -71,6 +71,12 @@ _ACTIVE_WINDOWS: dict[str, float] = {"1h": 3600.0, "24h": 86400.0}
 _user_last_seen: dict[str, float] = {}
 
 
+def forget_user(user_id: str) -> None:
+    """Drop a user from the in-memory active map — account erasure must not
+    leave their id in process memory either."""
+    _user_last_seen.pop(user_id, None)
+
+
 def record_user_seen(user_id: str) -> None:
     """Stamp an authenticated user as active now (called from the metrics
     middleware). Dict ops are atomic under the GIL; scrape-side reads snapshot."""
