@@ -18,6 +18,7 @@ import { GuildAdornCheckTab } from './guild/GuildAdornCheckTab'
 import { GuildAttendanceTab } from './guild/GuildAttendanceTab'
 import { GuildProgressionTab } from './guild/GuildProgressionTab'
 import { GuildRaidScheduleTab } from './guild/GuildRaidScheduleTab'
+import { GuildSettingsTab } from './guild/GuildSettingsTab'
 import type {
   GuildData,
   GuildSpellCheck,
@@ -420,7 +421,9 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'progression', 'raids', 'attendance', 'claims', 'watch']
+const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'progression', 'raids', 'attendance', 'claims', 'watch', 'settings']
+// Tabs that share the member table card + the name/rank filter bar.
+const MEMBER_TABLE_TABS: ReadonlySet<Tab> = new Set<Tab>(['roster', 'spells', 'adorns', 'progression'])
 
 export default function GuildPage() {
   const { guildName } = useParams<{ guildName: string }>()
@@ -435,6 +438,9 @@ export default function GuildPage() {
   }, [claimState])
 
   const [isOfficer, setIsOfficer] = useState(false)
+  // Guild leader (Census rank 0) — the one rank that may change guild settings.
+  const [isLeader, setIsLeader] = useState(false)
+  const canEditSettings = isLeader || isAdmin(auth)
 
   // Deep-linkable sub-tab: ?tab=spells|adorns|claims|watch (roster is default).
   const [tab, setTab] = useState<Tab>(() => {
@@ -492,6 +498,7 @@ export default function GuildPage() {
       if (officerRes.ok) {
         const d = await officerRes.json()
         setIsOfficer(d.is_officer === true)
+        setIsLeader(d.is_leader === true)
       }
     })
       .catch(() => setRosterError('Network error — please try again.'))
@@ -544,10 +551,12 @@ export default function GuildPage() {
   }, [tab, guildName])
 
   // A non-officer can't see the officer-only tabs — fall back to roster if a
-  // deep link points at one (isOfficer resolves async after mount).
+  // deep link points at one (isOfficer resolves async after mount). Settings
+  // is stricter still: leader or admin.
   useEffect(() => {
     if (!isOfficer && (tab === 'claims' || tab === 'watch')) setTab('roster')
-  }, [isOfficer, tab])
+    if (!canEditSettings && tab === 'settings') setTab('roster')
+  }, [isOfficer, canEditSettings, tab])
 
   const guildDisplayName = roster?.name ?? spells?.guild_name ?? adorns?.guild_name ?? '…'
   const guildWorld = roster?.world ?? ''
@@ -658,12 +667,15 @@ export default function GuildPage() {
         {isOfficer && (
           <TabButton active={tab === 'watch'} onClick={() => switchTab('watch')}>Item Watch</TabButton>
         )}
+        {canEditSettings && (
+          <TabButton active={tab === 'settings'} onClick={() => switchTab('settings')}>Settings</TabButton>
+        )}
       </div>
 
       {/* Filters — the member-table tabs share one bar. Progression's own
           census projection carries no rank, so its rows join ranks from the
           eagerly-fetched roster to honour the same pills. */}
-      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && !isLoading && !error && (
+      {MEMBER_TABLE_TABS.has(tab) && !isLoading && !error && (
         <div className="mb-3 flex flex-col gap-2">
           <input
             type="text"
@@ -713,7 +725,7 @@ export default function GuildPage() {
       )}
 
       {/* Tables */}
-      {tab !== 'claims' && tab !== 'watch' && tab !== 'raids' && tab !== 'attendance' && !isLoading && !error && (
+      {MEMBER_TABLE_TABS.has(tab) && !isLoading && !error && (
         <Card className="p-0 overflow-x-auto">
           {tab === 'progression' && guildName && (
             <GuildProgressionTab
@@ -761,6 +773,13 @@ export default function GuildPage() {
       {tab === 'attendance' && isSubscriber(auth) && guildName && (
         <Card className="p-0">
           <GuildAttendanceTab guildName={guildName} />
+        </Card>
+      )}
+
+      {/* Guild settings — leader (rank 0) or admin; enforced server-side too */}
+      {tab === 'settings' && canEditSettings && guildName && (
+        <Card className="p-0">
+          <GuildSettingsTab guildName={guildName} />
         </Card>
       )}
     </main>

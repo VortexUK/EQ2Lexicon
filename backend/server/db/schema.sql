@@ -425,3 +425,17 @@ CREATE TABLE IF NOT EXISTS attendance_segments (
     set_at          INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_attendance_segments_session ON attendance_segments(session_id);
+
+-- Per-guild feature switches editable by the guild LEADER (Census rank_id 0)
+-- or an admin. One boolean column per setting; an absent row means every
+-- default. Adding a setting later = ADD COLUMN in migrations.sql + a guard
+-- in migrations.py (enforced by _assertions.py). Column comments must not
+-- contain commas (the schema assertion splits column defs on them).
+CREATE TABLE IF NOT EXISTS guild_settings (
+    world                      TEXT    NOT NULL,
+    guild_name                 TEXT    NOT NULL,
+    officers_can_delete_parses INTEGER NOT NULL DEFAULT 1,  -- 1 = officers may delete guild parses (today's behaviour)
+    updated_by                 TEXT,                        -- discord id of the leader/admin who last saved
+    updated_at                 INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (world, guild_name)
+);

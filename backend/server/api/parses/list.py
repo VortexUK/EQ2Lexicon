@@ -503,6 +503,14 @@ async def _compute_permissions(
         for g, rank_map in zip(guild_list, rank_maps, strict=True):
             if rank_map and any(rank_map.get(n) in _OFFICER_RANKS for n in approved):
                 officer_of.add(g)
+    if officer_of:
+        # A guild leader can switch officer deletes off (guild_settings).
+        # Only officers pay this read — one IN-query over their guilds, no
+        # Census, so the hot-path discipline above holds.
+        from backend.server.db.guild_settings import store as guild_settings_db  # noqa: PLC0415
+
+        flags = await guild_settings_db.officers_can_delete_parses(current_world(), sorted(officer_of))
+        officer_of = {g for g in officer_of if flags.get(g, True)}
 
     out: dict[int, ParsePermissions] = {}
     for e in encounters:

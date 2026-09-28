@@ -1,0 +1,81 @@
+"""users.db `guild_settings` domain (async aiosqlite).
+
+Per-guild feature switches that only the guild LEADER (Census rank_id 0)
+or a site admin may change. One boolean column per setting: the DB default
+makes "no row" and "default" identical, so readers never merge defaults
+themselves, and a later setting is the well-worn ADD COLUMN path.
+
+First (and so far only) switch: ``officers_can_delete_parses`` — added after
+the 2026-09-27 incident where an officer's click removed a guild's parse
+history. Default ON (today's behaviour); a leader can turn it off so that
+only the leader, admins and each parse's own uploader may delete.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from pathlib import Path
+
+from backend.db_catalogue import AsyncStoreBase
+from backend.server.db import DB_PATH
+from backend.sql_loader import load_sql
+
+_SQL = load_sql(__file__)
+
+DEFAULT_GUILD_SETTINGS: dict[str, bool] = {"officers_can_delete_parses": True}
+
+
+class GuildSettingsStore(AsyncStoreBase):
+    """Schema/migrations are owned by the package orchestrator
+    (backend.server.db.init_db); methods open per-call connections against
+    ``self.path``."""
+
+    def __init__(self, path: Path = DB_PATH) -> None:
+        super().__init__(path)
+
+    async def get_settings(self, world: str, guild_name: str) -> dict:
+        """``{officers_can_delete_parses, updated_by, updated_at}`` — the
+        defaults (and ``None`` audit fields) when the guild has no row."""
+        async with self._db(row_factory=True) as db:
+            async with db.execute(_SQL["select_settings"], (world, guild_name)) as cur:
+                row = await cur.fetchone()
+        if row is None:
+            return {**DEFAULT_GUILD_SETTINGS, "updated_by": None, "updated_at": None}
+        return {
+            "officers_can_delete_parses": bool(row["officers_can_delete_parses"]),
+            "updated_by": row["updated_by"],
+            "updated_at": row["updated_at"],
+        }
+
+    async def upsert_settings(
+        self, world: str, guild_name: str, *, officers_can_delete_parses: bool, updated_by: str
+    ) -> dict:
+        """Write the guild's switches and return the stored state."""
+        async with self._db() as db:
+            await db.execute(
+                _SQL["upsert_settings"],
+                (world, guild_name, 1 if officers_can_delete_parses else 0, updated_by),
+            )
+            await db.commit()
+        return await self.get_settings(world, guild_name)
+
+    async def officers_can_delete_parses(self, world: str, guild_names: Iterable[str]) -> dict[str, bool]:
+        """One IN-query for the hot paths (the /parses permission pass and
+        the delete routes): ``{guild_name: flag}`` for every name asked,
+        absent guilds ``True``. Empty input returns ``{}`` without opening a
+        connection."""
+        names = sorted({g for g in guild_names if g})
+        if not names:
+            return {}
+        flags = dict.fromkeys(names, True)
+        placeholders = ",".join("?" * len(names))
+        sql = _SQL["select_delete_flags"].format(placeholders=placeholders)
+        async with self._db(row_factory=True) as db:
+            async with db.execute(sql, (world, *names)) as cur:
+                for row in await cur.fetchall():
+                    flags[row["guild_name"]] = bool(row["officers_can_delete_parses"])
+        return flags
+
+
+# The shared default instance — every runtime consumer goes through this.
+store = GuildSettingsStore()

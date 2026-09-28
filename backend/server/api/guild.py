@@ -196,6 +196,38 @@ async def _officer_chars(discord_id: str, guild_name: str) -> set[str]:
     return {name for name in approved if rank_map.get(name) in _OFFICER_RANKS}
 
 
+_LEADER_RANK = 0  # Census rank_list: rank_id 0 is the guild leader
+
+
+async def _leader_chars(discord_id: str, guild_name: str) -> set[str]:
+    """
+    Return the set of this user's approved character names (lower-cased) that
+    hold the LEADER rank (rank_id 0) in the named guild. Empty set means the
+    user is not the leader. Full-fetch variant (may await Census on a cold
+    cache) — for explicit actions such as changing guild settings.
+    """
+    claims_data = await get_active_claims(discord_id, world=current_world())
+    approved = {c["character_name"].lower() for c in claims_data["approved"]}
+    if not approved:
+        return set()
+    rank_map = await _roster_rank_map(guild_name)
+    return {name for name in approved if rank_map.get(name) == _LEADER_RANK}
+
+
+async def _leader_chars_cached(discord_id: str, guild_name: str) -> set[str] | None:
+    """Cache-only twin of :func:`_leader_chars` (see
+    :func:`_roster_rank_map_cached`): ``None`` on a cold cache, never a
+    Census fetch. For polled / hot read paths."""
+    claims_data = await get_active_claims(discord_id, world=current_world())
+    approved = {c["character_name"].lower() for c in claims_data["approved"]}
+    if not approved:
+        return set()
+    rank_map = await _roster_rank_map_cached(guild_name)
+    if rank_map is None:
+        return None
+    return {name for name in approved if rank_map.get(name) == _LEADER_RANK}
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------

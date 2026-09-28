@@ -33,6 +33,7 @@ from backend.server.constants import PARSE_BATCH_MAX_IDS
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
 from backend.server.core.session_user import SessionUser
+from backend.server.db.guild_settings import store as guild_settings_db
 from backend.server.limiter import limiter
 from backend.server.parses.boss import is_boss
 from backend.server.parses.db import store as parses_db
@@ -44,12 +45,14 @@ _log = logging.getLogger(__name__)
 async def _can_delete_encounter(user: SessionUser, enc: dict, *, guild_ok: dict[str, bool] | None = None) -> bool:
     """Authorise deletion of one encounter row (must carry `guild_name` and
     `source_dsn`). Any of: admin, the original uploader, or an officer of the
-    encounter's guild. Never trusts the caller for guild/uploader — both come
-    from the stored row.
+    encounter's guild — the last only while the guild's leader allows it
+    (``guild_settings.officers_can_delete_parses``; unhide shares the rule).
+    Never trusts the caller for guild/uploader — both come from the stored
+    row.
 
     ``guild_ok`` is an optional per-request memo of the officer verdict keyed
     by guild name: a batch of 200 ids from one guild then costs one roster
-    lookup, not 200."""
+    lookup and one settings read, not 200."""
     if _is_admin(user) or _uploader_discord_id(enc.get("source_dsn")) == user["id"]:
         return True
     gname = enc.get("guild_name")
@@ -60,6 +63,9 @@ async def _can_delete_encounter(user: SessionUser, enc: dict, *, guild_ok: dict[
     from backend.server.api.guild import _officer_chars
 
     verdict = bool(await _officer_chars(user["id"], gname))
+    if verdict:
+        flags = await guild_settings_db.officers_can_delete_parses(current_world(), [gname])
+        verdict = flags.get(gname, True)
     if guild_ok is not None:
         guild_ok[gname] = verdict
     return verdict

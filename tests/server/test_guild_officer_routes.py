@@ -96,10 +96,11 @@ class TestGetOfficerStatus:
         assert r.json()["is_officer"] is False
 
     async def test_officer_returns_true(self, app):
-        """User with officer rank returns is_officer: true."""
-        with patch(
-            "backend.server.api.guild_officer._officer_chars",
-            new=AsyncMock(return_value={"sihtric"}),
+        """User with officer rank returns is_officer: true — and, unless they
+        hold rank 0, is_leader: false."""
+        with (
+            patch("backend.server.api.guild_officer._officer_chars", new=AsyncMock(return_value={"sihtric"})),
+            patch("backend.server.api.guild_officer._leader_chars", new=AsyncMock(return_value=set())),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app),
@@ -108,7 +109,25 @@ class TestGetOfficerStatus:
             ) as client:
                 r = await client.get("/api/guild/Exordium/officer-status")
         assert r.status_code == 200
-        assert r.json()["is_officer"] is True
+        assert r.json() == {"is_officer": True, "is_leader": False}
+
+    async def test_leader_returns_both_true(self, app):
+        with (
+            patch("backend.server.api.guild_officer._officer_chars", new=AsyncMock(return_value={"sihtric"})),
+            patch("backend.server.api.guild_officer._leader_chars", new=AsyncMock(return_value={"sihtric"})),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                cookies=_officer_cookies(),
+            ) as client:
+                r = await client.get("/api/guild/Exordium/officer-status")
+        assert r.json() == {"is_officer": True, "is_leader": True}
+
+    async def test_unauthenticated_has_no_leader_flag_either(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/guild/Exordium/officer-status")
+        assert r.json() == {"is_officer": False, "is_leader": False}
 
 
 # ---------------------------------------------------------------------------

@@ -58,7 +58,13 @@ export interface GuildAdornCheck {
   members: MemberAdornStats[]
 }
 
-export type Tab = 'roster' | 'spells' | 'adorns' | 'progression' | 'raids' | 'attendance' | 'claims' | 'watch'
+export type Tab = 'roster' | 'spells' | 'adorns' | 'progression' | 'raids' | 'attendance' | 'claims' | 'watch' | 'settings'
+
+export interface GuildSettings {
+  officers_can_delete_parses: boolean
+  updated_at: number | null
+  updated_by_name: string | null
+}
 
 // Shared table-cell utility classes (invariant, dynamic bits stay inline at call sites)
 export const TH_CLS = 'px-2.5 py-2 text-[0.72rem] uppercase tracking-[0.05em] font-semibold whitespace-nowrap'

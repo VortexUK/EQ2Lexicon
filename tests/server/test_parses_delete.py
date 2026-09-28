@@ -8,7 +8,7 @@ Extracted from test_parses.py:593-1217 per TEST-004 / Phase 2b.3.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -716,3 +716,98 @@ async def test_unhide_random_user_403(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/api/parses/1/unhide")
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# guild_settings.officers_can_delete_parses — a leader can switch officers off
+# ---------------------------------------------------------------------------
+
+
+async def _officer_of_exordium(discord_id, guild):
+    return {"menludiir"} if guild == "Exordium" else set()
+
+
+def _flag_off():
+    return patch(
+        "backend.server.api.parses.delete.guild_settings_db.officers_can_delete_parses",
+        new=AsyncMock(return_value={"Exordium": False}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_officer_blocked_from_single_delete_and_unhide_when_guild_disables_it(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER", "title": "Tarinax", "hidden_at": None}
+    delete_mock = MagicMock(return_value=True)
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=False),
+        patch("backend.server.api.guild._officer_chars", _officer_of_exordium),
+        _flag_off(),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("backend.server.api.parses.delete.parses_db.soft_delete_encounter", delete_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            deleted = await client.delete("/api/parses/1")
+            unhidden = await client.post("/api/parses/1/unhide")
+    assert deleted.status_code == 403
+    assert unhidden.status_code == 403
+    delete_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_batch_skips_officer_ids_when_guild_disables_it_but_keeps_own_uploads(app):
+    rows = [
+        {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:123456789", "title": "a rat", "hidden_at": None},
+        {"id": 2, "guild_name": "Exordium", "source_dsn": "plugin:OTHER1", "title": "a rat", "hidden_at": None},
+        {"id": 3, "guild_name": "Exordium", "source_dsn": "plugin:OTHER2", "title": "a rat", "hidden_at": None},
+    ]
+    delete_mock = MagicMock(return_value=True)
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=False),
+        patch("backend.server.api.guild._officer_chars", _officer_of_exordium),
+        _flag_off(),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_multi(rows)),
+        patch("backend.server.api.parses.delete.parses_db.delete_encounter", delete_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/batch?ids=1,2,3")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 1}
+    assert [c.args[1] for c in delete_mock.call_args_list] == [1]
+
+
+@pytest.mark.asyncio
+async def test_admin_unaffected_when_guild_disables_officer_deletes(app):
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER", "title": "a rat", "hidden_at": None}
+    delete_mock = MagicMock(return_value=True)
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=True),
+        _flag_off(),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("backend.server.api.parses.delete.parses_db.delete_encounter", delete_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200
+    delete_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_officer_allowed_when_guild_setting_is_default(app):
+    """The default (no guild_settings row) keeps today's behaviour — read
+    from the real users.db store rather than a mock."""
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER", "title": "a rat", "hidden_at": None}
+    delete_mock = MagicMock(return_value=True)
+    with (
+        patch("backend.server.api.parses.delete._require_user", _fake_user),
+        patch("backend.server.api.parses.delete._is_admin", return_value=False),
+        patch("backend.server.api.guild._officer_chars", _officer_of_exordium),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_for_fetch(enc)),
+        patch("backend.server.api.parses.delete.parses_db.delete_encounter", delete_mock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.delete("/api/parses/1")
+    assert r.status_code == 200
+    delete_mock.assert_called_once()

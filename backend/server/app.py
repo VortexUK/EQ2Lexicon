@@ -69,6 +69,7 @@ from backend.server.api.export import router as export_router
 from backend.server.api.favorites import router as favorites_router
 from backend.server.api.guild import router as guild_router
 from backend.server.api.guild_officer import router as guild_officer_router
+from backend.server.api.guild_settings import router as guild_settings_router
 from backend.server.api.health import router as health_router
 from backend.server.api.item import router as item_router
 from backend.server.api.item_watch import router as item_watch_router
@@ -672,6 +673,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         admin_router,
         guild_router,
         guild_officer_router,
+        guild_settings_router,
         item_watch_router,
         raid_planning_router,
         aa_plans_router,

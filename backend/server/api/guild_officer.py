@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.server.api.claim import invalidate_user_claim_cache_all_worlds
-from backend.server.api.guild import _officer_chars, _roster_rank_map, _validate_guild_name
+from backend.server.api.guild import _leader_chars, _officer_chars, _roster_rank_map, _validate_guild_name
 from backend.server.auth_deps import require_admin as _require_admin
 from backend.server.db import (
     get_claim_by_id,
@@ -49,15 +49,18 @@ class RejectNoteRequest(BaseModel):
 @router.get("/guild/{guild_name}/officer-status")
 async def get_officer_status(guild_name: str, request: Request) -> dict:
     """
-    Return whether the current user holds an officer rank in this guild.
-    Always returns 200 (unauthenticated / non-officer users get is_officer: false).
+    Return whether the current user holds an officer rank in this guild, and
+    separately whether they are its LEADER (rank 0 — the one rank that may
+    change guild settings). Always returns 200 (unauthenticated / non-officer
+    users get both false).
     """
     _validate_guild_name(guild_name)
     user = request.session.get("user")
     if not user:
-        return {"is_officer": False}
+        return {"is_officer": False, "is_leader": False}
     chars = await _officer_chars(user["id"], guild_name)
-    return {"is_officer": bool(chars)}
+    leader = await _leader_chars(user["id"], guild_name) if chars else set()
+    return {"is_officer": bool(chars), "is_leader": bool(leader)}
 
 
 @router.get("/guild/{guild_name}/claims", response_model=list[GuildClaimItem])

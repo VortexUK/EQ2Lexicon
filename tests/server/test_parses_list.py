@@ -501,3 +501,96 @@ def test_invalidate_parses_list_cache_clears_entries():
     assert parses_list._LIST_CACHE.get("Varsoon|500||||") is not None
     parses_list.invalidate_parses_list_cache()
     assert parses_list._LIST_CACHE.get("Varsoon|500||||") is None
+
+
+# ---------------------------------------------------------------------------
+# _compute_permissions — officer can_delete honours guild_settings
+# ---------------------------------------------------------------------------
+
+
+def _fake_request(user: dict | None) -> MagicMock:
+    req = MagicMock()
+    req.session = {"user": user} if user else {}
+    return req
+
+
+_ENCS = [
+    {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER"},
+    {"id": 2, "guild_name": "Exordium", "source_dsn": "plugin:u1"},  # caller's own upload
+    {"id": 3, "guild_name": "Remnant", "source_dsn": "plugin:OTHER"},
+]
+
+
+def _perm_patches(*, rank_map, flags):
+    from unittest.mock import AsyncMock
+
+    from backend.server.db.guild_settings import store as guild_settings_store
+
+    return (
+        patch("backend.server.api.parses.list._is_admin", return_value=False),
+        patch(
+            "backend.server.db.get_active_claims",
+            new=AsyncMock(return_value={"approved": [{"character_name": "Sihtric"}]}),
+        ),
+        patch("backend.server.api.guild._roster_rank_map_cached", new=AsyncMock(return_value=rank_map)),
+        patch.object(guild_settings_store, "officers_can_delete_parses", new=AsyncMock(return_value=flags)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_compute_permissions_officer_allowed_by_default():
+    from backend.server.api.parses.list import _compute_permissions
+
+    p_admin, p_claims, p_rank, p_flags = _perm_patches(
+        rank_map={"sihtric": 1}, flags={"Exordium": True, "Remnant": True}
+    )
+    with p_admin, p_claims, p_rank, p_flags as flags_mock:
+        out = await _compute_permissions(_fake_request({"id": "u1"}), _ENCS)
+    assert [out[i].can_delete for i in (1, 2, 3)] == [True, True, True]
+    flags_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_compute_permissions_officer_blocked_when_guild_disables_it():
+    from backend.server.api.parses.list import _compute_permissions
+
+    p_admin, p_claims, p_rank, p_flags = _perm_patches(
+        rank_map={"sihtric": 1}, flags={"Exordium": False, "Remnant": True}
+    )
+    with p_admin, p_claims, p_rank, p_flags:
+        out = await _compute_permissions(_fake_request({"id": "u1"}), _ENCS)
+    # Exordium: no officer delete… but the caller's OWN upload (id 2) stays deletable.
+    assert [out[i].can_delete for i in (1, 2, 3)] == [False, True, True]
+
+
+@pytest.mark.asyncio
+async def test_compute_permissions_non_officer_never_reads_settings():
+    from backend.server.api.parses.list import _compute_permissions
+
+    p_admin, p_claims, p_rank, p_flags = _perm_patches(rank_map={"sihtric": 5}, flags={})
+    with p_admin, p_claims, p_rank, p_flags as flags_mock:
+        out = await _compute_permissions(_fake_request({"id": "u1"}), _ENCS)
+    assert [out[i].can_delete for i in (1, 2, 3)] == [False, True, False]
+    flags_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_compute_permissions_cold_cache_means_no_officer_buttons():
+    from backend.server.api.parses.list import _compute_permissions
+
+    p_admin, p_claims, p_rank, p_flags = _perm_patches(rank_map=None, flags={})
+    with p_admin, p_claims, p_rank, p_flags as flags_mock:
+        out = await _compute_permissions(_fake_request({"id": "u1"}), _ENCS)
+    assert [out[i].can_delete for i in (1, 2, 3)] == [False, True, False]
+    flags_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_compute_permissions_admin_short_circuits():
+    from backend.server.api.parses.list import _compute_permissions
+
+    _, p_claims, p_rank, p_flags = _perm_patches(rank_map=None, flags={})
+    with patch("backend.server.api.parses.list._is_admin", return_value=True), p_claims, p_rank, p_flags as flags_mock:
+        out = await _compute_permissions(_fake_request({"id": "u1"}), _ENCS)
+    assert all(out[i].can_delete for i in (1, 2, 3))
+    flags_mock.assert_not_awaited()
