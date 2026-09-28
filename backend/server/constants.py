@@ -52,6 +52,13 @@ PARSE_MIRROR_WINDOW_S: int = 60
 # inner SQL cap is `limit * PARSE_INNER_CAP_MULTIPLIER` (see below).
 PARSE_LIST_MAX_LIMIT: int = 500
 
+# DELETE /api/parses/batch per-request id cap. 200 ids × ~8 chars ≈ 1.6 KB of
+# query string (under the ~2 KB URL comfort limit) and 6,000 ids/min at the
+# route's 30/min limit — a 500-fight /parses page with mirrors clears in a
+# handful of requests. Mirrored by PARSE_BATCH_CHUNK_SIZE in
+# frontend/src/pages/parses/api.ts.
+PARSE_BATCH_MAX_IDS: int = 200
+
 # Inner SQL cap multiplier — worst-case 24 mirror uploads per fight, so a
 # 500-fight request needs 12_000 raw upload rows; round up to 15_000 for
 # headroom. Floor of 2000 covers very small page requests.

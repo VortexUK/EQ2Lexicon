@@ -161,7 +161,7 @@ export default function ParsesPage() {
     return url.toString()
   }, [size, search])
 
-  const { data: fetchedData, loading, error } = useFetch<ParsesListResponse>(parsesUrl)
+  const { data: fetchedData, loading, error, refetch } = useFetch<ParsesListResponse>(parsesUrl)
 
   // Local copy for optimistic deletions — seeded from fetchedData on each
   // successful fetch, then mutated locally so deletes don't trigger a full
@@ -287,6 +287,10 @@ export default function ParsesPage() {
               bucket={g}
               defaultExpanded={grouped.length === 1}
               onDeleted={removeEncounters}
+              // A partially-confirmed delete refetches: localData is
+              // replaced and the "Load older" cursor resets — acceptable on
+              // this error path, where the local copy can no longer be trusted.
+              onResync={refetch}
             />
           ))}
         </div>

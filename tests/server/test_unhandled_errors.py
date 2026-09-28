@@ -102,15 +102,16 @@ async def test_unhandled_exception_is_one_line_with_json_500(exploding_app, capl
 
 @pytest.mark.asyncio
 async def test_rate_limit_logs_once_per_minute_per_client(app, caplog):
-    # DELETE /api/parses is 10/minute and the limit is checked before auth,
-    # so unauthenticated calls burn the budget: 10x 401 then 429s.
+    # DELETE /api/guild/{g}/attendance/{id} is 10/minute and the limit is
+    # checked before auth, so unauthenticated calls burn the budget: 10x 401
+    # then 429s.
     with caplog.at_level(logging.WARNING):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            statuses = [(await client.delete("/api/parses?guild=X")).status_code for _ in range(15)]
+            statuses = [(await client.delete("/api/guild/X/attendance/1")).status_code for _ in range(15)]
     assert statuses[:10] == [401] * 10
     assert statuses[10:] == [429] * 5
     ours = [r for r in caplog.records if "[ratelimit]" in r.getMessage()]
     assert len(ours) == 1
-    assert "DELETE /api/parses exceeded 10 per 1 minute for ip:" in ours[0].getMessage()
+    assert "DELETE /api/guild/X/attendance/1 exceeded 10 per 1 minute for ip:" in ours[0].getMessage()
     # (slowapi's own per-request warning is pinned to ERROR by configure_logging —
     # covered in test_logging_config.py; the test app doesn't run that setup.)

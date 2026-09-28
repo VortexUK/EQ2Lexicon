@@ -736,21 +736,6 @@ class TestDeleteHelpers:
         )
 
 
-class TestFindByFilter:
-    def test_find_encounters_by_filter_returns_id_and_title(self, parses_db_conn):
-        enc = _sample_encounter()
-        eid = parses_db.store.insert_encounter(
-            parses_db_conn,
-            enc,
-            source_dsn="eq2act",
-            ingested_at=1700000000,
-            guild_name="Exordium",
-        )
-        rows = parses_db.store.find_encounters_by_filter(parses_db_conn, guild_name="Exordium")
-        assert {"id", "title"} <= set(rows[0].keys())
-        assert rows[0]["id"] == eid
-
-
 # ---------------------------------------------------------------------------
 # Per-server world scoping — Task 8: (world, act_encid) uniqueness
 # ---------------------------------------------------------------------------

@@ -453,10 +453,6 @@ UPDATE encounters SET hidden_at = NULL, hidden_by = NULL WHERE id = ? AND hidden
 -- :name set_encounter_guild_name
 UPDATE encounters SET guild_name = ? WHERE id = ?;
 
--- :name find_encounters_by_filter
--- {where} = "WHERE …" composed in Python (dynamic guild/world/zone/uploader/date).
-SELECT id, title, guild_name, source_dsn FROM encounters {where};
-
 -- :name get_combatants_for_encounter
 SELECT * FROM combatants WHERE encounter_id = ? ORDER BY damage DESC;
 

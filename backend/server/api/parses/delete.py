@@ -1,8 +1,15 @@
-"""DELETE /parses/* — batch / single / bulk encounter deletion.
+"""DELETE /parses/* — batch / single encounter deletion (+ unhide).
 
-Soft-delete (hidden_at set) is the default; admin bulk-delete can purge=true
-for a hard delete. Auth: admin sees all; officer of an encounter's guild
-or the original uploader can soft-delete their own.
+Soft-delete (hidden_at set) is the default for boss kills; admins can
+purge=true for a hard delete. Auth: admin sees all; officer of an encounter's
+guild or the original uploader can soft-delete their own.
+
+There is deliberately NO filter-based bulk delete any more. The former
+``DELETE /parses?guild=`` route matched every parse a guild had ever
+uploaded while the page's confirm dialog quoted only the rows visible under
+the current filters — on 2026-09-27 that wiped a guild's whole history from a
+"clear this view" click. Every deletion now names its ids explicitly, and
+each id is authorised on its own row.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from backend.server.auth_deps import (
 from backend.server.auth_deps import (
     require_user_session as _require_user,
 )
+from backend.server.constants import PARSE_BATCH_MAX_IDS
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
 from backend.server.core.session_user import SessionUser
@@ -33,20 +41,28 @@ from backend.server.server_context import current_world
 _log = logging.getLogger(__name__)
 
 
-async def _can_delete_encounter(user: SessionUser, enc: dict) -> bool:
+async def _can_delete_encounter(user: SessionUser, enc: dict, *, guild_ok: dict[str, bool] | None = None) -> bool:
     """Authorise deletion of one encounter row (must carry `guild_name` and
     `source_dsn`). Any of: admin, the original uploader, or an officer of the
     encounter's guild. Never trusts the caller for guild/uploader — both come
-    from the stored row."""
+    from the stored row.
+
+    ``guild_ok`` is an optional per-request memo of the officer verdict keyed
+    by guild name: a batch of 200 ids from one guild then costs one roster
+    lookup, not 200."""
     if _is_admin(user) or _uploader_discord_id(enc.get("source_dsn")) == user["id"]:
         return True
     gname = enc.get("guild_name")
-    if gname:
-        from backend.server.api.guild import _officer_chars
+    if not gname:
+        return False
+    if guild_ok is not None and gname in guild_ok:
+        return guild_ok[gname]
+    from backend.server.api.guild import _officer_chars
 
-        if await _officer_chars(user["id"], gname):
-            return True
-    return False
+    verdict = bool(await _officer_chars(user["id"], gname))
+    if guild_ok is not None:
+        guild_ok[gname] = verdict
+    return verdict
 
 
 def _fetch_encounter_auth_rows(ids: list[int], world: str) -> list[dict]:
@@ -97,6 +113,10 @@ async def delete_parses_batch(
     them from leaderboards. Without purge, boss kills are soft-deleted
     (hidden_at set) to preserve their ranking entry.
 
+    A guild-wide delete from /parses arrives as several of these requests
+    (the page chunks the VISIBLE upload ids at PARSE_BATCH_MAX_IDS per call),
+    so one audit line per request is the expected shape.
+
     Defined before /parses/{encounter_id} so the literal path wins the route
     match.
     """
@@ -113,7 +133,7 @@ async def delete_parses_batch(
             id_list.append(int(tok))
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid encounter id: {tok!r}") from None
-    id_list = list(dict.fromkeys(id_list))[:64]  # dedupe, cap fan-out
+    id_list = list(dict.fromkeys(id_list))[:PARSE_BATCH_MAX_IDS]  # dedupe, cap fan-out
     if not id_list:
         raise HTTPException(status_code=400, detail="ids must not be empty")
 
@@ -121,7 +141,8 @@ async def delete_parses_batch(
     if not rows:
         raise HTTPException(status_code=404, detail="No matching parses")
 
-    allowed_rows = [enc for enc in rows if await _can_delete_encounter(user, enc)]
+    guild_ok: dict[str, bool] = {}
+    allowed_rows = [enc for enc in rows if await _can_delete_encounter(user, enc, guild_ok=guild_ok)]
     if not allowed_rows:
         raise HTTPException(status_code=403, detail="Not authorised to delete these parses")
 
@@ -144,6 +165,7 @@ async def delete_parses_batch(
         actor=user["id"],
         count=n,
         ids=",".join(str(i) for i in id_list[:20]) + (" …" if len(id_list) > 20 else ""),
+        guilds=",".join(sorted({enc["guild_name"] for enc in allowed_rows if enc.get("guild_name")})),
         purged=purge,
     )
     return DeleteParsesResponse(deleted=n)
@@ -225,72 +247,3 @@ async def unhide_parse(request: Request, encounter_id: int) -> dict:
             title=rows[0]["title"],
         )
     return {"unhidden": restored}
-
-
-@router.delete("/parses", response_model=DeleteParsesResponse)
-@limiter.limit("10/minute")
-async def delete_parses_bulk(
-    request: Request,
-    guild: str,
-    zone: str | None = None,
-    date: str | None = None,  # YYYY-MM-DD in server local timezone
-    uploader: str | None = None,
-    purge: bool = False,
-) -> DeleteParsesResponse:
-    """Bulk delete by filter. `guild` is required — there is deliberately no
-    "delete everything across all guilds" path. Permission: admin or officer
-    of the named guild.
-
-    Boss kills are soft-deleted (hidden_at set, ranking entry preserved);
-    trash encounters are hard-deleted. `purge=true` (admin only) hard-deletes
-    everything, including boss kills."""
-    user = _require_user(request)
-    if purge and not _is_admin(user):
-        raise HTTPException(status_code=403, detail="Only an admin may hard-purge parses")
-
-    guild = guild.strip()
-    if not guild:
-        raise HTTPException(status_code=400, detail="guild parameter must not be empty")
-
-    allowed = _is_admin(user)
-    if not allowed:
-        from backend.server.api.guild import _officer_chars
-
-        if await _officer_chars(user["id"], guild):
-            allowed = True
-    if not allowed:
-        raise HTTPException(status_code=403, detail="Not authorised to delete parses for this guild")
-
-    now = int(time.time())
-
-    _world = current_world()
-
-    def _delete_sync() -> int:
-        conn = parses_db.init_db()
-        try:
-            matches = parses_db.find_encounters_by_filter(
-                conn,
-                guild_name=guild,
-                zone=zone,
-                date=date,
-                uploaded_by=uploader,
-                world=_world,
-            )
-            return sum(
-                1 for enc in matches if _apply_delete(conn, enc, purge=purge, hidden_at=now, hidden_by=user["id"])
-            )
-        finally:
-            conn.close()
-
-    n = await run_sync(_delete_sync)
-    audit_log(
-        "parse_bulk_deleted",
-        actor=user["id"],
-        count=n,
-        filter_guild=guild,
-        filter_zone=zone or "*",
-        filter_date=date or "*",
-        filter_uploader=uploader or "*",
-        purged=purge,
-    )
-    return DeleteParsesResponse(deleted=n)

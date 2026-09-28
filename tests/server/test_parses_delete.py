@@ -1,5 +1,7 @@
 """Tests for DELETE /api/parses/{id}, DELETE /api/parses/batch,
-DELETE /api/parses (bulk), soft-delete, boss/trash/purge logic.
+soft-delete, boss/trash/purge logic — and the ABSENCE of the former
+filter-based DELETE /api/parses (removed 2026-09-28 after it wiped a guild's
+whole history from a "clear this view" click).
 
 Extracted from test_parses.py:593-1217 per TEST-004 / Phase 2b.3.
 """
@@ -322,86 +324,104 @@ async def test_delete_batch_rejects_bad_ids(app):
 
 
 # ---------------------------------------------------------------------------
-# DELETE /api/parses (bulk by filter)
+# DELETE /api/parses (the filter-based bulk route) is GONE
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_delete_bulk_requires_auth(app):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.delete("/api/parses?guild=Exordium")
-    assert r.status_code == 401
+async def test_delete_bulk_by_filter_route_is_gone(app):
+    """2026-09-27 regression: `DELETE /api/parses?guild=` matched a guild's
+    entire history while the page's confirm quoted only the visible rows.
+    The route no longer exists — GET /api/parses does, so the answer is a
+    405, not a 404 — and no amount of auth changes that."""
+    with patch("backend.server.api.parses.delete._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            anon = await client.delete("/api/parses?guild=Exordium")
+            with patch("backend.server.api.parses.delete._is_admin", return_value=True):
+                admin = await client.delete("/api/parses?guild=Exordium&purge=1")
+    assert anon.status_code == 405
+    assert admin.status_code == 405
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/parses/batch — cap, per-guild memo, audit
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_delete_bulk_admin_passes_filters(app):
-    captured = {}
+async def test_delete_batch_caps_at_max_ids(app):
+    """Ids past PARSE_BATCH_MAX_IDS are dropped before the auth lookup — the
+    page chunks at the same number, so a well-behaved client never hits it."""
+    from backend.server.constants import PARSE_BATCH_MAX_IDS
 
-    def fake_find(conn, *, guild_name, zone=None, date=None, uploaded_by=None, world=None):
-        captured.update(guild_name=guild_name, zone=zone, date=date, uploaded_by=uploaded_by, world=world)
-        return [
-            {"id": 1, "title": "a krait patriarch", "guild_name": guild_name, "source_dsn": "plugin:X"},
-            {"id": 2, "title": "a krait patriarch", "guild_name": guild_name, "source_dsn": "plugin:Y"},
-        ]
-
+    ids = list(range(1, PARSE_BATCH_MAX_IDS + 6))
+    rows = [
+        {"id": i, "guild_name": None, "source_dsn": "plugin:OTHER", "title": "a rat", "hidden_at": None} for i in ids
+    ]
+    conn = _fake_conn_multi(rows)
     with (
         patch("backend.server.api.parses.delete._require_user", _fake_user),
         patch("backend.server.api.parses.delete._is_admin", return_value=True),
-        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=MagicMock()),
-        patch("backend.server.api.parses.delete.parses_db.find_encounters_by_filter", fake_find),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=conn),
         patch("backend.server.api.parses.delete.parses_db.delete_encounter", MagicMock(return_value=True)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.delete("/api/parses?guild=Exordium&zone=Great+Divide&date=2026-05-24&uploader=Menludiir")
+            r = await client.delete("/api/parses/batch?ids=" + ",".join(map(str, ids)))
     assert r.status_code == 200
-    assert r.json() == {"deleted": 2}
-    assert captured["guild_name"] == "Exordium"
-    assert captured["zone"] == "Great Divide"
-    assert captured["date"] == "2026-05-24"
-    assert captured["uploaded_by"] == "Menludiir"
-    # world must always be passed (per-server isolation)
-    assert captured["world"] is not None
+    # First execute() is the auth SELECT: [*ids, world] — exactly the cap + world.
+    select_params = conn.execute.call_args_list[0].args[1]
+    assert len(select_params) == PARSE_BATCH_MAX_IDS + 1
+    assert select_params[:PARSE_BATCH_MAX_IDS] == ids[:PARSE_BATCH_MAX_IDS]
 
 
 @pytest.mark.asyncio
-async def test_delete_bulk_officer_allowed(app):
+async def test_delete_batch_officer_check_once_per_guild(app):
+    """A 200-id chunk from one guild must cost one roster lookup, not 200."""
+    rows = [
+        {"id": i, "guild_name": g, "source_dsn": f"plugin:OTHER{i}", "title": "a rat", "hidden_at": None}
+        for i, g in enumerate(["Exordium"] * 3 + ["Remnant"] * 3, start=1)
+    ]
+    calls: list[str] = []
+
     async def fake_officer_chars(discord_id, guild):
+        calls.append(guild)
         return {"menludiir"} if guild == "Exordium" else set()
 
     with (
         patch("backend.server.api.parses.delete._require_user", _fake_user),
         patch("backend.server.api.parses.delete._is_admin", return_value=False),
         patch("backend.server.api.guild._officer_chars", fake_officer_chars),
-        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=MagicMock()),
-        patch(
-            "backend.server.api.parses.delete.parses_db.find_encounters_by_filter",
-            MagicMock(
-                return_value=[
-                    {"id": 1, "title": "a krait patriarch", "guild_name": "Exordium", "source_dsn": "plugin:X"},
-                ]
-            ),
-        ),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_multi(rows)),
         patch("backend.server.api.parses.delete.parses_db.delete_encounter", MagicMock(return_value=True)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.delete("/api/parses?guild=Exordium")
+            r = await client.delete("/api/parses/batch?ids=1,2,3,4,5,6")
     assert r.status_code == 200
-    assert r.json() == {"deleted": 1}
+    assert r.json() == {"deleted": 3}  # only the Exordium rows
+    assert sorted(calls) == ["Exordium", "Remnant"]
 
 
 @pytest.mark.asyncio
-async def test_delete_bulk_random_user_403(app):
-    async def fake_officer_chars(discord_id, guild):
-        return set()
-
+async def test_delete_batch_audit_names_the_guilds(app):
+    rows = [
+        {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER", "title": "a rat", "hidden_at": None},
+        {"id": 2, "guild_name": "Remnant", "source_dsn": "plugin:OTHER", "title": "a rat", "hidden_at": None},
+    ]
+    audit = MagicMock()
     with (
         patch("backend.server.api.parses.delete._require_user", _fake_user),
-        patch("backend.server.api.parses.delete._is_admin", return_value=False),
-        patch("backend.server.api.guild._officer_chars", fake_officer_chars),
+        patch("backend.server.api.parses.delete._is_admin", return_value=True),
+        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=_fake_conn_multi(rows)),
+        patch("backend.server.api.parses.delete.parses_db.delete_encounter", MagicMock(return_value=True)),
+        patch("backend.server.api.parses.delete.audit_log", audit),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.delete("/api/parses?guild=Exordium")
-    assert r.status_code == 403
+            r = await client.delete("/api/parses/batch?ids=1,2")
+    assert r.status_code == 200
+    audit.assert_called_once()
+    assert audit.call_args.args[0] == "parse_batch_deleted"
+    assert audit.call_args.kwargs["guilds"] == "Exordium,Remnant"
+    assert audit.call_args.kwargs["count"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -598,69 +618,6 @@ async def test_delete_batch_purge_hard_deletes_each(app):
     assert r.status_code == 200 and r.json() == {"deleted": 2}
     assert hard.call_count == 2
     soft.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Bulk-by-filter soft-delete vs hard-delete (Task 7)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_bulk_delete_soft_deletes_bosses(app):
-    matches = [
-        {"id": 1, "title": "Tarinax", "guild_name": "Exordium", "source_dsn": "plugin:OTHER"},
-        {"id": 2, "title": "a krait patriarch", "guild_name": "Exordium", "source_dsn": "plugin:OTHER"},
-    ]
-    soft = MagicMock(return_value=True)
-    hard = MagicMock(return_value=True)
-    with (
-        patch("backend.server.api.parses.delete._require_user", _fake_user),
-        patch("backend.server.api.parses.delete._is_admin", return_value=True),
-        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=MagicMock()),
-        patch("backend.server.api.parses.delete.parses_db.find_encounters_by_filter", MagicMock(return_value=matches)),
-        patch("backend.server.api.parses.delete.parses_db.soft_delete_encounter", soft),
-        patch("backend.server.api.parses.delete.parses_db.delete_encounter", hard),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.delete("/api/parses?guild=Exordium")
-    assert r.status_code == 200 and r.json() == {"deleted": 2}
-    soft.assert_called_once()  # Tarinax (boss)
-    hard.assert_called_once()  # trash
-
-
-@pytest.mark.asyncio
-async def test_bulk_delete_purge_hard_deletes_boss(app):
-    matches = [{"id": 1, "title": "Tarinax", "guild_name": "Exordium", "source_dsn": "plugin:OTHER"}]
-    soft = MagicMock(return_value=True)
-    hard = MagicMock(return_value=True)
-    with (
-        patch("backend.server.api.parses.delete._require_user", _fake_user),
-        patch("backend.server.api.parses.delete._is_admin", return_value=True),
-        patch("backend.server.api.parses.delete.parses_db.init_db", return_value=MagicMock()),
-        patch("backend.server.api.parses.delete.parses_db.find_encounters_by_filter", MagicMock(return_value=matches)),
-        patch("backend.server.api.parses.delete.parses_db.soft_delete_encounter", soft),
-        patch("backend.server.api.parses.delete.parses_db.delete_encounter", hard),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.delete("/api/parses?guild=Exordium&purge=1")
-    assert r.status_code == 200 and r.json() == {"deleted": 1}
-    hard.assert_called_once()  # purge forces hard delete even for a boss
-    soft.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_bulk_delete_purge_forbidden_for_non_admin(app):
-    async def fake_officer_chars(discord_id, guild):
-        return {"menludiir"}  # officer, but NOT admin
-
-    with (
-        patch("backend.server.api.parses.delete._require_user", _fake_user),
-        patch("backend.server.api.parses.delete._is_admin", return_value=False),
-        patch("backend.server.api.guild._officer_chars", fake_officer_chars),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.delete("/api/parses?guild=Exordium&purge=1")
-    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------------------

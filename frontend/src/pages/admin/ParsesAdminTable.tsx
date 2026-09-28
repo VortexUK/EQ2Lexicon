@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui'
 import { fmtLocalDate, fmtLocalDateTime } from '../../formatters'
+import { PARSE_BATCH_CHUNK_SIZE } from '../parses/api'
 import {
   type AdminParse,
   SECTION_TITLE_CLS,
@@ -18,9 +19,6 @@ function resultLabel(successLevel: number): string {
     default: return '—'
   }
 }
-
-// URL-length safety cap for the batch-purge endpoint.
-const PARSE_BATCH_CHUNK_SIZE = 64
 
 // Page size of GET /api/admin/parses (mirrors the backend default limit).
 // A full page implies more history below it — the Load-older button pages
