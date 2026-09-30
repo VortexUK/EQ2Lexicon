@@ -19,6 +19,16 @@ FROM zone_encounter_mobs m
 JOIN zone_encounters e ON e.id = m.encounter_id
 JOIN zones z ON z.id = e.zone_id;
 
+-- :name list_raid_boss_mob_names
+-- Every curated mob name in a zone tagged as a raid (x4 or x2) — the list
+-- the desktop parser syncs for its "upload only raid parses" filter.
+-- Caller normalises (same key shape as boss_index).
+SELECT DISTINCT m.mob_name_lower
+FROM zone_encounter_mobs m
+JOIN zone_encounters e ON e.id = m.encounter_id
+JOIN zone_types t ON t.zone_id = e.zone_id
+WHERE t.type IN ('raid_x4', 'raid_x2');
+
 -- :name list_zones_by_type_with_encounters
 -- Zones tagged with a given zone-type token that have at least one
 -- encounter. Ordered newest-expansion-first within type.

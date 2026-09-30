@@ -77,6 +77,8 @@ Runs in **strict** mode (`_validate_payload_signature`): on token auth the heade
 
 Threat model: the legitimate token holder can sign anything — this doesn't stop a user forging their own parse. What it does stop is (a) casual payload tampering by editing JSON in a debugging proxy, (b) MITM mutation of the body in flight, (c) replay using only a stolen token without the protocol knowledge to sign. Real integrity has to come from server-side sanity checks (DPS-vs-level caps, plausible encounter duration, cross-validation) layered on top.
 
+**Raid-only client filter (2026-09-30)**: `GET /api/zones/raid-bosses` (public, 30/min, `Cache-Control: max-age=3600`) returns `{version, bosses[]}` — every curated raid-zone (`raid_x4`/`raid_x2`) mob name normalised with the rankings' `_normalise_boss_key` (lowercase, NFC, apostrophe variants collapsed), `version` = content hash. Built by `rankings._raid_boss_names` (lru, cleared by `invalidate_zones_cache`). EQ2Parser's "Upload only raid fights" option syncs it and uploads a fight when its title is on the list OR it had 7+ player allies (the rankings' raid scope). Keep the normaliser and the 7-player floor in step with `_SCOPES` / `_normalise_boss_key`.
+
 ## Web companion architecture
 
 FastAPI backend + React/TypeScript frontend. Key design decisions:

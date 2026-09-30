@@ -18,15 +18,17 @@ from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from backend.eq2db.zones import catalogue as zones_db
+from backend.server.api.rankings import raid_boss_pack
 from backend.server.auth_deps import require_user_session
 from backend.server.constants import SQLITE_VAR_CHUNK_SAFE
 from backend.server.core.executor import run_sync
 from backend.server.core.primary_guild import cached_primary_guild
 from backend.server.core.session_user import SessionUser
+from backend.server.limiter import limiter
 from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_world as _current_world
 from backend.sql_loader import load_sql
@@ -206,6 +208,26 @@ async def get_progress(user: SessionUser = Depends(require_user_session)) -> Rai
         character_name=character_name,
         killed_encounters=killed,
     )
+
+
+class RaidBossPackResponse(BaseModel):
+    version: str
+    bosses: list[str]
+
+
+@router.get("/zones/raid-bosses", response_model=RaidBossPackResponse)
+@limiter.limit("30/minute")
+async def list_raid_bosses(request: Request, response: Response) -> RaidBossPackResponse:
+    """Every curated raid-zone boss mob name, normalised (lowercase, NFC,
+    apostrophe variants collapsed — the rankings' boss-key shape), for the
+    desktop parser's "upload only raid parses" option: the client matches
+    a finished fight's target against this list before deciding to upload.
+    Public game data, no login; ``version`` is a content hash so an
+    unchanged roster is cheap to re-check. Literal path — defined before
+    /zones/{name} so it wins the route match."""
+    pack = await run_sync(raid_boss_pack)
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return RaidBossPackResponse(**pack)
 
 
 @router.get("/zones/{name}", response_model=ZoneResponse)

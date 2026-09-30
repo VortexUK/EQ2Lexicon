@@ -12,6 +12,7 @@ docs/superpowers/specs/2026-05-25-eq2logs-rankings-design.md.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import sqlite3
 import unicodedata
@@ -317,6 +318,34 @@ def invalidate_zones_cache() -> None:
     _classifier_cache_clear()
     parses_db.invalidate_is_player_cache()
     _encounter_required_mobs.cache_clear()
+    _raid_boss_names.cache_clear()
+
+
+@lru_cache(maxsize=1)
+def _raid_boss_names() -> tuple[str, ...]:
+    """Sorted, normalised (``_normalise_boss_key``) mob names of every
+    curated raid-zone encounter — what ``GET /api/zones/raid-bosses`` ships
+    to the desktop parser so it can decide client-side whether a fight is a
+    raid boss. Empty when zones.db is absent. Cleared by
+    invalidate_zones_cache() on curator edits."""
+    path = zones_db.path
+    if not path.exists():
+        return ()
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        names = {_normalise_boss_key(r[0]) for r in conn.execute(_SQL["list_raid_boss_mob_names"])}
+    finally:
+        conn.close()
+    return tuple(sorted(n for n in names if n))
+
+
+def raid_boss_pack() -> dict:
+    """``{version, bosses}`` for the parser's raid-boss sync. ``version`` is a
+    content hash, so an unchanged roster answers with the same stamp and the
+    client can skip re-applying (mirrors the trigger pack's version field)."""
+    names = _raid_boss_names()
+    digest = hashlib.sha1("\n".join(names).encode("utf-8")).hexdigest()[:12]
+    return {"version": digest, "bosses": list(names)}
 
 
 @lru_cache(maxsize=1)
