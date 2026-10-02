@@ -23,10 +23,14 @@ import type { DamageComponent, RotationAbility, SimStats, SimTarget } from './ty
 /** A lone unconditional boss dummy — the default sim target. */
 export const DEFAULT_TARGET: SimTarget = { count: 1, encounter: false, activeConditions: [] }
 
-/** Every component application carries a flat +½·B̄ on top of the
- * coefficient-scaled base (fitted to <0.2% on hit tooltips; ticks are
- * ambiguous at ±8% on tiny values — uniform rule kept for one-rule
- * simplicity). */
+/** Every component application carries a flat +½·B̄ — a CONSTANT
+ * (half the component's census midpoint) added to BOTH tooltip ends,
+ * so ranges widen by the BARE chain, not chain+½. Pinned by
+ * Menludiir's Divine Smite VII: widths back-solve the bare chain and
+ * the min end then reproduces his ability mod to ±0.03%. The AVERAGE
+ * is unchanged versus the old per-end reading (B̄×(chain+½)), so the
+ * engine's expected-damage math is identical — only displayed ranges
+ * and tooltip-min predictions split the two. */
 export const COMPONENT_BASE_FLAT_FRACTION = 0.5
 /** LOW-LEVEL spells (T6 and below) carry NO +½: Velium Winds (59) and
  * Wrath of the Ancients (60) tooltip spreads sit on the BARE chain
@@ -41,6 +45,12 @@ export const COMPONENT_FLAT_LEVEL_MIN = 61
 export const PROC_AM_SHARE = 1 / 3
 /** Crit multiplier = 1.3 + crit bonus (modern engine). */
 export const CRIT_BASE_MULT = 1.3
+/** USER-VERIFIED on Wuoshi (RoK TLE): Fervor applies, Crit Bonus does
+ * NOT — the stat exists on sheets/buffs but has no effect. Flip this
+ * when a later era enables it. */
+export const CRIT_BONUS_ENABLED = false
+export const effectiveCritBonus = (stats: SimStats) =>
+  CRIT_BONUS_ENABLED ? (stats.crit_bonus ?? 0) : 0
 export const CAST_SPEED_CAP = 100
 export const REUSE_SPEED_CAP = 100
 export const RECOVERY_SPEED_CAP = 100
@@ -67,7 +77,7 @@ const pct = (v: number | null | undefined, cap: number) => Math.min(Math.max(v ?
 /** Expected crit multiplier over many casts. */
 export function critMultiplier(stats: SimStats): number {
   const chance = Math.min(Math.max(stats.crit_chance ?? 0, 0), 100) / 100
-  const bonus = (stats.crit_bonus ?? 0) / 100
+  const bonus = effectiveCritBonus(stats) / 100
   return 1 + chance * (CRIT_BASE_MULT - 1 + bonus)
 }
 
@@ -109,6 +119,20 @@ export const doublecastMultiplier = (stats: SimStats) =>
 export const abilityDamageMultiplier = (stats: SimStats) =>
   critMultiplier(stats) * fervorMultiplier(stats) * doublecastMultiplier(stats)
 
+/** Ability-aware dealt multiplier: per-ability Enhance crit bonus
+ * ("Improves the Crit Bonus by 5%") raises THAT ability's expected crit. */
+export const abilityDamageMultiplierFor = (stats: SimStats, a: RotationAbility) => {
+  const extra = Math.max(a.crit_bonus_pct ?? 0, 0)
+  return extra > 0
+    ? critMultiplier({ ...stats, crit_bonus: (stats.crit_bonus ?? 0) + extra }) *
+        fervorMultiplier(stats) *
+        doublecastMultiplier(stats)
+    : abilityDamageMultiplier(stats)
+}
+
+/** "Increases overtime damage by N%" — multiplies DOT components only. */
+export const abilityDotDmgMod = (a: RotationAbility) => 1 + Math.max(a.dot_dmg_mod_pct ?? 0, 0) / 100
+
 /** Effective cast time under casting speed. */
 export const effCastTime = (castSecs: number, stats: SimStats) =>
   castSecs / (1 + pct(stats.casting_speed, CAST_SPEED_CAP))
@@ -120,6 +144,29 @@ export const effRecast = (recastSecs: number, stats: SimStats) =>
 /** Effective recovery under recovery speed. */
 export const effRecovery = (recoverySecs: number, stats: SimStats) =>
   recoverySecs / (1 + pct(stats.recovery_speed, RECOVERY_SPEED_CAP))
+
+/** Ability-aware timings: global speed PLUS any scoped worn-item cut
+ * matching the ability's polarity ("Reduces reuse time of hostile
+ * spells by 1 percent" speeds hostile recasts only; the beneficial
+ * variant only the temp-buff casts). Treated as speed-equivalent
+ * (divisor-additive) like the set bonuses.
+ *
+ * HARD FLOOR (user-verified): cast and reuse never drop below HALF the
+ * ORIGINAL base — AA second-cuts count toward the same cap, so a 5s
+ * cast with a −1s AA at +100% cast speed still lands on 2.5s. */
+export const effCastTimeFor = (a: RotationAbility, stats: SimStats) =>
+  Math.max(
+    (a.orig_cast_secs ?? a.cast_secs) / 2,
+    a.cast_secs /
+      (1 + pct((stats.casting_speed ?? 0) + ((a.beneficial ? stats.beneficial_cast_pct : stats.hostile_cast_pct) ?? 0), CAST_SPEED_CAP)),
+  )
+
+export const effRecastFor = (a: RotationAbility, stats: SimStats) =>
+  Math.max(
+    (a.orig_recast_secs ?? a.recast_secs) / 2,
+    a.recast_secs /
+      (1 + pct((stats.reuse_speed ?? 0) + ((a.beneficial ? stats.beneficial_reuse_pct : stats.hostile_reuse_pct) ?? 0), REUSE_SPEED_CAP)),
+  )
 
 /** Number of DoT ticks over its (possibly estimated) duration. */
 export function dotTicks(comp: DamageComponent): number {
@@ -201,8 +248,27 @@ export function procHitDamage(components: DamageComponent[], stats: SimStats, le
   const per = damageCoefficient(stats, level) + componentFlatFraction(level)
   const singleTarget = components.every(c => !c.target_scope || c.target_scope === 'single')
   const amShare = singleTarget ? PROC_AM_SHARE : 0
-  return componentsAvg(components) * per + Math.max(stats.ability_mod ?? 0, 0) * amShare
+  return componentsAvg(components) * per + flatDamageMod(stats, components[0]?.school) * amShare
 }
+
+/** Lifeburn's per-HP components: per application = rate × fraction ×
+ * caster max health — FLAT, outside the coefficient chain and Enhance
+ * (the in-game 9/HP is static across gear; the ~25%-of-pool burn per
+ * application is user-observed, pending a log). The in-game cap "based
+ * off the target's maximum health" is not modeled. */
+export const isPerHp = (c: DamageComponent) => (c.per_hp_rate ?? 0) > 0
+export const perHpDamage = (c: DamageComponent, stats: SimStats) =>
+  Math.max(c.per_hp_rate ?? 0, 0) * Math.max(c.hp_fraction ?? 0, 0) * Math.max(stats.max_health ?? 0, 0)
+
+/** The flat add on a primary-hit application: ability mod plus any
+ * school-matched "damage done by spells" gear flat (Spooky Bone Hoop —
+ * +30 disease reaches Soulrot/Lifeburn, nothing on a cold spell, and a
+ * character with no spells of the school gets nothing at all).
+ * Validated: Lifeburn's hit − tick = sheet AM 627 + 30 exactly at both
+ * tooltip ends. On procs it's assumed to share the AM ⅓ (unvalidated). */
+export const flatDamageMod = (stats: SimStats, school: string | null | undefined) =>
+  Math.max(stats.ability_mod ?? 0, 0) +
+  Math.max(stats.school_damage_flat?.[(school ?? '').toLowerCase()] ?? 0, 0)
 
 /** The primary component: the first unconditional 'hit' (else the first
  * unconditional component) — the one that carries the ability mod. */
@@ -226,23 +292,43 @@ export function expectedCastDamage(
 ): number {
   const coeff = damageCoefficient(stats, ability.level)
   const primary = primaryComponent(ability)
-  let total = 0
+  // Enhance multiplies the BASE-CHAIN part only; the flat ability-mod/
+  // school-flat part and proc payloads sit OUTSIDE it (Soulrot VII +
+  // Lifeburn cross-validated via the Spooky Bone Hoop's +30 disease).
+  let chainPart = 0
+  let flatPart = 0
   for (const c of ability.components) {
     const mult = componentTargetMultiplier(c, target)
     if (mult <= 0) continue
+    const ticks = c.kind === 'dot' ? dotTicks(c) : 1
+    if (isPerHp(c)) {
+      flatPart += perHpDamage(c, stats) * ticks * mult
+      continue
+    }
     const avg = (c.min_dmg + c.max_dmg) / 2
-    total += avg * (coeff + componentFlatFraction(ability.level)) * (c.kind === 'dot' ? dotTicks(c) : 1) * mult
-    if (c === primary) total += Math.max(stats.ability_mod ?? 0, 0) * abilityModShare(c) * mult
+    const dotMod = c.kind === 'dot' ? abilityDotDmgMod(ability) : 1
+    const half = c.no_flat_mod ? 0 : componentFlatFraction(ability.level)
+    chainPart += avg * (coeff + half) * ticks * mult * dotMod
+    if (c === primary && !c.no_flat_mod) flatPart += flatDamageMod(stats, c.school) * abilityModShare(c) * mult
   }
   // Trigger-budget procs carried BY the ability (Slothful Spirit grants
-  // exactly N Sloth's Habitat hits per application).
+  // exactly N Sloth's Habitat hits per application) — a separate spell's
+  // damage, so the carrying ability's Enhance doesn't scale it.
   for (const p of ability.procs ?? []) {
     if (p.trigger_count && p.trigger_count > 0) {
-      total += p.trigger_count * (p.chance_pct / 100) * procHitDamage(p.components, stats, ability.level)
+      flatPart += p.trigger_count * (p.chance_pct / 100) * procHitDamage(p.components, stats, ability.level)
     }
   }
-  return total * abilityDamageMultiplier(stats) * calibration
+  return (chainPart * abilityDmgMod(ability) + flatPart) * abilityDamageMultiplierFor(stats, ability) * calibration
 }
+
+/** Per-ability Enhance multiplier — applies to the BASE-CHAIN part only,
+ * never the flat ability-mod/school-flat part: with the hoop's +30
+ * disease flat known, Soulrot VII's hit back-solves to chain×1.05 +
+ * (627 + 30) exactly; whole-tooltip ×1.05 was the coincidence
+ * 627×1.05 ≈ 657. */
+export const abilityDmgMod = (a: RotationAbility) => 1 + Math.max(a.dmg_mod_pct ?? 0, 0) / 100
+
 
 /** Predicted MINIMUM of the primary hit's TOOLTIP range — directly
  * comparable to the low end the user reads in game (tooltips exclude
@@ -253,9 +339,14 @@ export function predictedTooltipMin(ability: RotationAbility, stats: SimStats): 
   const primary = primaryComponent(ability)
   if (!primary || primary.kind !== 'hit') return null
   if (primary.min_dmg <= 0) return null
+  // The ½ flat is a CONSTANT ½×B̄ (midpoint), not ½×B_min — tooltip
+  // widths scale by the bare chain (Divine Smite VII width-validated).
+  // Auto-scaled class ranks (Wrath) are the BARE chain: no ½, no mod.
+  const mid = (primary.min_dmg + primary.max_dmg) / 2
+  const half = primary.no_flat_mod ? 0 : componentFlatFraction(ability.level)
+  const flat = primary.no_flat_mod ? 0 : flatDamageMod(stats, primary.school) * abilityModShare(primary)
   return (
-    primary.min_dmg * (damageCoefficient(stats, ability.level) + componentFlatFraction(ability.level)) +
-    Math.max(stats.ability_mod ?? 0, 0) * abilityModShare(primary)
+    (primary.min_dmg * damageCoefficient(stats, ability.level) + half * mid) * abilityDmgMod(ability) + flat
   )
 }
 
@@ -347,7 +438,7 @@ export function expectedCritSwing(min: number, max: number, critMult: number): n
  * caller zeroes the sheet values). */
 export function autoAttackDps(stats: SimStats): number {
   const chance = Math.min(Math.max(stats.crit_chance ?? 0, 0), 100) / 100
-  const critMult = CRIT_BASE_MULT + (stats.crit_bonus ?? 0) / 100
+  const critMult = CRIT_BASE_MULT + effectiveCritBonus(stats) / 100
   const dpsMod = 1 + speedStatEffective(stats.dps) / 100
   const haste = 1 + speedStatEffective(stats.attack_speed) / 100
   const swingsPer = extraSwingFactor(stats)

@@ -67,6 +67,15 @@ describe('modsAt + applyMods', () => {
     expect(eff.attack_speed).toBe(25)
   })
 
+  it('weapon damage multiplies each equipped weapon swing, never creates one', () => {
+    // Destructive Rage: +3.3% on the cooked min/max of worn weapons only
+    // ("like base damage but autos only").
+    const eff = applyMods({ primary_min: 100, primary_max: 200 }, { weaponDamagePct: 3.3 })
+    expect(eff.primary_min).toBeCloseTo(103.3)
+    expect(eff.primary_max).toBeCloseTo(206.6)
+    expect(eff.secondary_min).toBeUndefined() // no offhand → untouched
+  })
+
   it('activeBuffIds dedupes and windowEdges clips to the fight', () => {
     const w = [win('a', 0, 30), win('a', 10, 40), win('b', 200, 300)]
     expect(activeBuffIds(w, 15)).toEqual(['a'])

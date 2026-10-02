@@ -45,20 +45,21 @@ const ability = (base: string, components: DamageComponent[]): RotationAbility =
 })
 
 const ABILITIES = {
-  Big: ability('Big', [hit(900, 1100)]), // predicted tooltip MIN 1350 (900 x 1.5, no mod)
-  Small: ability('Small', [hit(90, 110)]), // predicted min 135
+  // Midpoint-flat model: predicted tooltip MIN = min×chain + ½×B̄.
+  Big: ability('Big', [hit(900, 1100)]), // 900×1 + 500 = 1400 (no mod)
+  Small: ability('Small', [hit(90, 110)]), // 90×1 + 50 = 140
   NoHit: ability('NoHit', []),
 }
 
 describe('computeCalibration', () => {
   it('factor = observed / predicted per ability', () => {
-    const r = computeCalibration({ Big: 2025 }, ABILITIES, {})
+    const r = computeCalibration({ Big: 2100 }, ABILITIES, {})
     expect(r.observedFactors.Big).toBeCloseTo(1.5)
     expect(r.factors.Big).toBeCloseTo(1.5)
   })
 
   it('unobserved abilities fall back to the mean observed factor', () => {
-    const r = computeCalibration({ Big: 2025, Small: 67.5 }, ABILITIES, {})
+    const r = computeCalibration({ Big: 2100, Small: 70 }, ABILITIES, {})
     // factors 1.5 and 0.5 -> mean 1.0 for the rest.
     expect(r.globalFactor).toBeCloseTo(1)
     expect(r.factors.NoHit).toBeCloseTo(1)
@@ -77,8 +78,8 @@ describe('computeCalibration', () => {
   })
 
   it('accounts for the ability mod in the prediction', () => {
-    // Big min 900x1.5 + mod 200 -> predicted 1550; observed 1550 -> factor 1.
-    const r = computeCalibration({ Big: 1550 }, ABILITIES, { ability_mod: 200 })
+    // Big min 900 + 500 flat + mod 200 -> predicted 1600; observed -> factor 1.
+    const r = computeCalibration({ Big: 1600 }, ABILITIES, { ability_mod: 200 })
     expect(r.observedFactors.Big).toBeCloseTo(1)
   })
 })

@@ -16,6 +16,9 @@ export interface SavedSimState {
   externalBuffs: ExternalBuffConfig[]
   /** Enabled permanent group buffs (buff ids). */
   permanentBuffs: string[]
+  /** Assumed spell tier per raid-wide permanent (buff id → tier name,
+   * e.g. 'Expert'). Absent = Expert. */
+  permanentTiers?: Record<string, string>
   /** Disabled AA proc passives (base_names) — passives default ON. */
   disabledPassives: string[]
   /** Proc-chance corrections keyed by passive NAME (census text can be

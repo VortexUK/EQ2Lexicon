@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import cast
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel
@@ -27,18 +28,25 @@ from backend.eq2db.items import catalogue as _items
 from backend.eq2db.spell_effects import (
     RECOVERY_DIVISOR,
     SPELL_DURATION_DIVISOR,
+    STATIC_AA_BASE_DAMAGE,
     TEMP_BUFF_MAX_DURATION_S,
     AbilityAdjustment,
     ParsedEffects,
+    ProcTriggerInfo,
     aa_subject_of,
     extract_damage_pairs,
     is_suspect_low_damage,
+    is_suspect_relative,
     parse_ability_adjustments,
     parse_base_damage_bonus_pct,
     parse_effect_lines,
     parse_flat_effect_procs,
+    parse_item_spell_timing,
+    parse_proc_trigger_line,
+    parse_school_damage_flat,
     parse_speed_bonuses,
     parse_stat_mods,
+    static_class_spell_base_for,
     static_overrides_for,
 )
 from backend.eq2db.spells import DB_PATH as _SPELLS_DB
@@ -72,6 +80,14 @@ class DamageComponentResponse(BaseModel):
     suspect_low_value: bool = False
     # Generated from an "Applies X ... every N seconds" pulse wrapper.
     from_pulse: bool = False
+    # Lifeburn's per-HP mechanic: per application = per_hp_rate ×
+    # hp_fraction × caster max health — FLAT, outside the coefficient
+    # chain (min/max_dmg are 0 on such components).
+    per_hp_rate: float | None = None
+    hp_fraction: float | None = None
+    # Auto-scaled class-granted ranks (Wrath): bare chain only — no
+    # ability mod, no school flat, no ½-flat constant.
+    no_flat_mod: bool = False
 
 
 class ProcResponse(BaseModel):
@@ -113,12 +129,50 @@ class RotationAbilityResponse(BaseModel):
     # ("Until Cancelled" — Exorcise). Belongs in the maintained section,
     # modeled as a continuous pulse stream, not cast in rotation.
     maintained: bool = False
+    # Stat mods parsed from the effect text (BuffMods keys) — set on the
+    # character's OWN castable temp buffs so casting one in rotation opens
+    # a window with its real effects (no curation needed).
+    mods: dict[str, float] = {}
+    # Per-ability multiplier from the character's own Enhance AAs
+    # ("Increases damage by 5%.") — multiplies the BASE-CHAIN part only,
+    # not the flat ability-mod/school-flat part (Soulrot VII + Lifeburn
+    # cross-validated once the Spooky Bone Hoop's +30 disease was found).
+    dmg_mod_pct: float = 0.0
+    # "Increases overtime damage by N%." — DOT components only.
+    dot_dmg_mod_pct: float = 0.0
+    # Pre-AA base timings, set only when an AA cut changed them: cast and
+    # reuse can NEVER drop below HALF the ORIGINAL base (user-verified: a
+    # 5s cast with a −1s AA and +100% cast speed still floors at 2.5s),
+    # so the frontend floor must reference these, not the adjusted values.
+    orig_cast_secs: float | None = None
+    orig_recast_secs: float | None = None
+    # "Improves the Crit Bonus by N%." — per-ability crit bonus, dealt
+    # damage only (tooltips exclude crit).
+    crit_bonus_pct: float = 0.0
+    # The character's own AA effect lines applied to this ability
+    # (duration compression, reuse, damage %) — provenance for the UI.
+    aa_adjustments: list[str] = []
 
 
 class DerivedSourceResponse(BaseModel):
     kind: str  # 'item' | 'set' | 'aa'
     name: str
     detail: str  # the effect line / bonus description
+
+
+class ItemProcBuffResponse(BaseModel):
+    """A TEMP stat buff granted by a worn item's proc (Wand of
+    Crystallized Plasma → Plasma Boost): rate + duration drive
+    deterministic buff windows in the engine; the mods apply only while
+    a window is up — never folded into the always-on derived modifiers."""
+
+    name: str  # the granted buff's name ("Plasma Boost")
+    item: str
+    duration_s: float
+    per_minute: float
+    chance_pct: float = 100.0
+    trigger: str = "spell_cast"
+    mods: dict[str, float] = {}  # BuffMods keys (incl. baseDamagePct)
 
 
 class DerivedModifiersResponse(BaseModel):
@@ -128,9 +182,27 @@ class DerivedModifiersResponse(BaseModel):
     where each came from."""
 
     base_damage_bonus_pct: float = 0.0
+    # ALL-scope timing bonuses (set bonuses, "of all spells" item cuts) —
+    # they speed every cast, so they fold into the global speed stats.
     cast_speed_bonus_pct: float = 0.0
     reuse_bonus_pct: float = 0.0
+    # SCOPED worn-item timing cuts ("Reduces reuse time of hostile spells
+    # by 1 percent" — Arcane Recovery): a hostile-only cut never speeds a
+    # beneficial cast and vice versa, so the engine applies these per
+    # ability by its beneficial flag.
+    hostile_cast_pct: float = 0.0
+    hostile_reuse_pct: float = 0.0
+    beneficial_cast_pct: float = 0.0
+    beneficial_reuse_pct: float = 0.0
+    # School-specific FLAT damage from gear ("Increases disease damage
+    # done by spells by up to 30." — Spooky Bone Hoop), keyed by
+    # lowercased school. Behaves like ability mod but ONLY on abilities
+    # whose component school matches — useless to a character with no
+    # spells of that school.
+    school_damage_flat: dict[str, float] = {}
     sources: list[DerivedSourceResponse] = []
+    # Proc-granted temp stat buffs from worn gear (windows, not always-on).
+    proc_buffs: list[ItemProcBuffResponse] = []
 
 
 class CharacterRotationDataResponse(BaseModel):
@@ -151,13 +223,18 @@ def _build_component_models(
     """Parsed effects → response models: DoT duration inheritance,
     suspect-low flagging, and proc blocks."""
     components: list[DamageComponentResponse] = []
+    biggest = max((c.get("max_dmg") or 0.0 for c in parsed["components"]), default=0.0)
     for c in parsed["components"]:
         comp = dict(c)
         if comp.get("kind") == "dot" and comp.get("duration_s") is None:
             dot_dur = duration_s or parsed["lasts_for_s"]
             comp["duration_s"] = dot_dur
             comp["duration_estimated"] = dot_dur is None
-        comp["suspect_low_value"] = is_suspect_low_damage(c.get("max_dmg") or 0.0, level)
+        max_dmg = c.get("max_dmg") or 0.0
+        # Per-HP components (Lifeburn) legitimately carry 0 base damage —
+        # their value comes from the caster's health pool, not census.
+        if not c.get("per_hp_rate"):
+            comp["suspect_low_value"] = is_suspect_low_damage(max_dmg, level) or is_suspect_relative(max_dmg, biggest)
         components.append(DamageComponentResponse.model_validate(comp))
     procs = [
         ProcResponse(
@@ -304,10 +381,26 @@ def _build_aa_entries_sync(
 
             if is_class_tree:
                 for line in parsed["lines"]:
-                    if parse_base_damage_bonus_pct([line]) > 0:
+                    if parse_base_damage_bonus_pct([line]) > 0 or parse_school_damage_flat([line]):
                         aa_sources.append(
                             DerivedSourceResponse(kind="aa", name=row.get("name") or node["name"], detail=line)
                         )
+
+            # Era-curated AA base-damage overrides (ANY tree): Smite
+            # Wrath's census text ("+25% spell damage") never fit a
+            # tooltip; the measured value is +5 additive base damage
+            # (Menludiir's Divine Smite/Strike VII pair). The detail line
+            # is written in the parseable base-damage phrasing so the
+            # derived-total loop picks it up like any other source.
+            override_pct = STATIC_AA_BASE_DAMAGE.get((row.get("name") or node.get("name") or "").strip().lower())
+            if override_pct:
+                aa_sources.append(
+                    DerivedSourceResponse(
+                        kind="aa",
+                        name=row.get("name") or node["name"],
+                        detail=f"Increases base damage by {override_pct:g}%.",
+                    )
+                )
 
             entry = RotationAbilityResponse(
                 name=row.get("name") or node["name"],
@@ -343,7 +436,10 @@ def _build_aa_entries_sync(
             elif not beneficial and rtype in ("spells", "arts") and parsed["unparsed_damage"]:
                 castables.append(entry)
             elif beneficial and lasts and 0 < lasts <= TEMP_BUFF_MAX_DURATION_S:
-                castables.append(entry)  # castable AA temp buff
+                # Castable AA temp buff — carry its parsed stat mods so
+                # casting it in rotation opens a window with real effects.
+                entry.mods = parse_stat_mods(parsed["lines"])
+                castables.append(entry)
     return castables, passives, aa_sources
 
 
@@ -366,18 +462,96 @@ def _derive_from_gear_sync(
     passives: list[RotationAbilityResponse] = []
     ids = list(equip_counts)
 
-    # Item/adorn effect lines (deduped per item id; a doubled ring would
-    # double its bonus, matching in-game behaviour).
+    # Item/adorn effect lines, ORDER + INDENTATION aware: lines nested
+    # under a proc trigger are a TEMP buff the proc grants (Wand of
+    # Crystallized Plasma: "may cast Plasma Boost … Lasts for 12.0
+    # seconds … 1.8 times per minute" wrapping "+8% base damage") — they
+    # become rate-proc buff windows, NEVER always-on modifiers. Only
+    # un-nested lines count as permanent (Bloodthirsty Choker).
     seen_lines: set[tuple[int, str]] = set()
-    for item_id, name, line in _items.effect_lines_for_ids(ids):
+    proc_ctx: dict[int, tuple[ProcTriggerInfo, str, int, list[str]]] = {}
+
+    # In-game stacking rule for NAMED worn effects ('Disease Cloud VI',
+    # 'Arcane Recovery I' — the adornment_list name): the same name
+    # applies ONCE no matter how many copies or items carry it, while
+    # different tiers (VI vs VII) are different names and stack. Items
+    # whose names were all seen already are skipped wholesale (procs
+    # included), and a named effect never scales by equip count.
+    named = _items.named_effects_for_ids(ids)
+    seen_names: set[str] = set()
+    skip_items: set[int] = set()
+    for item_id in ids:
+        enames = named.get(item_id) or []
+        if enames and all(n in seen_names for n in enames):
+            skip_items.add(item_id)
+        seen_names.update(enames)
+
+    def _flush_item_proc(item_id: int) -> None:
+        ctx = proc_ctx.pop(item_id, None)
+        if ctx is None:
+            return
+        trig, item_name, _depth, lines = ctx
+        mods = parse_stat_mods(lines)
+        base = parse_base_damage_bonus_pct(lines)
+        if base > 0:
+            mods["baseDamagePct"] = mods.get("baseDamagePct", 0.0) + base
+        if not mods or not trig["lasts_for_s"] or not trig["per_minute"]:
+            return  # damage payloads / unrated procs aren't modeled here
+        derived.proc_buffs.append(
+            ItemProcBuffResponse(
+                name=trig["name"],
+                item=item_name,
+                duration_s=trig["lasts_for_s"],
+                per_minute=trig["per_minute"],
+                chance_pct=trig["chance_pct"],
+                trigger=trig["trigger"],
+                mods=mods,
+            )
+        )
+
+    last_item: int | None = None
+    for item_id, name, line, indent in _items.effect_lines_for_ids(ids):
+        if item_id != last_item and last_item is not None:
+            _flush_item_proc(last_item)
+        last_item = item_id
+        if item_id in skip_items:
+            continue
+        ctx = proc_ctx.get(item_id)
+        if ctx is not None:
+            if indent > ctx[2]:
+                ctx[3].append(line)
+                continue
+            _flush_item_proc(item_id)
+        trig = parse_proc_trigger_line(line, self_source=True)
+        if trig is not None:
+            proc_ctx[item_id] = (trig, name, indent, [])
+            continue
         if (item_id, line) in seen_lines:
             continue
         seen_lines.add((item_id, line))
+        weight = 1 if named.get(item_id) else equip_counts.get(item_id, 1)
         amt = parse_base_damage_bonus_pct([line])
         if amt > 0:
-            weight = equip_counts.get(item_id, 1)
             derived.base_damage_bonus_pct += amt * weight
             derived.sources.append(DerivedSourceResponse(kind="item", name=name, detail=line))
+        school_flat = parse_school_damage_flat([line])
+        if school_flat:
+            for school, flat in school_flat.items():
+                derived.school_damage_flat[school] = derived.school_damage_flat.get(school, 0.0) + flat * weight
+            derived.sources.append(DerivedSourceResponse(kind="item", name=name, detail=line))
+        for kind, scope, amt_pct in parse_item_spell_timing([line]):
+            field = {
+                ("cast", "all"): "cast_speed_bonus_pct",
+                ("reuse", "all"): "reuse_bonus_pct",
+                ("cast", "hostile"): "hostile_cast_pct",
+                ("reuse", "hostile"): "hostile_reuse_pct",
+                ("cast", "beneficial"): "beneficial_cast_pct",
+                ("reuse", "beneficial"): "beneficial_reuse_pct",
+            }[(kind, scope)]
+            setattr(derived, field, getattr(derived, field) + amt_pct * weight)
+            derived.sources.append(DerivedSourceResponse(kind="item", name=name, detail=line))
+    if last_item is not None:
+        _flush_item_proc(last_item)
 
     # Active set bonuses.
     piece_count: dict[str, int] = {}
@@ -417,6 +591,11 @@ def _derive_from_gear_sync(
             if base > 0:
                 derived.base_damage_bonus_pct += base
                 derived.sources.append(DerivedSourceResponse(kind="set", name=label, detail=f"+{base:g}% base damage"))
+            for school, flat in parse_school_damage_flat(texts).items():
+                derived.school_damage_flat[school] = derived.school_damage_flat.get(school, 0.0) + flat
+                derived.sources.append(
+                    DerivedSourceResponse(kind="set", name=label, detail=f"+{flat:g} {school} damage (spells)")
+                )
             for proc in parse_flat_effect_procs(texts, label):
                 comps = [
                     DamageComponentResponse.model_validate(
@@ -492,6 +671,14 @@ def _build_abilities_sync(
                 effects = []
         parsed = parse_effect_lines(effects)
 
+        # Class-granted ranks the game AUTO-SCALES to the character's
+        # level (Wrath): census only has the original-level values, so a
+        # curated chain-fitted base replaces them (no AM, no ½-flat).
+        class_static = static_class_spell_base_for(r.get("name") or "")
+        if class_static is not None:
+            parsed["components"] = class_static
+            parsed["unparsed_damage"] = []
+
         raw_duration = m.get("spell_duration")
         duration_s = (raw_duration / SPELL_DURATION_DIVISOR) if raw_duration else None
         beneficial = bool(r.get("beneficial"))
@@ -553,6 +740,8 @@ def _build_abilities_sync(
                 effect_lines=parsed["lines"],
                 has_unparsed_damage=bool(parsed["unparsed_damage"]),
                 maintained=_is_maintained(beneficial, r.get("target_type"), components),
+                # Own temp buffs: casting one opens a window with these.
+                mods=parse_stat_mods(parsed["lines"]) if beneficial else {},
             )
         )
 
@@ -561,11 +750,77 @@ def _build_abilities_sync(
     out.extend(aa_castables)
     passives.extend(spell_passives)
 
+    # The character's OWN per-ability Enhance/Focus AA adjustments
+    # (duration compression, reuse, damage %) applied to their abilities.
+    # A duration cut COMPRESSES the dot — same tick count squeezed into
+    # the shorter window (Enhance: Soulrot −2.5s turns a 4s/1s dot into
+    # 1.5s at ~0.375s ticks; in-game tooltip confirms).
+    own_adjustments = _member_aa_adjustments_sync(aa_trees)
+    if own_adjustments:
+        for ability in out:
+            base = ability.base_name.lower()
+            for adj in own_adjustments:
+                if base not in adj["targets"]:
+                    continue
+                if adj["kind"] == "damage":
+                    ability.dmg_mod_pct += adj["amount"]
+                elif adj["kind"] == "dot_damage":
+                    ability.dot_dmg_mod_pct += adj["amount"]
+                elif adj["kind"] == "crit_bonus":
+                    ability.crit_bonus_pct += adj["amount"]
+                elif adj["kind"] == "cast":
+                    # Flat seconds come straight off the base cast; % cuts
+                    # are treated divisively like the cast-speed stat. The
+                    # original base is kept — the half-of-original floor.
+                    if ability.orig_cast_secs is None:
+                        ability.orig_cast_secs = ability.cast_secs
+                    if adj["is_pct"]:
+                        ability.cast_secs = ability.cast_secs / (1 + adj["amount"] / 100)
+                    else:
+                        ability.cast_secs = max(0.0, ability.cast_secs - adj["amount"])
+                elif adj["kind"] == "recovery":
+                    if adj["is_pct"]:
+                        ability.recovery_secs = ability.recovery_secs / (1 + adj["amount"] / 100)
+                    else:
+                        ability.recovery_secs = max(0.0, ability.recovery_secs - adj["amount"])
+                elif adj["kind"] == "reuse":
+                    if ability.orig_recast_secs is None:
+                        ability.orig_recast_secs = ability.recast_secs
+                    if adj["is_pct"]:
+                        ability.recast_secs = ability.recast_secs / (1 + adj["amount"] / 100)
+                    else:
+                        ability.recast_secs = max(0.0, ability.recast_secs - adj["amount"])
+                elif adj["kind"] == "duration":
+                    for c in ability.components:
+                        if c.kind != "dot" or not c.duration_s or not c.interval_s:
+                            continue
+                        old_dur = c.duration_s
+                        new_dur = (
+                            old_dur * (1 + adj["amount"] / 100)
+                            if adj["is_pct"]
+                            else old_dur + adj["amount"]
+                        )
+                        new_dur = max(new_dur, 0.1)
+                        c.interval_s = c.interval_s * (new_dur / old_dur)
+                        c.duration_s = new_dur
+                    if ability.duration_s:
+                        ability.duration_s = max(
+                            0.1,
+                            ability.duration_s * (1 + adj["amount"] / 100)
+                            if adj["is_pct"]
+                            else ability.duration_s + adj["amount"],
+                        )
+                else:
+                    continue
+                ability.aa_adjustments.append(adj["line"])
+
     derived, set_passives = _derive_from_gear_sync(equip_counts, char_level)
     passives.extend(set_passives)
     for src in aa_sources:
         amt = parse_base_damage_bonus_pct([src.detail])
         derived.base_damage_bonus_pct += amt
+        for school, flat in parse_school_damage_flat([src.detail]).items():
+            derived.school_damage_flat[school] = derived.school_damage_flat.get(school, 0.0) + flat
         derived.sources.append(src)
     return out, passives, derived
 
@@ -581,6 +836,14 @@ class ClassBuffResponse(BaseModel):
     # Modelable stat mods parsed from the effect text (frontend BuffMods
     # keys — hastePct, dpsModPct, …). Unmapped stats stay in effect_lines.
     mods: dict[str, float] = {}
+    # AA-granted buffs only: the spent rank and the node's max — spell
+    # "tiers" on AA rows are ranks, so tier_name is blanked and the UI
+    # labels "4/5" instead (nothing when the node has a single rank).
+    rank: int | None = None
+    max_rank: int | None = None
+    # Pre-AA base recast — the half-of-original floor's reference (AA
+    # cuts and reuse speed share the same cap).
+    orig_recast_s: float | None = None
     procs: list[ProcResponse] = []
     effect_lines: list[str] = []
     # Set ⇒ a TEMP buff (items.db duration / "Lasts for") the group member
@@ -681,11 +944,16 @@ def _buff_rows_to_responses(rows: list[SpellRow]) -> list[ClassBuffResponse]:
         mods = parse_stat_mods(parsed["lines"])
         if not _is_relevant_group_buff(mods, procs, parsed["lines"]):
             continue
+        aa_rank = r.get("_aa_rank")
         out.append(
             ClassBuffResponse(
                 name=r.get("name") or "",
                 base_name=_spells.strip_roman(r.get("name") or ""),
-                tier_name=r.get("tier_name") or "",
+                # AA rows: the spell "tier" is the spent RANK — blank the
+                # research-tier label and carry rank/max instead.
+                tier_name="" if aa_rank is not None else (r.get("tier_name") or ""),
+                rank=aa_rank,
+                max_rank=r.get("_aa_max_rank"),
                 level=level,
                 target_scope=_SCOPE_LABEL.get(r.get("target_type") or "", "group"),
                 icon_id=r.get("icon_id"),
@@ -754,26 +1022,72 @@ def _apply_aa_adjustments(buffs: list[ClassBuffResponse], adjustments: list[Abil
             if base not in adj["targets"]:
                 continue
             if adj["kind"] == "reuse":
+                if b.orig_recast_s is None:
+                    b.orig_recast_s = b.recast_s
                 if adj["is_pct"]:
                     b.recast_s = b.recast_s / (1 + adj["amount"] / 100)
                 else:
                     b.recast_s = max(0.0, b.recast_s - adj["amount"])
-            elif b.duration_s:
+            elif adj["kind"] == "duration" and b.duration_s:
                 if adj["is_pct"]:
                     b.duration_s = b.duration_s * (1 + adj["amount"] / 100)
                 else:
-                    b.duration_s = b.duration_s + adj["amount"]
+                    b.duration_s = max(0.0, b.duration_s + adj["amount"])
+            elif adj["kind"] != "duration":
+                continue  # 'damage' etc. — not meaningful on a stat buff
             b.aa_adjustments.append(adj["line"])
+
+
+def _member_aa_buff_rows_sync(aa_trees: list[tuple[int, dict[str, int]]]) -> list[SpellRow]:
+    """Group/raid-scope beneficial abilities GRANTED by spent AA nodes
+    (Crusader-tree Fearless Morale: '+2% group potency'). Census spell
+    lists OMIT AA-granted abilities entirely, so the member buff book
+    must read the tree itself. find_by_crc(crc, rank) picks the earliest
+    non-zero level band — the era-populated row (the lv-70 Fearless
+    Morale carries the potency line; the lv-0/120+ bands are drifted to
+    Fervor)."""
+    out: list[SpellRow] = []
+    for tree_id, spent in aa_trees:
+        tree = _aas.get_tree(tree_id)
+        if not tree:
+            continue
+        nodes = {n["node_id"]: n for n in tree["nodes"]}
+        for node_id_str, rank in spent.items():
+            if rank <= 0:
+                continue
+            try:
+                node = nodes.get(int(node_id_str))
+            except (TypeError, ValueError):
+                continue
+            crc = (node or {}).get("spellcrc") or 0
+            if node is None or not crc or crc == _NO_SPELL_CRC:
+                continue
+            row = _spells.find_by_crc(crc, rank)
+            # Raid-scope rows are deliberately excluded — raid-wide buffs
+            # (Crusade, Heretic's Destruction) live in the Raid buffs
+            # panel with its tier dropdown, not in the member book.
+            if row is None or not row.get("beneficial") or row.get("target_type") != "group":
+                continue
+            # AA spell tiers are RANKS, not research tiers — carry the
+            # spent rank (and the node's max) so the UI can label
+            # "4/5" instead of a meaningless "Apprentice"/"Grandmaster".
+            # cast: the rank annotations are rotation-private keys, not
+            # spells.db columns — SpellRow deliberately doesn't know them.
+            out.append(cast(SpellRow, {**row, "_aa_rank": rank, "_aa_max_rank": int(node.get("maxtier") or 0) or None}))
+    return out
 
 
 def _character_buffs_sync(spell_ids: list[int], aa_trees: list[tuple[int, dict[str, int]]]) -> list[ClassBuffResponse]:
     """SYNC (executor): a SPECIFIC character's group/raid/ally buffs at
-    the ranks and tiers they actually own (census spell list) — best
-    tier per exact name, then the highest-rank entry per base line —
-    with their AA reuse/duration modifiers applied."""
+    the ranks and tiers they actually own (census spell list, PLUS
+    group-scope buffs granted by their spent AA nodes) — best tier per
+    exact name, then the highest-rank entry per base line — with their
+    AA reuse/duration modifiers applied."""
     grouped: dict[str, SpellRow] = {}
     for r in _spells.find_by_ids(spell_ids).values():
-        if not r.get("beneficial") or r.get("target_type") not in ("group", "raid", "other"):
+        # 'raid' deliberately excluded: raid-wide buffs (Crusade) are the
+        # Raid buffs panel's job — listing them here double-counts.
+        if not r.get("beneficial") or r.get("target_type") not in ("group", "other"):
             continue
         if (r.get("level") or 0) <= 0:
             continue
@@ -782,9 +1096,27 @@ def _character_buffs_sync(spell_ids: list[int], aa_trees: list[tuple[int, dict[s
         if prev is None or (r.get("tier") or 0) > (prev.get("tier") or 0):
             grouped[name] = r
     best = _spells.unique_highest_entries(list(grouped.values()))
+    seen_names = {r.get("name") for r in best}
+    best.extend(r for r in _member_aa_buff_rows_sync(aa_trees) if r.get("name") not in seen_names)
     buffs = _buff_rows_to_responses(best)
     _apply_aa_adjustments(buffs, _member_aa_adjustments_sync(aa_trees))
     return buffs
+
+
+def _buff_tiers_sync(base_name: str, max_level: int) -> list[ClassBuffResponse]:
+    return _buff_rows_to_responses(_spells.beneficial_buff_tiers(base_name, max_level))
+
+
+@router.get("/simulator/buff-tiers", response_model=list[ClassBuffResponse])
+@limiter.limit("60/minute")
+async def get_buff_tiers(request: Request, name: str) -> list[ClassBuffResponse]:
+    """Era tier rows (Apprentice → Master) of one raid-buff line, parsed —
+    the raid-buff panel's tier dropdown (default Expert). ``name`` is the
+    base spell name without rank ('Crusade')."""
+    if not _SPELLS_DB.exists():
+        raise HTTPException(status_code=503, detail="Spells database not available")
+    max_level = current_server().max_level or 80
+    return await run_sync(_buff_tiers_sync, name, max_level)
 
 
 @router.get("/simulator/class-buffs", response_model=list[ClassBuffResponse])
@@ -832,6 +1164,16 @@ async def get_character_buffs(request: Request, name: str) -> CharacterBuffsResp
     char = await _resolve_character(name)
     aa_trees = await _fetch_aa_trees(name)
     buffs = await run_sync(_character_buffs_sync, char.spell_ids or [], aa_trees)
+
+    # The member's recast cadence runs on THEIR reuse-speed stat
+    # (Ariadneh's CoB reads 49.6s in game vs the 60s base), floored at
+    # HALF the original base like every reuse reduction.
+    member_reuse = float((char.stats.reuse_speed if char.stats else None) or 0.0)
+    if member_reuse > 0:
+        for b in buffs:
+            if b.recast_s > 0:
+                floor = (b.orig_recast_s or b.recast_s) / 2
+                b.recast_s = max(floor, b.recast_s / (1 + min(member_reuse, 100.0) / 100))
 
     # The member's proc-scaling stat snapshot: sheet stats + their own
     # gear/set base-damage derivation. Primary attribute by archetype.

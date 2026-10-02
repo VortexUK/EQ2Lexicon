@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { Badge, Button, Card, SectionLabel } from '../../components/ui'
 import AbilityTooltip from './AbilityTooltip'
-import { effCastTime, effRecast } from './formulas'
+import { effCastTimeFor, effRecastFor } from './formulas'
 import type { RotationAbility, SimStats } from './types'
 
 // Palette of the character's abilities → an ordered priority list.
@@ -40,8 +40,8 @@ const fmtSecs = (v: number) => `${Math.round(v * 100) / 100}s`
 /** Subtitle shows EFFECTIVE timings under the corrected stats — the same
  * numbers the in-game tooltip shows (cast 2.0 → 1.13s at 77% speed). */
 function abilitySubtitle(a: RotationAbility, stats: SimStats): string {
-  const cast = effCastTime(a.cast_secs, stats)
-  const recast = effRecast(a.recast_secs, stats)
+  const cast = effCastTimeFor(a, stats)
+  const recast = effRecastFor(a, stats)
   const bits = [
     `Lv ${a.level}`,
     `${fmtSecs(cast)} cast`,
@@ -50,11 +50,33 @@ function abilitySubtitle(a: RotationAbility, stats: SimStats): string {
   return bits.filter(Boolean).join(' · ')
 }
 
+/** Below this level gap the game REPLACES a rank's damage with its own
+ * level curve census doesn't carry (Divine Smite IV, 49 levels down,
+ * reads 2,362-2,838 at 80 vs the model's 2,737-2,889; III and II are
+ * further off) — the sim's numbers there are knowingly wrong and badged.
+ * WITHIN the gap the normal model holds: Divine Smite V (35 down) and
+ * VI fit to 0.5%. The cutover sits between 35 and 49 levels. */
+export const GREY_RANK_LEVEL_GAP = 35
+
 /** Scope + condition badges shared by the palette and the priority list. */
-function AbilityBadges({ a }: { a: RotationAbility }) {
+function AbilityBadges({ a, charLevel }: { a: RotationAbility; charLevel?: number }) {
   const conditions = [...new Set(a.components.filter(c => c.condition).map(c => c.condition as string))]
+  const grey =
+    charLevel != null &&
+    charLevel - a.level > GREY_RANK_LEVEL_GAP &&
+    a.components.length > 0 &&
+    !a.components.some(c => c.no_flat_mod) // curated auto-scaled bases are modeled
   return (
     <>
+      {grey && (
+        <Badge
+          variant="muted"
+          className="cursor-help"
+          title="Low-rank spell: in game its damage is level-upscaled by a formula census doesn't carry — the sim shows the era base, which will read far lower than your in-game tooltip."
+        >
+          grey rank
+        </Badge>
+      )}
       {a.components.some(c => c.target_scope === 'encounter') && <Badge variant="success">green AE</Badge>}
       {a.components.some(c => c.target_scope === 'aoe') && <Badge variant="info">AE</Badge>}
       {conditions.length > 0 && (
@@ -75,7 +97,7 @@ function AbilityBadges({ a }: { a: RotationAbility }) {
   )
 }
 
-export default function RotationBuilder({ abilities, rotation, dotHold, stats, autoAttackSlot, suggestSlot, onChange, onToggleDotHold }: {
+export default function RotationBuilder({ abilities, rotation, dotHold, stats, charLevel, autoAttackSlot, suggestSlot, onChange, onToggleDotHold }: {
   abilities: Record<string, RotationAbility>
   /** Priority-ordered base_name keys. */
   rotation: string[]
@@ -83,6 +105,8 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
   dotHold: string[]
   /** Corrected stats — timings display at their EFFECTIVE values. */
   stats: SimStats
+  /** Character level — grey-rank badging (level-upscaled in game). */
+  charLevel?: number
   /** Small auto-attack card rendered above the Abilities palette. */
   autoAttackSlot?: ReactNode
   /** The Suggest-order card rendered above the Priority list. */
@@ -99,10 +123,18 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
   })
 
   const inRotation = new Set(rotation)
-  // Palette shows damage abilities only — utility/buff rows with nothing
-  // the engine can model just add noise.
+  // Palette shows abilities the engine can model: direct damage,
+  // trigger-budget procs (Slothful Spirit), or a castable temp window
+  // that carries a proc (Consumption) or stat mods. Pure utility rows
+  // (heals, fears) just add noise and stay hidden.
+  const modelable = (a: RotationAbility) =>
+    a.components.length > 0 ||
+    (a.procs ?? []).some(p => (p.trigger_count ?? 0) > 0) ||
+    (!!a.beneficial &&
+      (a.duration_s ?? 0) > 0 &&
+      ((a.procs ?? []).length > 0 || Object.keys(a.mods ?? {}).length > 0))
   const palette = Object.values(abilities)
-    .filter(a => !inRotation.has(a.base_name) && a.components.length > 0)
+    .filter(a => !inRotation.has(a.base_name) && modelable(a))
     .sort((x, y) => y.level - x.level || x.base_name.localeCompare(y.base_name))
 
   const move = (i: number, delta: number) => {
@@ -124,7 +156,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
         <SectionLabel>Abilities</SectionLabel>
         {palette.length === 0 && (
           <p className="text-[0.82rem] text-text-muted mt-2 mb-0">
-            {Object.values(abilities).some(a => a.components.length > 0)
+            {Object.values(abilities).some(modelable)
               ? 'All damage abilities are in the rotation.'
               : 'No damage abilities found for this character.'}
           </p>
@@ -141,7 +173,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
               <div className="min-w-0 flex-1">
                 <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
                   {a.name}
-                  <AbilityBadges a={a} />
+                  <AbilityBadges a={a} charLevel={charLevel} />
                 </div>
                 <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
               </div>
@@ -170,7 +202,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
                 <div className="min-w-0 flex-1">
                   <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
                     {a.name}
-                    <AbilityBadges a={a} />
+                    <AbilityBadges a={a} charLevel={charLevel} />
                   </div>
                   <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
                 </div>

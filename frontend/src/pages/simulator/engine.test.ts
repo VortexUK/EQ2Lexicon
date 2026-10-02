@@ -387,12 +387,81 @@ describe('passive proc streams', () => {
     expect(byName(r, 'Slothful').damage).toBeCloseTo(450)
   })
 
+  it('maintained streams honor their calibration factor', () => {
+    const exorcise: RotationAbility = {
+      ...passive('Exorcise', 'any_hit', 100, []),
+      maintained: true,
+      procs: [],
+      components: [{ ...hit(300, 300, { target_scope: 'aoe' }), kind: 'dot', interval_s: 6, duration_s: null }],
+    }
+    const r = simulate(config([], 60, { passives: [exorcise], calibration: { Exorcise: 1.1 } }))
+    // 10 pulses x 300x1.5 x 1.1 = 4950.
+    expect(r.perAbility.find(e => e.isProc)?.damage).toBeCloseTo(4950)
+  })
+
   it('spell-cast triggers ignore combat arts', () => {
     const art = ability('Slash', { cast: 1, recast: 0 })
     art.spell_type = 'arts'
     const bolt = passive('Bolt', 'spell_cast', 100, [hit(50, 50)])
     const r = simulate(config([art], 10, { passives: [bolt] }))
     expect(r.perAbility.find(e => e.isProc)).toBeUndefined()
+  })
+})
+
+describe('own temp buffs', () => {
+  it('casting a temp buff opens a window with its PARSED mods', () => {
+    // Buff: +100 casting speed for 10s. Nuke cast 2s -> 1s inside the
+    // window. Result exposes the window for the timeline shading.
+    const buffAb: RotationAbility = {
+      ...ability('Quicken', { cast: 1, recast: 100, components: [] }),
+      beneficial: true,
+      duration_s: 10,
+      mods: { castSpeedPct: 100 },
+    }
+    const nuke = ability('Nuke', { cast: 2, recast: 0 })
+    const r = simulate(config([buffAb, nuke], 12))
+    const win = r.buffWindows.find(w => w.buffId === 'Quicken')
+    expect(win).toBeDefined()
+    expect(win?.mods.castSpeedPct).toBe(100)
+    // 1s buff cast, then nukes at 1s casts inside the window: more casts
+    // than the unbuffed 2s cadence would allow.
+    expect(byName(r, 'Nuke').casts).toBeGreaterThan(5)
+  })
+})
+
+describe('cast-applied proc buffs (Consumption)', () => {
+  it('credits windowed proc payloads from the trigger-event rate', () => {
+    // Buff: 10s window, cast 1, recast 100 → one cast at t=0, window 1-11.
+    // Nuke: cast 1, recast 1 → busy 1, readyAt = castStart+2 → casts at
+    // t=1,3,…,29 = 15 hostile casts over the 30s fight (no autos).
+    // any_hit rate = 15/30 = 0.5/s × 10s window × 100% chance = 5 procs
+    // × payload 100×(1+½) = 150 → 750 credited to the buff's row.
+    const buff = ability('Consumption', { cast: 1, recast: 100, components: [] })
+    buff.beneficial = true
+    buff.duration_s = 10
+    buff.procs = [
+      { trigger: 'any_hit', chance_pct: 100, name: 'Consume', per_minute: null, components: [hit(100, 100)] },
+    ]
+    const nuke = ability('Nuke', { cast: 1, recast: 1 })
+    const r = simulate(config([buff, nuke], 30))
+    expect(byName(r, 'Nuke').casts).toBe(15)
+    expect(byName(r, 'Consumption').damage).toBeCloseTo(750)
+    // One cast, so the whole 750 reads as its per-cast value.
+    expect(byName(r, 'Consumption').casts).toBe(1)
+  })
+
+  it('uses the per-minute rate over the window when the proc is rate-capped', () => {
+    // Same shape but "Triggers about 6 times per minute" → 10s window
+    // yields exactly 1 proc regardless of how often the nuke fires.
+    const buff = ability('ProcBuff', { cast: 1, recast: 100, components: [] })
+    buff.beneficial = true
+    buff.duration_s = 10
+    buff.procs = [
+      { trigger: 'any_hit', chance_pct: 100, name: 'Payload', per_minute: 6, components: [hit(100, 100)] },
+    ]
+    const nuke = ability('Nuke', { cast: 1, recast: 1 })
+    const r = simulate(config([buff, nuke], 30))
+    expect(byName(r, 'ProcBuff').damage).toBeCloseTo(150)
   })
 })
 

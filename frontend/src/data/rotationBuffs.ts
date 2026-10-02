@@ -30,6 +30,10 @@ export interface RotationBuffDef {
    * attached: their owned rank of this spell (AA-adjusted timing, proc
    * payloads, their stats) then replaces the curated estimates. */
   censusBase?: string
+  /** Mod keys that only land on PRIEST archetypes (Crusade's Fervor):
+   * stripped from the resolved mods when the simmed character isn't a
+   * priest, wherever the values came from (curated, tier row, supplier). */
+  priestOnlyMods?: (keyof BuffMods)[]
 }
 
 export interface RotationBuffSheet {
@@ -82,12 +86,14 @@ export const ROTATION_BUFF_SHEETS: RotationBuffSheet[] = [
         name: 'Cacophony of Blades (raid-wide)',
         sourceClass: 'Dirge (Mythical)',
         kind: 'temporary',
-        duration_s: 12,
-        recast_s: 60,
-        mods: { hastePct: 63.6, doubleAttackPct: 0 },
-        todoValues: true,
+        // Read in-game from an Expert dirge (2026-10-02): 20.6s up,
+        // 49.6s recast (their reuse/AAs), Haste 61.2 — census matches
+        // the Expert row EXACTLY, so these values are era-correct.
+        duration_s: 20.6,
+        recast_s: 49.6,
+        mods: { hastePct: 61.2 },
         censusBase: 'Cacophony of Blades',
-        note: 'Dirge Mythical makes CoB raid-wide. Attach the supplying dirge to use their real rank, timing and the Blade Chime proc at their stats.',
+        note: 'Raid-wide via the Dirge Mythical. Values from an in-game Expert read; attach the supplying dirge for their rank, timing and the Blade Chime proc at their stats.',
       },
       {
         id: 'perfection-of-the-maestro',
@@ -100,6 +106,87 @@ export const ROTATION_BUFF_SHEETS: RotationBuffSheet[] = [
         todoValues: true,
         censusBase: 'Perfection of the Maestro',
         note: 'Troubador Mythical makes PotM raid-wide. Attach the supplying troubador to use their real rank, AA-extended duration and the Precise Note proc at their stats.',
+      },
+      {
+        id: 'confront-fear',
+        name: 'Confront Fear',
+        sourceClass: 'Dirge (AA)',
+        kind: 'permanent',
+        duration_s: 0,
+        recast_s: 0,
+        // Read in-game (2026-10-02): +3.3 Fervor on ONE ally, 98s up /
+        // 37.2s recast — permanently maintainable. Census text is
+        // era-drifted to 0.0, so no censusBase tier lookup.
+        mods: { fervorPct: 3.3 },
+        note: 'Single ally (dirge AA): +3.3 Fervor, maintainable full-time on one target.',
+      },
+      // RAID-WIDE permanents (census target_type='raid', full sweep of
+      // all 24 classes at ≤80): the five whose effects help damage.
+      // Values below are the Master-tier census numbers — attach the
+      // supplying character for their actual rank. The rest of the raid
+      // book (Call of Shielding, Noxious/Arcane Symphony, Elemental
+      // Concerto, Porcupine, the summoner heart/shard summons) is
+      // defensive/utility and deliberately not listed.
+      {
+        id: 'crusade',
+        name: 'Crusade',
+        sourceClass: 'Paladin',
+        kind: 'permanent',
+        duration_s: 0,
+        recast_s: 0,
+        mods: { wisFlat: 65.3, fervorPct: 1.2 },
+        todoValues: true,
+        censusBase: 'Crusade',
+        priestOnlyMods: ['fervorPct'],
+        note: 'Raid-wide WIS and Fervor. The Fervor applies to Priests only.',
+      },
+      {
+        id: 'unholy-strength',
+        name: 'Unholy Strength',
+        sourceClass: 'Shadowknight',
+        kind: 'permanent',
+        duration_s: 0,
+        recast_s: 0,
+        mods: { baseDamagePct: 5 },
+        todoValues: true,
+        censusBase: 'Unholy Strength',
+        note: 'Raid-wide spell damage %.',
+      },
+      {
+        id: 'brutality',
+        name: 'Brutality',
+        sourceClass: 'Bruiser',
+        kind: 'permanent',
+        duration_s: 0,
+        recast_s: 0,
+        mods: { strFlat: 69, agiFlat: 69 },
+        todoValues: true,
+        censusBase: 'Brutality',
+        note: 'Raid-wide STR and AGI.',
+      },
+      {
+        id: 'calm-tranquility',
+        name: 'Calm Tranquility',
+        sourceClass: 'Monk',
+        kind: 'permanent',
+        duration_s: 0,
+        recast_s: 0,
+        mods: { hastePct: 23.8, castSpeedPct: 9.5 },
+        todoValues: true,
+        censusBase: 'Calm Tranquility',
+        note: 'Raid-wide Haste and Casting Speed.',
+      },
+      {
+        id: 'destructive-rage',
+        name: 'Destructive Rage',
+        sourceClass: 'Berserker',
+        kind: 'permanent',
+        duration_s: 0,
+        recast_s: 0,
+        mods: { weaponDamagePct: 3.3 },
+        todoValues: true,
+        censusBase: 'Destructive Rage',
+        note: 'Raid-wide Weapon Damage Bonus — a % on auto-attack swings.',
       },
     ],
   },

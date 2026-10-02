@@ -66,9 +66,12 @@ export function modsAt(windows: BuffWindow[], t: number): BuffMods {
     hastePct: 0,
     dpsModPct: 0,
     doubleAttackPct: 0,
+    doublecastPct: 0,
     abilityModFlat: 0,
     potencyPct: 0,
     fervorPct: 0,
+    weaponDamagePct: 0,
+    baseDamagePct: 0,
     strFlat: 0,
     agiFlat: 0,
     wisFlat: 0,
@@ -86,9 +89,12 @@ export function modsAt(windows: BuffWindow[], t: number): BuffMods {
     total.hastePct += w.mods.hastePct ?? 0
     total.dpsModPct += w.mods.dpsModPct ?? 0
     total.doubleAttackPct += w.mods.doubleAttackPct ?? 0
+    total.doublecastPct += w.mods.doublecastPct ?? 0
     total.abilityModFlat += w.mods.abilityModFlat ?? 0
     total.potencyPct += w.mods.potencyPct ?? 0
     total.fervorPct += w.mods.fervorPct ?? 0
+    total.weaponDamagePct += w.mods.weaponDamagePct ?? 0
+    total.baseDamagePct += w.mods.baseDamagePct ?? 0
     total.strFlat += w.mods.strFlat ?? 0
     total.agiFlat += w.mods.agiFlat ?? 0
     total.wisFlat += w.mods.wisFlat ?? 0
@@ -115,14 +121,22 @@ export function applyMods(base: SimStats, mods: BuffMods): SimStats {
   return {
     ...base,
     primary_stat: (base.primary_stat ?? 0) + primaryAttrFlat(base, mods),
+    // Weapon Damage Bonus: a % multiplier on each auto swing ("like
+    // base damage but autos only") — onto each weapon's cooked min/max.
+    primary_min: base.primary_min != null ? base.primary_min * (1 + (mods.weaponDamagePct ?? 0) / 100) : base.primary_min,
+    primary_max: base.primary_max != null ? base.primary_max * (1 + (mods.weaponDamagePct ?? 0) / 100) : base.primary_max,
+    secondary_min: base.secondary_min != null ? base.secondary_min * (1 + (mods.weaponDamagePct ?? 0) / 100) : base.secondary_min,
+    secondary_max: base.secondary_max != null ? base.secondary_max * (1 + (mods.weaponDamagePct ?? 0) / 100) : base.secondary_max,
     casting_speed: (base.casting_speed ?? 0) + (mods.castSpeedPct ?? 0),
     reuse_speed: (base.reuse_speed ?? 0) + (mods.reuseSpeedPct ?? 0),
     recovery_speed: (base.recovery_speed ?? 0) + (mods.recoverySpeedPct ?? 0),
+    base_damage_bonus_pct: (base.base_damage_bonus_pct ?? 0) + (mods.baseDamagePct ?? 0),
     crit_chance: (base.crit_chance ?? 0) + (mods.critChancePct ?? 0),
     crit_bonus: (base.crit_bonus ?? 0) + (mods.critBonusPct ?? 0),
     attack_speed: (base.attack_speed ?? 0) + (mods.hastePct ?? 0),
     dps: (base.dps ?? 0) + (mods.dpsModPct ?? 0),
     double_attack: (base.double_attack ?? 0) + (mods.doubleAttackPct ?? 0),
+    ability_doublecast: (base.ability_doublecast ?? 0) + (mods.doublecastPct ?? 0),
     ability_mod: (base.ability_mod ?? 0) + (mods.abilityModFlat ?? 0),
     potency: (base.potency ?? 0) + (mods.potencyPct ?? 0),
     fervor: (base.fervor ?? 0) + (mods.fervorPct ?? 0),

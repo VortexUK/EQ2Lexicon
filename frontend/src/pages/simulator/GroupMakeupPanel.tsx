@@ -26,6 +26,9 @@ const MOD_LABEL: Record<string, string> = {
   abilityModFlat: 'Ability Mod',
   potencyPct: 'Potency',
   fervorPct: 'Fervor',
+  weaponDamagePct: 'Weapon Damage %',
+  doublecastPct: 'Doublecast',
+  baseDamagePct: 'Base Damage %',
   strFlat: 'STR',
   agiFlat: 'AGI',
   wisFlat: 'WIS',
@@ -68,7 +71,9 @@ function BuffRow({ buff, enabled, onToggle }: {
       <div className="min-w-0 flex-1">
         <div className="text-[0.82rem] truncate flex items-center gap-1.5">
           {buff.name}
-          <Badge variant="muted">{buff.tier_name}</Badge>
+          {buff.rank != null
+            ? (buff.max_rank ?? 0) > 1 && <Badge variant="muted">{`${buff.rank}/${buff.max_rank}`}</Badge>
+            : buff.tier_name && <Badge variant="muted">{buff.tier_name}</Badge>}
           <Badge variant={buff.target_scope === 'raid' ? 'gold' : buff.target_scope === 'ally' ? 'info' : 'muted'}>
             {buff.target_scope}
           </Badge>
@@ -95,11 +100,15 @@ function BuffRow({ buff, enabled, onToggle }: {
   )
 }
 
-export default function GroupMakeupPanel({ members, books, enabled, excludeName, onAddMember, onRemoveMember, onToggle }: {
+export default function GroupMakeupPanel({ members, books, enabled, excludeName, hiddenBaseNames, onAddMember, onRemoveMember, onToggle }: {
   /** Group member character names, in add order. */
   members: string[]
   /** name → their buff book; undefined = loading, null = lookup failed. */
   books: Record<string, GroupMemberBook | null | undefined>
+  /** Buff base names handled by the Raid buffs panel (CoB, PotM…) —
+   * hidden here so they aren't configured twice. The book still carries
+   * them for supplier binding. */
+  hiddenBaseNames: string[]
   /** Enabled buff keys ("member::base_name") — ticking under a specific
    * member says WHO supplies the buff (their stats scale its procs). */
   enabled: string[]
@@ -146,7 +155,10 @@ export default function GroupMakeupPanel({ members, books, enabled, excludeName,
         {members.map(name => {
           const book = books[name]
           const open = expanded.includes(name)
-          const ticked = book ? book.buffs.filter(b => enabled.includes(`${name}::${b.base_name}`)).length : 0
+          // Buffs the Raid buffs panel owns (CoB, PotM…) are hidden here;
+          // the book still carries them for supplier binding.
+          const shown = book ? book.buffs.filter(b => !hiddenBaseNames.includes(b.base_name)) : []
+          const ticked = book ? shown.filter(b => enabled.includes(`${name}::${b.base_name}`)).length : 0
           return (
             <div key={name} className="rounded-sm bg-surface-raised border border-border px-2 py-2">
               <div className="flex items-center gap-2">
@@ -169,7 +181,7 @@ export default function GroupMakeupPanel({ members, books, enabled, excludeName,
                       ? 'loading…'
                       : book === null
                         ? 'lookup failed'
-                        : `${ticked}/${book.buffs.length} buffs ticked`}
+                        : `${ticked}/${shown.length} buffs ticked`}
                   </span>
                 </button>
                 <button
@@ -181,12 +193,12 @@ export default function GroupMakeupPanel({ members, books, enabled, excludeName,
                   ✕
                 </button>
               </div>
-              {open && book && book.buffs.length === 0 && (
+              {open && book && shown.length === 0 && (
                 <p className="text-[0.75rem] text-text-muted m-0 px-2 mt-1">No group-scope buffs found.</p>
               )}
               {open && book && (
                 <div className="flex flex-col mt-1">
-                  {book.buffs.map(b => (
+                  {shown.map(b => (
                     <BuffRow
                       key={b.base_name}
                       buff={b}

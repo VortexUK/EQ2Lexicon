@@ -1,7 +1,10 @@
+import { useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import { Badge, Card, SectionLabel } from '../../components/ui'
 import { fmtNum } from '../../formatters'
+import AbilityTooltip from './AbilityTooltip'
 import { SpellIcon } from './RotationBuilder'
-import type { RotationAbility, SimResult } from './types'
+import type { RotationAbility, SimResult, SimStats } from './types'
 
 // Always-on damage sources: maintained toggles (self pulses kept up
 // permanently — Exorcise) and AA proc innates (Bolt of Power). Each
@@ -18,11 +21,13 @@ const TRIGGER_LABEL: Record<string, string> = {
   when_damaged: 'incoming hit (set Incoming hits in Fight)',
 }
 
-function PassiveRow({ p, enabled, dmg, chanceOverride, onToggle, onChanceChange }: {
+function PassiveRow({ p, enabled, dmg, chanceOverride, tipProps, onToggle, onChanceChange }: {
   p: RotationAbility
   enabled: boolean
   dmg: number | null
   chanceOverride: number | undefined
+  /** Icon hover handlers for the adjusted-values tooltip. */
+  tipProps: Record<string, (e: ReactMouseEvent) => void>
   onToggle: (baseName: string, enabled: boolean) => void
   onChanceChange: (name: string, pct: number | null) => void
 }) {
@@ -36,7 +41,7 @@ function PassiveRow({ p, enabled, dmg, chanceOverride, onToggle, onChanceChange 
         onChange={e => onToggle(p.base_name, e.target.checked)}
         className="accent-[var(--color-gold)] cursor-pointer"
       />
-      <SpellIcon ability={p} />
+      <span {...tipProps}><SpellIcon ability={p} /></span>
       <div className="min-w-0 flex-1">
         <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
           {p.name}
@@ -92,14 +97,23 @@ function PassiveRow({ p, enabled, dmg, chanceOverride, onToggle, onChanceChange 
   )
 }
 
-export default function PassivesPanel({ passives, disabled, result, chanceOverrides, onToggle, onChanceChange }: {
+export default function PassivesPanel({ passives, disabled, result, chanceOverrides, stats, onToggle, onChanceChange }: {
   passives: RotationAbility[]
   disabled: string[]
   result: SimResult | null
   chanceOverrides: Record<string, number>
+  /** Adjusted stats — the icon-hover tooltip shows each passive's
+   * payload at these values. */
+  stats: SimStats
   onToggle: (baseName: string, enabled: boolean) => void
   onChanceChange: (name: string, pct: number | null) => void
 }) {
+  const [tip, setTip] = useState<{ ability: RotationAbility; x: number; y: number } | null>(null)
+  const tipHandlers = (a: RotationAbility) => ({
+    onMouseEnter: (e: ReactMouseEvent) => setTip({ ability: a, x: e.clientX, y: e.clientY }),
+    onMouseMove: (e: ReactMouseEvent) => setTip(t => (t ? { ...t, x: e.clientX, y: e.clientY } : t)),
+    onMouseLeave: () => setTip(null),
+  })
   if (passives.length === 0) return null
   const damageFor = (baseName: string) =>
     result?.perAbility.find(e => e.isProc && e.ability === baseName)?.damage ?? null
@@ -119,11 +133,13 @@ export default function PassivesPanel({ passives, disabled, result, chanceOverri
             enabled={!disabled.includes(p.base_name)}
             dmg={!disabled.includes(p.base_name) ? damageFor(p.base_name) : null}
             chanceOverride={chanceOverrides[p.name]}
+            tipProps={tipHandlers(p)}
             onToggle={onToggle}
             onChanceChange={onChanceChange}
           />
         ))}
       </div>
+      {tip && <AbilityTooltip ability={tip.ability} stats={stats} x={tip.x} y={tip.y} />}
     </Card>
   )
 }

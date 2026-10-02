@@ -67,12 +67,27 @@ FALLBACK_DOT_DURATION_S = 12.0
 #: lv50-80 Master universe; the WIS/debuff text on the same rows scales
 #: fine). max_dmg * RATIO < level flags these with zero false positives.
 SUSPECT_DAMAGE_LEVEL_RATIO = 10.0
+#: PARTIAL unscaled rows (Glacial Strike: hit 61-67 genuine, dot 10-11
+#: junk) evade the level heuristic. Relative rule from a scan of the
+#: level 60-80 AA universe: every bad line is <= 25 next to a sibling
+#: >= 4x bigger; the smallest LEGIT line observed is 84.
+SUSPECT_RELATIVE_MAX = 25.0
+SUSPECT_RELATIVE_RATIO = 4.0
 
 
 def is_suspect_low_damage(max_dmg: float, level: int) -> bool:
     """True when a damage value is implausibly low for the spell's level —
     census unscaled-tooltip text, not a real number."""
     return max_dmg > 0 and level > 0 and max_dmg * SUSPECT_DAMAGE_LEVEL_RATIO < level
+
+
+def is_suspect_relative(max_dmg: float, biggest_sibling_max: float) -> bool:
+    """True when a damage value is tiny next to a sibling component in the
+    SAME row — the partial-unscaled census signature."""
+    return (
+        0 < max_dmg <= SUSPECT_RELATIVE_MAX
+        and biggest_sibling_max >= SUSPECT_RELATIVE_RATIO * max_dmg
+    )
 
 
 class DamageComponent(TypedDict, total=False):
@@ -89,6 +104,17 @@ class DamageComponent(TypedDict, total=False):
     #: A from_pulse component with NO duration is a maintained toggle
     #: ("Until Cancelled" in game — Exorcise).
     from_pulse: bool
+    #: Lifeburn's "N points of damage for each health point consumed":
+    #: per application = per_hp_rate × hp_fraction × caster max health —
+    #: FLAT, outside the coefficient chain (the in-game 9/HP is static
+    #: across gear). min/max_dmg are 0 on such components.
+    per_hp_rate: float | None
+    #: Fraction of the caster's max health consumed per application
+    #: (user-observed "roughly 25%" per tick — estimate pending a log).
+    hp_fraction: float | None
+    #: Auto-scaled class-granted ranks (Wrath): the tooltip is the BARE
+    #: chain — no ability mod, no school flat, no ½-flat constant.
+    no_flat_mod: bool
 
 
 class ProcDef(TypedDict):
@@ -145,6 +171,45 @@ _PROC_TRIGGER_RE = re.compile(
 #: "Triggers about 3.0 times per minute." — rate-limited proc clause.
 _PROC_RATE_RE = re.compile(r"Triggers about (?P<rate>[\d.]+) times? per minute")
 
+#: Mid-line "Lasts for 12.0 seconds." (item proc wrappers carry it inline).
+_INLINE_LASTS_RE = re.compile(r"Lasts for (?P<secs>[\d.]+) seconds?")
+
+
+class ProcTriggerInfo(TypedDict):
+    trigger: str
+    chance_pct: float
+    name: str
+    per_minute: float | None
+    lasts_for_s: float | None
+
+
+def parse_proc_trigger_line(line: str, *, self_source: bool = False) -> ProcTriggerInfo | None:
+    """A single proc-wrapper line → its trigger metadata, or None. Used by
+    the gear derivation to tell PROC-GRANTED effects (Wand of Crystallized
+    Plasma's 'may cast Plasma Boost … Lasts for 12.0 seconds … 1.8 times
+    per minute') apart from permanent 'When Equipped' bonuses — the lines
+    indented under a trigger belong to a TEMP buff, never to the
+    always-on derived modifiers.
+
+    ``self_source=True`` reads the line in WORN-ITEM context, where "On a
+    spell cast" means the WEARER's own casts; the default reads it in
+    hostile-debuff context, where it means the TARGET's casts (Slothful
+    Spirit → Sloth's Habitat)."""
+    m = _PROC_TRIGGER_RE.match(line.strip())
+    if m is None:
+        return None
+    rate = _PROC_RATE_RE.search(line)
+    lasts = _INLINE_LASTS_RE.search(line)
+    kind_map = _PROC_TRIGGER_KIND_SELF if self_source else _PROC_TRIGGER_KIND
+    kind = "when_damaged" if m.group("damaged") else kind_map[m.group("trigger")]
+    return {
+        "trigger": kind,
+        "chance_pct": float(m.group("chance")) if m.group("chance") else 100.0,
+        "name": m.group("name").strip(),
+        "per_minute": float(rate.group("rate")) if rate else None,
+        "lasts_for_s": float(lasts.group("secs")) if lasts else None,
+    }
+
 #: Self-applied PULSE wrapper: "Applies Exorcise instantly and every 6
 #: seconds." (optionally "...  Lasts for 12.0 seconds.") with the damage
 #: INDENTED below. Covers Consecrate, Open Wounds, Netherealm, Defile,
@@ -169,6 +234,14 @@ _PROC_TRIGGER_KIND = {
     # the TARGET's casts (Slothful Spirit → Sloth's Habitat).
     "a spell cast": "target_cast",
     "an ability cast": "target_cast",
+}
+
+#: The same phrases read from a WORN item's effect text, where the caster
+#: IS the source: "On a spell cast" is the wearer's own cast.
+_PROC_TRIGGER_KIND_SELF = {
+    **_PROC_TRIGGER_KIND,
+    "a spell cast": "spell_cast",
+    "an ability cast": "ability_cast",
 }
 
 #: "Grants a total of 3 triggers of the spell." — per-application budget.
@@ -207,6 +280,12 @@ _STAT_MOD_KEYS = {
     "recovery speed": "recoverySpeedPct",
     "potency": "potencyPct",
     "fervor": "fervorPct",
+    # Weapon Damage Bonus (Berserker's raid-wide Destructive Rage:
+    # "Increases Weapon Damage of raid and group members (AE) by 3.3.")
+    # — a PERCENT, like base damage but for auto-attack swings only.
+    "weapon damage": "weaponDamagePct",
+    # Ally/group doublecast grants (Conjuror's Unabate on target).
+    "ability doublecast": "doublecastPct",
     # Attributes — FLAT adds. Only pertinent when they hit the character's
     # PRIMARY attribute: the frontend maps "<primary_attr>Flat" onto
     # primary_stat and ignores the rest (AGI on a templar does nothing;
@@ -238,10 +317,46 @@ _BASE_DAMAGE_BONUS_RE = re.compile(
 #: "Decrease the sorcerer's spell reuse time by 5%."
 _CAST_SPEED_EFFECT_RE = re.compile(r"Improves speed at which [^.]*? casts by (?P<amt>[\d.]+)%")
 _REUSE_EFFECT_RE = re.compile(r"Decreases? the [^.]*? (?:spell |ability )?reuse time by (?P<amt>[\d.]+)%")
+#: Worn-item spell-timing effects — the "Reduces <cast|reuse> time of
+#: <scope> spells by N percent" family ("Arcane Recovery I" on Sash of
+#: Secrets, Nagol's Treasure's cast-time cut). These are spell-effect
+#: lines, NOT the Casting/Reuse Speed character stats, so census sheet
+#: stats never include them — genuinely hidden. Full scope survey of
+#: items.db: all / hostile / beneficial / Subjugation-based / healing;
+#: only all+hostile speed the damage rotation (beneficial/healing don't,
+#: and skill-scoped cuts would need per-ability skill tracking), and a
+#: scopeless "Reduces casting time by 10%" form also exists.
+#: "Increases Reuse Speed of caster by N%" styles are deliberately NOT
+#: parsed — that IS the sheet stat (game-computed), already counted.
+_ITEM_SPELL_TIME_RE = re.compile(
+    r"^Reduces (?P<what>cast(?:ing)?|reuse) time (?:of (?P<scope>all|hostile|beneficial) spells )?"
+    r"by (?P<amt>[\d.]+) ?(?:percent|%)\.?$",
+    re.IGNORECASE,
+)
+
+
+def parse_item_spell_timing(lines: list[str]) -> list[tuple[str, str, float]]:
+    """Worn-item spell-timing cuts → (kind, scope, pct) triples, kind in
+    'cast'|'reuse', scope in 'all'|'hostile'|'beneficial' (a scopeless
+    line reads as 'all'). Skill-scoped variants ('Subjugation-based') and
+    'healing' deliberately don't match — they'd need per-ability skill
+    tracking. Scope is preserved so a hostile-only cut never speeds a
+    beneficial cast and vice versa."""
+    out: list[tuple[str, str, float]] = []
+    for raw in lines:
+        m = _ITEM_SPELL_TIME_RE.match(raw.strip())
+        if m is None:
+            continue
+        kind = "cast" if m.group("what").lower().startswith("cast") else "reuse"
+        scope = (m.group("scope") or "all").lower()
+        out.append((kind, scope, float(m.group("amt"))))
+    return out
 
 
 def parse_speed_bonuses(lines: list[str]) -> tuple[float, float]:
-    """(cast_speed_pct, reuse_pct) from hidden set-bonus effect text."""
+    """(cast_speed_pct, reuse_pct) from hidden set-bonus effect text —
+    these class-wide set effects apply to everything the class casts.
+    Worn-item scoped timing cuts go through parse_item_spell_timing."""
     cast = 0.0
     reuse = 0.0
     for line in lines:
@@ -304,6 +419,35 @@ def parse_base_damage_bonus_pct(lines: list[str]) -> float:
     return total
 
 
+#: "Increases disease damage done by spells by up to 30." (Spooky Bone
+#: Hoop) — a SCHOOL-SPECIFIC flat damage add on worn gear. It behaves
+#: exactly like ability mod on matching-school abilities only: full on
+#: the primary hit, never on ticks. Pinned by Menludeth's Lifeburn
+#: tooltip (hit − tick = 657 = sheet AM 627 + 30 exactly at both ends)
+#: and the same +30 closes Soulrot VII's hit residual. A school the
+#: character has no spells in contributes nothing.
+_SCHOOL_DAMAGE_FLAT_RE = re.compile(
+    r"^Increases (?P<schools>[a-z]+(?: and [a-z]+)*) damage done by (?:spells|combat arts)"
+    r" by (?:up to )?(?P<amt>[\d,]+(?:\.\d+)?)\.?$",
+    re.IGNORECASE,
+)
+
+
+def parse_school_damage_flat(lines: list[str]) -> dict[str, float]:
+    """{lowercased school: summed flat amount} from 'Increases <school>
+    damage done by spells by up to N.' gear lines."""
+    out: dict[str, float] = {}
+    for raw in lines:
+        m = _SCHOOL_DAMAGE_FLAT_RE.match(raw.strip())
+        if m is None:
+            continue
+        for school in m.group("schools").lower().split(" and "):
+            school = school.strip()
+            if school:
+                out[school] = out.get(school, 0.0) + _num(m.group("amt"))
+    return out
+
+
 #: Ally-buff speed grammar (Time Compression: "Improves recovery speed of
 #: spells by 40%."). The "of spells" anchor keeps per-ability AA lines
 #: ("Improves casting and recovery speed by 60%" — Enhance Jab) excluded.
@@ -312,12 +456,31 @@ _SPEED_OF_SPELLS_RE = re.compile(
 )
 
 
+#: Shadowknight raid-wide Unholy Strength: "Increase spell damage of
+#: group and raid members by 5%." — USER-VERIFIED functional in game
+#: (unlike the self-targeted Smite Wrath phrasing, which is provably
+#: dead text — the raid-scope anchor keeps that one excluded).
+_RAID_SPELL_DAMAGE_RE = re.compile(
+    r"^Increases? spell damage of (?:group and raid|raid and group) members by (?P<amt>[\d.]+)%\.?$"
+)
+
+
 def parse_stat_mods(lines: list[str]) -> dict[str, float]:
     """Modelable stat mods from a buff's effect lines → {BuffMods key:
     amount}. Duplicate stats sum. Unmapped stats (attributes, mitigation,
     skills, regen…) are ignored — the caller shows the raw lines."""
     mods: dict[str, float] = {}
+    seen_raid_dmg: set[str] = set()
     for line in lines:
+        rd = _RAID_SPELL_DAMAGE_RE.match(line.strip())
+        if rd is not None:
+            # Census duplicates this exact line inside Unholy Strength's
+            # effect list — identical lines count once.
+            amt = _num(rd.group("amt"))
+            if amt and line.strip() not in seen_raid_dmg:
+                seen_raid_dmg.add(line.strip())
+                mods["baseDamagePct"] = mods.get("baseDamagePct", 0.0) + amt
+            continue
         sp = _SPEED_OF_SPELLS_RE.match(line.strip())
         if sp is not None:
             amt = _num(sp.group("amt"))
@@ -373,7 +536,7 @@ class AbilityAdjustment(TypedDict):
     ('Reduces the reuse time of Cacophony of Blades by 30 seconds.')."""
 
     targets: list[str]  # lowercased ability base names it applies to
-    kind: str  # 'reuse' | 'duration'
+    kind: str  # 'reuse' | 'duration' | 'damage' | 'dot_damage' | 'crit_bonus' | 'cast' | 'recovery'
     amount: float
     is_pct: bool
     line: str  # the raw effect line (for UI provenance)
@@ -384,14 +547,72 @@ _ABILITY_REUSE_ADJ_RE = re.compile(
     r"^(?:Improves|Reduces) (?:the )?reuse(?: speed| time)?"
     r"(?: of (?P<targets>[^.]+?))? by (?P<amt>[\d,]+(?:\.\d+)?)\s*(?P<unit>%|percent|seconds?)"
 )
-#: "Increases/Improves/Extends [the] duration [of X [and Y]] by N [%|seconds]"
+#: "Increases/Improves/Extends/Reduces [the] duration [of X [and Y]] by
+#: N [%|seconds]" — Reduces yields a NEGATIVE amount (Enhance: Soulrot
+#: compresses its dot: same ticks squeezed into the shorter duration).
 _ABILITY_DURATION_ADJ_RE = re.compile(
-    r"^(?:Increases|Improves|Extends) (?:the )?duration"
+    r"^(?P<verb>Increases|Improves|Extends|Reduces) (?:the )?duration"
+    r"(?: of (?P<targets>[^.]+?))? by (?P<amt>[\d,]+(?:\.\d+)?)\s*(?P<unit>%|percent|seconds?)"
+)
+
+#: Per-ability Enhance damage line ("Increases damage by 5%.") — the
+#: in-game tooltip phrases it as a potency modifier, and it fits the data
+#: as a multiplier on the BASE-CHAIN part only, NOT the flat ability-mod
+#: part: once the Spooky Bone Hoop's +30 disease flat was found, Soulrot
+#: VII's hit back-solves to chain×1.05 + (sheet AM 627 + 30) exactly —
+#: the earlier whole-tooltip fit was the coincidence 627×1.05 ≈ 627+30.
+_ABILITY_DAMAGE_ADJ_RE = re.compile(r"^(?:Increases|Improves) (?:the )?damage by (?P<amt>[\d,]+(?:\.\d+)?)%\.?$")
+#: "Increases overtime damage by 25%." (Enhance: Stealth Assault) — the
+#: ability's DOT components only; the initial hit is untouched.
+_ABILITY_OT_DAMAGE_ADJ_RE = re.compile(r"^Increases overtime damage by (?P<amt>[\d,]+(?:\.\d+)?)%\.?$")
+#: "Improves the Crit Bonus by 5%." / "Improves Crit Bonus by 5." —
+#: per-ability crit bonus (dealt damage only; tooltips exclude crit).
+_ABILITY_CRIT_BONUS_ADJ_RE = re.compile(r"^Improves (?:the )?Crit Bonus by (?P<amt>[\d,]+(?:\.\d+)?)%?\.?$", re.IGNORECASE)
+#: "Improves [the] casting speed by 0.5 seconds." (48 Enhance nodes) /
+#: "Improves casting speed by 50%." — per-ability cast-time cuts.
+#: "Improves casting and recovery speed by 75%" (Enhance Jab) trims both.
+_ABILITY_CAST_ADJ_RE = re.compile(
+    r"^(?:Improves|Increases|Reduces) (?:the )?casting(?P<rec> and recovery)? speed"
     r"(?: of (?P<targets>[^.]+?))? by (?P<amt>[\d,]+(?:\.\d+)?)\s*(?P<unit>%|percent|seconds?)"
 )
 #: Enhance:/Focus: node names carry the SUBJECT ability the node's
 #: self-referential lines ("Increases duration by 3 seconds.") apply to.
 _AA_SUBJECT_PREFIX_RE = re.compile(r"^(?:Enhance|Focus):\s*(?P<subject>.+)$")
+
+
+#: Era-curated AA base-damage overrides (lowercased node name → %).
+#: Smite Wrath's census text reads "Increases spell damage by 25%." — a
+#: value that never fit any tooltip — but Menludiir's Divine Smite VII /
+#: Divine Strike VII pair back-solves +5 additive in the base-damage
+#: bucket with it specced (rank 1 is the only rank). The plain
+#: "spell damage %" phrasing stays unparsed; this table carries the
+#: measured value instead.
+STATIC_AA_BASE_DAMAGE: dict[str, float] = {
+    "smite wrath": 5.0,
+}
+
+
+#: Curated bases for CLASS-GRANTED ranks the game AUTO-SCALES to the
+#: character's level (census carries only the original-level values —
+#: Wrath's row reads 22-27 while the level-80 tooltip reads 2,522-3,031).
+#: Scroll-bought grey ranks do NOT auto-scale (Divine Smite II-IV read
+#: far lower in game). Bases are reverse-engineered through the chain:
+#: Wrath's observed ratio (1.202) matches a bare-chain tooltip with NO
+#: ability mod and NO ½-flat — components carry no_flat_mod. Fitted on
+#: Menludiir at level 80 (chain 4.109); a buff-tick re-read moving by
+#: exactly delta-chain x B would confirm the no-AM structure.
+STATIC_CLASS_SPELL_BASES: dict[str, list[DamageComponent]] = {
+    "wrath": [
+        {"kind": "hit", "min_dmg": 613.8, "max_dmg": 737.6, "school": "divine", "target_scope": "single",
+         "condition": None, "no_flat_mod": True},
+    ],
+}
+
+
+def static_class_spell_base_for(name: str) -> list[DamageComponent] | None:
+    """Curated auto-scaled components for a class-granted rank, or None."""
+    base = STATIC_CLASS_SPELL_BASES.get(name.strip().lower())
+    return [dict(c) for c in base] if base is not None else None  # type: ignore[misc]
 
 
 def aa_subject_of(node_name: str) -> str | None:
@@ -407,22 +628,66 @@ def parse_ability_adjustments(lines: list[str], subject: str | None = None) -> l
     out: list[AbilityAdjustment] = []
     for raw in lines:
         line = raw.strip()
-        for rx, kind in ((_ABILITY_REUSE_ADJ_RE, "reuse"), (_ABILITY_DURATION_ADJ_RE, "duration")):
-            m = rx.match(line)
-            if m is None:
+        matched_self = False
+        for rx, kind in (
+            (_ABILITY_DAMAGE_ADJ_RE, "damage"),
+            (_ABILITY_OT_DAMAGE_ADJ_RE, "dot_damage"),
+            (_ABILITY_CRIT_BONUS_ADJ_RE, "crit_bonus"),
+        ):
+            dm = rx.match(line)
+            if dm is not None and subject:
+                out.append(
+                    {
+                        "targets": [subject.lower()],
+                        "kind": kind,
+                        "amount": _num(dm.group("amt")),
+                        "is_pct": True,
+                        "line": line,
+                    }
+                )
+                matched_self = True
+                break
+        if matched_self:
+            continue
+        cm = _ABILITY_CAST_ADJ_RE.match(line)
+        if cm is not None:
+            raw_targets = (cm.group("targets") or "").strip().lower()
+            # Stat/scope phrasings belong to other parsers: "Improves
+            # casting and recovery speed of spells" is the ally-buff
+            # global; "Increases Casting Speed of caster" is a sheet stat.
+            if raw_targets in ("spells", "caster", "the caster", "target", "pet") or "members" in raw_targets:
                 continue
-            raw_targets = m.group("targets")
             if raw_targets:
                 targets = [t.strip().lower() for t in raw_targets.split(" and ") if t.strip()]
             elif subject:
                 targets = [subject.lower()]
             else:
                 continue
+            amount = _num(cm.group("amt"))
+            is_pct = cm.group("unit") in ("%", "percent")
+            out.append({"targets": targets, "kind": "cast", "amount": amount, "is_pct": is_pct, "line": line})
+            if cm.group("rec"):
+                out.append({"targets": targets, "kind": "recovery", "amount": amount, "is_pct": is_pct, "line": line})
+            continue
+        for rx, kind in ((_ABILITY_REUSE_ADJ_RE, "reuse"), (_ABILITY_DURATION_ADJ_RE, "duration")):
+            m = rx.match(line)
+            if m is None:
+                continue
+            raw_targets = m.groupdict().get("targets")
+            if raw_targets:
+                targets = [t.strip().lower() for t in raw_targets.split(" and ") if t.strip()]
+            elif subject:
+                targets = [subject.lower()]
+            else:
+                continue
+            amount = _num(m.group("amt"))
+            if kind == "duration" and m.groupdict().get("verb") == "Reduces":
+                amount = -amount
             out.append(
                 {
                     "targets": targets,
                     "kind": kind,
-                    "amount": _num(m.group("amt")),
+                    "amount": amount,
                     "is_pct": m.group("unit") in ("%", "percent"),
                     "line": line,
                 }
@@ -447,6 +712,46 @@ def parse_ability_adjustments(lines: list[str], subject: str | None = None) -> l
 #: gear swap moved it by exactly delta-AM/3), modeled as a
 #: trigger_count=1 proc so the proc damage rule applies.
 STATIC_AA_BASES: dict[str, dict] = {
+    # Glacial Strike (mystic AA): the HIT line is genuine census data
+    # (61-67 melee at rank 5 reproduces the in-game 1,305-1,322 with the
+    # live ability mod), but the DOT line is unscaled at EVERY band
+    # (10-11 / 2-3 / 2-3 / 11-12) — and sneaks past the suspect-low
+    # heuristic. Dot base reversed from the in-game tooltip 2,487-2,749
+    # every 4s (Menwardiir rank 5, chain+1/2 = 3.3601; ticks carry no
+    # ability mod so the fit is drift-independent). Duration 16s from the
+    # tooltip.
+    "glacial strike": {
+        "components": [
+            {"kind": "hit", "min_dmg": 61.0, "max_dmg": 67.0, "school": "melee", "target_scope": "single", "condition": None},
+            {"kind": "dot", "min_dmg": 740.2, "max_dmg": 818.1, "school": "cold", "target_scope": "single",
+             "condition": None, "interval_s": 4.0, "duration_s": 16.0},
+        ],
+        "procs": [],
+    },
+    # Lifeburn (necro EoF AA): census bands are era-drifted junk (the
+    # level-70 flat pair 109-121 doesn't reproduce in game, and the
+    # per-HP coefficient reads 18 at every band where RoK shows 9). The
+    # flat base reverses EXACTLY from Menludeth's tooltip through the
+    # validated chain (chain+1/2 = 2.7327, INT 844 / pot 47.6): dot
+    # 80-88 → B 29.3-32.2, and hit 737-745 − flat mod 657 (sheet AM 627
+    # + Spooky Bone Hoop 30 disease) → the SAME base at both ends. The
+    # per-HP part ("9 points per health point consumed, instantly and
+    # every second") is FLAT — static 9/HP, burning ~25% of the caster's
+    # max health per application (user-observed; log pending). The
+    # in-game cap "based off the target's maximum health" is not
+    # modeled (raid bosses don't hit it). Duration 10s, 1s ticks.
+    "lifeburn": {
+        "components": [
+            {"kind": "hit", "min_dmg": 29.3, "max_dmg": 32.2, "school": "disease", "target_scope": "single", "condition": None},
+            {"kind": "dot", "min_dmg": 29.3, "max_dmg": 32.2, "school": "disease", "target_scope": "single",
+             "condition": None, "interval_s": 1.0, "duration_s": 10.0},
+            {"kind": "hit", "min_dmg": 0.0, "max_dmg": 0.0, "school": "disease", "target_scope": "single",
+             "condition": None, "per_hp_rate": 9.0, "hp_fraction": 0.25},
+            {"kind": "dot", "min_dmg": 0.0, "max_dmg": 0.0, "school": "disease", "target_scope": "single",
+             "condition": None, "interval_s": 1.0, "duration_s": 10.0, "per_hp_rate": 9.0, "hp_fraction": 0.25},
+        ],
+        "procs": [],
+    },
     "rabies": {
         "components": [
             {"kind": "hit", "min_dmg": 72.0, "max_dmg": 84.2, "school": "disease", "target_scope": "single", "condition": None},

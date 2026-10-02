@@ -13,17 +13,21 @@ import type { RotationAbility, SimStats } from './types'
 const NUM_CLASS =
   'py-1 px-2 rounded-sm2 border border-border bg-surface-raised text-text text-[0.82rem] w-24 [color-scheme:dark]'
 
-export default function CalibrationPanel({ rotation, abilities, stats, observed, calibration, onChange }: {
+export default function CalibrationPanel({ rotation, abilities, stats, observed, calibration, extraAbilities, onChange }: {
   rotation: string[]
   abilities: Record<string, RotationAbility>
   stats: SimStats
   observed: ObservedHits
   calibration: CalibrationResult
+  /** Non-rotation damage sources that still calibrate against their
+   * in-game tooltip (maintained toggles like Exorcise). */
+  extraAbilities?: RotationAbility[]
   onChange: (observed: ObservedHits) => void
 }) {
-  const rows = rotation
-    .map(name => abilities[name])
-    .filter((a): a is RotationAbility => a != null)
+  const rows = [
+    ...rotation.map(name => abilities[name]).filter((a): a is RotationAbility => a != null),
+    ...(extraAbilities ?? []),
+  ]
     .map(a => ({ a, predicted: predictedTooltipMin(a, stats) }))
     .filter(r => r.predicted != null && r.predicted > 0)
 

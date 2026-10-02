@@ -9,6 +9,7 @@ from backend.eq2db.spell_effects import (
     parse_ability_adjustments,
     parse_damage_line,
     parse_effect_lines,
+    parse_proc_trigger_line,
     parse_stat_mods,
 )
 
@@ -411,10 +412,135 @@ def test_ability_adjustments_no_subject_self_line_dropped():
     assert parse_ability_adjustments(["Improves reuse speed by 30 seconds"]) == []
 
 
+def test_ability_adjustments_enhance_variants():
+    """The wider Enhance family (all-class AA sweep): flat cast-second
+    cuts (48 nodes), per-ability crit bonus (58 nodes), 'Improves the
+    damage' phrasing, dot-only damage, and Enhance Jab's combined
+    cast+recovery percent."""
+    adj = parse_ability_adjustments(
+        [
+            "Improves casting speed by 0.5 seconds.",
+            "Improves the Crit Bonus by 5%.",
+            "Improves the damage by 25%.",
+            "Increases overtime damage by 25%.",
+            "Improves casting and recovery speed by 75%.",
+        ],
+        subject="Jab",
+    )
+    assert [(a["kind"], a["amount"], a["is_pct"]) for a in adj] == [
+        ("cast", 0.5, False),
+        ("crit_bonus", 5.0, True),
+        ("damage", 25.0, True),
+        ("dot_damage", 25.0, True),
+        ("cast", 75.0, True),
+        ("recovery", 75.0, True),
+    ]
+    assert all(a["targets"] == ["jab"] for a in adj)
+    # Stat/scope phrasings stay with their own parsers.
+    assert parse_ability_adjustments(["Increases Casting Speed of caster by 5.0%."], subject="Jab") == []
+    assert parse_ability_adjustments(["Improves casting and recovery speed of spells by 60%."], subject="Jab") == []
+
+
 def test_aa_subject_of():
     assert aa_subject_of("Enhance: Cacophony of Blades") == "Cacophony of Blades"
     assert aa_subject_of("Focus: Exorcise") == "Exorcise"
     assert aa_subject_of("Bolt of Power") is None
+
+
+def test_ability_adjustments_damage_and_duration_reduce():
+    """Enhance: Soulrot rank-5 shape (real spells.db text, no trailing
+    periods): 'Reduces duration' yields a NEGATIVE amount — the dot's
+    ticks COMPRESS into the shorter window — and 'Increases damage by 5%'
+    is a whole-tooltip multiplier. Both are self-referential, so they
+    attach to the node's subject and are dropped without one."""
+    adj = parse_ability_adjustments(
+        ["Reduces duration by 2.5 seconds", "Increases damage by 5%"],
+        subject="Soulrot",
+    )
+    assert [(a["kind"], a["amount"], a["is_pct"]) for a in adj] == [
+        ("duration", -2.5, False),
+        ("damage", 5.0, True),
+    ]
+    assert all(a["targets"] == ["soulrot"] for a in adj)
+    assert parse_ability_adjustments(["Reduces duration by 2.5 seconds", "Increases damage by 5%"]) == []
+
+
+def test_parse_school_damage_flat():
+    """Spooky Bone Hoop shape: a school-specific FLAT damage add. Two
+    hoops stack; non-'done by' base-damage lines never match."""
+    from backend.eq2db.spell_effects import parse_school_damage_flat
+
+    lines = [
+        "Increases disease damage done by spells by up to 30.",
+        "Increases disease damage done by spells by up to 30.",
+        "Increases cold damage done by combat arts by 15.",
+        "Increases base damage of spells and combat arts by 25.",  # different stat
+        "Increases Haste of caster by 12.",
+    ]
+    assert parse_school_damage_flat(lines) == {"disease": 60.0, "cold": 15.0}
+    assert parse_school_damage_flat(["Increases heat and cold damage done by spells by up to 20."]) == {
+        "heat": 20.0,
+        "cold": 20.0,
+    }
+    assert parse_school_damage_flat([]) == {}
+
+
+def test_parse_stat_mods_raid_weapon_damage():
+    """Berserker's raid-wide Destructive Rage: 'Increases Weapon Damage
+    of raid and group members (AE) by 3.3.' → a % on auto swings."""
+    assert parse_stat_mods(["Increases Weapon Damage of raid and group members (AE) by 3.3."]) == {
+        "weaponDamagePct": 3.3
+    }
+
+
+def test_parse_stat_mods_raid_spell_damage():
+    """Shadowknight's raid-wide Unholy Strength: 'Increase spell damage of
+    group and raid members by 5%.' — USER-VERIFIED functional (unlike the
+    dead self-targeted Smite Wrath phrasing, which must NOT match).
+    Census duplicates the exact line in the effect list — counted once."""
+    assert parse_stat_mods(
+        [
+            "Increase spell damage of group and raid members by 5%.",
+            "Increase spell damage of group and raid members by 5%.",
+        ]
+    ) == {"baseDamagePct": 5.0}
+    assert parse_stat_mods(["Increases spell damage by 25%."]) == {}
+
+
+def test_parse_item_spell_timing():
+    """Worn-item spell-timing cuts keep their SCOPE (Sash of Secrets'
+    'Arcane Recovery I' is hostile-only reuse; Nagol's Treasure cuts
+    all-spell cast time). Skill-scoped variants don't match."""
+    from backend.eq2db.spell_effects import parse_item_spell_timing
+
+    assert parse_item_spell_timing(["Reduces reuse time of hostile spells by 1 percent."]) == [("reuse", "hostile", 1.0)]
+    assert parse_item_spell_timing(["Reduces cast time of all spells by 5 percent."]) == [("cast", "all", 5.0)]
+    assert parse_item_spell_timing(["Reduces reuse time of beneficial spells by 3 percent."]) == [
+        ("reuse", "beneficial", 3.0)
+    ]
+    assert parse_item_spell_timing(["Reduces casting time by 10%"]) == [("cast", "all", 10.0)]
+    assert parse_item_spell_timing(["Reduces reuse time of Subjugation-based spells by 2 percent."]) == []
+
+
+def test_parse_proc_trigger_line_item_wrapper():
+    """Wand of Crystallized Plasma's wrapper line (real items.db text):
+    inline duration + rate captured; in worn-item context 'On a spell
+    cast' is the WEARER's cast, in debuff context the TARGET's."""
+    line = (
+        "On a spell cast this spell may cast Plasma Boost on caster.  "
+        "Lasts for 12.0 seconds.  Triggers about 1.8 times per minute."
+    )
+    trig = parse_proc_trigger_line(line, self_source=True)
+    assert trig == {
+        "trigger": "spell_cast",
+        "chance_pct": 100.0,
+        "name": "Plasma Boost",
+        "per_minute": 1.8,
+        "lasts_for_s": 12.0,
+    }
+    assert parse_proc_trigger_line(line)["trigger"] == "target_cast"
+    # Stat lines nested under the wrapper are NOT triggers themselves.
+    assert parse_proc_trigger_line("Increases the base damage of hostile spells cast by 8%.") is None
 
 
 def test_target_cast_proc_with_trigger_budget():

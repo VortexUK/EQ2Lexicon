@@ -15,7 +15,7 @@ import type { ExternalBuffConfig, SuppliedBuffInfo } from './types'
 const NUM_CLASS =
   'py-1 px-2 rounded-sm2 border border-border bg-surface-raised text-text text-[0.82rem] w-16 [color-scheme:dark]'
 
-export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, uptimes, selfUptimes, supplied, onChange, onSetSupplier, onTogglePermanent }: {
+export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, uptimes, selfUptimes, supplied, tierOptions, tierSelected, onChange, onSetSupplier, onTogglePermanent, onSetTier }: {
   sheet: RotationBuffSheet
   exact: boolean
   configs: ExternalBuffConfig[]
@@ -27,9 +27,15 @@ export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, up
   selfUptimes: Record<string, number>
   /** buffId → supplier resolution (their rank of the spell, status). */
   supplied: Record<string, SuppliedBuffInfo | undefined>
+  /** buffId → available spell tiers (Apprentice → Master) for the
+   * raid-wide permanents; the selected tier drives the mod values. */
+  tierOptions: Record<string, string[]>
+  /** buffId → assumed tier (absent = Expert). */
+  tierSelected: Record<string, string>
   onChange: (configs: ExternalBuffConfig[]) => void
   onSetSupplier: (buffId: string, name: string | null) => void
   onTogglePermanent: (buffId: string, enabled: boolean) => void
+  onSetTier: (buffId: string, tier: string) => void
 }) {
   // Per-buff expand state — rows collapse to one line (most people only
   // configure a couple of these, and expanded they dominate the panel).
@@ -63,19 +69,42 @@ export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, up
             In your group (always on)
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-            {permanents.map(buff => (
-              <label key={buff.id} className="flex items-center gap-1.5 text-[0.8rem] cursor-pointer" title={buff.note}>
-                <input
-                  type="checkbox"
-                  checked={permanentEnabled.includes(buff.id)}
-                  onChange={e => onTogglePermanent(buff.id, e.target.checked)}
-                  className="accent-[var(--color-gold)]"
-                />
-                {buff.name}
-                <span className="text-[0.68rem] text-text-muted">{buff.sourceClass}</span>
-                {buff.todoValues && <Badge variant="warning" className="cursor-help" title={buff.note}>?</Badge>}
-              </label>
-            ))}
+            {permanents.map(buff => {
+              const tiers = tierOptions[buff.id] ?? []
+              return (
+                <div key={buff.id} className="flex items-center gap-1.5 text-[0.8rem]">
+                  <label className="flex items-center gap-1.5 cursor-pointer" title={buff.note}>
+                    <input
+                      type="checkbox"
+                      checked={permanentEnabled.includes(buff.id)}
+                      onChange={e => onTogglePermanent(buff.id, e.target.checked)}
+                      className="accent-[var(--color-gold)]"
+                    />
+                    {buff.name}
+                    <span className="text-[0.68rem] text-text-muted">{buff.sourceClass}</span>
+                    {(buff.priestOnlyMods?.length ?? 0) > 0 && (
+                      <Badge variant="muted" className="cursor-help" title={buff.note}>
+                        Fervor: priests only
+                      </Badge>
+                    )}
+                  </label>
+                  {tiers.length > 0 ? (
+                    <select
+                      value={tierSelected[buff.id] ?? (tiers.includes('Expert') ? 'Expert' : tiers[tiers.length - 1])}
+                      onChange={e => onSetTier(buff.id, e.target.value)}
+                      title="Assumed spell tier — sets the buff's values"
+                      className="py-0.5 px-1 rounded-sm2 border border-border bg-surface-raised text-text text-[0.72rem] [color-scheme:dark]"
+                    >
+                      {tiers.map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    buff.todoValues && <Badge variant="warning" className="cursor-help" title={buff.note}>?</Badge>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

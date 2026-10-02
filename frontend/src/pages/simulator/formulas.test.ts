@@ -14,7 +14,9 @@ import {
   critMultiplier,
   dotTicks,
   effCastTime,
+  effCastTimeFor,
   effRecast,
+  effRecastFor,
   effRecovery,
   expectedCastDamage,
   expectedCritSwing,
@@ -78,9 +80,10 @@ describe('critMultiplier', () => {
     expect(critMultiplier({ crit_chance: 50 })).toBeCloseTo(1.15)
   })
 
-  it('adds crit bonus on top of the base multiplier', () => {
-    // 100% chance, 20% bonus: 1 + 1.0 * (0.3 + 0.2) = 1.5
-    expect(critMultiplier({ crit_chance: 100, crit_bonus: 20 })).toBeCloseTo(1.5)
+  it('crit bonus would add on top of the base multiplier — era-disabled', () => {
+    // With CRIT_BONUS_ENABLED the 20% bonus would give 1.5; on Wuoshi
+    // (RoK TLE) crit bonus is verified non-functional → 1.3.
+    expect(critMultiplier({ crit_chance: 100, crit_bonus: 20 })).toBeCloseTo(1.3)
   })
 
   it('clamps chance to 100 and floors negatives at 0', () => {
@@ -161,6 +164,58 @@ describe('expectedCastDamage', () => {
   it('is 0 for a zero-damage ability (no NaN)', () => {
     expect(expectedCastDamage(ability([]), { ability_mod: 500 })).toBe(0)
   })
+
+  it('own Enhance AA (dmg_mod_pct) multiplies the BASE CHAIN only, not the flat mod', () => {
+    // Soulrot+Lifeburn cross-validated: 1000×1.5×1.05 + 200 = 1775.
+    const a = ability([hit(800, 1200)], { dmg_mod_pct: 5 })
+    expect(expectedCastDamage(a, { ability_mod: 200 })).toBeCloseTo(1775)
+    // predictedTooltipMin: ½ flat is the constant ½×B̄ (midpoint 1000):
+    // (800×1 + 500)×1.05 + 200 = 1565.
+    expect(predictedTooltipMin(a, { ability_mod: 200 })).toBeCloseTo(1565)
+  })
+
+  it('per-HP components (Lifeburn) are flat: rate × fraction × max health, no chain', () => {
+    // 9/HP × 25% × 8000 HP = 18,000 per application; hit + 10-tick dot
+    // = 11 applications → 198,000. Potency/Enhance must NOT scale it.
+    const perHp = { per_hp_rate: 9, hp_fraction: 0.25, min_dmg: 0, max_dmg: 0 }
+    const a = ability(
+      [hit(0, 0, perHp), hit(0, 0, { ...perHp, kind: 'dot', interval_s: 1, duration_s: 10 })],
+      { dmg_mod_pct: 5 },
+    )
+    expect(expectedCastDamage(a, { max_health: 8000, potency: 100 })).toBeCloseTo(198000)
+    expect(expectedCastDamage(a, {})).toBe(0) // no health known → no damage
+  })
+
+  it('cast/reuse floor at HALF the ORIGINAL base — AA cuts share the cap', () => {
+    // Original 5s cast, AA −1s → served 4s; +100% speed would give 2s
+    // but the floor is half of the ORIGINAL: 2.5s.
+    const a = ability([hit(100, 100)], { cast_secs: 4, orig_cast_secs: 5, recast_secs: 8, orig_recast_secs: 10 })
+    expect(effCastTimeFor(a, { casting_speed: 100 })).toBeCloseTo(2.5)
+    expect(effRecastFor(a, { reuse_speed: 100 })).toBeCloseTo(5) // 10/2, not 8/2
+    // Below the floor region the normal math applies: +25% → 4/1.25 = 3.2.
+    expect(effCastTimeFor(a, { casting_speed: 25 })).toBeCloseTo(3.2)
+  })
+
+  it('crit bonus is era-disabled (Wuoshi-verified: fervor applies, crit bonus does not)', () => {
+    expect(critMultiplier({ crit_chance: 100, crit_bonus: 100 })).toBeCloseTo(1.3)
+  })
+
+  it('scoped item timing cuts apply by ability polarity only', () => {
+    const hostile = ability([hit(100, 100)]) // beneficial: false, recast 8
+    const stats = { reuse_speed: 0, hostile_reuse_pct: 100, beneficial_reuse_pct: 0 }
+    expect(effRecastFor(hostile, stats)).toBeCloseTo(4) // 8 / (1 + 100%)
+    const buff = { ...hostile, beneficial: true }
+    expect(effRecastFor(buff, stats)).toBeCloseTo(8) // hostile cut doesn't touch it
+    expect(effCastTimeFor(hostile, { casting_speed: 0, hostile_cast_pct: 100 })).toBeCloseTo(1) // cast 2 / (1 + 100%)
+  })
+
+  it('school-matched gear flat adds like ability mod — matching school only', () => {
+    // hit() components are heat school: 1000×1.5 + (200 + 30) = 1730.
+    const a = ability([hit(800, 1200)])
+    expect(expectedCastDamage(a, { ability_mod: 200, school_damage_flat: { heat: 30 } })).toBeCloseTo(1730)
+    // A disease-only flat does nothing for a heat spell: 1700.
+    expect(expectedCastDamage(a, { ability_mod: 200, school_damage_flat: { disease: 30 } })).toBeCloseTo(1700)
+  })
 })
 
 describe('primaryStatBonus', () => {
@@ -215,9 +270,10 @@ describe('potency / fervor / doublecast (TLE modern engine)', () => {
   })
 
   it('reproduces the blind-validated Divine Strike VII tooltip', () => {
-    // In-game tooltip read 5,494 - 6,191. Model min: WIS 1493 -> +75.23%,
-    // +35% gear/AA, x1.95 potency -> coeff 4.0995; B_min 754 x 4.5995
-    // + AM 1983 = 5,451 - within 1% of the observed minimum.
+    // In-game tooltip read 5,494 - 6,191. Midpoint-flat model: coeff
+    // (1+0.7523+0.35)×1.95 = 4.0995; 754×4.0995 + ½×838 + AM 1983 =
+    // 5,493 — 0.02% off the observed minimum (the per-end reading gave
+    // 5,451; Menludiir's Divine Smite VII widths settled the split).
     const a = ability([hit(754, 922)], { level: 78 })
     const stats: SimStats = {
       primary_stat: 1493,
@@ -227,7 +283,7 @@ describe('potency / fervor / doublecast (TLE modern engine)', () => {
     }
     const v = predictedTooltipMin(a, stats)
     expect(v).not.toBeNull()
-    expect(Math.abs((v as number) - 5494)).toBeLessThan(55)
+    expect(Math.abs((v as number) - 5494)).toBeLessThan(10)
   })
 })
 
@@ -304,9 +360,9 @@ describe('target-aware damage', () => {
 
 describe('predictedTooltipMin', () => {
   it('the primary hit gets the FULL mod (ticks and riders get none)', () => {
-    // hit MIN 300 x 1.5 = 450, + mod 90 = 540 (the dot is irrelevant).
+    // hit MIN 300 + ½×B̄ 200 = 500, + mod 90 = 590 (the dot is irrelevant).
     const a = ability([hit(300, 500), dot(100, 100, 2, 10)])
-    expect(predictedTooltipMin(a, { ability_mod: 90 })).toBeCloseTo(540)
+    expect(predictedTooltipMin(a, { ability_mod: 90 })).toBeCloseTo(590)
   })
 
   it('returns null when the ability has no unconditional hit component', () => {
@@ -315,13 +371,15 @@ describe('predictedTooltipMin', () => {
   })
 
   it('ignores crit — tooltips are non-crit', () => {
+    // min 300 + ½×400 = 500 under the midpoint-flat model.
     const a = ability([hit(300, 500)])
-    expect(predictedTooltipMin(a, { crit_chance: 100, crit_bonus: 100 })).toBe(450)
+    expect(predictedTooltipMin(a, { crit_chance: 100, crit_bonus: 100 })).toBe(500)
   })
 
   it('skips conditional hit components — the tooltip main line is unconditional', () => {
+    // Unconditional hit: min 100 + ½×B̄ 75 = 175.
     const a = ability([hit(300, 500, { condition: 'If target is undead' }), hit(100, 200)])
-    expect(predictedTooltipMin(a, {})).toBe(150)
+    expect(predictedTooltipMin(a, {})).toBe(175)
   })
 })
 

@@ -19,6 +19,16 @@ export interface DamageComponent {
   suspect_low_value: boolean
   /** Generated from an "Applies X … every N seconds" pulse wrapper. */
   from_pulse?: boolean
+  /** Lifeburn's per-HP mechanic: per application = per_hp_rate ×
+   * hp_fraction × caster max health — FLAT, outside the coefficient
+   * chain (min/max_dmg are 0 on such components). */
+  per_hp_rate?: number | null
+  /** Fraction of max health consumed per application ("roughly 25%" per
+   * tick — user-observed estimate pending a log). */
+  hp_fraction?: number | null
+  /** Auto-scaled class-granted ranks (Wrath): the tooltip is the BARE
+   * chain — no ability mod, no school flat, no ½-flat constant. */
+  no_flat_mod?: boolean
 }
 
 /** Attack-driven proc damage ("On any combat or spell hit this spell has
@@ -67,6 +77,26 @@ export interface RotationAbility {
    * PotM's Precise Note hits with the bard's chain, not the player's.
    * Absent ⇒ the player's stats scale the proc (own AAs, own gear). */
   proc_stats?: Partial<SimStats>
+  /** Stat mods parsed from the effect text — set on OWN castable temp
+   * buffs: casting one opens a window with these effects. */
+  mods?: Record<string, number>
+  /** Per-ability multiplier from the character's own Enhance AAs
+   * ("Increases damage by 5%.") — multiplies the BASE-CHAIN part only,
+   * not the flat ability-mod/school-flat part (Soulrot VII + Lifeburn
+   * cross-validated). */
+  dmg_mod_pct?: number
+  /** "Increases overtime damage by N%." — DOT components only. */
+  dot_dmg_mod_pct?: number
+  /** "Improves the Crit Bonus by N%." — per-ability crit bonus; dealt
+   * damage only (tooltips exclude crit). */
+  crit_bonus_pct?: number
+  /** Pre-AA base timings (set only when an AA cut changed them): cast
+   * and reuse NEVER drop below HALF the ORIGINAL base — a 5s cast with a
+   * −1s AA and +100% cast speed still floors at 2.5s. */
+  orig_cast_secs?: number | null
+  orig_recast_secs?: number | null
+  /** The character's own AA lines applied to this ability. */
+  aa_adjustments?: string[]
 }
 
 /** One entry of a class's group/raid/ally buff book
@@ -90,6 +120,10 @@ export interface ClassBuff {
   /** AA effect lines that adjusted this buff's reuse/duration (the
    * member's Enhance:/Focus: nodes) — already applied to the values. */
   aa_adjustments?: string[]
+  /** AA-granted buffs only: spent rank + the node's max. tier_name is
+   * blank on these — the UI shows "4/5" (nothing for 1-rank nodes). */
+  rank?: number | null
+  max_rank?: number | null
 }
 
 /** A specific group member's buff book at THEIR owned spell ranks
@@ -110,13 +144,37 @@ export interface DerivedSource {
   detail: string
 }
 
+/** A temp stat buff granted by a worn item's proc (Plasma Boost):
+ * rate + duration drive deterministic windows; never always-on. */
+export interface ItemProcBuff {
+  name: string
+  item: string
+  duration_s: number
+  per_minute: number
+  chance_pct: number
+  trigger: string
+  mods: Record<string, number>
+}
+
 /** Hidden modifiers auto-derived from worn gear + adorns + active set
  * bonuses + class-tree AAs — none appear in census sheet stats. */
 export interface DerivedModifiers {
   base_damage_bonus_pct: number
   cast_speed_bonus_pct: number
   reuse_bonus_pct: number
+  /** SCOPED worn-item timing cuts ("Reduces reuse time of hostile
+   * spells by 1 percent"): applied per ability by its beneficial flag —
+   * a hostile-only cut never speeds a beneficial cast. */
+  hostile_cast_pct: number
+  hostile_reuse_pct: number
+  beneficial_cast_pct: number
+  beneficial_reuse_pct: number
+  /** School-specific flat damage from gear, keyed by lowercased school
+   * (Spooky Bone Hoop → { disease: 30 }). Applied like ability mod but
+   * only to matching-school components. */
+  school_damage_flat: Record<string, number>
   sources: DerivedSource[]
+  proc_buffs: ItemProcBuff[]
 }
 
 export interface CharacterRotationData {
@@ -145,6 +203,19 @@ export interface SimStats {
    * Pact of the Faithful +10%) — additive with the primary-stat bonus.
    * Hidden from census sheets; user-entered. */
   base_damage_bonus_pct?: number | null
+  /** School-specific FLAT damage from gear ("Increases disease damage
+   * done by spells by up to 30." — Spooky Bone Hoop), keyed by
+   * lowercased school. Behaves like ability mod but ONLY on components
+   * whose school matches — worthless without spells of that school. */
+  school_damage_flat?: Record<string, number> | null
+  /** Caster max health — drives Lifeburn's per-HP components. */
+  max_health?: number | null
+  /** Scoped worn-item timing cuts — added to casting/reuse speed only
+   * for abilities of the matching polarity (see DerivedModifiers). */
+  hostile_cast_pct?: number | null
+  hostile_reuse_pct?: number | null
+  beneficial_cast_pct?: number | null
+  beneficial_reuse_pct?: number | null
   crit_chance?: number | null
   crit_bonus?: number | null
   ability_mod?: number | null
@@ -176,9 +247,17 @@ export interface BuffMods {
   hastePct?: number
   dpsModPct?: number
   doubleAttackPct?: number
+  /** Ally/group doublecast grants (Conjuror's Unabate). */
+  doublecastPct?: number
   abilityModFlat?: number
   potencyPct?: number
   fervorPct?: number
+  /** Weapon Damage Bonus (Berserker's raid-wide Destructive Rage) —
+   * a PERCENT like base damage but for auto-attack swings only. */
+  weaponDamagePct?: number
+  /** Gear-proc temp bonus: "+N% base damage" while the window is up
+   * (Plasma Boost) — additive into base_damage_bonus_pct. */
+  baseDamagePct?: number
   /** Flat attribute adds — only the character's PRIMARY attribute does
    * anything (applyMods maps "<primary_attr>Flat" onto primary_stat). */
   strFlat?: number
@@ -299,4 +378,7 @@ export interface SimResult {
   idlePct: number
   /** buffId → % of the fight the buff was up (externals + self temps). */
   buffUptimes: Record<string, number>
+  /** Every buff window that existed during the sim (externals + self
+   * temps cast in rotation) — the timeline shades where they're active. */
+  buffWindows: BuffWindow[]
 }

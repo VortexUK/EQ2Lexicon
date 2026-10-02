@@ -150,6 +150,29 @@ async def test_proc_carrying_permanent_beneficial_becomes_passive(app):
 
 
 @pytest.mark.asyncio
+async def test_partial_unscaled_component_flagged_relative(app):
+    """Glacial Strike signature: a genuine hit line (61-67) next to an
+    unscaled dot (10-11) that evades the level heuristic — the RELATIVE
+    rule flags the tiny sibling, never the healthy one."""
+    rows = {
+        1: _row(
+            1,
+            "Frost Jab",
+            effects=[
+                {"description": "Inflicts 61 - 67 melee damage on target", "indentation": 0},
+                {"description": "Inflicts 10 - 11 cold damage on target every 4 seconds.", "indentation": 0},
+            ],
+        )
+    }
+    p1, p2, p3 = _catalogue_patches(rows)
+    with p1, p2, p3:
+        r = await _get(app, _fake_char(spell_ids=[1]))
+    (a,) = r.json()["abilities"]
+    flags = {c["kind"]: c["suspect_low_value"] for c in a["components"]}
+    assert flags == {"hit": False, "dot": True}
+
+
+@pytest.mark.asyncio
 async def test_rotation_beneficial_gate(app):
     rows = {
         1: _row(1, "Permanent Buff", beneficial=1, effects=[]),  # no duration → dropped
@@ -460,6 +483,53 @@ async def test_rotation_aa_static_bases_replace_unscaled_census(app):
 
 
 @pytest.mark.asyncio
+async def test_rotation_lifeburn_static_base_with_per_hp(app):
+    """Lifeburn: census bands are era-drifted; the static base carries the
+    tooltip-reversed flat hit+dot AND the per-HP components (9/HP, ~25%
+    of max health per application) — flat, un-flagged, 10s/1s ticks."""
+    from backend.server.api.character import rotation as mod
+
+    row = _row(903, "Lifeburn", spell_type="spells", level=70, crc=890)
+    row["tier"] = 1
+    row["effects"] = json.dumps(
+        [
+            {"description": "Inflicts 109 - 121 disease damage on target instantly and every second.", "indentation": 0},
+            {
+                "description": "Inflicts an additional 18 points of disease damage to target "
+                "for each health point consumed instantly and every second.",
+                "indentation": 0,
+            },
+            {"description": "Must be hated by your current target.", "indentation": 0},
+        ]
+    )
+    tree = {"name": "T", "tree_type": "subclass", "nodes": [{"node_id": 100, "name": "Lifeburn", "spellcrc": 890}]}
+    p1, p2, p3 = _catalogue_patches({})
+    with (
+        p1,
+        p2,
+        p3,
+        patch.object(mod._aas, "get_tree", lambda tid: tree),
+        patch.object(mod._spells, "find_by_crc_bands", lambda crc, tier: [row] if crc == 890 else []),
+    ):
+        r = await _get(app, _fake_char(spell_ids=[]), aa_trees=[(49, {"100": 1})])
+    (a,) = r.json()["abilities"]
+    comps = [(c["kind"], c["min_dmg"], c["max_dmg"], c["per_hp_rate"], c["hp_fraction"]) for c in a["components"]]
+    assert comps == [
+        ("hit", 29.3, 32.2, None, None),
+        ("dot", 29.3, 32.2, None, None),
+        ("hit", 0.0, 0.0, 9.0, 0.25),
+        ("dot", 0.0, 0.0, 9.0, 0.25),
+    ]
+    # Zero-damage per-HP components are legitimate — never suspect-flagged.
+    assert all(not c["suspect_low_value"] for c in a["components"])
+    assert all(
+        c["duration_s"] == 10.0 and c["interval_s"] == 1.0 and not c["duration_estimated"]
+        for c in a["components"]
+        if c["kind"] == "dot"
+    )
+
+
+@pytest.mark.asyncio
 async def test_rotation_aa_dedupes_known_crcs(app):
     """An AA node whose spell is already in the owned-spell universe (same
     crc) must not appear twice."""
@@ -596,6 +666,69 @@ async def test_character_buffs_applies_member_aa_adjustments(app):
     assert b["recast_s"] == 30.0  # 60 - 30 (Focus)
     assert b["duration_s"] == 15.0  # 12 + 3 (Enhance)
     assert len(b["aa_adjustments"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_character_buffs_includes_aa_granted_group_buffs(app):
+    """Census spell lists OMIT AA-granted abilities (Sihtric's Fearless
+    Morale: specced rank 1, absent from spell_list) — the member book
+    must surface group-scope beneficials from SPENT AA nodes, at the
+    era band's values (+2% group potency)."""
+    from backend.server.api.character import rotation as mod
+
+    fm_row = {
+        "name": "Fearless Morale",
+        "tier": 1,
+        "tier_name": "Apprentice",
+        "level": 70,
+        "type": "spells",
+        "beneficial": 1,
+        "crc": 700,
+        "target_type": "group",
+        "icon_id": 1,
+        "icon_backdrop": 2,
+        "cast_secs": 2.0,
+        "recast_secs": 10.0,
+        "recovery_secs": 0.0,
+        "effects": json.dumps(
+            [
+                {"description": "Increases Potency of group members (AE) by 2.0%.", "indentation": 0},
+                {"description": "Makes group members (AE) immune to Fear effects", "indentation": 0},
+            ]
+        ),
+    }
+    tree = {
+        "name": "Crusader",
+        "tree_type": "class",
+        "nodes": [{"node_id": 1, "name": "Fearless Morale", "spellcrc": 700, "maxtier": 1}],
+    }
+    char = _fake_char(name="Sihtric", spell_ids=[])
+    mock_cache = MagicMock()
+    mock_cache.get_stale.return_value = (char, False)
+    mock_db = MagicMock()
+    mock_db.exists.return_value = True
+    with (
+        patch("backend.server.api.character.views.character_cache", mock_cache),
+        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch(
+            "backend.server.api.character.rotation._fetch_aa_trees",
+            AsyncMock(return_value=[(4, {"1": 1})]),
+        ),
+        patch.object(mod._aas, "get_tree", lambda tid: tree),
+        patch.object(mod._spells, "find_by_ids", lambda ids: {}),
+        patch.object(mod._spells, "find_by_crc", lambda crc, tier=None: fm_row if crc == 700 else None),
+        patch.object(mod._items, "spell_meta_by_names", lambda names: {}),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/simulator/character-buffs?name=Sihtric")
+    assert r.status_code == 200, r.text
+    (b,) = r.json()["buffs"]
+    assert b["name"] == "Fearless Morale"
+    assert b["mods"] == {"potencyPct": 2.0}
+    assert b["target_scope"] == "group"
+    # AA "tiers" are ranks: no research-tier label; rank/max carried.
+    assert b["tier_name"] == ""
+    assert b["rank"] == 1 and b["max_rank"] == 1
 
 
 @pytest.mark.asyncio
@@ -749,7 +882,11 @@ async def test_rotation_derived_modifiers(app):
             name="Bloodthirsty Choker",
             item_id="123",
             adorn_slots=[AdornSlotResponse(color="white", adorn_id=str(400 + i)) for i in range(5)],
-        )
+        ),
+        EquipmentSlotResponse(slot="Ranged", name="Wand of Crystallized Plasma", item_id="124"),
+        EquipmentSlotResponse(slot="Ear", name="Spooky Bone Hoop", item_id="125"),
+        EquipmentSlotResponse(slot="Ear2", name="Bone Hoop of Spookiness", item_id="126"),
+        EquipmentSlotResponse(slot="Waist", name="Sash of Secrets", item_id="127"),
     ]
     set_json = json.dumps(
         {
@@ -809,7 +946,48 @@ async def test_rotation_derived_modifiers(app):
         patch.object(
             mod._items,
             "effect_lines_for_ids",
-            lambda ids: [(123, "Bloodthirsty Choker", "Increases base damage of spells and combat arts by 25%.")],
+            lambda ids: [
+                (123, "Bloodthirsty Choker", "Increases base damage of spells and combat arts by 25%.", 0),
+                # Wand of Crystallized Plasma (real items.db text): the +8%
+                # is nested under a rated proc → a TEMP buff window, never
+                # folded into the always-on base_damage_bonus_pct.
+                (124, "Wand of Crystallized Plasma", "When Equipped:", 0),
+                (
+                    124,
+                    "Wand of Crystallized Plasma",
+                    "On a spell cast this spell may cast Plasma Boost on caster.  "
+                    "Lasts for 12.0 seconds.  Triggers about 1.8 times per minute.",
+                    1,
+                ),
+                (124, "Wand of Crystallized Plasma", "Increases the base damage of hostile spells cast by 8%.", 2),
+                (124, "Wand of Crystallized Plasma", "Cannot be modified except by direct means", 2),
+                # School-specific flat damage (behaves like ability mod on
+                # matching-school spells only).
+                (125, "Spooky Bone Hoop", "When Equipped:", 0),
+                (125, "Spooky Bone Hoop", "Increases disease damage done by spells by up to 30.", 1),
+                # A SECOND item carrying the same named effect ("Disease
+                # Cloud VI") — in-game these never stack: counted once.
+                (126, "Bone Hoop of Spookiness", "When Equipped:", 0),
+                (126, "Bone Hoop of Spookiness", "Increases disease damage done by spells by up to 30.", 1),
+                # Scoped item timing cuts ("Arcane Recovery I" hostile
+                # reuse; Nagol's Treasure all-spell cast time).
+                (127, "Sash of Secrets", "When Equipped:", 0),
+                (127, "Sash of Secrets", "Reduces reuse time of hostile spells by 1 percent.", 1),
+                (128, "Nagol's Treasure", "When Equipped:", 0),
+                (128, "Nagol's Treasure", "Reduces cast time of all spells by 5 percent.", 1),
+            ],
+        ),
+        patch.object(
+            mod._items,
+            "named_effects_for_ids",
+            lambda ids: {
+                123: ["Vampiric Requiem"],
+                124: ["Plasma Boost"],
+                125: ["Disease Cloud VI"],
+                126: ["Disease Cloud VI"],
+                127: ["Arcane Recovery I"],
+                128: ["Mental Breakdown IV"],
+            },
         ),
         patch.object(
             mod._items,
@@ -821,9 +999,22 @@ async def test_rotation_derived_modifiers(app):
             r = await client.get("/api/character/Sihtric/rotation-data")
     assert r.status_code == 200, r.text
     d = r.json()["derived"]
-    assert d["base_damage_bonus_pct"] == 35.0  # choker 25 + Pact 10 (set basemodifier ignored)
-    assert d["cast_speed_bonus_pct"] == 33.0  # 5pc active; 7pc threshold not reached
+    assert d["base_damage_bonus_pct"] == 35.0  # choker 25 + Pact 10 (wand's proc-nested 8% EXCLUDED)
+    assert d["cast_speed_bonus_pct"] == 38.0  # set 33 (5pc active) + Nagol's all-spell 5
+    # The wand's proc-granted +8% surfaces as a TEMP buff window instead.
+    (pb,) = d["proc_buffs"]
+    assert pb["name"] == "Plasma Boost" and pb["item"] == "Wand of Crystallized Plasma"
+    assert pb["duration_s"] == 12.0 and pb["per_minute"] == 1.8 and pb["trigger"] == "spell_cast"
+    assert pb["mods"] == {"baseDamagePct": 8.0}
+    # The hoop's +30 disease is a SCHOOL-scoped flat, not base damage —
+    # and the second item with the SAME effect name doesn't stack.
+    assert d["school_damage_flat"] == {"disease": 30.0}
+    # The sash's hostile-only reuse cut keeps its scope — it must NOT
+    # land in the all-spell reuse bonus.
+    assert d["reuse_bonus_pct"] == 0.0
+    assert d["hostile_reuse_pct"] == 1.0
     kinds = sorted((s["kind"], s["name"]) for s in d["sources"])
+    assert ("item", "Spooky Bone Hoop") in kinds
     assert ("item", "Bloodthirsty Choker") in kinds
     assert ("aa", "Pact of the Faithful") in kinds
     assert any(s["kind"] == "set" for s in d["sources"])
@@ -834,6 +1025,111 @@ async def test_rotation_derived_modifiers(app):
     assert proc["per_minute"] == 1.8 and proc["trigger"] == "any_hit"
     assert proc["components"][0]["condition"] == "If target is vampire"
     assert proc["components"][0]["max_dmg"] == 2861.0
+
+
+@pytest.mark.asyncio
+async def test_rotation_own_aa_adjustments_compress_dot(app):
+    """The character's OWN Enhance: Soulrot (rank 5) applies to their
+    Soulrot: +5% whole-tooltip damage, and the −2.5s duration cut
+    COMPRESSES the dot — same tick count squeezed into the shorter
+    window (4s/1s → 1.5s/0.375s; in-game tooltip confirmed)."""
+    from backend.server.api.character import rotation as mod
+
+    soulrot = _row(
+        1,
+        "Soulrot VII",
+        level=57,
+        effects=[
+            {"description": "Inflicts 821 - 889 disease damage on target", "indentation": 0},
+            {"description": "Inflicts 201 disease damage on target every second", "indentation": 0},
+        ],
+    )
+    meta = {"Soulrot VII (Master)": {"spell_duration": 400.0, "spell_power_cost": None}}
+    enhance_row = {
+        "name": "Enhance: Soulrot",
+        "tier": 5,
+        "tier_name": "",
+        "level": 70,
+        "type": "pcinnates",
+        "beneficial": 1,
+        "crc": 901,
+        "cast_secs": 0.0,
+        "recast_secs": 0.0,
+        "recovery_secs": 0.0,
+        "effects": json.dumps(
+            [
+                {"description": "Reduces duration by 2.5 seconds", "indentation": 0},
+                {"description": "Increases damage by 5%", "indentation": 0},
+            ]
+        ),
+    }
+    tree = {
+        "name": "Necromancer",
+        "tree_type": "subclass",
+        "nodes": [{"node_id": 1, "name": "Enhance: Soulrot", "spellcrc": 901}],
+    }
+    char = _fake_char(name="Menludeth", spell_ids=[1])
+    mock_cache = MagicMock()
+    mock_cache.get_stale.return_value = (char, False)
+    mock_db = MagicMock()
+    mock_db.exists.return_value = True
+    with (
+        patch("backend.server.api.character.views.character_cache", mock_cache),
+        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch(
+            "backend.server.api.character.rotation._fetch_aa_trees",
+            AsyncMock(return_value=[(49, {"1": 5})]),
+        ),
+        patch.object(mod._aas, "get_tree", lambda tid: tree),
+        patch.object(mod._spells, "find_by_ids", lambda ids: {1: soulrot}),
+        patch.object(mod._spells, "find_by_crc", lambda crc, tier=None: enhance_row if (crc, tier) == (901, 5) else None),
+        patch.object(mod._items, "spell_meta_by_names", lambda names: meta),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/character/Menludeth/rotation-data")
+    assert r.status_code == 200, r.text
+    (a,) = [x for x in r.json()["abilities"] if x["base_name"] == "Soulrot"]
+    assert a["dmg_mod_pct"] == 5.0
+    assert len(a["aa_adjustments"]) == 2
+    assert a["duration_s"] == 1.5  # 4.0 − 2.5
+    dot = next(c for c in a["components"] if c["kind"] == "dot")
+    assert dot["duration_s"] == 1.5
+    assert dot["interval_s"] == pytest.approx(0.375)  # 1.0 × (1.5 / 4.0)
+
+
+@pytest.mark.asyncio
+async def test_buff_tiers_endpoint(app):
+    """GET /api/simulator/buff-tiers: every era tier row of one raid-buff
+    line, parsed — the tier dropdown's data (values differ per tier)."""
+    from backend.server.api.character import rotation as mod
+
+    def tier_row(tier: int, tier_name: str, pct: float) -> dict:
+        r = _row(900 + tier, "Unholy Strength V", level=73, beneficial=1)
+        r["tier"] = tier
+        r["tier_name"] = tier_name
+        r["target_type"] = "raid"
+        r["effects"] = json.dumps(
+            [{"description": f"Increase spell damage of group and raid members by {pct}%.", "indentation": 0}]
+        )
+        return r
+
+    rows = [tier_row(5, "Adept", 3.75), tier_row(7, "Expert", 4.82), tier_row(9, "Master", 5.0)]
+    mock_db = MagicMock()
+    mock_db.exists.return_value = True
+    with (
+        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "beneficial_buff_tiers", lambda base, lvl: rows if base == "Unholy Strength" else []),
+        patch.object(mod._items, "spell_meta_by_names", lambda names: {}),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/simulator/buff-tiers?name=Unholy%20Strength")
+    assert r.status_code == 200, r.text
+    tiers = [(b["tier_name"], b["mods"]) for b in r.json()]
+    assert tiers == [
+        ("Adept", {"baseDamagePct": 3.75}),
+        ("Expert", {"baseDamagePct": 4.82}),
+        ("Master", {"baseDamagePct": 5.0}),
+    ]
 
 
 @pytest.mark.asyncio

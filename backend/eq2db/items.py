@@ -622,14 +622,17 @@ class ItemCatalogue(BaseCatalogue):
         out.discard("")
         return out
 
-    def effect_lines_for_ids(self, item_ids: list[int]) -> list[tuple[int, str, str]]:
-        """(item_id, displayname, effect line) rows across the given items
-        (from raw_json effect_list) — the rotation simulator scans worn
-        gear + adorns for hidden damage bonuses. SYNC; run via run_sync."""
+    def effect_lines_for_ids(self, item_ids: list[int]) -> list[tuple[int, str, str, int]]:
+        """(item_id, displayname, effect line, indentation) rows across the
+        given items (from raw_json effect_list), ORDER PRESERVED — the
+        rotation simulator scans worn gear + adorns for hidden damage
+        bonuses, and the indentation tells permanent 'When Equipped'
+        bonuses apart from lines nested under a proc trigger (which belong
+        to a TEMP buff). SYNC; run via run_sync."""
         ids = [i for i in item_ids if i]
         if not ids or not self.path.exists():
             return []
-        out: list[tuple[int, str, str]] = []
+        out: list[tuple[int, str, str, int]] = []
         conn = self.init_db()
         try:
             chunk_size = 500
@@ -646,7 +649,42 @@ class ItemCatalogue(BaseCatalogue):
                     name = str(raw.get("displayname") or item_id)
                     for e in raw.get("effect_list") or []:
                         if isinstance(e, dict) and e.get("description"):
-                            out.append((item_id, name, str(e["description"])))
+                            out.append((item_id, name, str(e["description"]), int(e.get("indentation") or 0)))
+        finally:
+            conn.close()
+        return out
+
+    def named_effects_for_ids(self, item_ids: list[int]) -> dict[int, list[str]]:
+        """{item_id: ['When Equipped' effect names]} from raw_json
+        adornment_list ('Arcane Recovery I', 'Disease Cloud VI'). The
+        name carries the in-game stacking rule the rotation simulator
+        enforces: effects with the SAME name never stack (two Spooky
+        Bone Hoops = one 'Disease Cloud VI'), while different tiers of
+        the family (VI vs VII) are different names and do. SYNC; run
+        via run_sync."""
+        ids = [i for i in item_ids if i]
+        if not ids or not self.path.exists():
+            return {}
+        out: dict[int, list[str]] = {}
+        conn = self.init_db()
+        try:
+            chunk_size = 500
+            for i in range(0, len(ids), chunk_size):
+                chunk = ids[i : i + chunk_size]
+                rows = conn.execute(
+                    _SQL["raw_json_by_ids"].format(placeholders=",".join("?" * len(chunk))), chunk
+                ).fetchall()
+                for item_id, raw_json in rows:
+                    try:
+                        raw = json.loads(raw_json or "{}")
+                    except (TypeError, ValueError):
+                        continue
+                    adorns = raw.get("adornment_list") or []
+                    if isinstance(adorns, dict):
+                        adorns = [adorns]
+                    names = [str(a["name"]) for a in adorns if isinstance(a, dict) and a.get("name")]
+                    if names:
+                        out[item_id] = names
         finally:
             conn.close()
         return out

@@ -28,6 +28,22 @@ function Timeline({ result, fightDurationS, colourFor, highlight }: {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-9 block" preserveAspectRatio="none" aria-label="Cast timeline">
       <rect x={0} y={10} width={W} height={16} fill="rgba(255,255,255,0.05)" />
+      {/* TEMP buff windows shade the lane behind the cast bars — stacked
+          windows deepen the tint, so burst alignment reads at a glance.
+          Full-fight windows (ticked permanents) are skipped: shading 100%
+          of the lane says nothing and paints the whole timeline gold. */}
+      {(result.buffWindows ?? []).map((w, i) => {
+        const x = Math.max(0, (w.start / fightDurationS) * W)
+        const end = Math.min(w.end, fightDurationS)
+        if (end <= w.start) return null
+        if (end - Math.max(w.start, 0) >= fightDurationS - 1e-6) return null
+        const width = Math.max(((end - w.start) / fightDurationS) * W, 1)
+        return (
+          <rect key={`w${i}`} x={x} y={0} width={Math.min(width, W - x)} height={H} fill="rgba(217,169,74,0.12)">
+            <title>{`${w.buffId} ${w.start.toFixed(0)}–${end.toFixed(0)}s`}</title>
+          </rect>
+        )
+      })}
       {result.timeline.filter(s => s.ability !== '').map((s, i) => {
         const x = (s.t / fightDurationS) * W
         const w = Math.max((s.dur / fightDurationS) * W, 1)

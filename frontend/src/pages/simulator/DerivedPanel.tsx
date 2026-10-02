@@ -64,24 +64,65 @@ export default function DerivedPanel({ derived, stats, sheet, buffMods, primaryL
         <Stat label={primaryLabel} {...flat(stats.primary_stat, primaryBuff)} />
         <Stat label="Potency" {...pct(stats.potency, buffMods.potencyPct)} />
         <Stat label="Crit chance" {...pct(stats.crit_chance, buffMods.critChancePct)} />
-        <Stat label="Crit bonus" {...pct(stats.crit_bonus, buffMods.critBonusPct)} />
+        {(stats.crit_bonus ?? 0) + (buffMods.critBonusPct ?? 0) > 0 && (
+          <Stat label="Crit bonus" {...pct(stats.crit_bonus, buffMods.critBonusPct)} />
+        )}
         <Stat label="Ability mod" {...flat(stats.ability_mod, buffMods.abilityModFlat)} />
         <Stat
           label="Base damage"
           value={`+${(stats.base_damage_bonus_pct ?? 0).toFixed(0)}%`}
           note="hidden"
         />
+        {Object.entries(stats.school_damage_flat ?? {}).map(([school, flat]) => (
+          <Stat key={school} label={`${school} damage`} value={`+${flat.toFixed(0)}`} note="hidden" />
+        ))}
+        {/* Cast/reuse grouped: the global row first, then the scoped
+            FULL totals an ability of that polarity actually gets. */}
         <Stat
           label="Casting speed"
           {...pct(stats.casting_speed, buffMods.castSpeedPct)}
           note={castHidden > 0 ? `+${castHidden.toFixed(0)} hidden` : undefined}
         />
+        {(stats.hostile_cast_pct ?? 0) > 0 && (
+          <Stat
+            label="Cast (hostile)"
+            {...pct(stats.casting_speed, (buffMods.castSpeedPct ?? 0) + (stats.hostile_cast_pct ?? 0))}
+            note={`+${(stats.hostile_cast_pct ?? 0).toFixed(1)} hidden`}
+            buffNote={undefined}
+          />
+        )}
+        {(stats.beneficial_cast_pct ?? 0) > 0 && (
+          <Stat
+            label="Cast (beneficial)"
+            {...pct(stats.casting_speed, (buffMods.castSpeedPct ?? 0) + (stats.beneficial_cast_pct ?? 0))}
+            note={`+${(stats.beneficial_cast_pct ?? 0).toFixed(1)} hidden`}
+            buffNote={undefined}
+          />
+        )}
         <Stat
           label="Reuse speed"
           {...pct(stats.reuse_speed, buffMods.reuseSpeedPct)}
           note={reuseHidden > 0 ? `+${reuseHidden.toFixed(0)} hidden` : undefined}
         />
-        <Stat label="Recovery speed" {...pct(stats.recovery_speed, buffMods.recoverySpeedPct)} />
+        {(stats.hostile_reuse_pct ?? 0) > 0 && (
+          <Stat
+            label="Reuse (hostile)"
+            {...pct(stats.reuse_speed, (buffMods.reuseSpeedPct ?? 0) + (stats.hostile_reuse_pct ?? 0))}
+            note={`+${(stats.hostile_reuse_pct ?? 0).toFixed(1)} hidden`}
+            buffNote={undefined}
+          />
+        )}
+        {(stats.beneficial_reuse_pct ?? 0) > 0 && (
+          <Stat
+            label="Reuse (beneficial)"
+            {...pct(stats.reuse_speed, (buffMods.reuseSpeedPct ?? 0) + (stats.beneficial_reuse_pct ?? 0))}
+            note={`+${(stats.beneficial_reuse_pct ?? 0).toFixed(1)} hidden`}
+            buffNote={undefined}
+          />
+        )}
+        {(stats.recovery_speed ?? 0) + (buffMods.recoverySpeedPct ?? 0) > 0 && (
+          <Stat label="Recovery speed" {...pct(stats.recovery_speed, buffMods.recoverySpeedPct)} />
+        )}
         <Stat label="Doublecast" value={`${(stats.ability_doublecast ?? 0).toFixed(1)}%`} />
         <Stat label="Fervor" {...pct(stats.fervor, buffMods.fervorPct)} />
       </div>
@@ -95,6 +136,26 @@ export default function DerivedPanel({ derived, stats, sheet, buffMods, primaryL
                 <Badge variant={s.kind === 'set' ? 'gold' : s.kind === 'aa' ? 'info' : 'muted'}>{s.kind}</Badge>
                 <span className="font-medium">{s.name}</span>
                 <span className="text-text-muted truncate">{s.detail}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(derived.proc_buffs ?? []).length > 0 && (
+        <div className="mt-3">
+          <div className="text-[0.68rem] text-text-muted uppercase tracking-wide mb-1">
+            Gear proc buffs (timed windows, not always-on)
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {derived.proc_buffs.map((pb, i) => (
+              <div key={i} className="text-[0.75rem] flex items-baseline gap-1.5">
+                <Badge variant="info">proc</Badge>
+                <span className="font-medium">{pb.name}</span>
+                <span className="text-text-muted truncate">
+                  {pb.item} — {pb.duration_s.toFixed(0)}s, ~{pb.per_minute}/min (
+                  {Math.min(100, (pb.per_minute * pb.duration_s) / 0.6).toFixed(0)}% uptime)
+                </span>
               </div>
             ))}
           </div>

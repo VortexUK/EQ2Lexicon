@@ -14,7 +14,7 @@ import { useFetch } from '../hooks/useFetch'
 import { useServer } from '../hooks/useServer'
 import { useClasses } from '../useClasses'
 import type { Character } from './characterSheet'
-import { buildExternalWindows, buffUptimes } from './simulator/buffs'
+import { applyMods, buildExternalWindows, buffUptimes } from './simulator/buffs'
 import type { ExternalBuffDef } from './simulator/buffs'
 import BuffsPanel from './simulator/BuffsPanel'
 import { computeCalibration } from './simulator/calibration'
@@ -31,6 +31,7 @@ import RotationBuilder from './simulator/RotationBuilder'
 import SimCharacterPicker from './simulator/SimCharacterPicker'
 import SuggestOrder from './simulator/SuggestOrder'
 import type {
+  BuffMods,
   BuffWindow,
   CharacterRotationData,
   ClassBuff,
@@ -66,6 +67,10 @@ export default function SimulatorPage() {
   const [activeConditions, setActiveConditions] = useState<string[]>([])
   const [externalBuffs, setExternalBuffs] = useState<ExternalBuffConfig[]>([])
   const [permanentBuffs, setPermanentBuffs] = useState<string[]>([])
+  /** Assumed spell tier per raid-wide permanent (default Expert). */
+  const [permanentTiers, setPermanentTiers] = useState<Record<string, string>>({})
+  /** buffId → that line's era tier rows (parsed mods per tier). */
+  const [permTierData, setPermTierData] = useState<Record<string, ClassBuff[]>>({})
   const [disabledPassives, setDisabledPassives] = useState<string[]>([])
   /** Proc-chance corrections keyed by passive NAME — census effect text
    * can be stale vs live (Bolt of Power reads 50% at rank 10 but fires
@@ -126,6 +131,7 @@ export default function SimulatorPage() {
       setDotHold(saved.dotHold ?? [])
       setExternalBuffs(saved.externalBuffs ?? [])
       setPermanentBuffs(saved.permanentBuffs ?? [])
+      setPermanentTiers(saved.permanentTiers ?? {})
       setDisabledPassives(saved.disabledPassives ?? [])
       setProcChanceOverrides(saved.procChanceOverrides ?? {})
       setGroupMembers(saved.groupMembers ?? [])
@@ -150,6 +156,7 @@ export default function SimulatorPage() {
       setDotHold([])
       setExternalBuffs([])
       setPermanentBuffs([])
+      setPermanentTiers({})
       setDisabledPassives([])
       setProcChanceOverrides({})
       setGroupMembers([])
@@ -203,6 +210,7 @@ export default function SimulatorPage() {
       dotHold,
       externalBuffs,
       permanentBuffs,
+      permanentTiers,
       disabledPassives,
       procChanceOverrides,
       groupMembers,
@@ -214,7 +222,7 @@ export default function SimulatorPage() {
       autoAttackMode,
       target,
     })
-  }, [selectedName, loadedFor, rotation, dotHold, externalBuffs, permanentBuffs, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
+  }, [selectedName, loadedFor, rotation, dotHold, externalBuffs, permanentBuffs, permanentTiers, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
 
   // Fetch each needed character's buff book once (kept across simmed
   // characters — the book belongs to that character, not the sim
@@ -237,6 +245,18 @@ export default function SimulatorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- memberBooks guarded inside
   }, [neededBooks])
 
+  const server = useServer()
+  const buffSheet = useMemo(() => buffSheetForXpac(server?.currentXpac ?? null), [server?.currentXpac])
+
+  // Buffs the Raid buffs panel owns (CoB, PotM, Jester's Cap…): hidden
+  // from the member books and ignored even if a stale save ticked them —
+  // configuring them twice would double-count.
+  const raidSheetBaseNames = useMemo(
+    () => (buffSheet?.sheet.buffs ?? []).map(b => b.censusBase).filter((x): x is string => !!x),
+    [buffSheet],
+  )
+
+
   // The ticked group buffs, resolved against the loaded books. Ticks are
   // keyed "member::base_name", so WHICH member supplies a buff is
   // explicit — PotM's proc damage scales off the supplying bard's stats.
@@ -247,6 +267,7 @@ export default function SimulatorPage() {
     const seen = new Set<string>()
     for (const name of groupMembers) {
       for (const b of memberBooks[name]?.buffs ?? []) {
+        if (raidSheetBaseNames.includes(b.base_name)) continue
         if (groupBuffs.includes(`${name}::${b.base_name}`) && !seen.has(b.base_name)) {
           seen.add(b.base_name)
           out.push({ buff: b, member: name })
@@ -254,28 +275,74 @@ export default function SimulatorPage() {
       }
     }
     return out
-  }, [groupMembers, memberBooks, groupBuffs])
-
-  const server = useServer()
-  const buffSheet = useMemo(() => buffSheetForXpac(server?.currentXpac ?? null), [server?.currentXpac])
+  }, [groupMembers, memberBooks, groupBuffs, raidSheetBaseNames])
 
   // Mods from ALWAYS-ON ticked buffs (permanent sheet buffs + non-temp
   // group-member buffs) — shown as "+x" deltas on the Adjusted-stats and
   // Auto-attack cards. Temps act as timed windows in the sim and are
   // deliberately excluded here (a flat +x would overstate them).
+  // Era tier rows for each raid-wide permanent (Adept/Expert/Master…):
+  // fetched once per sheet; the dropdown's selected tier drives the mods.
+  useEffect(() => {
+    const perms = (buffSheet?.sheet.buffs ?? []).filter(b => b.kind === 'permanent' && b.censusBase)
+    if (perms.length === 0) return
+    let cancelled = false
+    for (const b of perms) {
+      if (permTierData[b.id]) continue
+      fetch(`/api/simulator/buff-tiers?name=${encodeURIComponent(b.censusBase as string)}`, { credentials: 'include' })
+        .then(res => (res.ok ? (res.json() as Promise<ClassBuff[]>) : []))
+        .then(rows => {
+          if (!cancelled && Array.isArray(rows)) setPermTierData(prev => ({ ...prev, [b.id]: rows }))
+        })
+        .catch(() => {})
+    }
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- permTierData is a fill-once cache
+  }, [buffSheet])
+
+  // Some buff mods are archetype-scoped: Crusade's Fervor lands on
+  // PRIESTS only — a scout ticking it gets the WIS line's nothing-burger
+  // AND no fervor, so the keys are stripped rather than silently applied.
+  const isPriest = useMemo(() => {
+    const archetype = (classes.find(c => c.name === charData?.cls)?.archetype ?? '').toLowerCase()
+    return archetype.startsWith('priest')
+  }, [classes, charData?.cls])
+
+  /** A permanent's mods at the SELECTED tier (default Expert): the tier
+   * row's parsed values when available, else the curated estimates —
+   * with priest-only keys stripped for non-priest characters. */
+  const permanentMods = (b: { id: string; mods: BuffMods; priestOnlyMods?: (keyof BuffMods)[] }): BuffMods => {
+    const rows = permTierData[b.id]
+    const want = permanentTiers[b.id] ?? 'Expert'
+    const row = rows && rows.length > 0 ? (rows.find(r => r.tier_name === want) ?? rows[rows.length - 1]) : undefined
+    let mods: BuffMods = row && Object.keys(row.mods).length > 0 ? (row.mods as BuffMods) : b.mods
+    if (!isPriest && b.priestOnlyMods?.length) {
+      mods = { ...mods }
+      for (const k of b.priestOnlyMods) delete mods[k]
+    }
+    return mods
+  }
+
+  const permTierOptions = useMemo(() => {
+    const out: Record<string, string[]> = {}
+    for (const [id, rows] of Object.entries(permTierData)) out[id] = rows.map(r => r.tier_name)
+    return out
+  }, [permTierData])
+
   const alwaysOnMods: BuffMods = useMemo(() => {
     const sum: Record<string, number> = {}
     const add = (m: Record<string, number | undefined>) => {
       for (const [k, v] of Object.entries(m)) if (v) sum[k] = (sum[k] ?? 0) + v
     }
     for (const b of buffSheet?.sheet.buffs ?? []) {
-      if (b.kind === 'permanent' && permanentBuffs.includes(b.id)) add(b.mods as Record<string, number | undefined>)
+      if (b.kind === 'permanent' && permanentBuffs.includes(b.id)) add(permanentMods(b) as Record<string, number | undefined>)
     }
     for (const { buff } of enabledGroupBuffObjs) {
       if (!isTempBuff(buff)) add(buff.mods)
     }
     return sum as BuffMods
-  }, [buffSheet, permanentBuffs, enabledGroupBuffObjs])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- permanentMods reads permTierData/permanentTiers
+  }, [buffSheet, permanentBuffs, enabledGroupBuffObjs, permTierData, permanentTiers])
 
   // Supplier resolution: a sheet buff with an attached supplier CHARACTER
   // takes its timing/mods/procs from that character's owned rank (their
@@ -321,7 +388,7 @@ export default function SimulatorPage() {
     const out: BuffWindow[] = buildExternalWindows(externalBuffs, buffDefs, fightDuration)
     // Enabled permanent raid-sheet buffs cover the whole fight.
     for (const b of (buffSheet?.sheet.buffs ?? []).filter(x => x.kind === 'permanent' && permanentBuffs.includes(x.id))) {
-      out.push({ buffId: b.id, start: 0, end: fightDuration, mods: b.mods })
+      out.push({ buffId: b.id, start: 0, end: fightDuration, mods: permanentMods(b) })
     }
     // Ticked group-make-up buffs: permanents always-on; temps rotate on
     // their real duration/recast (one provider — the group member).
@@ -338,8 +405,19 @@ export default function SimulatorPage() {
         out.push({ buffId: b.base_name, start: s, end: Math.min(s + dur, fightDuration), mods: b.mods })
       }
     }
+    // Worn-item rate procs (Wand of Crystallized Plasma → Plasma Boost):
+    // deterministic windows at the rated cadence — the stat bonus applies
+    // only INSIDE a window, never folded into the always-on modifiers.
+    for (const pb of rotData?.derived?.proc_buffs ?? []) {
+      if (Object.keys(pb.mods).length === 0 || pb.per_minute <= 0 || pb.duration_s <= 0) continue
+      const period = 60 / pb.per_minute
+      for (let s = 0; s < fightDuration; s += period) {
+        out.push({ buffId: pb.name, start: s, end: Math.min(s + pb.duration_s, fightDuration), mods: pb.mods })
+      }
+    }
     return out
-  }, [externalBuffs, buffDefs, fightDuration, buffSheet, permanentBuffs, enabledGroupBuffObjs])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- permanentMods reads permTierData/permanentTiers
+  }, [externalBuffs, buffDefs, fightDuration, buffSheet, permanentBuffs, enabledGroupBuffObjs, rotData?.derived, permTierData, permanentTiers])
   const externalUptimes = useMemo(() => buffUptimes(buffWindows, fightDuration), [buffWindows, fightDuration])
 
   // Hidden bonuses auto-derived from gear/adorns/sets/AAs — applied
@@ -389,14 +467,35 @@ export default function SimulatorPage() {
       primary_stat: key,
       primary_attr: attr,
       base_damage_bonus_pct: effBaseDamage,
+      school_damage_flat: derived?.school_damage_flat ?? {},
+      max_health: s.health_max,
+      hostile_cast_pct: derived?.hostile_cast_pct ?? 0,
+      hostile_reuse_pct: derived?.hostile_reuse_pct ?? 0,
+      beneficial_cast_pct: derived?.beneficial_cast_pct ?? 0,
+      beneficial_reuse_pct: derived?.beneficial_reuse_pct ?? 0,
       casting_speed: (s.casting_speed ?? 0) + effCastSpeed,
       reuse_speed: (s.reuse_speed ?? 0) + effReuse,
     }
-  }, [charData, classes, effBaseDamage, effCastSpeed, effReuse, autoAttackMode])
+  }, [charData, classes, effBaseDamage, effCastSpeed, effReuse, autoAttackMode, derived])
+
+  // Stats WITH ticked always-on buffs applied — what the ability
+  // palette, hover tooltips and passives display: ticking Crusade or a
+  // member's Fearless Morale moves the shown damage/timings immediately,
+  // matching what the in-game tooltip would read under those buffs.
+  // Calibration deliberately stays on the UNBUFFED baseline — observed
+  // values are read solo on the dummy, and factors must not drift when
+  // buffs are ticked.
+  const buffedStats = useMemo(() => applyMods(simStats, alwaysOnMods), [simStats, alwaysOnMods])
 
   const calibration = useMemo(
-    () => computeCalibration(observed, abilities, simStats),
-    [observed, abilities, simStats],
+    () => {
+      // Maintained toggles calibrate against their tooltips too — fold
+      // them into the lookup map so their factors reach the engine.
+      const all = { ...abilities }
+      for (const a of maintainedAbilities) all[a.base_name] = a
+      return computeCalibration(observed, all, simStats)
+    },
+    [observed, abilities, maintainedAbilities, simStats],
   )
 
   // Expected auto-attack output per weapon mode (cooked-sheet model,
@@ -426,13 +525,16 @@ export default function SimulatorPage() {
               secondary_max: s.secondary_max,
               secondary_delay: s.secondary_delay,
             }
-      const dps = autoAttackDps(stats)
+      // Ticked always-on buffs reach the auto stream (haste, DPS mod,
+      // Destructive Rage's weapon damage %) — same mods the engine uses.
+      const buffed = applyMods(stats, alwaysOnMods)
+      const dps = autoAttackDps(buffed)
       if (dps <= 0) return null
-      const rate = autoSwingRate(stats)
+      const rate = autoSwingRate(buffed)
       return { dps, perSwing: rate > 0 ? dps / rate : 0 }
     }
     return { melee: forMode('melee'), ranged: forMode('ranged') }
-  }, [charData, simStats])
+  }, [charData, simStats, alwaysOnMods])
 
   const activePassives = useMemo(
     () => allPassives.filter(p => !disabledPassives.includes(p.base_name)),
@@ -680,9 +782,10 @@ export default function SimulatorPage() {
       {selectedName && !loading && rotData && (
         <RotationBuilder
           abilities={abilities}
+          charLevel={charData?.level ?? undefined}
           rotation={rotation}
           dotHold={dotHold}
-          stats={simStats}
+          stats={buffedStats}
           autoAttackSlot={
             <Card className="rounded-sm px-4 py-3">
               <SectionLabel>Auto-attack</SectionLabel>
@@ -755,6 +858,9 @@ export default function SimulatorPage() {
               uptimes={externalUptimes}
               selfUptimes={selfUptimes}
               supplied={suppliedExternal}
+              tierOptions={permTierOptions}
+              tierSelected={permanentTiers}
+              onSetTier={(id, tier) => setPermanentTiers(prev => ({ ...prev, [id]: tier }))}
               onChange={setExternalBuffs}
               onSetSupplier={(id, name) =>
                 setExternalBuffs(prev => {
@@ -778,6 +884,7 @@ export default function SimulatorPage() {
               disabled={disabledPassives}
               result={result}
               chanceOverrides={procChanceOverrides}
+              stats={buffedStats}
               onToggle={(name, on) =>
                 setDisabledPassives(prev => (on ? prev.filter(x => x !== name) : [...prev, name]))
               }
@@ -798,6 +905,7 @@ export default function SimulatorPage() {
             stats={simStats}
             observed={observed}
             calibration={calibration}
+            extraAbilities={maintainedAbilities}
             onChange={setObserved}
           />
         </div>
@@ -809,6 +917,7 @@ export default function SimulatorPage() {
           books={memberBooks}
           enabled={groupBuffs}
           excludeName={selectedName}
+          hiddenBaseNames={raidSheetBaseNames}
           onAddMember={name =>
             setGroupMembers(prev => (prev.some(m => m.toLowerCase() === name.toLowerCase()) ? prev : [...prev, name]))
           }

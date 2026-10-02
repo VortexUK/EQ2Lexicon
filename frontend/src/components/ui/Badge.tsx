@@ -22,9 +22,15 @@ interface BadgeProps {
   variant?: Variant
   children: ReactNode
   className?: string
+  /** Native tooltip text (hover explanation for compact badges). */
+  title?: string
 }
 
-export function Badge({ variant = 'muted', children, className = '' }: BadgeProps) {
+export function Badge({ variant = 'muted', children, className = '', title }: BadgeProps) {
   const cls = `inline-block rounded-sm px-2 py-[2px] text-[0.72rem] font-semibold whitespace-nowrap border ${VARIANT_CLASSES[variant]} ${className}`
-  return <span className={cls}>{children}</span>
+  return (
+    <span className={cls} title={title}>
+      {children}
+    </span>
+  )
 }

@@ -140,6 +140,16 @@ WHERE name IN ({placeholders}) AND beneficial = 1
   AND target_type IN ('group', 'raid', 'other')
   AND level BETWEEN 1 AND ? AND tier <= 9;
 
+-- :name beneficial_tiers_by_base
+-- Every era tier row of one raid-buff LINE (name = base or "base <rank>")
+-- for the tier dropdown. Same universe filters as
+-- beneficial_group_by_names; the caller picks the era rank + one row per
+-- tier name.
+SELECT {cols} FROM spells
+WHERE (name = ? OR name LIKE ?) AND beneficial = 1
+  AND target_type IN ('group', 'raid', 'other')
+  AND level BETWEEN 1 AND ? AND tier <= 9;
+
 -- :name find_by_crc_tier_bands
 -- All real-level band rows for an AA rank (level bands 70/100/110…) —
 -- the game linearly interpolates a character's value between bands.

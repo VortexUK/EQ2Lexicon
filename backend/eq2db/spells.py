@@ -422,6 +422,35 @@ class SpellCatalogue(BaseCatalogue):
                 by_base[base] = r
         return sorted(by_base.values(), key=lambda r: r.get("level") or 0, reverse=True)
 
+    def beneficial_buff_tiers(self, base_name: str, max_level: int) -> list[SpellRow]:
+        """Every era TIER row (Apprentice → Master) of the HIGHEST rank of
+        ``base_name`` at or under ``max_level`` — the raid-buff panel's
+        tier dropdown ('Crusade' → Crusade V's Apprentice/Journeyman/
+        Adept/Expert/Master rows). One row per tier NAME (highest tier
+        number, earliest level variant — the era-populated one), sorted
+        ascending by tier."""
+        fetched = self._fetchall(
+            _SQL["beneficial_tiers_by_base"].format(cols=_SELECT_COLS),
+            (base_name, f"{base_name} %", max_level),
+        )
+        rows = [r for r in (_row_to_dict(f) for f in fetched) if self.strip_roman(r.get("name") or "") == base_name]
+        if not rows:
+            return []
+        best_name = max(rows, key=lambda r: r.get("level") or 0).get("name")
+        per_tier: dict[str, SpellRow] = {}
+        for r in rows:
+            if r.get("name") != best_name:
+                continue
+            tname = r.get("tier_name") or ""
+            cur = per_tier.get(tname)
+            if (
+                cur is None
+                or (r.get("tier") or 0) > (cur.get("tier") or 0)
+                or ((r.get("tier") or 0) == (cur.get("tier") or 0) and (r.get("level") or 0) < (cur.get("level") or 0))
+            ):
+                per_tier[tname] = r
+        return sorted(per_tier.values(), key=lambda r: r.get("tier") or 0)
+
     def upgradeable_crcs(self, crcs: Iterable[int | None]) -> set[int]:
         """Return the subset of ``crcs`` that are upgradeable spells.
 
