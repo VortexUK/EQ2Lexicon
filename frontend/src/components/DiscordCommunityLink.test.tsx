@@ -14,7 +14,7 @@ beforeEach(() => { serverState = null })
 
 describe('DiscordCommunityLink', () => {
   it('renders nothing while the bootstrap is loading or when no invite is set', () => {
-    const a = render(<DiscordCommunityLink variant="footer" />)
+    const a = render(<DiscordCommunityLink variant="header" />)
     expect(a.container.firstChild).toBeNull()
     a.unmount()
     serverState = { discordInviteUrl: null }
@@ -22,13 +22,17 @@ describe('DiscordCommunityLink', () => {
     expect(b.container.firstChild).toBeNull()
   })
 
-  it('renders a new-tab link to the invite in the footer variant', () => {
+  it('renders a new-tab icon link with the label as tooltip in the header variant', () => {
     serverState = { discordInviteUrl: 'https://discord.gg/abc123' }
-    render(<DiscordCommunityLink variant="footer" />)
+    render(<DiscordCommunityLink variant="header" />)
     const link = screen.getByRole('link', { name: DISCORD_COMMUNITY_LABEL })
     expect(link).toHaveAttribute('href', 'https://discord.gg/abc123')
     expect(link).toHaveAttribute('target', '_blank')
     expect(link.getAttribute('rel')).toContain('noopener')
+    expect(link).toHaveAttribute('title', DISCORD_COMMUNITY_LABEL)
+    // Icon-only: the label lives in title/aria-label, not visible text.
+    expect(link.textContent).toBe('')
+    expect(link.querySelector('svg')).not.toBeNull()
   })
 
   it('renders the Discord-coloured button in the button variant', () => {

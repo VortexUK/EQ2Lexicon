@@ -17,6 +17,7 @@ const GROUPS: NavGroup[] = [
   { heading: 'Browse', items: [
     { to: '/characters', label: 'Characters', also: '/character/' },
     { to: '/guilds',     label: 'Guilds',     also: '/guild/' },
+    { to: '/recruiting', label: 'Guilds Recruiting' },
     { to: '/items',      label: 'Items',      also: '/item/' },
     { to: '/recipes',    label: 'Recipes' },
   ] },

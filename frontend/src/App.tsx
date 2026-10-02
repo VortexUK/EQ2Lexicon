@@ -31,6 +31,7 @@ const TriggersPage      = lazy(() => import('./pages/TriggersPage'))
 const RaidConsumablesPage = lazy(() => import('./pages/RaidConsumablesPage'))
 const AAPlanSharePage   = lazy(() => import('./pages/AAPlanSharePage'))
 const DownloadsPage     = lazy(() => import('./pages/DownloadsPage'))
+const RecruitingPage    = lazy(() => import('./pages/RecruitingPage'))
 const PrivacyPage       = lazy(() => import('./pages/PrivacyPage'))
 
 /** Routes readable WITHOUT a login — the privacy policy must be, by definition. */
@@ -113,8 +114,6 @@ function SiteFooter() {
       <span>
         <Link to="/privacy" className={FOOTER_LINK_CLS}>Privacy policy</Link>
       </span>
-      {/* Renders nothing until an admin sets the community invite. */}
-      <DiscordCommunityLink variant="footer" />
       <ServerStatus />
       <CensusStatus />
     </footer>
@@ -198,6 +197,7 @@ type NavSpec = { to: string; label: string; also?: string }
 const BROWSE_ITEMS: NavSpec[] = [
   { to: '/characters', label: 'Characters', also: '/character/' },
   { to: '/guilds',     label: 'Guilds',     also: '/guild/' },
+  { to: '/recruiting', label: 'Guilds Recruiting' },
   { to: '/items',      label: 'Items',      also: '/item/' },
   { to: '/recipes',    label: 'Recipes' },
 ]
@@ -347,6 +347,9 @@ function Layout() {
           {/* Downloads now live on the dedicated /downloads page (nav item);
               the old header plugin-download icon was removed in that
               consolidation. */}
+          {/* Community Discord icon — renders nothing until an admin sets
+              the invite (site setting, not the per-guild recruitment one). */}
+          <DiscordCommunityLink variant="header" />
           <RaidingLiveWidget />
           <NotificationBell />
           <UserWidget />
@@ -385,6 +388,7 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/characters" element={<CharacterSearchPage />} />
         <Route path="/guilds"     element={<GuildSearchPage />} />
+        <Route path="/recruiting" element={<RecruitingPage />} />
         <Route path="/items"      element={<ItemSearchPage />} />
         <Route path="/character/:name" element={<CharacterPage />} />
         <Route path="/compare" element={<ComparePage />} />

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSortable } from '../../hooks/useSortable'
 import { SortTh } from '../../components/ui/SortTh'
@@ -56,6 +56,18 @@ interface GuildSpellCheckTabProps {
 
 export function GuildSpellCheckTab({ data, filter, hiddenRanks, myChars }: GuildSpellCheckTabProps) {
   const [tooltip, setTooltip] = useState<SpellTooltip | null>(null)
+
+  // Dismiss on scroll: the tooltip is anchored to the hovered cell's viewport
+  // position at mouseenter, and wheel-scrolling moves the table under a
+  // stationary pointer without re-firing mouseenter — the tooltip would
+  // strand at the old coordinates. (capture: true also catches scrolls of
+  // inner overflow containers, which don't bubble.)
+  useEffect(() => {
+    if (!tooltip) return
+    const clear = () => setTooltip(null)
+    window.addEventListener('scroll', clear, { capture: true, passive: true })
+    return () => window.removeEventListener('scroll', clear, { capture: true })
+  }, [tooltip])
 
   const filteredMembers = useMemo(() => {
     const q = filter.trim().toLowerCase()

@@ -286,9 +286,15 @@
   .card--raised { background: var(--surface-raised); }
 
   /* Page entrance: one orchestrated fade-up per route navigation (App.tsx keys
-     the content wrapper by pathname so this replays on each page). */
+     the content wrapper by pathname so this replays on each page).
+     Fill mode is `backwards`, NOT `both`/`forwards`: a retained transform —
+     even the identity translateY(0) — makes this wrapper the containing
+     block for every position:fixed descendant (tooltips, modals), so their
+     viewport coordinates get re-based to the page top and they strand
+     mid-screen once the user scrolls. The `to` keyframe equals the natural
+     style, so dropping `forwards` changes nothing visually. */
   .page-enter {
-    animation: pageReveal 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: pageReveal 0.4s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 }
 

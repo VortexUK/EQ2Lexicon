@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSortable } from '../../hooks/useSortable'
 import { SortTh } from '../../components/ui/SortTh'
@@ -70,6 +70,16 @@ interface GuildAdornCheckTabProps {
 
 export function GuildAdornCheckTab({ data, filter, hiddenRanks, myChars }: GuildAdornCheckTabProps) {
   const [tooltip, setTooltip] = useState<AdornTooltip | null>(null)
+
+  // Dismiss on scroll — same reasoning as GuildSpellCheckTab: the tooltip is
+  // anchored to mouseenter-time viewport coords, and wheel-scrolling doesn't
+  // re-fire mouseenter, so it would strand at the old position.
+  useEffect(() => {
+    if (!tooltip) return
+    const clear = () => setTooltip(null)
+    window.addEventListener('scroll', clear, { capture: true, passive: true })
+    return () => window.removeEventListener('scroll', clear, { capture: true })
+  }, [tooltip])
 
   // Only show colour columns where at least one member has a filled adorn of that colour
   const activeColors = useMemo(() =>
