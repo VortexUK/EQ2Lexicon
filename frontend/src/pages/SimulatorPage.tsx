@@ -588,36 +588,6 @@ export default function SimulatorPage() {
               <span className="text-text-muted text-[0.8rem]">seconds</span>
             </label>
             <label className="flex items-center gap-2 text-[0.85rem]">
-              Auto-attack
-              <select
-                value={autoAttackMode}
-                onChange={e => {
-                  setAutoAttackMode(e.target.value as 'melee' | 'ranged' | 'off')
-                  setAutoAttackTouched(true)
-                }}
-                className="py-1.5 px-2 rounded-sm2 border border-border bg-surface-raised text-text text-[0.85rem] [color-scheme:dark]"
-                aria-label="Auto-attack weapon"
-              >
-                <option value="melee">Melee</option>
-                <option value="ranged">Ranged / wand</option>
-                <option value="off">Off</option>
-              </select>
-              {autoExpectations && (
-                <span className="text-[0.75rem] text-text-muted" title="Expected auto-attack output per weapon (cooked sheet values, crit included)">
-                  {(['melee', 'ranged'] as const).map((m, i) => {
-                    const e = autoExpectations[m]
-                    return (
-                      <span key={m} className={autoAttackMode === m ? 'text-gold' : undefined}>
-                        {i > 0 && <span className="text-text-muted"> · </span>}
-                        {m === 'melee' ? 'melee' : 'ranged'}{' '}
-                        {e ? `~${fmtNum(Math.round(e.dps))} dps (${fmtNum(Math.round(e.perSwing))}/swing)` : '—'}
-                      </span>
-                    )
-                  })}
-                </span>
-              )}
-            </label>
-            <label className="flex items-center gap-2 text-[0.85rem]">
               Targets
               <input
                 type="number"
@@ -686,11 +656,6 @@ export default function SimulatorPage() {
               </div>
             </div>
           )}
-          <p className="text-[0.72rem] text-text-muted mt-3 mb-0 leading-relaxed">
-            Damage model validated against in-game tooltips (Divine Strike VII blind test: 0.15%).
-            Power ignored; unmodeled proc riders badged. AoE hits all targets; encounter abilities
-            need the linked-encounter flag.
-          </p>
         </Card>
       </div>
 
@@ -716,15 +681,46 @@ export default function SimulatorPage() {
           rotation={rotation}
           dotHold={dotHold}
           stats={simStats}
+          autoAttackSlot={
+            <Card className="rounded-sm px-4 py-3">
+              <SectionLabel>Auto-attack</SectionLabel>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2">
+                <select
+                  value={autoAttackMode}
+                  onChange={e => {
+                    setAutoAttackMode(e.target.value as 'melee' | 'ranged' | 'off')
+                    setAutoAttackTouched(true)
+                  }}
+                  className="py-1.5 px-2 rounded-sm2 border border-border bg-surface-raised text-text text-[0.85rem] [color-scheme:dark]"
+                  aria-label="Auto-attack weapon"
+                >
+                  <option value="melee">Melee</option>
+                  <option value="ranged">Ranged / wand</option>
+                  <option value="off">Off</option>
+                </select>
+                {autoExpectations && (
+                  <span className="text-[0.78rem] text-text-muted" title="Expected auto-attack output per weapon (cooked sheet values, crit included)">
+                    {(['melee', 'ranged'] as const).map((m, i) => {
+                      const e = autoExpectations[m]
+                      return (
+                        <span key={m} className={autoAttackMode === m ? 'text-gold' : undefined}>
+                          {i > 0 && <span className="text-text-muted"> · </span>}
+                          {m === 'melee' ? 'melee' : 'ranged'}{' '}
+                          {e ? `~${fmtNum(Math.round(e.dps))} dps (${fmtNum(Math.round(e.perSwing))}/swing)` : '—'}
+                        </span>
+                      )
+                    })}
+                  </span>
+                )}
+              </div>
+            </Card>
+          }
+          suggestSlot={<SuggestOrder simConfig={simConfig} onApply={handleRotationChange} />}
           onChange={handleRotationChange}
           onToggleDotHold={(name, hold) =>
             setDotHold(prev => (hold ? [...prev, name] : prev.filter(n => n !== name)))
           }
         />
-      )}
-
-      {selectedName && !loading && rotData && (
-        <SuggestOrder simConfig={simConfig} abilities={abilities} onApply={handleRotationChange} />
       )}
 
       {selectedName && !loading && rotData && buffSheet && (

@@ -7,7 +7,7 @@ import {
   OPTIMIZER_BUDGET_MS,
   type OptimizeResult,
 } from './optimizer'
-import type { RotationAbility, SimConfig } from './types'
+import type { SimConfig } from './types'
 
 // "Suggest order": random-restart hill climb over the CURRENT priority
 // list (add everything you'd consider casting first). Runs in small
@@ -19,9 +19,8 @@ type Phase =
   | { kind: 'running'; sims: number; bestDps: number }
   | { kind: 'done'; result: OptimizeResult }
 
-export default function SuggestOrder({ simConfig, abilities, onApply }: {
+export default function SuggestOrder({ simConfig, onApply }: {
   simConfig: SimConfig | null
-  abilities: Record<string, RotationAbility>
   onApply: (order: string[]) => void
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
@@ -53,65 +52,50 @@ export default function SuggestOrder({ simConfig, abilities, onApply }: {
     setPhase({ kind: 'done', result: optimizer.result() })
   }
 
+  // Everything lives on ONE content row so the card never changes size —
+  // it mirrors the Auto-attack card opposite it. Apply updates the
+  // priority list in place; no need to preview the order here.
   return (
     <Card className="rounded-sm px-4 py-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <SectionLabel>Suggest order</SectionLabel>
-        <Button variant="secondary" size="sm" disabled={!canRun || phase.kind === 'running'} onClick={run}>
-          {phase.kind === 'running' ? 'Searching…' : 'Suggest order'}
-        </Button>
-        {phase.kind === 'running' && (
-          <span className="text-[0.78rem] text-text-muted">
-            {fmtNum(phase.sims)} orders tried · best {fmtNum(Math.round(phase.bestDps))} DPS
-          </span>
-        )}
-        {!canRun && phase.kind === 'idle' && (
-          <span className="text-[0.75rem] text-text-muted">
-            Add at least two abilities — include everything you'd consider casting.
-          </span>
+      <SectionLabel>Suggest order</SectionLabel>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2 min-h-[2.1rem]">
+        {phase.kind === 'done' && phase.result.improved ? (
+          <>
+            <span className="text-[0.85rem] text-text-muted">
+              {fmtNum(Math.round(phase.result.baselineDps))} →{' '}
+              <span className="text-gold font-semibold">{fmtNum(Math.round(phase.result.dps))}</span> DPS
+            </span>
+            <Badge variant="success">
+              +{(100 * (phase.result.dps / Math.max(phase.result.baselineDps, 1e-9) - 1)).toFixed(1)}%
+            </Badge>
+            <Button variant="primary" size="sm" onClick={() => onApply(phase.result.order)}>
+              Apply
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setPhase({ kind: 'idle' })}>
+              Dismiss
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="secondary" size="sm" disabled={!canRun || phase.kind === 'running'} onClick={run}>
+              {phase.kind === 'running' ? 'Searching…' : 'Suggest order'}
+            </Button>
+            {phase.kind === 'running' && (
+              <span className="text-[0.78rem] text-text-muted">
+                {fmtNum(phase.sims)} tried · best {fmtNum(Math.round(phase.bestDps))} DPS
+              </span>
+            )}
+            {phase.kind === 'done' && !phase.result.improved && (
+              <span className="text-[0.78rem] text-text-muted">
+                current order held up ({fmtNum(phase.result.simsRun)} tried)
+              </span>
+            )}
+            {!canRun && phase.kind === 'idle' && (
+              <span className="text-[0.75rem] text-text-muted">Add at least two abilities first.</span>
+            )}
+          </>
         )}
       </div>
-
-      {phase.kind === 'done' && (
-        <div className="mt-2">
-          {phase.result.improved ? (
-            <>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[0.88rem]">
-                <span className="text-text-muted">{fmtNum(Math.round(phase.result.baselineDps))} DPS</span>
-                <span className="text-text-muted">→</span>
-                <span className="text-gold font-semibold">{fmtNum(Math.round(phase.result.dps))} DPS</span>
-                <Badge variant="success">
-                  +{(100 * (phase.result.dps / Math.max(phase.result.baselineDps, 1e-9) - 1)).toFixed(1)}%
-                </Badge>
-                <span className="text-[0.72rem] text-text-muted">
-                  {fmtNum(phase.result.simsRun)} orders tried
-                </span>
-              </div>
-              <ol className="list-none m-0 mt-1.5 p-0 flex flex-wrap gap-x-3 gap-y-1 text-[0.8rem]">
-                {phase.result.order.map((n, i) => (
-                  <li key={n}>
-                    <span className="text-gold font-semibold">{i + 1}.</span>{' '}
-                    {abilities[n]?.name ?? n}
-                  </li>
-                ))}
-              </ol>
-              <div className="flex gap-2 mt-2">
-                <Button variant="primary" size="sm" onClick={() => onApply(phase.result.order)}>
-                  Apply
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setPhase({ kind: 'idle' })}>
-                  Dismiss
-                </Button>
-              </div>
-            </>
-          ) : (
-            <p className="text-[0.82rem] text-text-muted m-0">
-              Your current order held up — nothing better found in {fmtNum(phase.result.simsRun)} tried
-              orders ({fmtNum(Math.round(phase.result.baselineDps))} DPS).
-            </p>
-          )}
-        </div>
-      )}
     </Card>
   )
 }

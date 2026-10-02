@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Badge, Button, Card, SectionLabel } from '../../components/ui'
 import { effCastTime, effRecast } from './formulas'
 import type { RotationAbility, SimStats } from './types'
@@ -72,7 +73,7 @@ function AbilityBadges({ a }: { a: RotationAbility }) {
   )
 }
 
-export default function RotationBuilder({ abilities, rotation, dotHold, stats, onChange, onToggleDotHold }: {
+export default function RotationBuilder({ abilities, rotation, dotHold, stats, autoAttackSlot, suggestSlot, onChange, onToggleDotHold }: {
   abilities: Record<string, RotationAbility>
   /** Priority-ordered base_name keys. */
   rotation: string[]
@@ -80,6 +81,10 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, o
   dotHold: string[]
   /** Corrected stats — timings display at their EFFECTIVE values. */
   stats: SimStats
+  /** Small auto-attack card rendered above the Abilities palette. */
+  autoAttackSlot?: ReactNode
+  /** The Suggest-order card rendered above the Priority list. */
+  suggestSlot?: ReactNode
   onChange: (rotation: string[]) => void
   onToggleDotHold: (name: string, hold: boolean) => void
 }) {
@@ -99,7 +104,43 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, o
   }
 
   return (
+    // One grid, two rows: the two slot cards share row 1, so the grid
+    // forces them to IDENTICAL heights (row height = the taller of the
+    // two; grid items stretch). Palette/priority share row 2.
     <div className="grid gap-4 md:grid-cols-2">
+      {autoAttackSlot ?? <div />}
+      {suggestSlot ?? <div />}
+      <Card className="rounded-sm px-4 py-3">
+        <SectionLabel>Abilities</SectionLabel>
+        {palette.length === 0 && (
+          <p className="text-[0.82rem] text-text-muted mt-2 mb-0">
+            {Object.values(abilities).some(a => a.components.length > 0)
+              ? 'All damage abilities are in the rotation.'
+              : 'No damage abilities found for this character.'}
+          </p>
+        )}
+        <div className="mt-1 max-h-[420px] overflow-y-auto flex flex-col gap-px">
+          {palette.map(a => (
+            <button
+              key={a.base_name}
+              type="button"
+              onClick={() => onChange([...rotation, a.base_name])}
+              className="appearance-none border-0 bg-transparent w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left cursor-pointer hover:bg-gold/10"
+            >
+              <SpellIcon ability={a} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
+                  {a.name}
+                  <AbilityBadges a={a} />
+                </div>
+                <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
+              </div>
+              <span className="text-[0.8rem] text-gold shrink-0">+ add</span>
+            </button>
+          ))}
+        </div>
+      </Card>
+
       <Card className="rounded-sm px-4 py-3">
         <SectionLabel>Priority list</SectionLabel>
         {rotation.length === 0 && (
@@ -146,37 +187,6 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, o
             )
           })}
         </ol>
-      </Card>
-
-      <Card className="rounded-sm px-4 py-3">
-        <SectionLabel>Abilities</SectionLabel>
-        {palette.length === 0 && (
-          <p className="text-[0.82rem] text-text-muted mt-2 mb-0">
-            {Object.values(abilities).some(a => a.components.length > 0)
-              ? 'All damage abilities are in the rotation.'
-              : 'No damage abilities found for this character.'}
-          </p>
-        )}
-        <div className="mt-1 max-h-[420px] overflow-y-auto flex flex-col gap-px">
-          {palette.map(a => (
-            <button
-              key={a.base_name}
-              type="button"
-              onClick={() => onChange([...rotation, a.base_name])}
-              className="appearance-none border-0 bg-transparent w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left cursor-pointer hover:bg-gold/10"
-            >
-              <SpellIcon ability={a} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
-                  {a.name}
-                  <AbilityBadges a={a} />
-                </div>
-                <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
-              </div>
-              <span className="text-[0.8rem] text-gold shrink-0">+ add</span>
-            </button>
-          ))}
-        </div>
       </Card>
     </div>
   )

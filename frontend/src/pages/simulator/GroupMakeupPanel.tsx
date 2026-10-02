@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { Badge, Card, SectionLabel } from '../../components/ui'
 import { useClasses } from '../../useClasses'
 import CharacterSearchInput from './CharacterSearchInput'
@@ -102,6 +103,16 @@ export default function GroupMakeupPanel({ members, books, enabled, excludeName,
   onToggle: (baseName: string, on: boolean) => void
 }) {
   const { colourFor } = useClasses()
+  // Members collapse to one line (books are long); a freshly added member
+  // starts expanded so their buffs are immediately tickable.
+  const [expanded, setExpanded] = useState<string[]>([])
+  const seenRef = useRef<Set<string>>(new Set(members))
+  for (const m of members) {
+    if (!seenRef.current.has(m)) {
+      seenRef.current.add(m)
+      setExpanded(prev => (prev.includes(m) ? prev : [...prev, m]))
+    }
+  }
 
   return (
     <Card className="rounded-sm px-4 py-3">
@@ -127,18 +138,33 @@ export default function GroupMakeupPanel({ members, books, enabled, excludeName,
       <div className="flex flex-col gap-3 mt-3">
         {members.map(name => {
           const book = books[name]
+          const open = expanded.includes(name)
+          const ticked = book ? book.buffs.filter(b => enabled.includes(`${name}::${b.base_name}`)).length : 0
           return (
             <div key={name} className="rounded-sm bg-surface-raised border border-border px-2 py-2">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[0.85rem] font-semibold text-gold">{book?.character_name ?? name}</span>
-                {book && (
-                  <span className="text-[0.78rem]" style={{ color: colourFor(book.cls ?? '') }}>
-                    {book.cls ?? '?'}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(prev => (open ? prev.filter(x => x !== name) : [...prev, name]))}
+                  aria-expanded={open}
+                  title={open ? 'Collapse' : 'Expand'}
+                  className="appearance-none border-0 bg-transparent p-0 flex items-center gap-2 cursor-pointer text-text min-w-0 flex-1 text-left"
+                >
+                  <span className="text-[0.7rem] text-text-muted w-3">{open ? '▾' : '▸'}</span>
+                  <span className="text-[0.85rem] font-semibold text-gold">{book?.character_name ?? name}</span>
+                  {book && (
+                    <span className="text-[0.78rem]" style={{ color: colourFor(book.cls ?? '') }}>
+                      {book.cls ?? '?'}
+                    </span>
+                  )}
+                  <span className="text-[0.7rem] text-text-muted">
+                    {book === undefined
+                      ? 'loading…'
+                      : book === null
+                        ? 'lookup failed'
+                        : `${ticked}/${book.buffs.length} buffs ticked`}
                   </span>
-                )}
-                <span className="text-[0.7rem] text-text-muted">
-                  {book === undefined ? 'loading…' : book === null ? 'lookup failed' : `${book.buffs.length} buffs`}
-                </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => onRemoveMember(name)}
@@ -148,11 +174,11 @@ export default function GroupMakeupPanel({ members, books, enabled, excludeName,
                   ✕
                 </button>
               </div>
-              {book && book.buffs.length === 0 && (
-                <p className="text-[0.75rem] text-text-muted m-0 px-2">No group-scope buffs found.</p>
+              {open && book && book.buffs.length === 0 && (
+                <p className="text-[0.75rem] text-text-muted m-0 px-2 mt-1">No group-scope buffs found.</p>
               )}
-              {book && (
-                <div className="flex flex-col">
+              {open && book && (
+                <div className="flex flex-col mt-1">
                   {book.buffs.map(b => (
                     <BuffRow
                       key={b.base_name}
