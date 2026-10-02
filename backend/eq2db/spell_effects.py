@@ -92,12 +92,15 @@ class DamageComponent(TypedDict, total=False):
 
 
 class ProcDef(TypedDict):
-    trigger: str  # 'any_hit' | 'melee_hit' | 'ability_cast' | 'spell_cast'
+    trigger: str  # 'any_hit' | 'melee_hit' | 'ability_cast' | 'spell_cast' | 'when_damaged' | 'target_cast'
     chance_pct: float  # 100 for "will cast" / "may cast"
     name: str  # the proc spell's name (display)
     #: Rate-limited procs ("Triggers about 3.0 times per minute.") — when
     #: set, the rate replaces the trigger-event count as the proc source.
     per_minute: float | None
+    #: "Grants a total of N triggers of the spell." — a per-application
+    #: trigger budget (Slothful Spirit's 3 Sloth's Habitat hits).
+    trigger_count: float | None
     components: list[DamageComponent]
 
 
@@ -121,13 +124,17 @@ _INFLICTS_RE = re.compile(
 _LASTS_RE = re.compile(r"^Lasts for (?P<secs>[\d.,]+) seconds?\.?$")
 
 #: Attack-driven proc trigger lines ("On any combat or spell hit this spell
-#: has a 50% chance to cast Bolt of Power on target of attack."). The proc's
-#: own damage sits INDENTED below the trigger. Defensive triggers ("When
-#: damaged...") are deliberately not matched — they need incoming-hit rates
-#: the DPS sim doesn't model.
+#: has a 50% chance to cast Bolt of Power on target of attack.") plus the
+#: DEFENSIVE damage-shield form ("When damaged this spell will cast Shock
+#: of Light on target's attacker." — the Templar Mythical's Divine Light).
+#: The proc's own damage sits INDENTED below the trigger. Defensive procs
+#: fire on INCOMING hits; the engine rates them from a user-set
+#: incoming-hits/min knob (default 0 = off).
 _PROC_TRIGGER_RE = re.compile(
-    r"^On (?P<trigger>any combat or spell hit|a melee hit|a combat hit|a ranged hit|a hit|"
-    r"a hostile ability cast|a hostile spell cast|a hostile spell hit|a hostile combat hit)"
+    r"^(?:On (?P<trigger>any combat or spell hit|a melee hit|a combat hit|a ranged hit|a hit|"
+    r"a hostile ability cast|a hostile spell cast|a hostile spell hit|a hostile combat hit|"
+    r"a spell cast|an ability cast)"
+    r"|(?P<damaged>When damaged(?: with a melee weapon)?))"
     r" this spell (?:has an? (?P<chance>[\d.]+)% chance to cast|will cast|may cast) "
     r"(?P<name>[^.]+?)(?: on (?:target|caster)[^.]*)?(?:\.|$)"
     # Trailing sentences ("This effect normalizes based off of a three
@@ -158,7 +165,14 @@ _PROC_TRIGGER_KIND = {
     "a hostile spell cast": "spell_cast",
     "a hostile spell hit": "spell_cast",
     "a hostile combat hit": "melee_hit",
+    # On a HOSTILE ability (a debuff on the mob), "On a spell cast" means
+    # the TARGET's casts (Slothful Spirit → Sloth's Habitat).
+    "a spell cast": "target_cast",
+    "an ability cast": "target_cast",
 }
+
+#: "Grants a total of 3 triggers of the spell." — per-application budget.
+_TRIGGER_COUNT_RE = re.compile(r"^Grants a total of (?P<count>[\d.]+) triggers? of the spell\.?$")
 
 
 def _num(s: str) -> float:
@@ -258,6 +272,7 @@ def parse_flat_effect_procs(lines: list[str], name: str) -> list[ProcDef]:
             "chance_pct": float(trigger.group("chance")) if trigger.group("chance") else 100.0,
             "name": name,
             "per_minute": rate,
+            "trigger_count": None,
             "components": comps,
         }
     ]
@@ -383,6 +398,57 @@ def parse_ability_adjustments(lines: list[str], subject: str | None = None) -> l
     return out
 
 
+#: Curated BASE components for AA rows census stores UNSCALED ("Inflicts
+#: 1 disease damage on target instantly and every 4 seconds" on lv-70
+#: Rabies). AAs have no spellscroll text to rescue them, so these bases
+#: were reverse-engineered from an in-game tooltip through the validated
+#: chain — tooltip = B x (chain + 1/2) [+ full ability mod on the primary
+#: hit] — and therefore scale correctly for any character's stats.
+#:
+#: Rabies (rank 1) fitted on Menwardiir across TWO gear loadouts
+#: (choker: chain+1/2 = 3.3601, AM 1125 → 1,367-1,408 / 192-233 /
+#: 392 / 385-467; pendant: chain+1/2 = 2.8901, AM 1198 → 1,406-1,442 /
+#: 165-201 / 414 / 331-401 — every value reproduced to <=0.3%). The
+#: Rabies II termination package: its DOT takes the full chain like the
+#: main components; its HIT is a PROC payload (tiny base + AM/3 — the
+#: gear swap moved it by exactly delta-AM/3), modeled as a
+#: trigger_count=1 proc so the proc damage rule applies.
+STATIC_AA_BASES: dict[str, dict] = {
+    "rabies": {
+        "components": [
+            {"kind": "hit", "min_dmg": 72.0, "max_dmg": 84.2, "school": "disease", "target_scope": "single", "condition": None},
+            {"kind": "dot", "min_dmg": 57.1, "max_dmg": 69.3, "school": "disease", "target_scope": "single",
+             "condition": None, "interval_s": 4.0, "duration_s": 16.0},
+            {"kind": "dot", "min_dmg": 114.6, "max_dmg": 139.0, "school": "disease", "target_scope": "single",
+             "condition": None, "interval_s": 4.0, "duration_s": 16.0},
+        ],
+        "procs": [
+            {
+                "trigger": "termination",
+                "chance_pct": 100.0,
+                "name": "Rabies II",
+                "per_minute": None,
+                "trigger_count": 1.0,
+                "components": [
+                    {"kind": "hit", "min_dmg": 5.1, "max_dmg": 5.1, "school": "disease", "target_scope": "single", "condition": None},
+                ],
+            }
+        ],
+    },
+}
+
+
+def static_overrides_for(name: str) -> tuple[list[DamageComponent], list[ProcDef]] | None:
+    """Curated replacement components+procs for a census-unscaled AA, or
+    None. Returns fresh copies — callers mutate these downstream."""
+    entry = STATIC_AA_BASES.get(name.strip().lower())
+    if entry is None:
+        return None
+    comps = [dict(c) for c in entry["components"]]
+    procs = [{**p, "components": [dict(c) for c in p["components"]]} for p in entry.get("procs", [])]
+    return comps, procs  # type: ignore[return-value]
+
+
 def extract_damage_pairs(lines: list[str]) -> list[tuple[float, float]]:
     """(min, max) of every Inflicts line regardless of indentation or
     role — a value-level view used by AA band interpolation when the high
@@ -437,6 +503,10 @@ def parse_effect_lines(effects: list[dict]) -> ParsedEffects:
                     for comp in comps:
                         comp["condition"] = None
                     active_proc["components"].extend(comps)
+                else:
+                    count = _TRIGGER_COUNT_RE.match(text)
+                    if count is not None:
+                        active_proc["trigger_count"] = float(count.group("count"))
                 continue
             if active_pulse is not None:
                 # The pulse wrapper carries the cadence; the indented line
@@ -477,11 +547,13 @@ def parse_effect_lines(effects: list[dict]) -> ParsedEffects:
         trig = _PROC_TRIGGER_RE.match(text)
         if trig is not None:
             rate = _PROC_RATE_RE.search(text)
+            kind = "when_damaged" if trig.group("damaged") else _PROC_TRIGGER_KIND[trig.group("trigger")]
             active_proc = {
-                "trigger": _PROC_TRIGGER_KIND[trig.group("trigger")],
+                "trigger": kind,
                 "chance_pct": float(trig.group("chance")) if trig.group("chance") else 100.0,
                 "name": trig.group("name").strip(),
                 "per_minute": float(rate.group("rate")) if rate else None,
+                "trigger_count": None,
                 "components": [],
             }
             continue

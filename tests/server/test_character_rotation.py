@@ -121,6 +121,35 @@ async def test_rotation_excludes_aa_and_includes_single_tier(app):
 
 
 @pytest.mark.asyncio
+async def test_proc_carrying_permanent_beneficial_becomes_passive(app):
+    """The Mythical's Divine Light: a permanent beneficial with no damage
+    components but a when_damaged proc — not castable, not dropped: it
+    joins the passives as a proc stream."""
+    rows = {
+        1: _row(
+            1,
+            "Divine Light",
+            beneficial=1,
+            effects=[
+                {"description": "When damaged this spell will cast Shock of Light on target's attacker.", "indentation": 0},
+                {"description": "Inflicts 1,866 - 2,281 divine damage on target.", "indentation": 1},
+                {"description": "Reduces all damage done to the target by 8%.", "indentation": 0},
+            ],
+        )
+    }
+    p1, p2, p3 = _catalogue_patches(rows)
+    with p1, p2, p3:
+        r = await _get(app, _fake_char(spell_ids=[1]))
+    body = r.json()
+    assert body["abilities"] == []
+    (p,) = body["passives"]
+    assert p["name"] == "Divine Light" and p["source"] == "spell"
+    (proc,) = p["procs"]
+    assert proc["trigger"] == "when_damaged" and proc["name"] == "Shock of Light"
+    assert proc["components"][0]["max_dmg"] == 2281.0
+
+
+@pytest.mark.asyncio
 async def test_rotation_beneficial_gate(app):
     rows = {
         1: _row(1, "Permanent Buff", beneficial=1, effects=[]),  # no duration → dropped
@@ -385,6 +414,49 @@ async def test_rotation_aa_band_interpolation_drifted_hi_text(app):
     # Self-target pulse with no duration ("Until Cancelled") ⇒ maintained.
     assert a["maintained"] is True
     assert kinds["dot"]["from_pulse"] is True
+
+
+@pytest.mark.asyncio
+async def test_rotation_aa_static_bases_replace_unscaled_census(app):
+    """Rabies: census stores the lv-70 row unscaled ('Inflicts 1 disease
+    damage...'); the curated static bases replace it, un-flag the suspect
+    heuristic, and carry the Rabies II termination package."""
+    from backend.server.api.character import rotation as mod
+
+    row = _row(903, "Rabies", spell_type="spells", level=70, crc=890)
+    row["tier"] = 1
+    row["effects"] = json.dumps(
+        [
+            {"description": "Applies Rabies II on termination.  Lasts for 16.0 seconds.", "indentation": 0},
+            {"description": "Inflicts 131 - 160 disease damage on target every 4 seconds.", "indentation": 1},
+            {"description": "Inflicts 1 disease damage on target instantly and every 4 seconds.", "indentation": 0},
+        ]
+    )
+    tree = {"name": "T", "tree_type": "subclass", "nodes": [{"node_id": 100, "name": "Rabies", "spellcrc": 890}]}
+    p1, p2, p3 = _catalogue_patches({})
+    with (
+        p1,
+        p2,
+        p3,
+        patch.object(mod._aas, "get_tree", lambda tid: tree),
+        patch.object(mod._spells, "find_by_crc_bands", lambda crc, tier: [row] if crc == 890 else []),
+    ):
+        r = await _get(app, _fake_char(spell_ids=[]), aa_trees=[(49, {"100": 1})])
+    (a,) = r.json()["abilities"]
+    comps = [(c["kind"], c["min_dmg"], c["max_dmg"]) for c in a["components"]]
+    assert comps == [
+        ("hit", 72.0, 84.2),
+        ("dot", 57.1, 69.3),
+        ("dot", 114.6, 139.0),
+    ]
+    assert all(not c["suspect_low_value"] for c in a["components"])
+    assert all(c["duration_s"] == 16.0 and not c["duration_estimated"] for c in a["components"] if c["kind"] == "dot")
+    assert a["has_unparsed_damage"] is False
+    # The Rabies II termination HIT is a PROC payload (AM/3 — gear-swap
+    # validated), modeled as a trigger_count=1 proc on the cast.
+    (proc,) = a["procs"]
+    assert proc["trigger"] == "termination" and proc["trigger_count"] == 1.0
+    assert proc["components"][0]["min_dmg"] == 5.1
 
 
 @pytest.mark.asyncio

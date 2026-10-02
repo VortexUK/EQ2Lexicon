@@ -34,6 +34,8 @@ export interface SavedSimState {
   hiddenCastSpeedPct?: number
   observed: ObservedHits
   fightDuration: number
+  /** Hits/min on damage-shield buff targets ('when_damaged' procs). */
+  incomingHitsPerMinute?: number
   autoAttack: boolean
   /** Which weapon auto-attacks (legacy saves carry only the boolean). */
   autoAttackMode?: 'melee' | 'ranged' | 'off'

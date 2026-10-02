@@ -218,9 +218,8 @@ describe('target model', () => {
     const a = ability('Blast', { cast: 1, recast: 100, components: [hit(100, 100, { target_scope: 'encounter' })] })
     const linked: SimTarget = { count: 3, encounter: true, activeConditions: [] }
     const unlinked: SimTarget = { count: 3, encounter: false, activeConditions: [] }
-    // encounter flat fraction 0.1: 100×1.1 per target
-    expect(simulate(config([a], 2, { target: linked })).totalDamage).toBeCloseTo(330)
-    expect(simulate(config([a], 2, { target: unlinked })).totalDamage).toBeCloseTo(110)
+    expect(simulate(config([a], 2, { target: linked })).totalDamage).toBeCloseTo(450)
+    expect(simulate(config([a], 2, { target: unlinked })).totalDamage).toBeCloseTo(150)
   })
 
   it('conditional damage only lands when its condition is toggled on', () => {
@@ -365,6 +364,27 @@ describe('passive proc streams', () => {
     expect(row?.casts).toBe(10)
     expect(row?.damage).toBeCloseTo(750)
     expect(row?.avgPerCast).toBeCloseTo(75)
+  })
+
+  it('when_damaged procs rate from the incoming-hits knob', () => {
+    // Divine Light shape: 100% per incoming hit; 12/min over 60s = 12
+    // procs x 100x1.5 = 1800. Knob absent -> zero contribution.
+    const shield = passive('Divine Light', 'when_damaged', 100, [hit(100, 100)])
+    const on = simulate(config([], 60, { passives: [shield], incomingHitsPerMinute: 12 }))
+    expect(on.perAbility.find(e => e.isProc)?.casts).toBe(12)
+    expect(on.perAbility.find(e => e.isProc)?.damage).toBeCloseTo(1800)
+    const off = simulate(config([], 60, { passives: [shield] }))
+    expect(off.perAbility.find(e => e.isProc)).toBeUndefined()
+  })
+
+  it('trigger-budget procs add N payload hits per cast (Slothful Spirit)', () => {
+    // One cast, no components, proc budget 3 x payload 100x1.5 = 450.
+    const sloth = ability('Slothful', { cast: 1, recast: 100, components: [] })
+    sloth.procs = [
+      { trigger: 'target_cast', chance_pct: 100, name: "Sloth's Habitat", per_minute: null, trigger_count: 3, components: [hit(100, 100)] },
+    ]
+    const r = simulate(config([sloth], 5))
+    expect(byName(r, 'Slothful').damage).toBeCloseTo(450)
   })
 
   it('spell-cast triggers ignore combat arts', () => {

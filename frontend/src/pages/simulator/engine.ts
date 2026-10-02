@@ -83,7 +83,7 @@ function dotComponentsDamage(
   for (const c of ability.components) {
     const mult = componentTargetMultiplier(c, target)
     if (mult <= 0) continue
-    const per = coeff + componentFlatFraction(c)
+    const per = coeff + componentFlatFraction(ability.level)
     const avg = (c.min_dmg + c.max_dmg) / 2
     if (c === primary) {
       instant += Math.max(stats.ability_mod ?? 0, 0) * abilityModShare(c) * dealt * mult
@@ -94,6 +94,13 @@ function dotComponentsDamage(
       dots.push({ perTick: avg * per * dealt * mult, ticks, interval, duration: ticks * interval })
     } else {
       instant += avg * per * dealt * mult
+    }
+  }
+  // Trigger-budget procs carried BY the ability (Slothful Spirit grants
+  // exactly N Sloth's Habitat hits per application) — credited instantly.
+  for (const p of ability.procs ?? []) {
+    if (p.trigger_count && p.trigger_count > 0) {
+      instant += p.trigger_count * (p.chance_pct / 100) * procHitDamage(p.components, stats, ability.level) * dealt
     }
   }
   return { instant, dots }
@@ -237,6 +244,9 @@ export function simulate(config: SimConfig): SimResult {
     if (trigger === 'melee_hit') return autoSwings + artsCasts
     if (trigger === 'ability_cast') return hostileCasts
     if (trigger === 'spell_cast') return spellCasts
+    // Damage-shield procs (Divine Light → Shock of Light) fire on hits
+    // AGAINST the buff's target — rated by the user-set incoming knob.
+    if (trigger === 'when_damaged') return (fightDurationS / 60) * (config.incomingHitsPerMinute ?? 0)
     return 0
   }
   const procRows: AbilityBreakdown[] = []
@@ -261,7 +271,7 @@ export function simulate(config: SimConfig): SimResult {
         const pulses = fightDurationS / c.interval_s
         const avg = (c.min_dmg + c.max_dmg) / 2
         procCount += pulses
-        procDamage += pulses * avg * (coeff + componentFlatFraction(c)) * mult * procCritFervor
+        procDamage += pulses * avg * (coeff + componentFlatFraction(passive.level)) * mult * procCritFervor
       }
     } else {
       const chanceOverride = config.procChanceOverrides?.[passive.name]
@@ -295,7 +305,7 @@ export function simulate(config: SimConfig): SimResult {
   if (autoDamage > 0) {
     procRows.push({
       ability: 'Auto-attack',
-      label: 'Auto-attack',
+      label: config.autoAttackLabel ?? 'Auto-attack',
       casts: Math.round(autoSwings),
       damage: autoDamage,
       pct: 0,

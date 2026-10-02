@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Badge, Button, Card, SectionLabel } from '../../components/ui'
 import type { RotationBuffSheet } from '../../data/rotationBuffs'
 import CharacterSearchInput from './CharacterSearchInput'
@@ -30,6 +31,9 @@ export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, up
   onSetSupplier: (buffId: string, name: string | null) => void
   onTogglePermanent: (buffId: string, enabled: boolean) => void
 }) {
+  // Per-buff expand state — rows collapse to one line (most people only
+  // configure a couple of these, and expanded they dominate the panel).
+  const [expanded, setExpanded] = useState<string[]>([])
   const cfgFor = (id: string) => configs.find(c => c.buffId === id)
 
   const update = (id: string, patch: Partial<ExternalBuffConfig>) => {
@@ -88,18 +92,46 @@ export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, up
           const duration = cfg?.duration_s ?? entry?.duration_s ?? buff.duration_s
           const recast = cfg?.recast_s ?? (entry?.recast_s || buff.recast_s)
           const uptime = uptimes[buff.id]
+          const open = expanded.includes(buff.id)
+          // "unverified" marks curated ESTIMATES. A resolved supplier
+          // replaces them with the real book entry (parsed mods and/or
+          // procs), so the badge only shows while estimates are in use.
+          const usingEstimates =
+            buff.todoValues === true &&
+            !(entry && (Object.keys(entry.mods).length > 0 || entry.procs.length > 0))
           return (
             <div key={buff.id} className="px-2 py-2 rounded-sm bg-surface-raised border border-border">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <button
+                type="button"
+                onClick={() => setExpanded(prev => (open ? prev.filter(x => x !== buff.id) : [...prev, buff.id]))}
+                className="appearance-none border-0 bg-transparent w-full p-0 text-left cursor-pointer flex flex-wrap items-center gap-x-3 gap-y-1 text-text"
+                aria-expanded={open}
+                title={open ? 'Collapse' : 'Expand to configure'}
+              >
+                <span className="text-[0.7rem] text-text-muted w-3">{open ? '▾' : '▸'}</span>
                 <span className="text-[0.85rem] font-medium">{buff.name}</span>
                 <span className="text-[0.72rem] text-text-muted">{buff.sourceClass}</span>
-                {buff.todoValues && (
-                  <Badge variant="warning" className="cursor-help" title={buff.note}>unverified</Badge>
+                {usingEstimates && (
+                  <Badge
+                    variant="warning"
+                    className="cursor-help"
+                    title={`${buff.note ?? ''}\nEstimated values — attach a supplier character (real spell data), or report the in-game numbers so the sheet can be corrected.`.trim()}
+                  >
+                    unverified
+                  </Badge>
                 )}
                 {providers > 0 && uptime != null && (
                   <Badge variant={uptime >= 99.5 ? 'success' : 'info'}>{uptime.toFixed(0)}% uptime</Badge>
                 )}
-              </div>
+                {!open && (
+                  <span className="text-[0.72rem] text-text-muted ml-auto">
+                    {providers > 0 ? `${providers}× · ${duration}s/${recast}s` : 'off'}
+                    {sup ? ` · ${sup.supplier}` : ''}
+                  </span>
+                )}
+              </button>
+              {open && (
+              <>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-1.5">
                 <span className="flex items-center gap-1.5 text-[0.78rem]">
                   Providers
@@ -162,6 +194,8 @@ export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, up
                     />
                   )}
                 </div>
+              )}
+              </>
               )}
             </div>
           )

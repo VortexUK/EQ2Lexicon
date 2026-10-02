@@ -24,12 +24,16 @@ export interface DamageComponent {
 /** Attack-driven proc damage ("On any combat or spell hit this spell has
  * a 50% chance to cast Bolt of Power…"). */
 export interface Proc {
-  trigger: 'any_hit' | 'melee_hit' | 'ability_cast' | 'spell_cast' | string
+  trigger: 'any_hit' | 'melee_hit' | 'ability_cast' | 'spell_cast' | 'when_damaged' | 'target_cast' | string
   chance_pct: number
   name: string
   /** Rate-limited procs ("Triggers about 3.0 times per minute") — when
    * set, the rate replaces the trigger-event count. */
   per_minute: number | null
+  /** "Grants a total of N triggers" — a per-application budget: the
+   * payload fires exactly N times per cast of the carrying ability
+   * (Slothful Spirit's Sloth's Habitat ×3). */
+  trigger_count?: number | null
   components: DamageComponent[]
 }
 
@@ -223,6 +227,8 @@ export interface SimConfig {
   stats: SimStats
   fightDurationS: number
   autoAttack: boolean
+  /** Results-row label for the auto-attack stream ("Auto-attack (melee)"). */
+  autoAttackLabel?: string
   /** Defaults to a lone unconditional boss dummy. */
   target?: SimTarget
   /** base_names whose DoT is HELD: the ability is not re-cast (even when
@@ -238,6 +244,11 @@ export interface SimConfig {
    * effect text can be stale vs live (Bolt of Power reads 50% at rank 10
    * but fires on every attack in the log). */
   procChanceOverrides?: Record<string, number>
+  /** Hits per minute landing on whatever carries the character's
+   * damage-shield buffs (Divine Light on the tank) — drives
+   * 'when_damaged' proc streams. 0/absent = those procs contribute
+   * nothing. */
+  incomingHitsPerMinute?: number
   /** Curated mods for the character's OWN temp buffs, keyed by base_name.
    * Casting a beneficial ability opens a window at cast end for the
    * ability's duration; without an entry here the window has no mods

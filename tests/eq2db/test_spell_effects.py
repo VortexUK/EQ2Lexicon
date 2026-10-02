@@ -334,14 +334,32 @@ def test_applies_without_every_clause_is_not_a_pulse():
     assert p["unparsed_damage"] == ["Inflicts 300 - 500 magic damage on target"]
 
 
-def test_defensive_trigger_not_modeled_damage_stays_unparsed():
+def test_defensive_trigger_parses_as_when_damaged():
+    """Damage-shield procs (Thorns shapes, and the Templar Mythical's
+    Divine Light → Shock of Light) parse with the 'when_damaged' trigger;
+    the engine rates them from the user-set incoming-hits knob."""
     effects = [
         {"description": "When damaged with a melee weapon this spell will cast Thorns.", "indentation": 0},
         {"description": "Inflicts 120 piercing damage on target", "indentation": 1},
     ]
     p = parse_effect_lines(effects)
-    assert p["procs"] == []
-    assert p["unparsed_damage"] == ["Inflicts 120 piercing damage on target"]
+    (proc,) = p["procs"]
+    assert proc["trigger"] == "when_damaged" and proc["chance_pct"] == 100.0
+    assert p["unparsed_damage"] == []
+
+
+def test_divine_light_shape_when_damaged_proc():
+    effects = [
+        {"description": "When damaged this spell will cast Shock of Light on target's attacker.", "indentation": 0},
+        {"description": "Inflicts 1,866 - 2,281 divine damage on target.", "indentation": 1},
+        {"description": "This effect can only trigger once every 0.1 seconds.", "indentation": 1},
+        {"description": "Reduces all damage done to the target by 8%.", "indentation": 0},
+    ]
+    p = parse_effect_lines(effects)
+    (proc,) = p["procs"]
+    assert proc["trigger"] == "when_damaged" and proc["name"] == "Shock of Light"
+    (c,) = proc["components"]
+    assert (c["min_dmg"], c["max_dmg"]) == (1866.0, 2281.0)
 
 
 def test_lasts_for_captured():
@@ -395,3 +413,21 @@ def test_aa_subject_of():
     assert aa_subject_of("Enhance: Cacophony of Blades") == "Cacophony of Blades"
     assert aa_subject_of("Focus: Exorcise") == "Exorcise"
     assert aa_subject_of("Bolt of Power") is None
+
+
+def test_target_cast_proc_with_trigger_budget():
+    """Slothful Spirit shape: a hostile debuff whose proc fires on the
+    TARGET's spell casts, with a fixed per-application trigger budget."""
+    effects = [
+        {"description": "Target will lose 80% more power when power is consumed.", "indentation": 0},
+        {"description": "On a spell cast this spell will cast Sloth's Habitat on target.", "indentation": 0},
+        {"description": "Inflicts 420 - 513 divine damage on target.", "indentation": 1},
+        {"description": "Grants a total of 3 triggers of the spell.", "indentation": 1},
+    ]
+    parsed = parse_effect_lines(effects)
+    (proc,) = parsed["procs"]
+    assert proc["trigger"] == "target_cast"
+    assert proc["trigger_count"] == 3.0
+    assert proc["name"] == "Sloth's Habitat"
+    (c,) = proc["components"]
+    assert (c["min_dmg"], c["max_dmg"]) == (420.0, 513.0)

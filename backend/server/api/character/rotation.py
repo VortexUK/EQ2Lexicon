@@ -39,6 +39,7 @@ from backend.eq2db.spell_effects import (
     parse_flat_effect_procs,
     parse_speed_bonuses,
     parse_stat_mods,
+    static_overrides_for,
 )
 from backend.eq2db.spells import DB_PATH as _SPELLS_DB
 from backend.eq2db.spells import SpellRow
@@ -77,12 +78,15 @@ class DamageComponentResponse(BaseModel):
 
 
 class ProcResponse(BaseModel):
-    trigger: str  # 'any_hit' | 'melee_hit' | 'ability_cast' | 'spell_cast'
+    trigger: str  # 'any_hit' | 'melee_hit' | 'ability_cast' | 'spell_cast' | 'when_damaged' | 'target_cast'
     chance_pct: float
     name: str
     # Rate-limited procs ("Triggers about 3.0 times per minute") — when
     # set, the rate replaces the trigger-event count.
     per_minute: float | None = None
+    # "Grants a total of N triggers" — a per-application budget (Slothful
+    # Spirit fires its payload exactly N times per cast of the debuff).
+    trigger_count: float | None = None
     components: list[DamageComponentResponse] = []
 
 
@@ -164,6 +168,7 @@ def _build_component_models(
             chance_pct=p["chance_pct"],
             name=p["name"],
             per_minute=p["per_minute"],
+            trigger_count=p.get("trigger_count"),
             components=[
                 DamageComponentResponse.model_validate(
                     {**pc, "suspect_low_value": is_suspect_low_damage(pc.get("max_dmg") or 0.0, level)}
@@ -287,6 +292,13 @@ def _build_aa_entries_sync(
             parsed = _parse_row(row)
             if row_hi is not None and frac > 0:
                 _interpolate_parsed(parsed, _parse_row(row_hi), frac)
+            # Census-unscaled AAs (Rabies reads "1 - 1"): curated bases
+            # replace the junk — reverse-engineered through the validated
+            # chain, so they scale with the character's stats.
+            static = static_overrides_for(row.get("name") or node.get("name") or "")
+            if static is not None:
+                parsed["components"], parsed["procs"] = static
+                parsed["unparsed_damage"] = []
             level = row.get("level") or 0
             lasts = parsed["lasts_for_s"]
             components, procs = _build_component_models(parsed, lasts, level)
@@ -459,6 +471,7 @@ def _build_abilities_sync(
     meta = _items.spell_meta_by_names([f"{r.get('name')} ({r.get('tier_name')})" for r in rows])
 
     out: list[RotationAbilityResponse] = []
+    spell_passives: list[RotationAbilityResponse] = []
     for r in rows:
         m = meta.get(f"{r.get('name')} ({r.get('tier_name')})") or {}
 
@@ -486,15 +499,40 @@ def _build_abilities_sync(
         duration_s = (raw_duration / SPELL_DURATION_DIVISOR) if raw_duration else None
         beneficial = bool(r.get("beneficial"))
 
+        components, procs = _build_component_models(parsed, duration_s, r.get("level") or 0)
+
         # Permanent buffs are already baked into the character sheet stats;
         # only temp-buff-shaped beneficials belong in a rotation — UNLESS
         # the "buff" carries damage components (self-applied pulse AoEs
         # like Consecrate/Exorcise are beneficial=1/self in the data but
-        # are damage abilities).
-        if beneficial and not parsed["components"] and not (duration_s and 0 < duration_s <= TEMP_BUFF_MAX_DURATION_S):
+        # are damage abilities). Proc-carrying permanents (the Mythical's
+        # Divine Light → Shock of Light damage shield) become PASSIVES —
+        # their stats part is in the sheet but the proc stream is not.
+        if beneficial and not components and not (duration_s and 0 < duration_s <= TEMP_BUFF_MAX_DURATION_S):
+            if procs:
+                spell_passives.append(
+                    RotationAbilityResponse(
+                        name=r.get("name") or "",
+                        base_name=_spells.strip_roman(r.get("name") or ""),
+                        crc=r.get("crc"),
+                        tier_name=r.get("tier_name") or "Unknown",
+                        level=r.get("level") or 0,
+                        spell_type=r.get("type") or "",
+                        beneficial=True,
+                        cast_secs=float(r.get("cast_secs") or 0.0),
+                        recast_secs=float(r.get("recast_secs") or 0.0),
+                        recovery_secs=float(r.get("recovery_secs") or 0.0) / RECOVERY_DIVISOR,
+                        target_type=r.get("target_type"),
+                        icon_id=r.get("icon_id"),
+                        icon_backdrop=r.get("icon_backdrop"),
+                        duration_s=duration_s,
+                        procs=procs,
+                        effect_lines=parsed["lines"],
+                        has_unparsed_damage=bool(parsed["unparsed_damage"]),
+                        source="spell",
+                    )
+                )
             continue
-
-        components, procs = _build_component_models(parsed, duration_s, r.get("level") or 0)
 
         out.append(
             RotationAbilityResponse(
@@ -524,6 +562,7 @@ def _build_abilities_sync(
     known_crcs = {a.crc for a in out if a.crc}
     aa_castables, passives, aa_sources = _build_aa_entries_sync(aa_trees, known_crcs, char_level)
     out.extend(aa_castables)
+    passives.extend(spell_passives)
 
     derived, set_passives = _derive_from_gear_sync(equip_counts, char_level)
     passives.extend(set_passives)

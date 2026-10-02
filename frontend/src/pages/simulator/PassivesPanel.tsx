@@ -15,6 +15,7 @@ const TRIGGER_LABEL: Record<string, string> = {
   melee_hit: 'melee hit',
   ability_cast: 'hostile ability',
   spell_cast: 'hostile spell',
+  when_damaged: 'incoming hit (set Incoming hits in Fight)',
 }
 
 function PassiveRow({ p, enabled, dmg, chanceOverride, onToggle, onChanceChange }: {

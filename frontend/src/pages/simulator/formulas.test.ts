@@ -272,15 +272,14 @@ describe('target-aware damage', () => {
     expect(expectedCastDamage(a, {}, 1, undead)).toBe(1200)
   })
 
-  it('ability-mod share by scope: aoe none, encounter half, single full', () => {
+  it('ability-mod share by scope: aoe none, encounter third, single full', () => {
     // Blind-validated: Exorcise (blue AoE) tooltip carries NO mod;
-    // Divine Demonstration (encounter) carries AM/2; single carries AM.
+    // Wrath of the Ancients (encounter) carries AM/3; single carries AM.
     const three: SimTarget = { ...DEFAULT_TARGET, count: 3, encounter: true }
     const aoe = ability([hit(100, 100, { target_scope: 'aoe' })])
-    expect(expectedCastDamage(aoe, { ability_mod: 1000 }, 1, three)).toBe(450) // 100×1.5×3, no mod
+    expect(expectedCastDamage(aoe, { ability_mod: 1000 }, 1, three)).toBe(450) // 100x1.5x3, no mod
     const enc = ability([hit(100, 100, { target_scope: 'encounter' })])
-    // encounter flat fraction 0.1: (100×1.1 + 500)×3
-    expect(expectedCastDamage(enc, { ability_mod: 1000 }, 1, three)).toBeCloseTo(1830, 6)
+    expect(expectedCastDamage(enc, { ability_mod: 1000 }, 1, three)).toBeCloseTo(1450, 6) // (150+1000/3)x3
     const single = ability([hit(100, 100)])
     expect(expectedCastDamage(single, { ability_mod: 1000 }, 1, three)).toBe(1150) // 150+1000
   })
@@ -289,8 +288,17 @@ describe('target-aware damage', () => {
     const a = ability([hit(100, 100, { target_scope: 'encounter' })])
     const unlinked: SimTarget = { count: 3, encounter: false, activeConditions: [] }
     const linked: SimTarget = { count: 3, encounter: true, activeConditions: [] }
-    expect(expectedCastDamage(a, {}, 1, unlinked)).toBeCloseTo(110, 6) // encounter flat 0.1
-    expect(expectedCastDamage(a, {}, 1, linked)).toBeCloseTo(330, 6)
+    expect(expectedCastDamage(a, {}, 1, unlinked)).toBeCloseTo(150, 6)
+    expect(expectedCastDamage(a, {}, 1, linked)).toBeCloseTo(450, 6)
+  })
+
+  it('T6-and-below spells (level < 61) carry no +half flat fraction', () => {
+    // Velium Winds/Wrath of the Ancients fit: tooltip spreads sit on the
+    // BARE chain for level 59/60 spells; 61+ keeps the half.
+    const low = { ...ability([hit(100, 100)]), level: 59 }
+    expect(expectedCastDamage(low, {})).toBe(100) // coeff 1.0, no half
+    const high = { ...ability([hit(100, 100)]), level: 61 }
+    expect(expectedCastDamage(high, {})).toBe(150)
   })
 })
 

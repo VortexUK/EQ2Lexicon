@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Card, SectionLabel } from '../components/ui'
 import { buffSheetForXpac } from '../data/rotationBuffs'
+import { fmtNum } from '../formatters'
 import { useFetch } from '../hooks/useFetch'
 import { useServer } from '../hooks/useServer'
 import { useClasses } from '../useClasses'
@@ -21,6 +22,7 @@ import type { ObservedHits } from './simulator/calibration'
 import CalibrationPanel from './simulator/CalibrationPanel'
 import DerivedPanel from './simulator/DerivedPanel'
 import { simulate } from './simulator/engine'
+import { autoAttackDps, autoSwingRate } from './simulator/formulas'
 import GroupMakeupPanel, { isTempBuff } from './simulator/GroupMakeupPanel'
 import PassivesPanel from './simulator/PassivesPanel'
 import { loadSimState, saveSimState } from './simulator/persistence'
@@ -58,6 +60,9 @@ export default function SimulatorPage() {
   const [autoAttackTouched, setAutoAttackTouched] = useState(false)
   const [targetCount, setTargetCount] = useState(1)
   const [encounter, setEncounter] = useState(true)
+  /** Hits/min on whatever carries the damage-shield buffs (Divine Light
+   * on the tank) — drives 'when_damaged' proc streams. 0 = off. */
+  const [incomingHitsPerMinute, setIncomingHitsPerMinute] = useState(0)
   const [activeConditions, setActiveConditions] = useState<string[]>([])
   const [externalBuffs, setExternalBuffs] = useState<ExternalBuffConfig[]>([])
   const [permanentBuffs, setPermanentBuffs] = useState<string[]>([])
@@ -142,6 +147,7 @@ export default function SimulatorPage() {
       )
       setObserved(saved.observed ?? {})
       setFightDuration(saved.fightDuration ?? DEFAULT_FIGHT_S)
+      setIncomingHitsPerMinute(saved.incomingHitsPerMinute ?? 0)
       if (saved.autoAttackMode) {
         setAutoAttackMode(saved.autoAttackMode)
         setAutoAttackTouched(true) // the saved choice wins over the class default
@@ -166,6 +172,7 @@ export default function SimulatorPage() {
       setOverrides({ base: null, cast: null, reuse: null })
       setObserved({})
       setFightDuration(DEFAULT_FIGHT_S)
+      setIncomingHitsPerMinute(0)
       setAutoAttackTouched(false)
       setActiveConditions([])
       setTargetCount(1)
@@ -219,11 +226,12 @@ export default function SimulatorPage() {
       overrides,
       observed,
       fightDuration,
+      incomingHitsPerMinute,
       autoAttack: autoAttackMode !== 'off',
       autoAttackMode,
       target,
     })
-  }, [selectedName, loadedFor, rotation, dotHold, externalBuffs, permanentBuffs, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, overrides, observed, fightDuration, autoAttackMode, target])
+  }, [selectedName, loadedFor, rotation, dotHold, externalBuffs, permanentBuffs, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, overrides, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
 
   // Fetch each needed character's buff book once (kept across simmed
   // characters — the book belongs to that character, not the sim
@@ -388,6 +396,41 @@ export default function SimulatorPage() {
     [observed, abilities, simStats],
   )
 
+  // Expected auto-attack output per weapon mode (cooked-sheet model,
+  // crit included) — shown beside the selector so the choice is informed.
+  const autoExpectations = useMemo(() => {
+    const s = charData?.stats
+    if (!s) return null
+    const base: SimStats = { ...simStats }
+    const forMode = (mode: 'melee' | 'ranged'): { dps: number; perSwing: number } | null => {
+      const stats: SimStats =
+        mode === 'ranged'
+          ? {
+              ...base,
+              primary_min: s.ranged_min,
+              primary_max: s.ranged_max,
+              primary_delay: s.ranged_delay,
+              secondary_min: null,
+              secondary_max: null,
+              secondary_delay: null,
+            }
+          : {
+              ...base,
+              primary_min: s.primary_min,
+              primary_max: s.primary_max,
+              primary_delay: s.primary_delay,
+              secondary_min: s.secondary_min,
+              secondary_max: s.secondary_max,
+              secondary_delay: s.secondary_delay,
+            }
+      const dps = autoAttackDps(stats)
+      if (dps <= 0) return null
+      const rate = autoSwingRate(stats)
+      return { dps, perSwing: rate > 0 ? dps / rate : 0 }
+    }
+    return { melee: forMode('melee'), ranged: forMode('ranged') }
+  }, [charData, simStats])
+
   const activePassives = useMemo(
     () => allPassives.filter(p => !disabledPassives.includes(p.base_name)),
     [allPassives, disabledPassives],
@@ -483,14 +526,16 @@ export default function SimulatorPage() {
       stats: simStats,
       fightDurationS: fightDuration,
       autoAttack: autoAttackMode !== 'off',
+      autoAttackLabel: `Auto-attack (${autoAttackMode === 'ranged' ? 'ranged' : 'melee'})`,
       target,
       dotRefreshHold: dotHold,
       buffWindows,
       passives: [...activePassives, ...groupProcPassives, ...externalProcPassives],
       procChanceOverrides,
+      incomingHitsPerMinute,
       calibration: calibration.factors,
     }
-  }, [charData, simStats, abilities, rotation, fightDuration, autoAttackMode, target, dotHold, buffWindows, activePassives, groupProcPassives, externalProcPassives, procChanceOverrides, calibration])
+  }, [charData, simStats, abilities, rotation, fightDuration, autoAttackMode, target, dotHold, buffWindows, activePassives, groupProcPassives, externalProcPassives, procChanceOverrides, incomingHitsPerMinute, calibration])
 
   const result: SimResult | null = useMemo(() => (simConfig ? simulate(simConfig) : null), [simConfig])
 
@@ -557,6 +602,20 @@ export default function SimulatorPage() {
                 <option value="ranged">Ranged / wand</option>
                 <option value="off">Off</option>
               </select>
+              {autoExpectations && (
+                <span className="text-[0.75rem] text-text-muted" title="Expected auto-attack output per weapon (cooked sheet values, crit included)">
+                  {(['melee', 'ranged'] as const).map((m, i) => {
+                    const e = autoExpectations[m]
+                    return (
+                      <span key={m} className={autoAttackMode === m ? 'text-gold' : undefined}>
+                        {i > 0 && <span className="text-text-muted"> · </span>}
+                        {m === 'melee' ? 'melee' : 'ranged'}{' '}
+                        {e ? `~${fmtNum(Math.round(e.dps))} dps (${fmtNum(Math.round(e.perSwing))}/swing)` : '—'}
+                      </span>
+                    )
+                  })}
+                </span>
+              )}
             </label>
             <label className="flex items-center gap-2 text-[0.85rem]">
               Targets
@@ -585,6 +644,25 @@ export default function SimulatorPage() {
                 <span className="text-text-muted text-[0.72rem]">(green AE abilities hit all)</span>
               </label>
             )}
+            <label
+              className="flex items-center gap-2 text-[0.85rem]"
+              title="Hits per minute landing on whoever carries your damage-shield buffs (Divine Light on the tank) — drives 'when damaged' procs like Shock of Light. 0 = off."
+            >
+              Incoming hits
+              <input
+                type="number"
+                min={0}
+                max={120}
+                value={incomingHitsPerMinute}
+                onChange={e => {
+                  const v = Number(e.target.value)
+                  if (Number.isFinite(v)) setIncomingHitsPerMinute(Math.min(Math.max(Math.round(v), 0), 120))
+                }}
+                className={`${NUM_INPUT_CLASS} w-16`}
+                aria-label="Incoming hits per minute on damage-shield targets"
+              />
+              <span className="text-text-muted text-[0.8rem]">/min</span>
+            </label>
           </div>
           {availableConditions.length > 0 && (
             <div className="mt-3">

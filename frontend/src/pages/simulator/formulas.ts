@@ -28,11 +28,12 @@ export const DEFAULT_TARGET: SimTarget = { count: 1, encounter: false, activeCon
  * ambiguous at ±8% on tiny values — uniform rule kept for one-rule
  * simplicity). */
 export const COMPONENT_BASE_FLAT_FRACTION = 0.5
-/** Encounter (green AE) components fit a much smaller flat fraction:
- * Divine Demonstration's two tooltip ends give slope = coeff + 0.10
- * (chain+½ overshoots the spread by 9%). Provisional — one ability's
- * fit; Blaze of Faith still runs +4% over under this rule. */
-export const ENCOUNTER_BASE_FLAT_FRACTION = 0.1
+/** LOW-LEVEL spells (T6 and below) carry NO +½: Velium Winds (59) and
+ * Wrath of the Ancients (60) tooltip spreads sit on the BARE chain
+ * (−4.5%) and nowhere near chain+½ (−18%), while level 67/70+ spells on
+ * the same character (Plague, Rabies two-loadout ratio 0.860) demand
+ * the ½. Spells at/above this level keep the ½. */
+export const COMPONENT_FLAT_LEVEL_MIN = 61
 /** Attack-proc payloads DEAL tooltip + AM×⅓ (log-fitted on Bolt of
  * Power and Blessed Armament dealt damage: means ≤1.1%, mins ≤0.3%).
  * Applied to single-target proc payloads only — maintained pulse
@@ -169,7 +170,10 @@ export function damageCoefficient(stats: SimStats, spellLevel: number): number {
  * self-pulse blue AoEs carry NONE (Exorcise across two stat loadouts —
  * its small residual flat tracks the stat chain, not AM, and is left to
  * the per-ability calibration factor). */
-export const AM_SHARE_ENCOUNTER = 0.5
+/** Encounter AEs carry AM×⅓ (Wrath of the Ancients' two ends give a
+ * constant flat ≈ AM×0.36; AM/2 misses by 10% — and ⅓ matches the proc
+ * share). Blue self-AoEs carry none (Exorcise, two loadouts). */
+export const AM_SHARE_ENCOUNTER = 1 / 3
 export const AM_SHARE_AOE = 0.0
 
 export function abilityModShare(comp: DamageComponent | null): number {
@@ -179,18 +183,20 @@ export function abilityModShare(comp: DamageComponent | null): number {
   return 1
 }
 
-/** Flat fraction by component scope: single/aoe carry the validated ½;
- * encounter fits ~0.1 (see ENCOUNTER_BASE_FLAT_FRACTION). */
-export function componentFlatFraction(comp: DamageComponent): number {
-  return comp.target_scope === 'encounter' ? ENCOUNTER_BASE_FLAT_FRACTION : COMPONENT_BASE_FLAT_FRACTION
+/** Flat fraction by SPELL LEVEL: ½ at 61+, none for T6-and-below
+ * (see COMPONENT_FLAT_LEVEL_MIN). Scope-independent. */
+export function componentFlatFraction(spellLevel: number): number {
+  if (spellLevel > 0 && spellLevel < COMPONENT_FLAT_LEVEL_MIN) return 0
+  return COMPONENT_BASE_FLAT_FRACTION
 }
 
 /** What one PROC payload hit deals (before crit/fervor): payload avg ×
- * (coefficient + ½) + AM×⅓ for single-target payloads. Log-validated on
- * Bolt of Power and Blessed Armament. */
+ * (coefficient + flat) + AM×⅓ for single-target payloads. Log-validated
+ * on Bolt of Power and Blessed Armament; the AM×⅓ confirmed again by
+ * Rabies II across a gear swap. */
 export function procHitDamage(components: DamageComponent[], stats: SimStats, level: number): number {
   if (!components.length) return 0
-  const per = damageCoefficient(stats, level) + COMPONENT_BASE_FLAT_FRACTION
+  const per = damageCoefficient(stats, level) + componentFlatFraction(level)
   const singleTarget = components.every(c => !c.target_scope || c.target_scope === 'single')
   const amShare = singleTarget ? PROC_AM_SHARE : 0
   return componentsAvg(components) * per + Math.max(stats.ability_mod ?? 0, 0) * amShare
@@ -223,8 +229,15 @@ export function expectedCastDamage(
     const mult = componentTargetMultiplier(c, target)
     if (mult <= 0) continue
     const avg = (c.min_dmg + c.max_dmg) / 2
-    total += avg * (coeff + componentFlatFraction(c)) * (c.kind === 'dot' ? dotTicks(c) : 1) * mult
+    total += avg * (coeff + componentFlatFraction(ability.level)) * (c.kind === 'dot' ? dotTicks(c) : 1) * mult
     if (c === primary) total += Math.max(stats.ability_mod ?? 0, 0) * abilityModShare(c) * mult
+  }
+  // Trigger-budget procs carried BY the ability (Slothful Spirit grants
+  // exactly N Sloth's Habitat hits per application).
+  for (const p of ability.procs ?? []) {
+    if (p.trigger_count && p.trigger_count > 0) {
+      total += p.trigger_count * (p.chance_pct / 100) * procHitDamage(p.components, stats, ability.level)
+    }
   }
   return total * abilityDamageMultiplier(stats) * calibration
 }
@@ -239,7 +252,7 @@ export function predictedTooltipMin(ability: RotationAbility, stats: SimStats): 
   if (!primary || primary.kind !== 'hit') return null
   if (primary.min_dmg <= 0) return null
   return (
-    primary.min_dmg * (damageCoefficient(stats, ability.level) + componentFlatFraction(primary)) +
+    primary.min_dmg * (damageCoefficient(stats, ability.level) + componentFlatFraction(ability.level)) +
     Math.max(stats.ability_mod ?? 0, 0) * abilityModShare(primary)
   )
 }

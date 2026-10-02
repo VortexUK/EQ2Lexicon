@@ -35,6 +35,8 @@ export interface RotationBuffDef {
 export interface RotationBuffSheet {
   /** Matches servers.current_xpac (case-insensitive), e.g. "RoK". */
   xpac: string
+  /** Other spellings the registry may use ("Rise of Kunark"). */
+  aliases?: string[]
   label: string
   buffs: RotationBuffDef[]
 }
@@ -43,6 +45,7 @@ export interface RotationBuffSheet {
 export const ROTATION_BUFF_SHEETS: RotationBuffSheet[] = [
   {
     xpac: 'RoK',
+    aliases: ['Rise of Kunark', 'Kunark'],
     label: 'Rise of Kunark (T8)',
     buffs: [
       {
@@ -51,9 +54,8 @@ export const ROTATION_BUFF_SHEETS: RotationBuffSheet[] = [
         sourceClass: 'Troubador',
         kind: 'temporary',
         duration_s: 30,
-        // Census carries the modern 30s recast; the RoK-era recast is much
-        // longer (why T1 DPS get two troubs rotating it). User-editable.
-        recast_s: 90,
+        // User-confirmed in game: the era recast really is 30s.
+        recast_s: 30,
         mods: { castSpeedPct: 30, reuseSpeedPct: 25 },
         todoValues: true,
         censusBase: "Jester's Cap",
@@ -107,8 +109,11 @@ export const ROTATION_BUFF_SHEETS: RotationBuffSheet[] = [
  * sheet (exact=false). Null only when nothing is curated at all. */
 export function buffSheetForXpac(currentXpac: string | null): { sheet: RotationBuffSheet; exact: boolean } | null {
   if (ROTATION_BUFF_SHEETS.length === 0) return null
-  const match = currentXpac
-    ? ROTATION_BUFF_SHEETS.find(s => s.xpac.toLowerCase() === currentXpac.toLowerCase())
+  const v = currentXpac?.trim().toLowerCase()
+  const match = v
+    ? ROTATION_BUFF_SHEETS.find(
+        s => s.xpac.toLowerCase() === v || (s.aliases ?? []).some(a => a.toLowerCase() === v),
+      )
     : undefined
   if (match) return { sheet: match, exact: true }
   return { sheet: ROTATION_BUFF_SHEETS[ROTATION_BUFF_SHEETS.length - 1], exact: false }
