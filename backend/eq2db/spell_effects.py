@@ -58,6 +58,12 @@ RECOVERY_DIVISOR = 10.0
 #: and belongs in the rotation; longer buffs are permanent and already
 #: baked into the character sheet stats.
 TEMP_BUFF_MAX_DURATION_S = 300.0
+#: Census stores UNTIL-CANCELLED concentration buffs (Velocity, Anthem of
+#: Battle) with spell_duration = 100 hundredths — their 1s PULSE interval,
+#: not a real duration (1,375 such rows). No genuine rotated temp buff
+#: lasts under ~10s, so anything below this floor reads as until-cancelled
+#: and is treated as a PERMANENT buff, never a temp window.
+TEMP_BUFF_MIN_DURATION_S = 5.0
 #: DoT lines usually carry no duration in the effect text; when the
 #: items.db join has none either, the engine assumes this (flagged "est.").
 FALLBACK_DOT_DURATION_S = 12.0
@@ -258,7 +264,7 @@ def _num(s: str) -> float:
 #: stays visible in the effect lines but contributes no mods.
 _STAT_LINE_RE = re.compile(
     r"^Increases (?P<stat>[A-Za-z', -]+?) of (?P<tgt>group members \(AE\)|raid and group members \(AE\)|target|caster)"
-    r"(?: and [^b]*?)? by (?P<amt>[\d,]+(?:\.\d+)?)%?\.?$"
+    r"(?: and [^b]*?)? by (?P<amt>[\d,]+(?:\.\d+)?)(?P<pct>%)?\.?$"
 )
 
 #: Stat phrase → frontend BuffMods key (additive percentage points, except
@@ -498,6 +504,16 @@ def parse_stat_mods(lines: list[str]) -> dict[str, float]:
         # Compound phrases ("AGI, STR and STA of target") grant the amount
         # to EACH listed stat — split and map every part.
         phrase = m.group("stat").strip().lower()
+        # Bolster: "Increases All Attributes of target by 20.0%." — the
+        # PERCENT form scales the receiver's primary attribute; the flat
+        # form adds to every attribute.
+        if phrase == "all attributes":
+            if m.group("pct"):
+                mods["allAttributesPct"] = mods.get("allAttributesPct", 0.0) + amt
+            else:
+                for key in ("strFlat", "agiFlat", "wisFlat", "intFlat"):
+                    mods[key] = mods.get(key, 0.0) + amt
+            continue
         for part in (p.strip() for chunk in phrase.split(",") for p in chunk.split(" and ")):
             key = _STAT_MOD_KEYS.get(part)
             if key is not None:
@@ -590,6 +606,52 @@ _AA_SUBJECT_PREFIX_RE = re.compile(r"^(?:Enhance|Focus):\s*(?P<subject>.+)$")
 STATIC_AA_BASE_DAMAGE: dict[str, float] = {
     "smite wrath": 5.0,
 }
+
+#: Era mod-KEY corrections (lowercased base name -> {census key: era key}):
+#: census text names the modern stat but the TLE effect is another one.
+#: Velocity reads "Increases Multi Attack" on live; on TLE it is a DPS
+#: mod (user-verified on Wuoshi).
+STATIC_MOD_KEY_OVERRIDES: dict[str, dict[str, str]] = {
+    "velocity": {"doubleAttackPct": "dpsModPct"},
+}
+
+
+def apply_mod_key_overrides(base_name: str, mods: dict[str, float]) -> dict[str, float]:
+    """Remap era-corrected mod keys for the given spell line."""
+    remap = STATIC_MOD_KEY_OVERRIDES.get(base_name.strip().lower())
+    if not remap or not mods:
+        return mods
+    out: dict[str, float] = {}
+    for k, v in mods.items():
+        nk = remap.get(k, k)
+        out[nk] = out.get(nk, 0.0) + v
+    return out
+
+
+#: Display names for the mod keys the override table can touch — used to
+#: correct the raw effect TEXT shown in tooltips alongside the mods.
+_MOD_KEY_DISPLAY = {
+    "doubleAttackPct": "Multi Attack",
+    "dpsModPct": "DPS",
+}
+
+
+def apply_text_overrides(base_name: str, lines: list[str]) -> list[str]:
+    """Era-correct the DISPLAY lines to match the remapped mods, marking
+    the substitution ("Multi Attack" -> "DPS [TLE]") so the correction
+    is visible rather than silently rewriting census text."""
+    remap = STATIC_MOD_KEY_OVERRIDES.get(base_name.strip().lower())
+    if not remap:
+        return lines
+    out: list[str] = []
+    for ln in lines:
+        for k, nk in remap.items():
+            frm = _MOD_KEY_DISPLAY.get(k)
+            to = _MOD_KEY_DISPLAY.get(nk)
+            if frm and to and frm in ln:
+                ln = ln.replace(frm, f"{to} [TLE]")
+        out.append(ln)
+    return out
 
 
 #: Curated bases for CLASS-GRANTED ranks the game AUTO-SCALES to the

@@ -196,34 +196,36 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, c
             if (!a) return null
             const hasDot = a.components.some(c => c.kind === 'dot')
             return (
-              <li key={name} className="flex items-center gap-2 px-2 py-1.5 rounded-sm bg-surface-raised border border-border">
-                <span className="text-[0.75rem] text-gold font-semibold w-5 text-right shrink-0">{i + 1}.</span>
-                <span {...tipHandlers(a)}><SpellIcon ability={a} /></span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
-                    {a.name}
-                    <AbilityBadges a={a} charLevel={charLevel} />
+              <li key={name} className="px-2 py-1.5 rounded-sm bg-surface-raised border border-border">
+                <div className="flex items-center gap-2">
+                  <span className="text-[0.75rem] text-gold font-semibold w-5 text-right shrink-0">{i + 1}.</span>
+                  <span {...tipHandlers(a)}><SpellIcon ability={a} /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
+                      {a.name}
+                      <AbilityBadges a={a} charLevel={charLevel} />
+                    </div>
+                    <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
                   </div>
-                  <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
-                </div>
-                {hasDot && (
-                  <label
-                    className="flex items-center gap-1 text-[0.7rem] text-text-muted cursor-pointer shrink-0"
-                    title="Wait until the DoT's last tick has landed before re-casting, so refreshing never clips ticks. Off = re-cast the moment it's up (by priority)."
-                  >
-                    <input
-                      type="checkbox"
-                      checked={dotHold.includes(name)}
-                      onChange={e => onToggleDotHold(name, e.target.checked)}
-                      className="accent-[var(--color-gold)]"
-                    />
-                    hold DoT
-                  </label>
-                )}
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" onClick={() => move(i, -1)} disabled={i === 0} title="Higher priority">↑</Button>
-                  <Button variant="ghost" size="icon" onClick={() => move(i, 1)} disabled={i === rotation.length - 1} title="Lower priority">↓</Button>
-                  <Button variant="ghost" size="icon" onClick={() => onChange(rotation.filter(n => n !== name))} title="Remove">✕</Button>
+                  {hasDot && (
+                    <label
+                      className="flex items-center gap-1 text-[0.7rem] text-text-muted cursor-pointer shrink-0"
+                      title="Wait until the DoT's last tick has landed before re-casting, so refreshing never clips ticks. Off = re-cast the moment it's up (by priority)."
+                    >
+                      <input
+                        type="checkbox"
+                        checked={dotHold.includes(name)}
+                        onChange={e => onToggleDotHold(name, e.target.checked)}
+                        className="accent-[var(--color-gold)]"
+                      />
+                      hold DoT
+                    </label>
+                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" onClick={() => move(i, -1)} disabled={i === 0} title="Higher priority">↑</Button>
+                    <Button variant="ghost" size="icon" onClick={() => move(i, 1)} disabled={i === rotation.length - 1} title="Lower priority">↓</Button>
+                    <Button variant="ghost" size="icon" onClick={() => onChange(rotation.filter(n => n !== name))} title="Remove">✕</Button>
+                  </div>
                 </div>
               </li>
             )

@@ -56,6 +56,8 @@ export default function SimulatorPage() {
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [rotation, setRotation] = useState<string[]>([])
   const [dotHold, setDotHold] = useState<string[]>([])
+  /** Temp-buff timing sliders: earliest FIRST cast per ability. */
+  const [firstCastAt, setFirstCastAt] = useState<Record<string, number>>({})
   const [fightDuration, setFightDuration] = useState(DEFAULT_FIGHT_S)
   const [autoAttackMode, setAutoAttackMode] = useState<'melee' | 'ranged' | 'off'>('melee')
   const [autoAttackTouched, setAutoAttackTouched] = useState(false)
@@ -80,6 +82,8 @@ export default function SimulatorPage() {
    * the ranks that character actually owns. */
   const [groupMembers, setGroupMembers] = useState<string[]>([])
   const [groupBuffs, setGroupBuffs] = useState<string[]>([])
+  /** Timing offsets for ticked group-member TEMP buffs (base_name). */
+  const [groupBuffStartAt, setGroupBuffStartAt] = useState<Record<string, number>>({})
   /** name → their buff book; undefined = loading, null = lookup failed. */
   const [memberBooks, setMemberBooks] = useState<Record<string, GroupMemberBook | null | undefined>>({})
   const [observed, setObserved] = useState<ObservedHits>({})
@@ -129,6 +133,7 @@ export default function SimulatorPage() {
     if (saved) {
       setRotation(saved.rotation)
       setDotHold(saved.dotHold ?? [])
+      setFirstCastAt(saved.firstCastAt ?? {})
       setExternalBuffs(saved.externalBuffs ?? [])
       setPermanentBuffs(saved.permanentBuffs ?? [])
       setPermanentTiers(saved.permanentTiers ?? {})
@@ -136,6 +141,7 @@ export default function SimulatorPage() {
       setProcChanceOverrides(saved.procChanceOverrides ?? {})
       setGroupMembers(saved.groupMembers ?? [])
       setGroupBuffs(saved.groupBuffs ?? [])
+      setGroupBuffStartAt(saved.groupBuffStartAt ?? {})
       setObserved(saved.observed ?? {})
       setFightDuration(saved.fightDuration ?? DEFAULT_FIGHT_S)
       setIncomingHitsPerMinute(saved.incomingHitsPerMinute ?? 0)
@@ -154,6 +160,7 @@ export default function SimulatorPage() {
     } else {
       setRotation([])
       setDotHold([])
+      setFirstCastAt({})
       setExternalBuffs([])
       setPermanentBuffs([])
       setPermanentTiers({})
@@ -161,6 +168,7 @@ export default function SimulatorPage() {
       setProcChanceOverrides({})
       setGroupMembers([])
       setGroupBuffs([])
+      setGroupBuffStartAt({})
       setObserved({})
       setFightDuration(DEFAULT_FIGHT_S)
       setIncomingHitsPerMinute(0)
@@ -208,6 +216,7 @@ export default function SimulatorPage() {
     saveSimState(selectedName, {
       rotation,
       dotHold,
+      firstCastAt,
       externalBuffs,
       permanentBuffs,
       permanentTiers,
@@ -215,6 +224,7 @@ export default function SimulatorPage() {
       procChanceOverrides,
       groupMembers,
       groupBuffs,
+      groupBuffStartAt,
       observed,
       fightDuration,
       incomingHitsPerMinute,
@@ -222,7 +232,7 @@ export default function SimulatorPage() {
       autoAttackMode,
       target,
     })
-  }, [selectedName, loadedFor, rotation, dotHold, externalBuffs, permanentBuffs, permanentTiers, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
+  }, [selectedName, loadedFor, rotation, dotHold, firstCastAt, externalBuffs, permanentBuffs, permanentTiers, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, groupBuffStartAt, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
 
   // Fetch each needed character's buff book once (kept across simmed
   // characters — the book belongs to that character, not the sim
@@ -401,7 +411,8 @@ export default function SimulatorPage() {
       }
       const dur = b.duration_s as number
       const recast = Math.max(b.recast_s, dur)
-      for (let s = 0; s < fightDuration; s += recast) {
+      const offset = Math.max(0, groupBuffStartAt[b.base_name] ?? 0)
+      for (let s = offset; s < fightDuration; s += recast) {
         out.push({ buffId: b.base_name, start: s, end: Math.min(s + dur, fightDuration), mods: b.mods })
       }
     }
@@ -417,7 +428,7 @@ export default function SimulatorPage() {
     }
     return out
   // eslint-disable-next-line react-hooks/exhaustive-deps -- permanentMods reads permTierData/permanentTiers
-  }, [externalBuffs, buffDefs, fightDuration, buffSheet, permanentBuffs, enabledGroupBuffObjs, rotData?.derived, permTierData, permanentTiers])
+  }, [externalBuffs, buffDefs, fightDuration, buffSheet, permanentBuffs, enabledGroupBuffObjs, groupBuffStartAt, rotData?.derived, permTierData, permanentTiers])
   const externalUptimes = useMemo(() => buffUptimes(buffWindows, fightDuration), [buffWindows, fightDuration])
 
   // Hidden bonuses auto-derived from gear/adorns/sets/AAs — applied
@@ -634,13 +645,14 @@ export default function SimulatorPage() {
       autoAttackLabel: `Auto-attack (${autoAttackMode === 'ranged' ? 'ranged' : 'melee'})`,
       target,
       dotRefreshHold: dotHold,
+      firstCastAt,
       buffWindows,
       passives: [...activePassives, ...groupProcPassives, ...externalProcPassives],
       procChanceOverrides,
       incomingHitsPerMinute,
       calibration: calibration.factors,
     }
-  }, [charData, simStats, abilities, rotation, fightDuration, autoAttackMode, target, dotHold, buffWindows, activePassives, groupProcPassives, externalProcPassives, procChanceOverrides, incomingHitsPerMinute, calibration])
+  }, [charData, simStats, abilities, rotation, fightDuration, autoAttackMode, target, dotHold, firstCastAt, buffWindows, activePassives, groupProcPassives, externalProcPassives, procChanceOverrides, incomingHitsPerMinute, calibration])
 
   const result: SimResult | null = useMemo(() => (simConfig ? simulate(simConfig) : null), [simConfig])
 
@@ -934,6 +946,34 @@ export default function SimulatorPage() {
           fightDurationS={fightDuration}
           rotation={rotation}
           abilities={abilities}
+          timedExternals={[
+            ...(buffSheet?.sheet.buffs ?? [])
+              .filter(b => b.toggle && (externalBuffs.find(c => c.buffId === b.id)?.providers ?? 0) > 0)
+              .map(b => ({ id: b.id, name: b.name, startAt: externalBuffs.find(c => c.buffId === b.id)?.startAt ?? 0 })),
+            ...enabledGroupBuffObjs
+              .filter(({ buff }) => isTempBuff(buff) && Object.keys(buff.mods).length > 0)
+              .map(({ buff, member }) => ({
+                id: `group::${buff.base_name}`,
+                name: `${buff.name} (${member})`,
+                startAt: groupBuffStartAt[buff.base_name] ?? 0,
+              })),
+          ]}
+          onExternalStartAt={(id, t) =>
+            id.startsWith('group::')
+              ? setGroupBuffStartAt(prev => ({ ...prev, [id.slice(7)]: t }))
+              : setExternalBuffs(prev => prev.map(c => (c.buffId === id ? { ...c, startAt: t } : c)))
+          }
+          firstCastAt={firstCastAt}
+          onFirstCastAt={(name, t) =>
+            setFirstCastAt(prev => {
+              if (t <= 0) {
+                const next = { ...prev }
+                delete next[name]
+                return next
+              }
+              return { ...prev, [name]: t }
+            })
+          }
         />
       )}
 

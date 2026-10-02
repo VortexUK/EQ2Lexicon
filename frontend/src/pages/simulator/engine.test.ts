@@ -465,6 +465,66 @@ describe('cast-applied proc buffs (Consumption)', () => {
   })
 })
 
+describe('firstCastAt (temp-buff timing slider)', () => {
+  it('holds the FIRST cast until the chosen time; recasts follow normally', () => {
+    // Buff (+100% dmg, 10s window) delayed to t=10; nuke free-chains at
+    // 1s busy. Without delay the window covers t=1-11; delayed it covers
+    // t=11-21 — nukes inside double from 150 to 300.
+    const buff = ability('Temp', { cast: 1, recast: 100, components: [] })
+    buff.beneficial = true
+    buff.duration_s = 10
+    const nuke = ability('Nuke', { cast: 1, recast: 0 })
+    const cfg = (delay?: number) =>
+      config([buff, nuke], 20, {
+        selfBuffMods: { Temp: { dmgPct: 100 } },
+        ...(delay != null ? { firstCastAt: { Temp: delay } } : {}),
+      })
+    const eager = simulate(cfg())
+    const delayed = simulate(cfg(10))
+    // Eager: window 1-11 covers 10 nuke casts -> 10x300 + 9x150 = 4350.
+    // Delayed: window 11-21 covers 9 casts -> 10x150 + 9x300 = 4200.
+    expect(byName(eager, 'Temp').casts).toBe(1)
+    expect(byName(delayed, 'Temp').casts).toBe(1)
+    expect(eager.totalDamage).toBeCloseTo(4350)
+    expect(delayed.totalDamage).toBeCloseTo(4200)
+    // The window genuinely moved: buffed bins sit late instead of early.
+    expect(delayed.dpsBins[5]).toBeCloseTo(150)
+    expect(delayed.dpsBins[15]).toBeCloseTo(300)
+    expect(eager.dpsBins[5]).toBeCloseTo(300)
+  })
+})
+
+describe('dpsBins', () => {
+  it('sums to total damage; instants land at cast end', () => {
+    // Nuke busy 2.5, recast cadence 10 → casts at 0,10,20; instant lands
+    // at cast END (castTime 2) → bins 2/12/22 carry 150 each.
+    const a = ability('Nuke', { cast: 2, recovery: 0.5, recast: 8 })
+    const r = simulate(config([a], 30))
+    expect(r.dpsBins).toHaveLength(30)
+    expect(r.dpsBins.reduce((s, v) => s + v, 0)).toBeCloseTo(r.totalDamage)
+    expect(r.dpsBins[2]).toBeCloseTo(150)
+    expect(r.dpsBins[12]).toBeCloseTo(150)
+    expect(r.dpsBins[0]).toBe(0)
+  })
+
+  it('dot ticks land in their tick bins', () => {
+    // Cast ends at 1; 4 ticks every 2s → bins 3,5,7,9 at 75 each.
+    const a = ability('Burn', { cast: 1, recast: 100, components: [dot(50, 2, 8)] })
+    const r = simulate(config([a], 20))
+    expect(r.dpsBins.reduce((s, v) => s + v, 0)).toBeCloseTo(r.totalDamage)
+    expect(r.dpsBins[3]).toBeCloseTo(75)
+    expect(r.dpsBins[9]).toBeCloseTo(75)
+  })
+
+  it('auto-attack spreads uniformly across its bins', () => {
+    const r = simulate(
+      config([], 20, { autoAttack: true, stats: { primary_min: 50, primary_max: 100, primary_delay: 3 } }),
+    )
+    expect(r.dpsBins.reduce((s, v) => s + v, 0)).toBeCloseTo(r.totalDamage)
+    expect(r.dpsBins[5]).toBeCloseTo(r.totalDamage / 20)
+  })
+})
+
 describe('auto-attack', () => {
   it('adds a continuous stream over the fight', () => {
     // 75 avg / 3s delay = 25 dps x 10s = 250, plus one 100 nuke.

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Badge, Card, SectionLabel } from '../../components/ui'
 import { fmtNum } from '../../formatters'
+import { CastLanes, DpsChart } from './ResultsCharts'
 import type { RotationAbility, SimResult } from './types'
 
 // Simulation output: DPS headline, per-ability breakdown table, and an
@@ -16,62 +17,23 @@ export function abilityColour(index: number): string {
   return SEGMENT_COLOURS[index % SEGMENT_COLOURS.length]
 }
 
-function Timeline({ result, fightDurationS, colourFor, highlight }: {
-  result: SimResult
-  fightDurationS: number
-  colourFor: (ability: string) => string
-  /** Dim every segment except this ability's (hover from the table). */
-  highlight?: string | null
-}) {
-  const W = 1000
-  const H = 34
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-9 block" preserveAspectRatio="none" aria-label="Cast timeline">
-      <rect x={0} y={10} width={W} height={16} fill="rgba(255,255,255,0.05)" />
-      {/* TEMP buff windows shade the lane behind the cast bars — stacked
-          windows deepen the tint, so burst alignment reads at a glance.
-          Full-fight windows (ticked permanents) are skipped: shading 100%
-          of the lane says nothing and paints the whole timeline gold. */}
-      {(result.buffWindows ?? []).map((w, i) => {
-        const x = Math.max(0, (w.start / fightDurationS) * W)
-        const end = Math.min(w.end, fightDurationS)
-        if (end <= w.start) return null
-        if (end - Math.max(w.start, 0) >= fightDurationS - 1e-6) return null
-        const width = Math.max(((end - w.start) / fightDurationS) * W, 1)
-        return (
-          <rect key={`w${i}`} x={x} y={0} width={Math.min(width, W - x)} height={H} fill="rgba(217,169,74,0.12)">
-            <title>{`${w.buffId} ${w.start.toFixed(0)}–${end.toFixed(0)}s`}</title>
-          </rect>
-        )
-      })}
-      {result.timeline.filter(s => s.ability !== '').map((s, i) => {
-        const x = (s.t / fightDurationS) * W
-        const w = Math.max((s.dur / fightDurationS) * W, 1)
-        const hot = highlight != null && s.ability === highlight
-        const dim = highlight != null && !hot
-        return (
-          <rect
-            key={i}
-            x={x}
-            y={hot ? 6 : 10}
-            width={Math.min(w, W - x)}
-            height={hot ? 24 : 16}
-            fill={colourFor(s.ability)}
-            fillOpacity={dim ? 0.18 : 1}
-          >
-            <title>{`${s.ability} @ ${s.t.toFixed(1)}s`}</title>
-          </rect>
-        )
-      })}
-    </svg>
-  )
-}
+// The old single-strip timeline is replaced by the swimlane cast chart
+// + DPS curve in ResultsCharts.tsx.
 
-export default function ResultsPanel({ result, fightDurationS, rotation, abilities }: {
+export default function ResultsPanel({ result, fightDurationS, rotation, abilities, firstCastAt, onFirstCastAt, timedExternals, onExternalStartAt }: {
   result: SimResult | null
   fightDurationS: number
   rotation: string[]
   abilities: Record<string, RotationAbility>
+  /** Temp-buff timing: earliest FIRST cast per ability (absent = on
+   * ready). The sliders sit right above the lanes so dragging visibly
+   * slides the buff's window and reshapes the DPS curve. */
+  firstCastAt: Record<string, number>
+  onFirstCastAt: (name: string, t: number) => void
+  /** On/off external ally buffs that are ACTIVE (Bolster): same slider,
+   * moving the first window along the fight. */
+  timedExternals: { id: string; name: string; startAt: number }[]
+  onExternalStartAt: (id: string, t: number) => void
 }) {
   // Hovered table row (ability key) — drives the timeline highlight.
   const [hovered, setHovered] = useState<string | null>(null)
@@ -114,8 +76,82 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
         <div className="text-[0.85rem] text-text-muted">idle {result.idlePct.toFixed(1)}%</div>
       </div>
 
+      {/* Temp-buff timing: drag to move WHEN each buff is first used —
+          its window block below and the DPS curve follow live. Only
+          buffs whose STAT MODS boost other abilities get a slider;
+          proc-only temps (Consumption) are just their own damage. */}
+      {rotation
+        .map(n => abilities[n])
+        .filter(
+          (a): a is RotationAbility =>
+            !!a &&
+            !!a.beneficial &&
+            (a.duration_s ?? 0) > 0 &&
+            Object.keys(a.mods ?? {}).length > 0,
+        )
+        .map(a => {
+          const delay = firstCastAt[a.base_name] ?? 0
+          return (
+            <div
+              key={a.base_name}
+              className="flex items-center gap-2 mt-2"
+              title="When the FIRST use lands — later uses follow the cooldown."
+            >
+              <span className="inline-block w-2.5 h-2.5 rounded-[2px] shrink-0" style={{ background: colourFor(a.base_name) }} />
+              <span className="text-[0.75rem] w-40 shrink-0 truncate">{a.name}</span>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, Math.floor(fightDurationS - 1))}
+                step={1}
+                value={Math.min(delay, fightDurationS)}
+                onChange={e => onFirstCastAt(a.base_name, Number(e.target.value))}
+                className="flex-1 accent-[var(--color-gold)] h-1 cursor-pointer"
+              />
+              <span className="text-[0.72rem] w-16 shrink-0 text-right tabular-nums text-text-muted">
+                {delay > 0 ? 'use @ ' + delay + 's' : 'on ready'}
+              </span>
+            </div>
+          )
+        })}
+      {timedExternals.map(b => (
+        <div
+          key={b.id}
+          className="flex items-center gap-2 mt-2"
+          title="When the buff first lands on you — later applications follow its recast."
+        >
+          <span className="inline-block w-2.5 h-2.5 rounded-[2px] shrink-0 bg-gold/60" />
+          <span className="text-[0.75rem] w-40 shrink-0 truncate">{b.name}</span>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0, Math.floor(fightDurationS - 1))}
+            step={1}
+            value={Math.min(b.startAt, fightDurationS)}
+            onChange={e => onExternalStartAt(b.id, Number(e.target.value))}
+            className="flex-1 accent-[var(--color-gold)] h-1 cursor-pointer"
+          />
+          <span className="text-[0.72rem] w-16 shrink-0 text-right tabular-nums text-text-muted">
+            {b.startAt > 0 ? 'use @ ' + b.startAt + 's' : 'at start'}
+          </span>
+        </div>
+      ))}
+
       <div className="mt-3">
-        <Timeline result={result} fightDurationS={fightDurationS} colourFor={colourFor} highlight={highlight} />
+        <CastLanes
+          result={result}
+          fightDurationS={fightDurationS}
+          rotation={rotation}
+          abilities={abilities}
+          colourFor={colourFor}
+          highlight={highlight}
+          onHover={setHovered}
+        />
+      </div>
+
+      <div className="mt-4">
+        <div className="text-[0.68rem] text-text-muted uppercase tracking-wide mb-1">DPS over the fight</div>
+        <DpsChart result={result} />
       </div>
 
       <div className="overflow-x-auto mt-3">

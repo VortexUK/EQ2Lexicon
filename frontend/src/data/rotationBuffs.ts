@@ -30,6 +30,10 @@ export interface RotationBuffDef {
    * attached: their owned rank of this spell (AA-adjusted timing, proc
    * payloads, their stats) then replaces the curated estimates. */
   censusBase?: string
+  /** ON/OFF single-provider ally buff (Bolster): the panel shows a
+   * checkbox instead of a provider count, and the Results card gets a
+   * timing slider to move WHEN it first lands. */
+  toggle?: boolean
   /** Mod keys that only land on PRIEST archetypes (Crusade's Fervor):
    * stripped from the resolved mods when the simmed character isn't a
    * priest, wherever the values came from (curated, tier row, supplier). */
@@ -70,12 +74,13 @@ export const ROTATION_BUFF_SHEETS: RotationBuffSheet[] = [
         name: 'Bolster',
         sourceClass: 'Mystic',
         kind: 'temporary',
+        toggle: true,
         duration_s: 36,
         recast_s: 120,
         mods: { dmgPct: 10 },
         todoValues: true,
         censusBase: 'Bolster',
-        note: 'Stat boost on one ally, approximated as a damage % — verify in-game.',
+        note: 'One mystic bolsters YOU (on/off) — move its timing with the slider in Results. Approximated as a damage % — verify in-game.',
       },
       // Mythical raid-wide procs: the epic-weapon versions of the bard
       // group buffs hit the WHOLE raid, so a bard in another group still

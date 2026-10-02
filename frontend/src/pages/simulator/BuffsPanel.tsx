@@ -154,7 +154,7 @@ export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, up
                 )}
                 {!open && (
                   <span className="text-[0.72rem] text-text-muted ml-auto">
-                    {providers > 0 ? `${providers}× · ${duration}s/${recast}s` : 'off'}
+                    {providers > 0 ? (buff.toggle ? `on · ${duration}s/${recast}s` : `${providers}× · ${duration}s/${recast}s`) : 'off'}
                     {sup ? ` · ${sup.supplier}` : ''}
                   </span>
                 )}
@@ -162,12 +162,24 @@ export default function BuffsPanel({ sheet, exact, configs, permanentEnabled, up
               {open && (
               <>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-1.5">
-                <span className="flex items-center gap-1.5 text-[0.78rem]">
-                  Providers
-                  <Button variant="ghost" size="icon" disabled={providers <= 0} onClick={() => update(buff.id, { providers: providers - 1 })}>−</Button>
-                  <span className="w-4 text-center font-semibold text-gold">{providers}</span>
-                  <Button variant="ghost" size="icon" disabled={providers >= 4} onClick={() => update(buff.id, { providers: providers + 1 })}>+</Button>
-                </span>
+                {buff.toggle ? (
+                  <label className="flex items-center gap-1.5 text-[0.78rem] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={providers > 0}
+                      onChange={e => update(buff.id, { providers: e.target.checked ? 1 : 0 })}
+                      className="accent-[var(--color-gold)]"
+                    />
+                    Active — move its timing with the slider in Results
+                  </label>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-[0.78rem]">
+                    Providers
+                    <Button variant="ghost" size="icon" disabled={providers <= 0} onClick={() => update(buff.id, { providers: providers - 1 })}>−</Button>
+                    <span className="w-4 text-center font-semibold text-gold">{providers}</span>
+                    <Button variant="ghost" size="icon" disabled={providers >= 4} onClick={() => update(buff.id, { providers: providers + 1 })}>+</Button>
+                  </span>
+                )}
                 <label className="flex items-center gap-1.5 text-[0.78rem] text-text-muted">
                   Duration
                   <input

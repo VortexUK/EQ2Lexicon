@@ -29,8 +29,9 @@ export function buildExternalWindows(
     const recast = cfg.recast_s ?? def.recast_s
     if (duration <= 0 || recast <= 0) continue
     const n = Math.floor(cfg.providers)
+    const offset = Math.max(0, cfg.startAt ?? 0)
     for (let i = 0; i < n; i++) {
-      for (let start = (i * recast) / n; start < fightDurationS; start += recast) {
+      for (let start = offset + (i * recast) / n; start < fightDurationS; start += recast) {
         out.push({
           buffId: cfg.buffId,
           start,
@@ -72,6 +73,7 @@ export function modsAt(windows: BuffWindow[], t: number): BuffMods {
     fervorPct: 0,
     weaponDamagePct: 0,
     baseDamagePct: 0,
+    allAttributesPct: 0,
     strFlat: 0,
     agiFlat: 0,
     wisFlat: 0,
@@ -95,6 +97,7 @@ export function modsAt(windows: BuffWindow[], t: number): BuffMods {
     total.fervorPct += w.mods.fervorPct ?? 0
     total.weaponDamagePct += w.mods.weaponDamagePct ?? 0
     total.baseDamagePct += w.mods.baseDamagePct ?? 0
+    total.allAttributesPct += w.mods.allAttributesPct ?? 0
     total.strFlat += w.mods.strFlat ?? 0
     total.agiFlat += w.mods.agiFlat ?? 0
     total.wisFlat += w.mods.wisFlat ?? 0
@@ -120,7 +123,10 @@ export function primaryAttrFlat(base: SimStats, mods: BuffMods): number {
 export function applyMods(base: SimStats, mods: BuffMods): SimStats {
   return {
     ...base,
-    primary_stat: (base.primary_stat ?? 0) + primaryAttrFlat(base, mods),
+    // Flat attr adds first; Bolster-style "All Attributes %" then scales
+    // the buffed value (multiplicative — verify in-game when convenient).
+    primary_stat:
+      ((base.primary_stat ?? 0) + primaryAttrFlat(base, mods)) * (1 + (mods.allAttributesPct ?? 0) / 100),
     // Weapon Damage Bonus: a % multiplier on each auto swing ("like
     // base damage but autos only") — onto each weapon's cooked min/max.
     primary_min: base.primary_min != null ? base.primary_min * (1 + (mods.weaponDamagePct ?? 0) / 100) : base.primary_min,

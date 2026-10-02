@@ -30,10 +30,13 @@ from backend.eq2db.spell_effects import (
     SPELL_DURATION_DIVISOR,
     STATIC_AA_BASE_DAMAGE,
     TEMP_BUFF_MAX_DURATION_S,
+    TEMP_BUFF_MIN_DURATION_S,
     AbilityAdjustment,
     ParsedEffects,
     ProcTriggerInfo,
     aa_subject_of,
+    apply_mod_key_overrides,
+    apply_text_overrides,
     extract_damage_pairs,
     is_suspect_low_damage,
     is_suspect_relative,
@@ -435,7 +438,7 @@ def _build_aa_entries_sync(
                 passives.append(entry)
             elif not beneficial and rtype in ("spells", "arts") and parsed["unparsed_damage"]:
                 castables.append(entry)
-            elif beneficial and lasts and 0 < lasts <= TEMP_BUFF_MAX_DURATION_S:
+            elif beneficial and lasts and TEMP_BUFF_MIN_DURATION_S <= lasts <= TEMP_BUFF_MAX_DURATION_S:
                 # Castable AA temp buff — carry its parsed stat mods so
                 # casting it in rotation opens a window with real effects.
                 entry.mods = parse_stat_mods(parsed["lines"])
@@ -692,7 +695,7 @@ def _build_abilities_sync(
         # are damage abilities). Proc-carrying permanents (the Mythical's
         # Divine Light → Shock of Light damage shield) become PASSIVES —
         # their stats part is in the sheet but the proc stream is not.
-        if beneficial and not components and not (duration_s and 0 < duration_s <= TEMP_BUFF_MAX_DURATION_S):
+        if beneficial and not components and not (duration_s and TEMP_BUFF_MIN_DURATION_S <= duration_s <= TEMP_BUFF_MAX_DURATION_S):
             if procs:
                 spell_passives.append(
                     RotationAbilityResponse(
@@ -940,8 +943,21 @@ def _buff_rows_to_responses(rows: list[SpellRow]) -> list[ClassBuffResponse]:
         m = meta.get(f"{r.get('name')} ({r.get('tier_name')})") or {}
         raw_duration = m.get("spell_duration")
         duration_s = (raw_duration / SPELL_DURATION_DIVISOR) if raw_duration else parsed["lasts_for_s"]
+        # Until-cancelled concentration buffs (Velocity) carry their 1s
+        # PULSE as the census duration — below the floor means "no real
+        # duration": a PERMANENT buff, not a rotated temp.
+        if duration_s is not None and duration_s < TEMP_BUFF_MIN_DURATION_S:
+            duration_s = None
+        # A recast at or under the duration means the buff is 100%
+        # maintainable — functionally until-cancelled (Enraging Demeanor:
+        # census says "60s" but recasts in 2s). Real rotated temps always
+        # have recast > duration (CoB 49.6/20.6, Bolster 120/46).
+        if duration_s is not None and float(r.get("recast_secs") or 0.0) <= duration_s:
+            duration_s = None
         _, procs = _build_component_models(parsed, duration_s, level)
-        mods = parse_stat_mods(parsed["lines"])
+        base_line_name = _spells.strip_roman(r.get("name") or "")
+        mods = apply_mod_key_overrides(base_line_name, parse_stat_mods(parsed["lines"]))
+        display_lines = apply_text_overrides(base_line_name, parsed["lines"])
         if not _is_relevant_group_buff(mods, procs, parsed["lines"]):
             continue
         aa_rank = r.get("_aa_rank")
@@ -960,7 +976,7 @@ def _buff_rows_to_responses(rows: list[SpellRow]) -> list[ClassBuffResponse]:
                 icon_backdrop=r.get("icon_backdrop"),
                 mods=mods,
                 procs=procs,
-                effect_lines=parsed["lines"],
+                effect_lines=display_lines,
                 duration_s=duration_s,
                 recast_s=float(r.get("recast_secs") or 0.0),
             )

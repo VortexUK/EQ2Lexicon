@@ -19,6 +19,11 @@ export interface SavedSimState {
   /** Assumed spell tier per raid-wide permanent (buff id → tier name,
    * e.g. 'Expert'). Absent = Expert. */
   permanentTiers?: Record<string, string>
+  /** Temp-buff timing sliders: earliest first cast per ability. */
+  firstCastAt?: Record<string, number>
+  /** Timing offsets for ticked group-member TEMP buffs (base_name →
+   * seconds the first window is delayed). */
+  groupBuffStartAt?: Record<string, number>
   /** Disabled AA proc passives (base_names) — passives default ON. */
   disabledPassives: string[]
   /** Proc-chance corrections keyed by passive NAME (census text can be

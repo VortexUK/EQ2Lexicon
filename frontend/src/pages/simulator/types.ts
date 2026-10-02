@@ -258,6 +258,9 @@ export interface BuffMods {
   /** Gear-proc temp bonus: "+N% base damage" while the window is up
    * (Plasma Boost) — additive into base_damage_bonus_pct. */
   baseDamagePct?: number
+  /** Bolster's "Increases All Attributes of target by 20%" — scales the
+   * receiver's PRIMARY attribute while the window is up. */
+  allAttributesPct?: number
   /** Flat attribute adds — only the character's PRIMARY attribute does
    * anything (applyMods maps "<primary_attr>Flat" onto primary_stat). */
   strFlat?: number
@@ -279,6 +282,9 @@ export interface BuffWindow {
 export interface ExternalBuffConfig {
   buffId: string
   providers: number
+  /** Timing slider for on/off ally buffs (Bolster): the FIRST window
+   * opens here; later windows follow the recast. Absent = t0. */
+  startAt?: number
   /** Optional user overrides of the data-file timing (census-drifted). */
   duration_s?: number
   recast_s?: number
@@ -324,6 +330,10 @@ export interface SimConfig {
    * its recast is up) until the live application's final tick has landed,
    * so re-casting never clips ticks. Off = re-cast freely by priority. */
   dotRefreshHold?: string[]
+  /** Earliest allowed FIRST cast per ability (base_name → seconds) — the
+   * temp-buff timing slider: the engine holds the first cast until then;
+   * recasts follow the normal cooldown cadence. Absent/0 = on ready. */
+  firstCastAt?: Record<string, number>
   /** Precomputed external buff windows (see buffs.buildExternalWindows). */
   buffWindows?: BuffWindow[]
   /** Enabled always-on proc passives (their procs become damage streams).
@@ -381,4 +391,8 @@ export interface SimResult {
   /** Every buff window that existed during the sim (externals + self
    * temps cast in rotation) — the timeline shades where they're active. */
   buffWindows: BuffWindow[]
+  /** Exact damage landed per 1s bin — sums to totalDamage; feeds the
+   * DPS-over-time chart. Streams (autos, procs) are spread across their
+   * active spans; dot ticks land in their tick bins. */
+  dpsBins: number[]
 }

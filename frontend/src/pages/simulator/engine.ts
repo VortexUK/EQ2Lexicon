@@ -139,13 +139,33 @@ export function simulate(config: SimConfig): SimResult {
   // re-casting at or after this clips nothing.
   const dotGateAt: Record<string, number> = {}
   const perAbility: Record<string, AbilityBreakdown> = {}
+  const firstCastAt = config.firstCastAt ?? {}
   for (const n of order) {
-    readyAt[n] = 0
+    // The temp-buff timing slider: hold the FIRST cast until its chosen
+    // time; recasts follow the normal cooldown cadence.
+    readyAt[n] = Math.max(0, Math.min(firstCastAt[n] ?? 0, fightDurationS))
     dotStates[n] = []
     dotGateAt[n] = 0
     perAbility[n] = { ability: n, casts: 0, damage: 0, pct: 0, avgPerCast: 0, clippedDotTicks: 0 }
   }
   const timeline: TimelineSegment[] = []
+
+  // Exact per-second damage bins — the DPS-over-time chart's data. Every
+  // credit/clip below mirrors into the bins, so they sum to totalDamage.
+  const binCount = Math.max(1, Math.ceil(fightDurationS))
+  const dpsBins: number[] = new Array(binCount).fill(0)
+  const addAt = (at: number, amount: number) => {
+    if (amount === 0) return
+    dpsBins[Math.min(Math.max(Math.floor(at), 0), binCount - 1)] += amount
+  }
+  const spreadUniform = (from: number, to: number, amount: number) => {
+    if (amount === 0 || to <= from) return
+    const perSec = amount / (to - from)
+    for (let b = Math.floor(from); b < to && b < binCount; b++) {
+      const overlap = Math.min(b + 1, to) - Math.max(b, from)
+      if (overlap > 0) dpsBins[b] += perSec * overlap
+    }
+  }
 
   let t = 0
   let idle = 0
@@ -202,6 +222,7 @@ export function simulate(config: SimConfig): SimResult {
     const entry = perAbility[next]
     entry.casts += 1
     entry.damage += instant
+    addAt(t + castTime, instant)
 
     let lastTickAt = 0
     for (let di = 0; di < dots.length; di++) {
@@ -215,6 +236,9 @@ export function simulate(config: SimConfig): SimResult {
         const clipped = prev.ticksScheduled - tickedSoFar
         entry.damage -= clipped * prev.perTick
         entry.clippedDotTicks += clipped
+        for (let k = tickedSoFar + 1; k <= prev.ticksScheduled; k++) {
+          addAt(prev.startedAt + k * prev.interval, -prev.perTick)
+        }
       }
       // Credit the full application now; clip fight-end overrun below.
       const start = t + castTime
@@ -222,6 +246,7 @@ export function simulate(config: SimConfig): SimResult {
       const clippedAtEnd = d.ticks - ticksInFight
       entry.damage += ticksInFight * d.perTick
       entry.clippedDotTicks += clippedAtEnd
+      for (let k = 1; k <= ticksInFight; k++) addAt(start + k * d.interval, d.perTick)
       dotStates[next][di] = {
         expiresAt: start + d.duration,
         ticksScheduled: ticksInFight,
@@ -247,8 +272,10 @@ export function simulate(config: SimConfig): SimResult {
     for (let i = 0; i + 1 < edges.length; i++) {
       const seg = edges[i + 1] - edges[i]
       const segStats = applyMods(stats, modsAt(windows, (edges[i] + edges[i + 1]) / 2))
-      autoDamage += autoAttackDps(segStats) * seg
+      const segDamage = autoAttackDps(segStats) * seg
+      autoDamage += segDamage
       autoSwings += baseAutoSwingRate(segStats) * seg
+      spreadUniform(edges[i], edges[i + 1], segDamage)
     }
   }
 
@@ -284,12 +311,20 @@ export function simulate(config: SimConfig): SimResult {
           ? (windowSec / 60) * p.per_minute
           : (eventsFor(p.trigger) / fightDurationS) * windowSec * (p.chance_pct / 100)
       if (count <= 0) continue
-      perAbility[n].damage +=
+      const procDmg =
         count *
         procHitDamage(p.components, stats, a.level) *
         critMultiplier(stats) *
         fervorMultiplier(stats) *
         (calibration[n] ?? 1)
+      perAbility[n].damage += procDmg
+      // Spread across the buff's actual open windows (bins stay exact).
+      const spans = windows.filter(w => w.buffId === n)
+      const total = spans.reduce((sum, w) => sum + Math.max(0, Math.min(w.end, fightDurationS) - w.start), 0)
+      for (const w of spans) {
+        const span = Math.max(0, Math.min(w.end, fightDurationS) - w.start)
+        if (span > 0 && total > 0) spreadUniform(w.start, Math.min(w.end, fightDurationS), procDmg * (span / total))
+      }
     }
   }
 
@@ -332,6 +367,7 @@ export function simulate(config: SimConfig): SimResult {
       }
     }
     if (procCount <= 0) continue
+    spreadUniform(0, fightDurationS, procDamage)
     procRows.push({
       ability: passive.base_name,
       label: passive.rank != null ? `${passive.name} (rank ${passive.rank})` : passive.name,
@@ -377,6 +413,7 @@ export function simulate(config: SimConfig): SimResult {
     idlePct: fightDurationS > 0 ? (100 * idle) / fightDurationS : 0,
     buffUptimes: buffUptimes(windows, fightDurationS),
     buffWindows: windows,
+    dpsBins,
   }
 }
 

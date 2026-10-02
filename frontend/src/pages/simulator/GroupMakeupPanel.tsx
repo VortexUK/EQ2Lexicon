@@ -29,6 +29,7 @@ const MOD_LABEL: Record<string, string> = {
   weaponDamagePct: 'Weapon Damage %',
   doublecastPct: 'Doublecast',
   baseDamagePct: 'Base Damage %',
+  allAttributesPct: 'All Attributes %',
   strFlat: 'STR',
   agiFlat: 'AGI',
   wisFlat: 'WIS',
@@ -36,7 +37,11 @@ const MOD_LABEL: Record<string, string> = {
 }
 
 export function isTempBuff(b: ClassBuff): boolean {
-  return b.duration_s != null && b.duration_s > 0 && b.duration_s <= 300
+  // Floor of 5s: census stores until-cancelled buffs (Velocity) with
+  // their 1s pulse as the "duration" — those are permanents, not temps.
+  // And recast <= duration means 100% maintainable (Enraging Demeanor):
+  // functionally until-cancelled, so also a permanent.
+  return b.duration_s != null && b.duration_s >= 5 && b.duration_s <= 300 && b.recast_s > b.duration_s
 }
 
 function modsSummary(b: ClassBuff): string {

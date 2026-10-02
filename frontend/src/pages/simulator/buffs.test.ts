@@ -32,6 +32,14 @@ describe('buildExternalWindows + buffUptimes', () => {
     expect(buffUptimes(three, 180).jcap).toBeCloseTo(100)
   })
 
+  it('startAt offsets the first window; later ones follow the recast', () => {
+    // Bolster-style on/off: first window at 45s, next at 45+90.
+    const w = buildExternalWindows([{ buffId: 'jcap', providers: 1, startAt: 45 }], DEFS, 180)
+    expect(w[0].start).toBe(45)
+    expect(w[1].start).toBe(135)
+    expect(buffUptimes(w, 180).jcap).toBeCloseTo(100 / 3)
+  })
+
   it('user timing overrides beat the def', () => {
     // duration bumped to 90 = permanent coverage even with 1 provider.
     const w = buildExternalWindows([{ buffId: 'jcap', providers: 1, duration_s: 90 }], DEFS, 180)
