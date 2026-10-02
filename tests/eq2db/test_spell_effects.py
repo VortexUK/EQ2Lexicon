@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from backend.eq2db.spell_effects import parse_damage_line, parse_effect_lines
+from backend.eq2db.spell_effects import (
+    aa_subject_of,
+    parse_ability_adjustments,
+    parse_damage_line,
+    parse_effect_lines,
+    parse_stat_mods,
+)
 
 
 @pytest.mark.parametrize(
@@ -196,6 +202,148 @@ def test_deeper_non_if_follower_is_not_a_condition():
     assert comp["condition"] is None
 
 
+def test_proc_block_parsed_bolt_of_power():
+    """AA passive proc layout: top-level trigger line, proc effects
+    indented below. The damage becomes a proc entry — not a component,
+    not unparsed."""
+    effects = [
+        {
+            "description": "On any combat or spell hit this spell has a 50% chance to cast Bolt of Power on target of attack.",
+            "indentation": 0,
+        },
+        {"description": "Interrupts target", "indentation": 1},
+        {"description": "Inflicts 89 - 149 divine damage on target.", "indentation": 1},
+    ]
+    p = parse_effect_lines(effects)
+    assert p["components"] == []
+    assert p["unparsed_damage"] == []
+    (proc,) = p["procs"]
+    assert proc["trigger"] == "any_hit"
+    assert proc["chance_pct"] == 50.0
+    assert proc["name"] == "Bolt of Power"
+    (c,) = proc["components"]
+    assert (c["min_dmg"], c["max_dmg"], c["school"]) == (89.0, 149.0, "divine")
+
+
+def test_proc_will_cast_means_100pct_and_other_triggers():
+    effects = [
+        {"description": "On a melee hit this spell will cast Blade Chime on target of attack.", "indentation": 0},
+        {"description": "Inflicts 621 - 1,036 disease damage on target", "indentation": 1},
+        {"description": "On a hostile spell cast this spell has a 25% chance to cast Backfire.", "indentation": 0},
+        {"description": "Inflicts 200 magic damage on target", "indentation": 1},
+    ]
+    p = parse_effect_lines(effects)
+    assert [(x["trigger"], x["chance_pct"]) for x in p["procs"]] == [("melee_hit", 100.0), ("spell_cast", 25.0)]
+
+
+def test_proc_without_damage_is_dropped_and_block_ends_at_top_level():
+    effects = [
+        {"description": "On a hit this spell will cast Stifling Blow on target of attack.", "indentation": 0},
+        {"description": "Stifles target", "indentation": 1},
+        {"description": "Inflicts 300 - 500 heat damage on target", "indentation": 0},  # back at top level
+    ]
+    p = parse_effect_lines(effects)
+    assert p["procs"] == []  # no damage inside the proc block
+    (comp,) = p["components"]  # the top-level line after the block is normal
+    assert comp["min_dmg"] == 300.0
+
+
+def test_proc_trigger_with_trailing_sentence_still_matches():
+    """Aria-of-Magic layout: the trigger line carries extra sentences
+    ("This effect normalizes based off of a three second triggering
+    interval.") after the cast clause — they must not break the match."""
+    effects = [
+        {
+            "description": "On a hostile spell cast this spell has a 15% chance to cast Aria of Magic on target of spell.  This effect normalizes based off of a three second triggering interval.",
+            "indentation": 0,
+        },
+        {"description": "Inflicts 250 - 305 mental damage on target", "indentation": 1},
+    ]
+    p = parse_effect_lines(effects)
+    (proc,) = p["procs"]
+    assert proc["trigger"] == "spell_cast" and proc["chance_pct"] == 15.0
+    assert proc["name"] == "Aria of Magic"
+
+
+def test_parse_stat_mods_maps_modelable_stats():
+    lines = [
+        "Increases Haste of group members (AE) by 63.6.",
+        "Increases Multi Attack of group members (AE) by 35.3.",
+        "Increases DPS of raid and group members (AE) by 24.2.",
+        "Increases Crit Chance of target by 5.0.",
+        "Increases STR and AGI of group members (AE) by 96.6.",  # unmapped
+        "Increases Mitigation of group members (AE) vs noxious damage by 480.",  # unmapped shape
+        "Heals group members (AE) for 100.",  # not a stat line
+    ]
+    mods = parse_stat_mods(lines)
+    assert mods == {
+        "hastePct": 63.6,
+        "doubleAttackPct": 35.3,
+        "dpsModPct": 24.2,
+        "critChancePct": 5.0,
+    }
+
+
+def test_parse_stat_mods_sums_duplicates_and_handles_commas():
+    lines = [
+        "Increases Haste of group members (AE) by 10.",
+        "Increases Haste of caster by 1,000.5.",
+    ]
+    assert parse_stat_mods(lines) == {"hastePct": 1010.5}
+
+
+def test_applies_pulse_wrapper_exorcise_shape():
+    """'Applies X instantly and every N seconds.' + indented Inflicts =
+    a self-applied pulse AoE (Exorcise/Consecrate/Open Wounds): the hit
+    lands immediately AND ticks on the wrapper's cadence."""
+    effects = [
+        {"description": "Applies Exorcise instantly and every 6 seconds.", "indentation": 0},
+        {"description": "Inflicts 269 - 448 divine damage on targets in Area of Effect.", "indentation": 1},
+        {"description": "Reduces the potency of heals by 95%.", "indentation": 0},
+    ]
+    p = parse_effect_lines(effects)
+    assert p["unparsed_damage"] == []
+    hit, dot = p["components"]
+    assert hit["kind"] == "hit" and (hit["min_dmg"], hit["max_dmg"]) == (269.0, 448.0)
+    assert hit["target_scope"] == "aoe"
+    assert dot["kind"] == "dot" and dot["interval_s"] == 6.0 and dot["duration_s"] is None
+
+
+def test_applies_pulse_wrapper_with_lasts_for():
+    """Netherealm shape: the wrapper carries its own duration."""
+    effects = [
+        {
+            "description": "Applies Netherous Cascade instantly and every 5 seconds.  Lasts for 15.0 seconds.",
+            "indentation": 0,
+        },
+        {"description": "Inflicts 300 - 366 poison damage on target.", "indentation": 1},
+    ]
+    p = parse_effect_lines(effects)
+    hit, dot = p["components"]
+    assert hit["kind"] == "hit"
+    assert dot["kind"] == "dot" and dot["interval_s"] == 5.0 and dot["duration_s"] == 15.0
+
+
+def test_applies_without_every_clause_is_not_a_pulse():
+    effects = [
+        {"description": "Applies Knockdown on termination.", "indentation": 0},
+        {"description": "Inflicts 300 - 500 magic damage on target", "indentation": 1},
+    ]
+    p = parse_effect_lines(effects)
+    assert p["components"] == []
+    assert p["unparsed_damage"] == ["Inflicts 300 - 500 magic damage on target"]
+
+
+def test_defensive_trigger_not_modeled_damage_stays_unparsed():
+    effects = [
+        {"description": "When damaged with a melee weapon this spell will cast Thorns.", "indentation": 0},
+        {"description": "Inflicts 120 piercing damage on target", "indentation": 1},
+    ]
+    p = parse_effect_lines(effects)
+    assert p["procs"] == []
+    assert p["unparsed_damage"] == ["Inflicts 120 piercing damage on target"]
+
+
 def test_lasts_for_captured():
     effects = [
         {"description": "Inflicts 100 heat damage on target every 2 seconds", "indentation": 0},
@@ -208,3 +356,42 @@ def test_lasts_for_captured():
 def test_empty_and_none_effects():
     assert parse_effect_lines([])["components"] == []
     assert parse_effect_lines([{"description": None, "indentation": 0}])["lines"] == []
+
+
+def test_ability_adjustments_explicit_targets():
+    adj = parse_ability_adjustments(["Reduces the reuse time of Cacophony of Blades by 30 seconds."])
+    assert adj == [
+        {
+            "targets": ["cacophony of blades"],
+            "kind": "reuse",
+            "amount": 30.0,
+            "is_pct": False,
+            "line": "Reduces the reuse time of Cacophony of Blades by 30 seconds.",
+        }
+    ]
+
+
+def test_ability_adjustments_multi_target_and_subject():
+    adj = parse_ability_adjustments(
+        [
+            "Increases duration of Cacophony of Blades and Peal Of Battle by 3 seconds.",
+            "Improves duration by 10 seconds.",  # self-referential -> subject
+            "Improves the reuse speed of Precision by 20%.",
+            "Increases effectiveness of Perfection of the Maestro by 10.",  # not a timing line
+        ],
+        subject="Perfection of the Maestro",
+    )
+    assert [a["kind"] for a in adj] == ["duration", "duration", "reuse"]
+    assert adj[0]["targets"] == ["cacophony of blades", "peal of battle"]
+    assert adj[1]["targets"] == ["perfection of the maestro"] and adj[1]["amount"] == 10.0
+    assert adj[2]["is_pct"] is True and adj[2]["amount"] == 20.0
+
+
+def test_ability_adjustments_no_subject_self_line_dropped():
+    assert parse_ability_adjustments(["Improves reuse speed by 30 seconds"]) == []
+
+
+def test_aa_subject_of():
+    assert aa_subject_of("Enhance: Cacophony of Blades") == "Cacophony of Blades"
+    assert aa_subject_of("Focus: Exorcise") == "Exorcise"
+    assert aa_subject_of("Bolt of Power") is None

@@ -276,6 +276,21 @@ SELECT raw_json FROM items WHERE {where}
 -- :name find_by_name_no_max_level
 SELECT raw_json FROM items WHERE {where}  ORDER BY tierid DESC, last_update DESC LIMIT 1;
 
+-- :name spellscroll_names_for_class
+-- Candidate spell names (with tier suffix) whose scroll MAY be scribable
+-- by a class — the per-class spell universe (spells.db has no class
+-- column; the scroll's classes_json is the class linkage). LIKE is a
+-- prefilter only: the caller re-checks classes_json, because legacy
+-- all-class collection scrolls list every class with level 0.
+-- Param: '%"<cls_lower>"%'.
+SELECT DISTINCT spell_name, classes_json FROM items
+WHERE typeinfo_name = 'spellscroll' AND spell_name IS NOT NULL AND classes_json LIKE ?;
+
+-- :name raw_json_by_ids
+-- {placeholders} = comma-joined "?" list of item ids. The rotation
+-- simulator scans equipped items' effect lines for base-damage bonuses.
+SELECT id, raw_json FROM items WHERE id IN ({placeholders});
+
 -- :name spell_meta_by_names
 -- {placeholders} = comma-joined "?" list. Rotation simulator: spell
 -- duration and power cost exist ONLY on the spellscroll item rows,

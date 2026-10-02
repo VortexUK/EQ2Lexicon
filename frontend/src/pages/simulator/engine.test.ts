@@ -50,8 +50,11 @@ const ability = (base: string, spec: AbilitySpec = {}): RotationAbility => ({
   duration_s: null,
   power_cost: null,
   components: spec.components ?? [hit(100, 100)],
+  procs: [],
   effect_lines: [],
   has_unparsed_damage: false,
+  source: 'spell',
+  rank: null,
 })
 
 const config = (
@@ -82,8 +85,8 @@ describe('single-ability cadence', () => {
     const r = simulate(config([a], 60))
     const e = byName(r, 'Nuke')
     expect(e.casts).toBe(6)
-    expect(r.totalDamage).toBe(600)
-    expect(r.dps).toBeCloseTo(10)
+    expect(r.totalDamage).toBe(900)
+    expect(r.dps).toBeCloseTo(15)
     // Idle 7.5s after each 2.5s busy window = 45s of 60.
     expect(r.idlePct).toBeCloseTo(75)
     expect(r.timeline.filter(s => s.ability === '')).toHaveLength(6)
@@ -100,7 +103,7 @@ describe('priority order', () => {
     const r = simulate(config([a, b], 10))
     expect(byName(r, 'Big').casts).toBe(1)
     expect(byName(r, 'Filler').casts).toBe(9)
-    expect(r.totalDamage).toBe(190)
+    expect(r.totalDamage).toBe(285)
     expect(r.idlePct).toBe(0)
   })
 
@@ -109,8 +112,8 @@ describe('priority order', () => {
     const b = ability('Filler', { cast: 1, recast: 0, components: [hit(10, 10)] })
     const r = simulate(config([a, b], 10))
     expect(r.perAbility[0].ability).toBe('Big')
-    expect(r.perAbility[0].pct).toBeCloseTo((100 / 190) * 100)
-    expect(byName(r, 'Filler').avgPerCast).toBeCloseTo(10)
+    expect(r.perAbility[0].pct).toBeCloseTo((150 / 285) * 100)
+    expect(byName(r, 'Filler').avgPerCast).toBeCloseTo(15)
   })
 })
 
@@ -122,7 +125,7 @@ describe('DoT clipping', () => {
     const r = simulate(config([a], 6))
     const e = byName(r, 'Burn')
     expect(e.casts).toBe(1)
-    expect(e.damage).toBe(100)
+    expect(e.damage).toBe(150)
     expect(e.clippedDotTicks).toBe(3)
   })
 
@@ -138,7 +141,7 @@ describe('DoT clipping', () => {
     const r = simulate(config([a], 9))
     const e = byName(r, 'Burn')
     expect(e.casts).toBe(3)
-    expect(e.damage).toBe(100)
+    expect(e.damage).toBe(150)
     expect(e.clippedDotTicks).toBe(3 + 1 + 3 + 1 + 5)
   })
 })
@@ -154,14 +157,14 @@ describe('stats', () => {
     expect(byName(fast, 'Nuke').casts).toBe(6)
   })
 
-  it('applies capped ability mod, crit, and calibration per cast', () => {
-    // base 100, mod 1000 capped at 50 → 150; x1.3 full crit → 195;
-    // x2 calibration → 390. One cast (recast > fight).
+  it('applies the flat ability mod, crit, and calibration per cast', () => {
+    // base 100 → 150 per-app + mod 1000 = 1150; x1.3 full crit → 1495;
+    // x2 calibration → 2990. One cast (recast > fight).
     const a = ability('Nuke', { cast: 1, recast: 100 })
     const r = simulate(
       config([a], 2, { calibration: { Nuke: 2 } }, { ability_mod: 1000, crit_chance: 100 }),
     )
-    expect(byName(r, 'Nuke').damage).toBeCloseTo(390)
+    expect(byName(r, 'Nuke').damage).toBeCloseTo(2990)
   })
 })
 
@@ -177,7 +180,7 @@ describe('DoT refresh hold', () => {
     const r = simulate(config([burn()], 13, { dotRefreshHold: ['Burn'] }))
     const e = byName(r, 'Burn')
     expect(e.casts).toBe(2)
-    expect(e.damage).toBe(250)
+    expect(e.damage).toBe(375)
     expect(e.clippedDotTicks).toBe(5) // only the fight-end clip
   })
 
@@ -188,7 +191,7 @@ describe('DoT refresh hold', () => {
     const r = simulate(config([burn()], 13))
     const e = byName(r, 'Burn')
     expect(e.casts).toBe(4)
-    expect(e.damage).toBe(150)
+    expect(e.damage).toBe(225)
     expect(e.clippedDotTicks).toBe(17) // 4+3+1 re-cast clips + 0+1+3+5 fight-end
   })
 
@@ -215,8 +218,9 @@ describe('target model', () => {
     const a = ability('Blast', { cast: 1, recast: 100, components: [hit(100, 100, { target_scope: 'encounter' })] })
     const linked: SimTarget = { count: 3, encounter: true, activeConditions: [] }
     const unlinked: SimTarget = { count: 3, encounter: false, activeConditions: [] }
-    expect(simulate(config([a], 2, { target: linked })).totalDamage).toBe(300)
-    expect(simulate(config([a], 2, { target: unlinked })).totalDamage).toBe(100)
+    // encounter flat fraction 0.1: 100×1.1 per target
+    expect(simulate(config([a], 2, { target: linked })).totalDamage).toBeCloseTo(330)
+    expect(simulate(config([a], 2, { target: unlinked })).totalDamage).toBeCloseTo(110)
   })
 
   it('conditional damage only lands when its condition is toggled on', () => {
@@ -230,19 +234,145 @@ describe('target model', () => {
     const undead = simulate(
       config([a], 2, { target: { count: 1, encounter: false, activeConditions: ['If target is undead'] } }),
     )
-    expect(dummy.totalDamage).toBe(100)
-    expect(undead.totalDamage).toBe(200)
+    expect(dummy.totalDamage).toBe(150)
+    expect(undead.totalDamage).toBe(300)
   })
 
   it('aoe dots tick on every stacked mob', () => {
-    // 1-cast dot, 2 ticks fit; x3 targets → 50 x 2 x 3 = 300.
+    // 1-cast dot, 2 ticks fit; x3 targets -> 75 x 2 x 3 = 450.
     const a = ability('Rain', {
       cast: 1,
       recast: 100,
       components: [hit(50, 50, { kind: 'dot', target_scope: 'aoe', interval_s: 2, duration_s: 4 })],
     })
     const r = simulate(config([a], 6, { target: { count: 3, encounter: false, activeConditions: [] } }))
-    expect(r.totalDamage).toBe(300)
+    expect(r.totalDamage).toBe(450)
+  })
+})
+
+describe('passive proc streams', () => {
+  const passive = (base: string, trigger: string, chance: number, comps: DamageComponent[]): RotationAbility => ({
+    ...ability(base, { components: [] }),
+    beneficial: true,
+    spell_type: 'pcinnates',
+    source: 'aa',
+    rank: 10,
+    procs: [{ trigger, chance_pct: chance, name: base, per_minute: null, components: comps }],
+  })
+
+  it('ability-cast triggers scale with hostile casts', () => {
+    // Nuke free-chains: 10 casts in 10s. 50% proc x 100x1.5 dmg → 5 procs, 750.
+    const nuke = ability('Nuke', { cast: 1, recast: 0 })
+    const bolt = passive('Bolt', 'ability_cast', 50, [hit(100, 100)])
+    const r = simulate(config([nuke], 10, { passives: [bolt] }))
+    const row = r.perAbility.find(e => e.isProc)
+    expect(row?.casts).toBe(5)
+    expect(row?.damage).toBe(750)
+    expect(r.totalDamage).toBe(1500 + 750)
+  })
+
+  it('any-hit triggers count auto swings too', () => {
+    // No rotation; 20s of auto at 2s delay = 10 swings; 100% proc x 50x1.5.
+    const bolt = passive('Bolt', 'any_hit', 100, [hit(50, 50)])
+    const r = simulate(
+      config([], 20, { autoAttack: true, passives: [bolt] }, { primary_min: 50, primary_max: 100, primary_delay: 2 }),
+    )
+    expect(r.perAbility.find(e => e.isProc)?.damage).toBeCloseTo(750)
+    expect(r.totalDamage).toBeCloseTo(750 + 750) // auto 37.5 dps x 20 + procs
+  })
+
+  it('multi-attack extras do NOT add proc triggers (log-validated); crit raises proc damage', () => {
+    const bolt = passive('Bolt', 'melee_hit', 100, [hit(50, 50)])
+    const r = simulate(
+      config([], 20, { autoAttack: true, passives: [bolt] }, {
+        primary_min: 50,
+        primary_max: 100,
+        primary_delay: 2,
+        double_attack: 100,
+        crit_chance: 100,
+      }),
+    )
+    // 10 BASE swings only (DA extras never proc — wand session: 190
+    // procs on 190 base swings of 304 auto hits); 10 x 50x1.5 x 1.3.
+    expect(r.perAbility.find(e => e.isProc)?.damage).toBeCloseTo(975)
+  })
+
+  it('rate-limited procs use times-per-minute, not trigger events', () => {
+    // Apply Poison shape: ~3/min over 120s = 6 procs x 336x1.5 avg = 3024.
+    const poison = passive('Poison', 'melee_hit', 100, [hit(336, 336)])
+    poison.procs[0].per_minute = 3
+    const r = simulate(config([], 120, { autoAttack: false, passives: [poison] }))
+    const row = r.perAbility.find(e => e.isProc)
+    expect(row?.casts).toBe(6)
+    expect(row?.damage).toBeCloseTo(3024)
+  })
+
+  it('single-target proc payloads deal +AM/3 (log-validated)', () => {
+    // 10 casts, 100% proc: (100x1.5 + 900/3) x 10 = 4500.
+    const nuke = ability('Nuke', { cast: 1, recast: 0 })
+    const bolt = passive('Bolt', 'ability_cast', 100, [hit(100, 100)])
+    const r = simulate(config([nuke], 10, { passives: [bolt] }, { ability_mod: 900 }))
+    expect(r.perAbility.find(e => e.isProc)?.damage).toBeCloseTo(4500)
+  })
+
+  it('proc chance overrides correct stale census text', () => {
+    // Bolt of Power reads 50% at rank 10 but fires on every attack.
+    const nuke = ability('Nuke', { cast: 1, recast: 0 })
+    const bolt = passive('Bolt', 'ability_cast', 50, [hit(100, 100)])
+    const r = simulate(
+      config([nuke], 10, { passives: [bolt], procChanceOverrides: { 'Bolt IV': 100 } }),
+    )
+    expect(r.perAbility.find(e => e.isProc)?.casts).toBe(10)
+    expect(r.perAbility.find(e => e.isProc)?.damage).toBe(1500)
+  })
+
+  it('maintained toggles pulse continuously for the whole fight', () => {
+    // Exorcise shape: aoe pulse every 6s, no duration, no AM share.
+    const exorcise: RotationAbility = {
+      ...ability('Exorcise', { components: [] }),
+      beneficial: true,
+      maintained: true,
+      components: [
+        hit(300, 300, { target_scope: 'aoe' }),
+        { ...hit(300, 300, { target_scope: 'aoe' }), kind: 'dot', interval_s: 6, duration_s: null },
+      ],
+    }
+    const r = simulate(config([], 60, { passives: [exorcise], stats: { ability_mod: 900 } }))
+    // 60s / 6s = 10 pulses x 300x1.5 = 4500; the mod never applies.
+    const row = r.perAbility.find(e => e.isProc)
+    expect(row?.casts).toBe(10)
+    expect(row?.damage).toBeCloseTo(4500)
+  })
+
+  it('buff-granted procs scale off the SUPPLIER stats (proc_stats)', () => {
+    // PotM shape: the bard's chain, not the player's. Player has huge
+    // stats; the supplier has none -> payload stays 100x1.5 (+ the
+    // SUPPLIER's AM/3 = 0), even though the player's AM is 900.
+    const nuke = ability('Nuke', { cast: 1, recast: 0 })
+    const potm: RotationAbility = {
+      ...passive('Precise Note', 'spell_cast', 100, [hit(100, 100)]),
+      proc_stats: {},
+    }
+    const r = simulate(config([nuke], 10, { passives: [potm] }, { ability_mod: 900, potency: 100 }))
+    expect(r.perAbility.find(e => e.isProc)?.damage).toBeCloseTo(10 * 150)
+  })
+
+  it('auto-attack appears as its own breakdown row', () => {
+    const r = simulate(
+      config([], 20, { autoAttack: true }, { primary_min: 50, primary_max: 100, primary_delay: 2 }),
+    )
+    const row = r.perAbility.find(e => e.ability === 'Auto-attack')
+    expect(row?.casts).toBe(10)
+    expect(row?.damage).toBeCloseTo(750)
+    expect(row?.avgPerCast).toBeCloseTo(75)
+  })
+
+  it('spell-cast triggers ignore combat arts', () => {
+    const art = ability('Slash', { cast: 1, recast: 0 })
+    art.spell_type = 'arts'
+    const bolt = passive('Bolt', 'spell_cast', 100, [hit(50, 50)])
+    const r = simulate(config([art], 10, { passives: [bolt] }))
+    expect(r.perAbility.find(e => e.isProc)).toBeUndefined()
   })
 })
 
@@ -254,7 +384,7 @@ describe('auto-attack', () => {
       config([a], 10, { autoAttack: true }, { primary_min: 50, primary_max: 100, primary_delay: 3 }),
     )
     expect(r.autoAttackDamage).toBeCloseTo(250)
-    expect(r.totalDamage).toBeCloseTo(350)
+    expect(r.totalDamage).toBeCloseTo(400)
   })
 })
 

@@ -588,6 +588,64 @@ class ItemCatalogue(BaseCatalogue):
         finally:
             conn.close()
 
+    def class_spell_names(self, cls: str) -> set[str]:
+        """Base spell names (tier suffix stripped) a class can scribe,
+        from the spellscroll rows' classes_json — the per-class spell
+        universe (spells.db has no class column). SYNC; run via run_sync.
+
+        A class counts only when its entry carries a real scribe level —
+        legacy all-class collection scrolls (e.g. one "Breeze (Master)")
+        list every class, artisans included, at level 0."""
+        cls_key = re.sub(r"[^a-z]", "", cls.lower())
+        if not cls_key or not self.path.exists():
+            return set()
+        out: set[str] = set()
+        conn = self.init_db()
+        try:
+            rows = conn.execute(_SQL["spellscroll_names_for_class"], (f'%"{cls_key}"%',)).fetchall()
+        finally:
+            conn.close()
+        for spell_name, classes_json in rows:
+            try:
+                entry = (json.loads(classes_json or "{}") or {}).get(cls_key)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(entry, dict) or (entry.get("level") or 0) <= 0:
+                continue
+            m = re.match(r"^(.*) \([^)]+\)$", spell_name or "")
+            out.add(m.group(1) if m else (spell_name or ""))
+        out.discard("")
+        return out
+
+    def effect_lines_for_ids(self, item_ids: list[int]) -> list[tuple[int, str, str]]:
+        """(item_id, displayname, effect line) rows across the given items
+        (from raw_json effect_list) — the rotation simulator scans worn
+        gear + adorns for hidden damage bonuses. SYNC; run via run_sync."""
+        ids = [i for i in item_ids if i]
+        if not ids or not self.path.exists():
+            return []
+        out: list[tuple[int, str, str]] = []
+        conn = self.init_db()
+        try:
+            chunk_size = 500
+            for i in range(0, len(ids), chunk_size):
+                chunk = ids[i : i + chunk_size]
+                rows = conn.execute(
+                    _SQL["raw_json_by_ids"].format(placeholders=",".join("?" * len(chunk))), chunk
+                ).fetchall()
+                for item_id, raw_json in rows:
+                    try:
+                        raw = json.loads(raw_json or "{}")
+                    except (TypeError, ValueError):
+                        continue
+                    name = str(raw.get("displayname") or item_id)
+                    for e in raw.get("effect_list") or []:
+                        if isinstance(e, dict) and e.get("description"):
+                            out.append((item_id, name, str(e["description"])))
+        finally:
+            conn.close()
+        return out
+
     def spell_meta_by_names(self, names: list[str]) -> dict[str, dict]:
         """{spell_name: {"spell_duration": float|None, "spell_power_cost": int|None,
         "effects": list[{"description", "indentation"}]}} for the given

@@ -129,6 +129,22 @@ GROUP BY crc HAVING COUNT(DISTINCT tier_name) > 1;
 -- the populated, deployment-relevant one. Without a deterministic ORDER BY,
 -- LIMIT 1 returned an arbitrary variant — sometimes a 0.0% placeholder (the
 -- "Increases Max Health by 0.0%" AA-tooltip bug). Sort level=0 rows last.
+-- :name beneficial_group_by_names
+-- {placeholders} = comma-joined "?" list of exact spell names. The
+-- rotation simulator's group-buff universe: beneficial spells with a
+-- group/raid/single-ally target scope inside the era's level band.
+-- tier <= 9 (Master): Grandmaster/Ancient/Celestial are post-era research
+-- tiers whose rows carry modern live-game values — never era-correct.
+SELECT {cols} FROM spells
+WHERE name IN ({placeholders}) AND beneficial = 1
+  AND target_type IN ('group', 'raid', 'other')
+  AND level BETWEEN 1 AND ? AND tier <= 9;
+
+-- :name find_by_crc_tier_bands
+-- All real-level band rows for an AA rank (level bands 70/100/110…) —
+-- the game linearly interpolates a character's value between bands.
+SELECT {cols} FROM spells WHERE crc = ? AND tier = ? AND level > 0 ORDER BY level ASC;
+
 -- :name find_by_crc_and_tier
 SELECT {cols} FROM spells WHERE crc = ? AND tier = ?
 ORDER BY CASE WHEN level = 0 THEN 9999 ELSE level END ASC LIMIT 1;

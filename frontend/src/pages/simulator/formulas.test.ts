@@ -6,7 +6,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  ABILITY_MOD_CAP_FRACTION,
   DEFAULT_TARGET,
   FALLBACK_DOT_DURATION_S,
   abilityBaseAvg,
@@ -18,7 +17,11 @@ import {
   effRecast,
   effRecovery,
   expectedCastDamage,
-  predictedNonCritHit,
+  expectedCritSwing,
+  extraSwingFactor,
+  predictedTooltipMin,
+  primaryStatBonus,
+  speedStatEffective,
 } from './formulas'
 import type { DamageComponent, RotationAbility, SimStats, SimTarget } from './types'
 
@@ -56,8 +59,11 @@ const ability = (components: DamageComponent[], over: Partial<RotationAbility> =
   duration_s: null,
   power_cost: null,
   components,
+  procs: [],
   effect_lines: [],
   has_unparsed_damage: false,
+  source: 'spell',
+  rank: null,
   ...over,
 })
 
@@ -134,26 +140,94 @@ describe('abilityBaseAvg', () => {
 })
 
 describe('expectedCastDamage', () => {
-  it('adds the full ability mod when under the cap', () => {
-    // base 1000, mod 200 (< 500 cap), no crit: 1200
+  it('per application = B̄ × (coeff + ½), plus the FULL mod on the primary hit', () => {
+    // base avg 1000 → 1500, + mod 200 = 1700 (no stats → coeff 1).
     const a = ability([hit(800, 1200)])
-    expect(expectedCastDamage(a, { ability_mod: 200 })).toBe(1200)
+    expect(expectedCastDamage(a, { ability_mod: 200 })).toBe(1700)
   })
 
-  it('caps the ability mod at 50% of base', () => {
-    // base 1000, mod 5000 → capped at 500: 1500
+  it('the ability mod is uncapped', () => {
+    // base avg 1000 → 1500 + 5000 = 6500.
     const a = ability([hit(800, 1200)])
-    expect(expectedCastDamage(a, { ability_mod: 5000 })).toBe(1000 * (1 + ABILITY_MOD_CAP_FRACTION))
+    expect(expectedCastDamage(a, { ability_mod: 5000 })).toBe(6500)
   })
 
   it('multiplies crit and calibration on top', () => {
-    // base 1000, no mod, crit mult 1.3, calibration 1.1 → 1430
+    // 1000 × 1.5 = 1500, × 1.3 crit × 1.1 calibration → 2145
     const a = ability([hit(800, 1200)])
-    expect(expectedCastDamage(a, { crit_chance: 100 }, 1.1)).toBeCloseTo(1430)
+    expect(expectedCastDamage(a, { crit_chance: 100 }, 1.1)).toBeCloseTo(2145)
   })
 
   it('is 0 for a zero-damage ability (no NaN)', () => {
     expect(expectedCastDamage(ability([]), { ability_mod: 500 })).toBe(0)
+  })
+})
+
+describe('primaryStatBonus', () => {
+  it('plateaus at 0.65 between the level cap and 1200', () => {
+    // Spell L=72 → cap 1100; S=1150 sits in the plateau band.
+    expect(primaryStatBonus(1150, 72)).toBe(0.65)
+  })
+
+  it('follows the log curve at 1200+', () => {
+    // 0.28·log2(1493) − 2.2 ≈ 0.7523
+    expect(primaryStatBonus(1493, 72)).toBeCloseTo(0.7523, 4)
+    // exactly at the threshold: 0.28·log2(1200) − 2.2 ≈ 0.6638
+    expect(primaryStatBonus(1200, 72)).toBeCloseTo(0.6638, 3)
+  })
+
+  it('ramps below the cap and is 0 with no stat', () => {
+    // L=72 → cap 1100; S=550 → half the plateau.
+    expect(primaryStatBonus(550, 72)).toBeCloseTo(0.325)
+    expect(primaryStatBonus(0, 72)).toBe(0)
+    expect(primaryStatBonus(null, 72)).toBe(0)
+  })
+})
+
+describe('potency / fervor / doublecast (TLE modern engine)', () => {
+  it('potency multiplies base; mod added flat after', () => {
+    // B=100, P=100 → coeff 2, per-app (2+½)×100 = 250; + mod 1000 = 1250.
+    const a = ability([hit(100, 100)])
+    expect(expectedCastDamage(a, { potency: 100, ability_mod: 1000 })).toBe(1250)
+  })
+
+  it('fervor and doublecast multiply the final (dealt) damage', () => {
+    const a = ability([hit(100, 100)])
+    expect(expectedCastDamage(a, { fervor: 10, ability_doublecast: 50 })).toBeCloseTo(150 * 1.1 * 1.5)
+  })
+
+  it('base-damage-bonus % is additive with the primary-stat bonus', () => {
+    // coeff = (1 + 0 + 0.35) × 1 = 1.35 → per-app 1.85 × 100 = 185.
+    const a = ability([hit(100, 100)])
+    expect(expectedCastDamage(a, { base_damage_bonus_pct: 35 })).toBeCloseTo(185)
+  })
+
+  it('predictedTooltipMin excludes crit/fervor/doublecast', () => {
+    const a = ability([hit(100, 100)])
+    const v = predictedTooltipMin(a, {
+      potency: 100,
+      ability_mod: 1000,
+      fervor: 10,
+      crit_chance: 100,
+      ability_doublecast: 100,
+    })
+    expect(v).toBeCloseTo(1250) // (2+½)×100 + 1000, fervor excluded
+  })
+
+  it('reproduces the blind-validated Divine Strike VII tooltip', () => {
+    // In-game tooltip read 5,494 - 6,191. Model min: WIS 1493 -> +75.23%,
+    // +35% gear/AA, x1.95 potency -> coeff 4.0995; B_min 754 x 4.5995
+    // + AM 1983 = 5,451 - within 1% of the observed minimum.
+    const a = ability([hit(754, 922)], { level: 78 })
+    const stats: SimStats = {
+      primary_stat: 1493,
+      potency: 95,
+      base_damage_bonus_pct: 35,
+      ability_mod: 1983,
+    }
+    const v = predictedTooltipMin(a, stats)
+    expect(v).not.toBeNull()
+    expect(Math.abs((v as number) - 5494)).toBeLessThan(55)
   })
 })
 
@@ -186,54 +260,60 @@ describe('componentTargetMultiplier', () => {
 })
 
 describe('target-aware damage', () => {
-  it('excludes inactive conditional components from base and damage', () => {
-    // Divine Strike shape: 400 unconditional + 400 conditional.
+  it('excludes inactive conditional components from damage', () => {
+    // Divine Strike shape: 400 unconditional + 400 conditional rider.
+    // Dummy: 400×1.5 = 600; undead: + rider 600 → 1200 (no mod → rider
+    // and primary scale identically here).
     const a = ability([hit(300, 500), hit(300, 500, { condition: 'If target is undead' })])
     expect(abilityBaseAvg(a)).toBe(400)
-    expect(expectedCastDamage(a, {})).toBe(400)
+    expect(expectedCastDamage(a, {})).toBe(600)
     const undead: SimTarget = { ...DEFAULT_TARGET, activeConditions: ['If target is undead'] }
     expect(abilityBaseAvg(a, undead)).toBe(800)
-    expect(expectedCastDamage(a, {}, 1, undead)).toBe(800)
+    expect(expectedCastDamage(a, {}, 1, undead)).toBe(1200)
   })
 
-  it('caps the mod on single-target base, then scales by target count', () => {
-    // AoE hit avg 100, mod 1000 capped at 50 (single-target base), then
-    // x3 targets: (100 + 50) * 3 = 450.
-    const a = ability([hit(100, 100, { target_scope: 'aoe' })])
-    const three: SimTarget = { ...DEFAULT_TARGET, count: 3 }
-    expect(expectedCastDamage(a, { ability_mod: 1000 }, 1, three)).toBe(450)
+  it('ability-mod share by scope: aoe none, encounter half, single full', () => {
+    // Blind-validated: Exorcise (blue AoE) tooltip carries NO mod;
+    // Divine Demonstration (encounter) carries AM/2; single carries AM.
+    const three: SimTarget = { ...DEFAULT_TARGET, count: 3, encounter: true }
+    const aoe = ability([hit(100, 100, { target_scope: 'aoe' })])
+    expect(expectedCastDamage(aoe, { ability_mod: 1000 }, 1, three)).toBe(450) // 100×1.5×3, no mod
+    const enc = ability([hit(100, 100, { target_scope: 'encounter' })])
+    // encounter flat fraction 0.1: (100×1.1 + 500)×3
+    expect(expectedCastDamage(enc, { ability_mod: 1000 }, 1, three)).toBeCloseTo(1830, 6)
+    const single = ability([hit(100, 100)])
+    expect(expectedCastDamage(single, { ability_mod: 1000 }, 1, three)).toBe(1150) // 150+1000
   })
 
   it('unlinked encounter components hit only the main target', () => {
     const a = ability([hit(100, 100, { target_scope: 'encounter' })])
     const unlinked: SimTarget = { count: 3, encounter: false, activeConditions: [] }
     const linked: SimTarget = { count: 3, encounter: true, activeConditions: [] }
-    expect(expectedCastDamage(a, {}, 1, unlinked)).toBe(100)
-    expect(expectedCastDamage(a, {}, 1, linked)).toBe(300)
+    expect(expectedCastDamage(a, {}, 1, unlinked)).toBeCloseTo(110, 6) // encounter flat 0.1
+    expect(expectedCastDamage(a, {}, 1, linked)).toBeCloseTo(330, 6)
   })
 })
 
-describe('predictedNonCritHit', () => {
-  it('distributes the capped mod by base share', () => {
-    // hit avg 400, dot total 500 (100 avg x 5 ticks), base 900.
-    // mod 90 → hit share 90 * 400/900 = 40 → 440.
+describe('predictedTooltipMin', () => {
+  it('the primary hit gets the FULL mod (ticks and riders get none)', () => {
+    // hit MIN 300 x 1.5 = 450, + mod 90 = 540 (the dot is irrelevant).
     const a = ability([hit(300, 500), dot(100, 100, 2, 10)])
-    expect(predictedNonCritHit(a, { ability_mod: 90 })).toBeCloseTo(440)
+    expect(predictedTooltipMin(a, { ability_mod: 90 })).toBeCloseTo(540)
   })
 
-  it('returns null when the ability has no hit component', () => {
-    expect(predictedNonCritHit(ability([dot(100, 100, 2, 10)]), {})).toBeNull()
-    expect(predictedNonCritHit(ability([]), {})).toBeNull()
+  it('returns null when the ability has no unconditional hit component', () => {
+    expect(predictedTooltipMin(ability([dot(100, 100, 2, 10)]), {})).toBeNull()
+    expect(predictedTooltipMin(ability([]), {})).toBeNull()
   })
 
-  it('ignores crit — it predicts a NON-crit hit', () => {
+  it('ignores crit — tooltips are non-crit', () => {
     const a = ability([hit(300, 500)])
-    expect(predictedNonCritHit(a, { crit_chance: 100, crit_bonus: 100 })).toBe(400)
+    expect(predictedTooltipMin(a, { crit_chance: 100, crit_bonus: 100 })).toBe(450)
   })
 
-  it('skips conditional hit components — the observed hit is on a plain dummy', () => {
+  it('skips conditional hit components — the tooltip main line is unconditional', () => {
     const a = ability([hit(300, 500, { condition: 'If target is undead' }), hit(100, 200)])
-    expect(predictedNonCritHit(a, {})).toBe(150)
+    expect(predictedTooltipMin(a, {})).toBe(150)
   })
 })
 
@@ -248,8 +328,11 @@ describe('autoAttackDps', () => {
     expect(autoAttackDps({ primary_min: 50, primary_max: 100, primary_delay: 3 })).toBe(25)
   })
 
-  it('applies dps mod, crit, double attack, and haste', () => {
-    // avg 75 * 1.5 (dps) * 1.15 (50% crit) * 1.5 (50% DA) / (3 / 1.25 haste)
+  it('applies dps mod, crit (with max+1 floor), multi attack, and haste', () => {
+    // Non-crit avg 75; crit swing = E[max(1.3·roll, 101)] on uniform
+    // [50,100]: floor share (t=101/1.3≈77.69) → ((77.69−50)·101 +
+    // 1.3·(100²−77.69²)/2)/50 ≈ 107.47. 50% crit → E ≈ 91.234.
+    // × 1.5 dps × 1.5 MA / (3 / 1.25 haste) ≈ 85.53.
     const stats: SimStats = {
       primary_min: 50,
       primary_max: 100,
@@ -259,7 +342,29 @@ describe('autoAttackDps', () => {
       double_attack: 50,
       attack_speed: 25,
     }
-    expect(autoAttackDps(stats)).toBeCloseTo((75 * 1.5 * 1.15 * 1.5) / (3 / 1.25))
+    expect(autoAttackDps(stats)).toBeCloseTo(85.532, 2)
+  })
+
+  it('haste and dps stats follow the diminishing-returns curve', () => {
+    expect(speedStatEffective(50)).toBe(50)
+    expect(speedStatEffective(100)).toBe(100)
+    expect(speedStatEffective(150)).toBeCloseTo(112.5)
+    expect(speedStatEffective(200)).toBe(125)
+    expect(speedStatEffective(300)).toBe(125) // hard cap
+  })
+
+  it('multi attack is linear past 100 and flurry adds extra hits', () => {
+    // MA 237 → +2.37 swings; flurry 10 → +0.2 (2 hits per proc).
+    expect(extraSwingFactor({ double_attack: 237 })).toBeCloseTo(3.37)
+    expect(extraSwingFactor({ flurry: 10 })).toBeCloseTo(1.2)
+    expect(extraSwingFactor({ double_attack: 700 })).toBeCloseTo(7)
+  })
+
+  it('crit floor: most crits sit at max+1 (validated on live logs)', () => {
+    // Wand session numbers: uniform [547, 2463], crit ×1.3 → floor 2464.
+    const v = expectedCritSwing(547, 2463, 1.3)
+    expect(v).toBeGreaterThan(2464)
+    expect(v).toBeLessThan(1.3 * 2463)
   })
 
   it('sums primary and secondary weapons', () => {

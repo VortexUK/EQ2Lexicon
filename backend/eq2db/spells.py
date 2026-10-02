@@ -382,6 +382,39 @@ class SpellCatalogue(BaseCatalogue):
         )
         return {row["id"]: _row_to_dict(row) for row in rows}
 
+    def beneficial_group_spells(self, names: list[str], max_level: int) -> list[SpellRow]:
+        """The rotation simulator's group-buff universe: among the given
+        exact spell names, the beneficial group/raid/single-ally rows at
+        or under ``max_level`` — best tier per exact name, then the
+        highest-level rank per base line (Rousing Tune VII beats VI)."""
+        if not names:
+            return []
+        rows: list[SpellRow] = []
+        chunk_size = 500
+        for i in range(0, len(names), chunk_size):
+            chunk = names[i : i + chunk_size]
+            placeholders = ",".join("?" * len(chunk))
+            fetched = self._fetchall(
+                _SQL["beneficial_group_by_names"].format(cols=_SELECT_COLS, placeholders=placeholders),
+                [*chunk, max_level],
+            )
+            rows.extend(_row_to_dict(r) for r in fetched)
+        # Best tier per exact name (raiders run Masters where they exist).
+        by_name: dict[str, SpellRow] = {}
+        for r in rows:
+            name = r.get("name") or ""
+            cur = by_name.get(name)
+            if cur is None or (r.get("tier") or 0) > (cur.get("tier") or 0):
+                by_name[name] = r
+        # Highest-level rank per base line.
+        by_base: dict[str, SpellRow] = {}
+        for r in by_name.values():
+            base = self.strip_roman(r.get("name") or "")
+            cur = by_base.get(base)
+            if cur is None or (r.get("level") or 0) > (cur.get("level") or 0):
+                by_base[base] = r
+        return sorted(by_base.values(), key=lambda r: r.get("level") or 0, reverse=True)
+
     def upgradeable_crcs(self, crcs: Iterable[int | None]) -> set[int]:
         """Return the subset of ``crcs`` that are upgradeable spells.
 
@@ -425,6 +458,13 @@ class SpellCatalogue(BaseCatalogue):
             self._crc_cache.pop(next(iter(self._crc_cache)))
         self._crc_cache[key] = result
         return result
+
+    def find_by_crc_bands(self, crc: int, tier: int) -> list[SpellRow]:
+        """All real-level band rows for an AA rank, level ascending
+        (bands 70/100/110… — the game interpolates between them for the
+        character's level). Uncached; AA sets are small."""
+        rows = self._fetchall(_SQL["find_by_crc_tier_bands"].format(cols=_SELECT_COLS), (crc, tier))
+        return [_row_to_dict(r) for r in rows]
 
     def find_by_name(self, name: str) -> list[SpellRow]:
         """Return all spell rows whose name matches (exact, then LIKE). Ordered by level."""

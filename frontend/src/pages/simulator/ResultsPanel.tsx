@@ -1,4 +1,4 @@
-import { Card, SectionLabel } from '../../components/ui'
+import { Badge, Card, SectionLabel } from '../../components/ui'
 import { fmtNum } from '../../formatters'
 import type { RotationAbility, SimResult } from './types'
 
@@ -53,7 +53,10 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
     )
   }
 
-  const colourFor = (name: string) => abilityColour(rotation.indexOf(name))
+  const colourFor = (name: string) => {
+    const idx = rotation.indexOf(name)
+    return idx >= 0 ? abilityColour(idx) : '#8a8a8a'
+  }
 
   return (
     <Card className="rounded-sm px-4 py-3">
@@ -86,6 +89,7 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
               <th className="py-1.5 pr-2 font-semibold">Ability</th>
               <th className="py-1.5 px-2 font-semibold text-right">Casts</th>
               <th className="py-1.5 px-2 font-semibold text-right">Damage</th>
+              <th className="py-1.5 px-2 font-semibold text-right">DPS</th>
               <th className="py-1.5 px-2 font-semibold text-right">%</th>
               <th className="py-1.5 px-2 font-semibold text-right">Avg / cast</th>
               <th className="py-1.5 pl-2 font-semibold text-right">Clipped ticks</th>
@@ -96,10 +100,18 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
               <tr key={e.ability} className="border-b border-border">
                 <td className="py-1.5 pr-2">
                   <span className="inline-block w-2.5 h-2.5 rounded-[2px] mr-1.5 align-baseline" style={{ background: colourFor(e.ability) }} />
-                  {abilities[e.ability]?.name ?? e.ability}
+                  {e.label ?? abilities[e.ability]?.name ?? e.ability}
+                  {e.isProc && (
+                    <Badge variant="muted" className="ml-1.5" title="Passive proc stream — the casts column is the expected proc count">
+                      proc
+                    </Badge>
+                  )}
                 </td>
                 <td className="py-1.5 px-2 text-right">{e.casts}</td>
                 <td className="py-1.5 px-2 text-right">{fmtNum(Math.round(e.damage))}</td>
+                <td className="py-1.5 px-2 text-right">
+                  {fightDurationS > 0 ? fmtNum(Math.round(e.damage / fightDurationS)) : '—'}
+                </td>
                 <td className="py-1.5 px-2 text-right">{e.pct.toFixed(1)}%</td>
                 <td className="py-1.5 px-2 text-right">{fmtNum(Math.round(e.avgPerCast))}</td>
                 <td className="py-1.5 pl-2 text-right text-text-muted">{e.clippedDotTicks > 0 ? e.clippedDotTicks : '—'}</td>

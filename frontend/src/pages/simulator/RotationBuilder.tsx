@@ -1,10 +1,14 @@
 import { Badge, Button, Card, SectionLabel } from '../../components/ui'
-import type { RotationAbility } from './types'
+import { effCastTime, effRecast } from './formulas'
+import type { RotationAbility, SimStats } from './types'
 
 // Palette of the character's abilities → an ordered priority list.
 // Priority 1 always wins when ready; the engine fills gaps with lower rows.
 
-export function SpellIcon({ ability, size = 20 }: { ability: RotationAbility; size?: number }) {
+export function SpellIcon({ ability, size = 20 }: {
+  ability: { icon_id: number | null; icon_backdrop: number | null }
+  size?: number
+}) {
   if (ability.icon_id == null && ability.icon_backdrop == null) return null
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
@@ -28,11 +32,17 @@ export function SpellIcon({ ability, size = 20 }: { ability: RotationAbility; si
   )
 }
 
-function abilitySubtitle(a: RotationAbility): string {
+const fmtSecs = (v: number) => `${Math.round(v * 100) / 100}s`
+
+/** Subtitle shows EFFECTIVE timings under the corrected stats — the same
+ * numbers the in-game tooltip shows (cast 2.0 → 1.13s at 77% speed). */
+function abilitySubtitle(a: RotationAbility, stats: SimStats): string {
+  const cast = effCastTime(a.cast_secs, stats)
+  const recast = effRecast(a.recast_secs, stats)
   const bits = [
     `Lv ${a.level}`,
-    `${a.cast_secs}s cast`,
-    a.recast_secs > 0 ? `${a.recast_secs}s recast` : null,
+    `${fmtSecs(cast)} cast`,
+    a.recast_secs > 0 ? `${fmtSecs(recast)} recast` : null,
   ]
   return bits.filter(Boolean).join(' · ')
 }
@@ -62,12 +72,14 @@ function AbilityBadges({ a }: { a: RotationAbility }) {
   )
 }
 
-export default function RotationBuilder({ abilities, rotation, dotHold, onChange, onToggleDotHold }: {
+export default function RotationBuilder({ abilities, rotation, dotHold, stats, onChange, onToggleDotHold }: {
   abilities: Record<string, RotationAbility>
   /** Priority-ordered base_name keys. */
   rotation: string[]
   /** base_names whose DoT is held until its last tick before re-casting. */
   dotHold: string[]
+  /** Corrected stats — timings display at their EFFECTIVE values. */
+  stats: SimStats
   onChange: (rotation: string[]) => void
   onToggleDotHold: (name: string, hold: boolean) => void
 }) {
@@ -109,7 +121,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, onChange
                     {a.name}
                     <AbilityBadges a={a} />
                   </div>
-                  <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a)}</div>
+                  <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
                 </div>
                 {hasDot && (
                   <label
@@ -159,7 +171,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, onChange
                   {a.name}
                   <AbilityBadges a={a} />
                 </div>
-                <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a)}</div>
+                <div className="text-[0.72rem] text-text-muted truncate">{abilitySubtitle(a, stats)}</div>
               </div>
               <span className="text-[0.8rem] text-gold shrink-0">+ add</span>
             </button>

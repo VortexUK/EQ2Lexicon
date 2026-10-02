@@ -15,19 +15,37 @@
 // Kept free of React so it unit-tests directly. All tuning constants
 // live in formulas.ts.
 
+import { activeBuffIds, applyMods, buffUptimes, modsAt, windowEdges } from './buffs'
 import {
+  abilityDamageMultiplier,
   autoAttackDps,
+  autoSwingRate,
+  baseAutoSwingRate,
+  componentFlatFraction,
   componentTargetMultiplier,
+  abilityModShare,
   critMultiplier,
+  damageCoefficient,
   dotTicks,
   effCastTime,
   effRecast,
   effRecovery,
   expectedCastDamage,
-  ABILITY_MOD_CAP_FRACTION,
+  fervorMultiplier,
+  primaryComponent,
+  procHitDamage,
   DEFAULT_TARGET,
 } from './formulas'
-import type { AbilityBreakdown, RotationAbility, SimConfig, SimResult, SimStats, SimTarget, TimelineSegment } from './types'
+import type {
+  AbilityBreakdown,
+  BuffWindow,
+  RotationAbility,
+  SimConfig,
+  SimResult,
+  SimStats,
+  SimTarget,
+  TimelineSegment,
+} from './types'
 
 /** Floor on per-cast busy time — a data anomaly (0 cast, 0 recovery,
  * 0 recast) must not spin the loop forever. */
@@ -49,35 +67,33 @@ function dotComponentsDamage(
   target: SimTarget,
   calibration: number,
 ): { instant: number; dots: { perTick: number; ticks: number; interval: number; duration: number }[] } {
-  // Distribute the capped ability mod across ACTIVE components by their
-  // single-target base share (the mod applies per hit on each target),
-  // then split instant vs dot for scheduling and scale each component by
-  // its target multiplier. Crit + calibration apply to every component
-  // (snapshot at cast). Inactive conditional components contribute
-  // nothing and are excluded from the dot state list entirely.
-  const crit = critMultiplier(stats)
-  let base = 0
-  for (const c of ability.components) {
-    if (componentTargetMultiplier(c, target) <= 0) continue
-    const avg = (c.min_dmg + c.max_dmg) / 2
-    base += c.kind === 'dot' ? avg * dotTicks(c) : avg
-  }
-  if (base <= 0) return { instant: 0, dots: [] }
-  const mod = Math.min(Math.max(stats.ability_mod ?? 0, 0), base * ABILITY_MOD_CAP_FRACTION)
-  const scale = ((base + mod) / base) * crit * calibration
+  // Tooltip-validated model: per component application B̄×(coeff + ½),
+  // ability mod ONCE on the primary component (as instant damage — for a
+  // pure-DoT primary it lands with the first tick, approximated here as
+  // instant), all × crit × fervor × doublecast (dealt-damage multipliers)
+  // × calibration, each component scaled by its target multiplier.
+  // Everything snapshots at cast. Inactive conditional components
+  // contribute nothing and are excluded from the dot state list.
+  const coeff = damageCoefficient(stats, ability.level)
+  const dealt = abilityDamageMultiplier(stats) * calibration
+  const primary = primaryComponent(ability)
 
   let instant = 0
   const dots: { perTick: number; ticks: number; interval: number; duration: number }[] = []
   for (const c of ability.components) {
     const mult = componentTargetMultiplier(c, target)
     if (mult <= 0) continue
+    const per = coeff + componentFlatFraction(c)
     const avg = (c.min_dmg + c.max_dmg) / 2
+    if (c === primary) {
+      instant += Math.max(stats.ability_mod ?? 0, 0) * abilityModShare(c) * dealt * mult
+    }
     if (c.kind === 'dot') {
       const ticks = dotTicks(c)
       const interval = c.interval_s ?? 1
-      dots.push({ perTick: avg * scale * mult, ticks, interval, duration: ticks * interval })
+      dots.push({ perTick: avg * per * dealt * mult, ticks, interval, duration: ticks * interval })
     } else {
-      instant += avg * scale * mult
+      instant += avg * per * dealt * mult
     }
   }
   return { instant, dots }
@@ -88,6 +104,10 @@ export function simulate(config: SimConfig): SimResult {
   const target = config.target ?? DEFAULT_TARGET
   const calibration = config.calibration ?? {}
   const holdDots = new Set(config.dotRefreshHold ?? [])
+  const selfBuffMods = config.selfBuffMods ?? {}
+  // External windows are precomputed; casting a temp beneficial appends
+  // its own window here (stats snapshot at cast reads this list).
+  const windows: BuffWindow[] = [...(config.buffWindows ?? [])]
 
   const order = rotation.filter(n => abilities[n])
   const readyAt: Record<string, number> = {}
@@ -107,6 +127,9 @@ export function simulate(config: SimConfig): SimResult {
   let t = 0
   let idle = 0
   let iterations = 0
+  // Hostile cast counts feed the passive-proc trigger rates.
+  let artsCasts = 0
+  let spellCasts = 0
   while (t < fightDurationS - 1e-9 && order.length > 0 && iterations++ < MAX_ITERATIONS) {
     const next = order.find(
       n => readyAt[n] <= t + 1e-9 && (!holdDots.has(n) || dotGateAt[n] <= t + 1e-9),
@@ -124,12 +147,33 @@ export function simulate(config: SimConfig): SimResult {
     }
 
     const a = abilities[next]
-    const cal = calibration[next] ?? 1
-    const castTime = effCastTime(a.cast_secs, stats)
-    const busy = Math.max(castTime + effRecovery(a.recovery_secs, stats), MIN_BUSY_S)
-    readyAt[next] = Math.max(t + castTime + effRecast(a.recast_secs, stats), t + busy)
+    // Stats snapshot at cast start: sheet stats + whatever buff windows
+    // are open right now. DoTs keep this snapshot (era-accurate).
+    const mods = modsAt(windows, t)
+    const eff = applyMods(stats, mods)
+    const cal = (calibration[next] ?? 1) * (1 + mods.dmgPct / 100)
+    const castTime = effCastTime(a.cast_secs, eff)
+    const busy = Math.max(castTime + effRecovery(a.recovery_secs, eff), MIN_BUSY_S)
+    readyAt[next] = Math.max(t + castTime + effRecast(a.recast_secs, eff), t + busy)
 
-    const { instant, dots } = dotComponentsDamage(a, stats, target, cal)
+    // Casting one of the character's own temp buffs opens its window at
+    // cast end for the ability's duration (mods from the curated map;
+    // uncurated temps still show as windows with zero effect).
+    if (a.beneficial && a.duration_s && a.duration_s > 0) {
+      windows.push({
+        buffId: next,
+        start: t + castTime,
+        end: Math.min(t + castTime + a.duration_s, fightDurationS),
+        mods: selfBuffMods[next] ?? {},
+      })
+    }
+
+    if (!a.beneficial) {
+      if (a.spell_type === 'arts') artsCasts += 1
+      else spellCasts += 1
+    }
+
+    const { instant, dots } = dotComponentsDamage(a, eff, target, cal)
     const entry = perAbility[next]
     entry.casts += 1
     entry.damage += instant
@@ -164,15 +208,103 @@ export function simulate(config: SimConfig): SimResult {
     }
     if (dots.length > 0) dotGateAt[next] = lastTickAt
 
-    timeline.push({ t, dur: busy, ability: next })
+    timeline.push({ t, dur: busy, ability: next, buffs: activeBuffIds(windows, t) })
     t += busy
   }
 
   const abilityDamage = Object.values(perAbility).reduce((s, e) => s + e.damage, 0)
-  const autoDamage = autoAttack ? autoAttackDps(stats) * fightDurationS : 0
-  const total = abilityDamage + autoDamage
+  // Auto-attack integrates piecewise across buff-window edges so haste/
+  // dps/crit windows raise the stream only while they're up. Swing count
+  // is tracked alongside — each swing is a proc-able hit.
+  let autoDamage = 0
+  let autoSwings = 0
+  if (autoAttack) {
+    const edges = windowEdges(windows, fightDurationS)
+    for (let i = 0; i + 1 < edges.length; i++) {
+      const seg = edges[i + 1] - edges[i]
+      const segStats = applyMods(stats, modsAt(windows, (edges[i] + edges[i + 1]) / 2))
+      autoDamage += autoAttackDps(segStats) * seg
+      autoSwings += baseAutoSwingRate(segStats) * seg
+    }
+  }
 
-  const breakdown = Object.values(perAbility)
+  // Passive proc streams (Bolt of Power etc.): expected procs = trigger
+  // events × chance. Approximations (v1): base-stat crit, no ability mod,
+  // single-target, an AoE/multi-hit cast counts as one trigger event.
+  const hostileCasts = artsCasts + spellCasts
+  const eventsFor = (trigger: string): number => {
+    if (trigger === 'any_hit') return autoSwings + hostileCasts
+    if (trigger === 'melee_hit') return autoSwings + artsCasts
+    if (trigger === 'ability_cast') return hostileCasts
+    if (trigger === 'spell_cast') return spellCasts
+    return 0
+  }
+  const procRows: AbilityBreakdown[] = []
+  // Proc payloads DEAL tooltip-chain damage + AM×⅓ (log-validated on
+  // Bolt of Power + Blessed Armament: means within 1.1%, mins 0.3%),
+  // then crit × fervor (crit/non-crit dealt ratio observed 1.29).
+  // Maintained toggles (Exorcise) are continuous pulse streams instead:
+  // one pulse per interval for the whole fight, aoe scope ⇒ no mod.
+  for (const passive of config.passives ?? []) {
+    // Buff-granted procs (PotM's Precise Note) hit with the SUPPLIER's
+    // stats — the bard's chain/crit — not the receiving player's.
+    const procStats = passive.proc_stats ? (passive.proc_stats as SimStats) : stats
+    const procCritFervor = critMultiplier(procStats) * fervorMultiplier(procStats)
+    let procDamage = 0
+    let procCount = 0
+    if (passive.maintained) {
+      const coeff = damageCoefficient(procStats, passive.level)
+      for (const c of passive.components ?? []) {
+        if (c.kind !== 'dot' || !c.interval_s || c.interval_s <= 0) continue
+        const mult = componentTargetMultiplier(c, target)
+        if (mult <= 0) continue
+        const pulses = fightDurationS / c.interval_s
+        const avg = (c.min_dmg + c.max_dmg) / 2
+        procCount += pulses
+        procDamage += pulses * avg * (coeff + componentFlatFraction(c)) * mult * procCritFervor
+      }
+    } else {
+      const chanceOverride = config.procChanceOverrides?.[passive.name]
+      for (const p of passive.procs ?? []) {
+        const events =
+          p.per_minute != null && p.per_minute > 0
+            ? (fightDurationS / 60) * p.per_minute
+            : eventsFor(p.trigger)
+        const n = events * ((chanceOverride ?? p.chance_pct) / 100)
+        procCount += n
+        procDamage += n * procHitDamage(p.components, procStats, passive.level) * procCritFervor
+      }
+    }
+    if (procCount <= 0) continue
+    procRows.push({
+      ability: passive.base_name,
+      label: passive.rank != null ? `${passive.name} (rank ${passive.rank})` : passive.name,
+      casts: Math.round(procCount),
+      damage: procDamage,
+      pct: 0,
+      avgPerCast: procCount > 0 ? procDamage / procCount : 0,
+      clippedDotTicks: 0,
+      isProc: true,
+    })
+  }
+  const procDamageTotal = procRows.reduce((s, e) => s + e.damage, 0)
+  const total = abilityDamage + autoDamage + procDamageTotal
+
+  // Auto-attack gets its own breakdown row (casts = base swings; multi
+  // attack/flurry extras are inside the damage, not the count).
+  if (autoDamage > 0) {
+    procRows.push({
+      ability: 'Auto-attack',
+      label: 'Auto-attack',
+      casts: Math.round(autoSwings),
+      damage: autoDamage,
+      pct: 0,
+      avgPerCast: autoSwings > 0 ? autoDamage / autoSwings : 0,
+      clippedDotTicks: 0,
+    })
+  }
+
+  const breakdown = [...Object.values(perAbility), ...procRows]
     .map(e => ({
       ...e,
       pct: total > 0 ? (100 * e.damage) / total : 0,
@@ -187,6 +319,7 @@ export function simulate(config: SimConfig): SimResult {
     autoAttackDamage: autoDamage,
     timeline,
     idlePct: fightDurationS > 0 ? (100 * idle) / fightDurationS : 0,
+    buffUptimes: buffUptimes(windows, fightDurationS),
   }
 }
 

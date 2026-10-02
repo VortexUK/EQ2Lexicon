@@ -24,9 +24,15 @@ Parsing rules (each backed by observed rows):
     target." / "  If target is undead"). The condition text is attached
     to the component (``condition``); the sim gates it on target toggles.
     No condition-first layout exists in the catalogue (verified: 0 rows).
-  * Only indentation-0 lines produce components — indented lines are
-    sub-effects of procs/triggers ("Applies X on termination…") and any
-    damage there goes to ``unparsed_damage`` (conditional, not modeled).
+  * Attack-driven proc triggers ("On any combat or spell hit this spell
+    has a 50% chance to cast Bolt of Power…") open a proc block: the
+    indented lines below them are the proc's own effects and its damage
+    becomes ``procs`` entries (trigger kind + chance + components) — how
+    AA passives like Bolt of Power are modeled. Defensive triggers
+    ("When damaged…") are not modeled (they need incoming-hit rates).
+  * Other indentation-0 lines produce components — remaining indented
+    lines are sub-effects of unmatched triggers and any damage there
+    goes to ``unparsed_damage`` (conditional, not modeled).
   * Heals, threat, debuffs, requirement text → ignored (kept in ``lines``).
 
 Unit constants live here so every consumer shares one source of truth:
@@ -79,10 +85,25 @@ class DamageComponent(TypedDict, total=False):
     interval_s: float | None  # dot only
     duration_s: float | None  # dot only; None → caller supplies/estimates
     duration_estimated: bool
+    #: Generated from an "Applies X ... every N seconds" pulse wrapper.
+    #: A from_pulse component with NO duration is a maintained toggle
+    #: ("Until Cancelled" in game — Exorcise).
+    from_pulse: bool
+
+
+class ProcDef(TypedDict):
+    trigger: str  # 'any_hit' | 'melee_hit' | 'ability_cast' | 'spell_cast'
+    chance_pct: float  # 100 for "will cast" / "may cast"
+    name: str  # the proc spell's name (display)
+    #: Rate-limited procs ("Triggers about 3.0 times per minute.") — when
+    #: set, the rate replaces the trigger-event count as the proc source.
+    per_minute: float | None
+    components: list[DamageComponent]
 
 
 class ParsedEffects(TypedDict):
     components: list[DamageComponent]
+    procs: list[ProcDef]  # attack-driven proc damage (Bolt of Power etc.)
     lasts_for_s: float | None  # top-level "Lasts for N seconds." if present
     unparsed_damage: list[str]  # damage-looking lines NOT modeled
     lines: list[str]  # every raw description, order preserved
@@ -99,9 +120,178 @@ _INFLICTS_RE = re.compile(
 
 _LASTS_RE = re.compile(r"^Lasts for (?P<secs>[\d.,]+) seconds?\.?$")
 
+#: Attack-driven proc trigger lines ("On any combat or spell hit this spell
+#: has a 50% chance to cast Bolt of Power on target of attack."). The proc's
+#: own damage sits INDENTED below the trigger. Defensive triggers ("When
+#: damaged...") are deliberately not matched — they need incoming-hit rates
+#: the DPS sim doesn't model.
+_PROC_TRIGGER_RE = re.compile(
+    r"^On (?P<trigger>any combat or spell hit|a melee hit|a combat hit|a ranged hit|a hit|"
+    r"a hostile ability cast|a hostile spell cast|a hostile spell hit|a hostile combat hit)"
+    r" this spell (?:has an? (?P<chance>[\d.]+)% chance to cast|will cast|may cast) "
+    r"(?P<name>[^.]+?)(?: on (?:target|caster)[^.]*)?(?:\.|$)"
+    # Trailing sentences ("This effect normalizes based off of a three
+    # second triggering...", "Lasts for N seconds.") are ignored, except
+    # the rate clause captured separately below.
+)
+
+#: "Triggers about 3.0 times per minute." — rate-limited proc clause.
+_PROC_RATE_RE = re.compile(r"Triggers about (?P<rate>[\d.]+) times? per minute")
+
+#: Self-applied PULSE wrapper: "Applies Exorcise instantly and every 6
+#: seconds." (optionally "...  Lasts for 12.0 seconds.") with the damage
+#: INDENTED below. Covers Consecrate, Open Wounds, Netherealm, Defile,
+#: Exorcise, Reversal — beneficial/self rows whose real payload is
+#: hostile pulsing damage.
+_APPLIES_PULSE_RE = re.compile(
+    r"^Applies (?P<name>.+?)(?P<inst> instantly and)? every (?P<interval>[\d.]+) seconds?\."
+    r"(?:\s+Lasts for (?P<dur>[\d.]+) seconds?\.)?\s*$"
+)
+
+_PROC_TRIGGER_KIND = {
+    "any combat or spell hit": "any_hit",
+    "a melee hit": "melee_hit",
+    "a combat hit": "melee_hit",
+    "a ranged hit": "melee_hit",
+    "a hit": "melee_hit",
+    "a hostile ability cast": "ability_cast",
+    "a hostile spell cast": "spell_cast",
+    "a hostile spell hit": "spell_cast",
+    "a hostile combat hit": "melee_hit",
+}
+
 
 def _num(s: str) -> float:
     return float(s.replace(",", ""))
+
+
+#: "Increases <Stat> of <target scope> by <N>[%]." — the stat-buff line
+#: shape on group/raid/ally buffs ("Increases Haste of group members (AE)
+#: by 30.5."). Only stats the simulator models are mapped; everything else
+#: stays visible in the effect lines but contributes no mods.
+_STAT_LINE_RE = re.compile(
+    r"^Increases (?P<stat>[A-Za-z' -]+?) of (?P<tgt>group members \(AE\)|raid and group members \(AE\)|target|caster)"
+    r"(?: and [^b]*?)? by (?P<amt>[\d,]+(?:\.\d+)?)%?\.?$"
+)
+
+#: Stat phrase → frontend BuffMods key (additive percentage points, except
+#: the flat ability mod). Multi Attack IS the double-attack stat.
+_STAT_MOD_KEYS = {
+    "haste": "hastePct",
+    "attack speed": "hastePct",
+    "dps": "dpsModPct",
+    "multi attack": "doubleAttackPct",
+    "double attack": "doubleAttackPct",
+    "crit chance": "critChancePct",
+    "crit bonus": "critBonusPct",
+    "ability modifier": "abilityModFlat",
+    "ability casting speed": "castSpeedPct",
+    "casting speed": "castSpeedPct",
+    "ability reuse speed": "reuseSpeedPct",
+    "reuse speed": "reuseSpeedPct",
+    "potency": "potencyPct",
+    "fervor": "fervorPct",
+}
+
+
+#: "Increases base damage of spells and combat arts by 25%." (item) /
+#: "Increases the base spell damage of the cleric by 10%." /
+#: "Increases the summoner's base damage by 8%." (AA). The word "base" is
+#: load-bearing: plain "Increases spell damage by 25%" (Smite Wrath) is
+#: verifiably NOT applied in-game and must not match. "Improves the base
+#: damage by N%" (per-ability Enhance nodes) is also excluded — the verb
+#: distinguishes global multipliers from single-ability boosts.
+_BASE_DAMAGE_BONUS_RE = re.compile(
+    r"^Increases (?:the )?(?:[a-z']+ )?base(?: spell)? damage (?:of [^.]*? )?by (?P<amt>[\d.]+)%\.?$"
+)
+
+#: Hidden set-bonus SPELL effects (never in census sheet stats):
+#: "Improves speed at which the cleric casts by 33%." and
+#: "Decrease the sorcerer's spell reuse time by 5%."
+_CAST_SPEED_EFFECT_RE = re.compile(r"Improves speed at which [^.]*? casts by (?P<amt>[\d.]+)%")
+_REUSE_EFFECT_RE = re.compile(r"Decreases? the [^.]*? (?:spell |ability )?reuse time by (?P<amt>[\d.]+)%")
+
+
+def parse_speed_bonuses(lines: list[str]) -> tuple[float, float]:
+    """(cast_speed_pct, reuse_pct) from hidden set-bonus effect text."""
+    cast = 0.0
+    reuse = 0.0
+    for line in lines:
+        m = _CAST_SPEED_EFFECT_RE.search(line)
+        if m:
+            cast += float(m.group("amt"))
+        m = _REUSE_EFFECT_RE.search(line)
+        if m:
+            reuse += float(m.group("amt"))
+    return cast, reuse
+
+
+def parse_flat_effect_procs(lines: list[str], name: str) -> list[ProcDef]:
+    """Proc defs from FLAT sibling lines (set-bonus descriptiontags carry
+    the trigger, the Inflicts line(s) and any 'If ...' condition as
+    unindented siblings in arbitrary order)."""
+    trigger: re.Match | None = None
+    rate: float | None = None
+    condition: str | None = None
+    comps: list[DamageComponent] = []
+    for raw in lines:
+        line = raw.strip()
+        m = _PROC_TRIGGER_RE.match(line)
+        if m is not None:
+            trigger = m
+            r = _PROC_RATE_RE.search(line)
+            rate = float(r.group("rate")) if r else None
+            continue
+        if line.startswith("If "):
+            condition = line.rstrip(".")
+            continue
+        parsed = parse_damage_line(line)
+        if parsed:
+            comps.extend(parsed)
+    if trigger is None or not comps:
+        return []
+    for c in comps:
+        c["condition"] = condition
+    return [
+        {
+            "trigger": _PROC_TRIGGER_KIND[trigger.group("trigger")],
+            "chance_pct": float(trigger.group("chance")) if trigger.group("chance") else 100.0,
+            "name": name,
+            "per_minute": rate,
+            "components": comps,
+        }
+    ]
+
+
+def parse_base_damage_bonus_pct(lines: list[str]) -> float:
+    """Sum of 'increases base damage by N%' bonuses in the given effect
+    lines (item effects + AA passives) — additive with the primary-stat
+    bonus in the validated damage model."""
+    total = 0.0
+    for line in lines:
+        m = _BASE_DAMAGE_BONUS_RE.match(line.strip())
+        if m is not None:
+            total += float(m.group("amt"))
+    return total
+
+
+def parse_stat_mods(lines: list[str]) -> dict[str, float]:
+    """Modelable stat mods from a buff's effect lines → {BuffMods key:
+    amount}. Duplicate stats sum. Unmapped stats (attributes, mitigation,
+    skills, regen…) are ignored — the caller shows the raw lines."""
+    mods: dict[str, float] = {}
+    for line in lines:
+        m = _STAT_LINE_RE.match(line.strip())
+        if m is None:
+            continue
+        key = _STAT_MOD_KEYS.get(m.group("stat").strip().lower())
+        if key is None:
+            continue
+        amt = _num(m.group("amt"))
+        if amt == 0:
+            continue  # era-drifted zero lines ("Increases Fervor by 0.0")
+        mods[key] = mods.get(key, 0.0) + amt
+    return mods
 
 
 def parse_damage_line(text: str) -> list[DamageComponent] | None:
@@ -130,15 +320,107 @@ def parse_damage_line(text: str) -> list[DamageComponent] | None:
     return [dot]
 
 
+class AbilityAdjustment(TypedDict):
+    """A per-ability timing modifier from an AA/focus effect line
+    ('Reduces the reuse time of Cacophony of Blades by 30 seconds.')."""
+
+    targets: list[str]  # lowercased ability base names it applies to
+    kind: str  # 'reuse' | 'duration'
+    amount: float
+    is_pct: bool
+    line: str  # the raw effect line (for UI provenance)
+
+
+#: "Improves/Reduces [the] reuse [speed|time] [of X [and Y]] by N [%|seconds]"
+_ABILITY_REUSE_ADJ_RE = re.compile(
+    r"^(?:Improves|Reduces) (?:the )?reuse(?: speed| time)?"
+    r"(?: of (?P<targets>[^.]+?))? by (?P<amt>[\d,]+(?:\.\d+)?)\s*(?P<unit>%|percent|seconds?)"
+)
+#: "Increases/Improves/Extends [the] duration [of X [and Y]] by N [%|seconds]"
+_ABILITY_DURATION_ADJ_RE = re.compile(
+    r"^(?:Increases|Improves|Extends) (?:the )?duration"
+    r"(?: of (?P<targets>[^.]+?))? by (?P<amt>[\d,]+(?:\.\d+)?)\s*(?P<unit>%|percent|seconds?)"
+)
+#: Enhance:/Focus: node names carry the SUBJECT ability the node's
+#: self-referential lines ("Increases duration by 3 seconds.") apply to.
+_AA_SUBJECT_PREFIX_RE = re.compile(r"^(?:Enhance|Focus):\s*(?P<subject>.+)$")
+
+
+def aa_subject_of(node_name: str) -> str | None:
+    """'Enhance: Cacophony of Blades' → 'Cacophony of Blades'."""
+    m = _AA_SUBJECT_PREFIX_RE.match(node_name.strip())
+    return m.group("subject").strip() if m else None
+
+
+def parse_ability_adjustments(lines: list[str], subject: str | None = None) -> list[AbilityAdjustment]:
+    """Per-ability reuse/duration modifiers from AA effect text. Lines
+    naming no target ('Improves reuse speed by 30 seconds') apply to
+    ``subject`` — the ability the Enhance:/Focus: node is about."""
+    out: list[AbilityAdjustment] = []
+    for raw in lines:
+        line = raw.strip()
+        for rx, kind in ((_ABILITY_REUSE_ADJ_RE, "reuse"), (_ABILITY_DURATION_ADJ_RE, "duration")):
+            m = rx.match(line)
+            if m is None:
+                continue
+            raw_targets = m.group("targets")
+            if raw_targets:
+                targets = [t.strip().lower() for t in raw_targets.split(" and ") if t.strip()]
+            elif subject:
+                targets = [subject.lower()]
+            else:
+                continue
+            out.append(
+                {
+                    "targets": targets,
+                    "kind": kind,
+                    "amount": _num(m.group("amt")),
+                    "is_pct": m.group("unit") in ("%", "percent"),
+                    "line": line,
+                }
+            )
+            break
+    return out
+
+
+def extract_damage_pairs(lines: list[str]) -> list[tuple[float, float]]:
+    """(min, max) of every Inflicts line regardless of indentation or
+    role — a value-level view used by AA band interpolation when the high
+    band's text shape drifts from the low band's (e.g. Exorcise's lv100
+    row loses the pulse wrapper and indents its Inflicts line)."""
+    out: list[tuple[float, float]] = []
+    for line in lines:
+        m = _INFLICTS_RE.match(line.strip())
+        if m is not None:
+            mn = _num(m.group("min"))
+            out.append((mn, _num(m.group("max")) if m.group("max") else mn))
+    return out
+
+
 def parse_effect_lines(effects: list[dict]) -> ParsedEffects:
     """The full effects JSON of one spell row → structured components.
 
     ``effects`` is spells.db's parsed JSON: [{"description": str,
     "indentation": int}, ...]."""
     components: list[DamageComponent] = []
+    procs: list[ProcDef] = []
     unparsed: list[str] = []
     lines: list[str] = []
     lasts_for: float | None = None
+
+    # Open proc block: set when a trigger line matches; the following
+    # DEEPER lines are the proc's own effects (its damage becomes proc
+    # components, not unparsed). Pulse blocks work the same way for the
+    # "Applies X every N seconds" wrapper.
+    active_proc: ProcDef | None = None
+    active_pulse: re.Match | None = None
+
+    def _flush_proc() -> None:
+        nonlocal active_proc, active_pulse
+        if active_proc is not None and active_proc["components"]:
+            procs.append(active_proc)
+        active_proc = None
+        active_pulse = None
 
     entries = effects or []
     for i, entry in enumerate(entries):
@@ -149,12 +431,59 @@ def parse_effect_lines(effects: list[dict]) -> ParsedEffects:
         indentation = (entry or {}).get("indentation") or 0
 
         if indentation != 0:
+            if active_proc is not None:
+                comps = parse_damage_line(text)
+                if comps:
+                    for comp in comps:
+                        comp["condition"] = None
+                    active_proc["components"].extend(comps)
+                continue
+            if active_pulse is not None:
+                # The pulse wrapper carries the cadence; the indented line
+                # carries values + target scope. "instantly and" ⇒ an
+                # immediate hit plus the recurring dot.
+                interval = float(active_pulse.group("interval"))
+                dur = float(active_pulse.group("dur")) if active_pulse.group("dur") else None
+                for comp in parse_damage_line(text) or []:
+                    comp["from_pulse"] = True
+                    if comp.get("kind") != "hit":
+                        components.append(comp)  # already periodic — keep as parsed
+                        continue
+                    comp["condition"] = None
+                    if active_pulse.group("inst"):
+                        hit_copy: DamageComponent = dict(comp)  # type: ignore[assignment]
+                        components.append(hit_copy)
+                    comp["kind"] = "dot"
+                    comp["interval_s"] = interval
+                    comp["duration_s"] = dur
+                    components.append(comp)
+                continue
             # Indented lines are conditional sub-effects (procs, triggers).
             # Damage there is real but unmodeled — surface it, don't sum it.
             # (An "If ..." line here is a condition already attached to the
             # damage line ABOVE it — see the lookahead below.)
             if "damage" in text.lower() and text.startswith("Inflicts"):
                 unparsed.append(text)
+            continue
+
+        # Back at top level — any open proc/pulse block is complete.
+        _flush_proc()
+
+        pulse = _APPLIES_PULSE_RE.match(text)
+        if pulse is not None:
+            active_pulse = pulse
+            continue
+
+        trig = _PROC_TRIGGER_RE.match(text)
+        if trig is not None:
+            rate = _PROC_RATE_RE.search(text)
+            active_proc = {
+                "trigger": _PROC_TRIGGER_KIND[trig.group("trigger")],
+                "chance_pct": float(trig.group("chance")) if trig.group("chance") else 100.0,
+                "name": trig.group("name").strip(),
+                "per_minute": float(rate.group("rate")) if rate else None,
+                "components": [],
+            }
             continue
 
         parsed = parse_damage_line(text)
@@ -179,8 +508,10 @@ def parse_effect_lines(effects: list[dict]) -> ParsedEffects:
             # A damage line the grammar doesn't cover — never drop silently.
             unparsed.append(text)
 
+    _flush_proc()
     return {
         "components": components,
+        "procs": procs,
         "lasts_for_s": lasts_for,
         "unparsed_damage": unparsed,
         "lines": lines,
