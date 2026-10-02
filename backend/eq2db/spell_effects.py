@@ -90,10 +90,7 @@ def is_suspect_low_damage(max_dmg: float, level: int) -> bool:
 def is_suspect_relative(max_dmg: float, biggest_sibling_max: float) -> bool:
     """True when a damage value is tiny next to a sibling component in the
     SAME row — the partial-unscaled census signature."""
-    return (
-        0 < max_dmg <= SUSPECT_RELATIVE_MAX
-        and biggest_sibling_max >= SUSPECT_RELATIVE_RATIO * max_dmg
-    )
+    return 0 < max_dmg <= SUSPECT_RELATIVE_MAX and biggest_sibling_max >= SUSPECT_RELATIVE_RATIO * max_dmg
 
 
 class DamageComponent(TypedDict, total=False):
@@ -215,6 +212,7 @@ def parse_proc_trigger_line(line: str, *, self_source: bool = False) -> ProcTrig
         "per_minute": float(rate.group("rate")) if rate else None,
         "lasts_for_s": float(lasts.group("secs")) if lasts else None,
     }
+
 
 #: Self-applied PULSE wrapper: "Applies Exorcise instantly and every 6
 #: seconds." (optionally "...  Lasts for 12.0 seconds.") with the damage
@@ -583,7 +581,9 @@ _ABILITY_DAMAGE_ADJ_RE = re.compile(r"^(?:Increases|Improves) (?:the )?damage by
 _ABILITY_OT_DAMAGE_ADJ_RE = re.compile(r"^Increases overtime damage by (?P<amt>[\d,]+(?:\.\d+)?)%\.?$")
 #: "Improves the Crit Bonus by 5%." / "Improves Crit Bonus by 5." —
 #: per-ability crit bonus (dealt damage only; tooltips exclude crit).
-_ABILITY_CRIT_BONUS_ADJ_RE = re.compile(r"^Improves (?:the )?Crit Bonus by (?P<amt>[\d,]+(?:\.\d+)?)%?\.?$", re.IGNORECASE)
+_ABILITY_CRIT_BONUS_ADJ_RE = re.compile(
+    r"^Improves (?:the )?Crit Bonus by (?P<amt>[\d,]+(?:\.\d+)?)%?\.?$", re.IGNORECASE
+)
 #: "Improves [the] casting speed by 0.5 seconds." (48 Enhance nodes) /
 #: "Improves casting speed by 50%." — per-ability cast-time cuts.
 #: "Improves casting and recovery speed by 75%" (Enhance Jab) trims both.
@@ -665,8 +665,15 @@ def apply_text_overrides(base_name: str, lines: list[str]) -> list[str]:
 #: exactly delta-chain x B would confirm the no-AM structure.
 STATIC_CLASS_SPELL_BASES: dict[str, list[DamageComponent]] = {
     "wrath": [
-        {"kind": "hit", "min_dmg": 613.8, "max_dmg": 737.6, "school": "divine", "target_scope": "single",
-         "condition": None, "no_flat_mod": True},
+        {
+            "kind": "hit",
+            "min_dmg": 613.8,
+            "max_dmg": 737.6,
+            "school": "divine",
+            "target_scope": "single",
+            "condition": None,
+            "no_flat_mod": True,
+        },
     ],
 }
 
@@ -784,9 +791,24 @@ STATIC_AA_BASES: dict[str, dict] = {
     # tooltip.
     "glacial strike": {
         "components": [
-            {"kind": "hit", "min_dmg": 61.0, "max_dmg": 67.0, "school": "melee", "target_scope": "single", "condition": None},
-            {"kind": "dot", "min_dmg": 740.2, "max_dmg": 818.1, "school": "cold", "target_scope": "single",
-             "condition": None, "interval_s": 4.0, "duration_s": 16.0},
+            {
+                "kind": "hit",
+                "min_dmg": 61.0,
+                "max_dmg": 67.0,
+                "school": "melee",
+                "target_scope": "single",
+                "condition": None,
+            },
+            {
+                "kind": "dot",
+                "min_dmg": 740.2,
+                "max_dmg": 818.1,
+                "school": "cold",
+                "target_scope": "single",
+                "condition": None,
+                "interval_s": 4.0,
+                "duration_s": 16.0,
+            },
         ],
         "procs": [],
     },
@@ -804,23 +826,79 @@ STATIC_AA_BASES: dict[str, dict] = {
     # modeled (raid bosses don't hit it). Duration 10s, 1s ticks.
     "lifeburn": {
         "components": [
-            {"kind": "hit", "min_dmg": 29.3, "max_dmg": 32.2, "school": "disease", "target_scope": "single", "condition": None},
-            {"kind": "dot", "min_dmg": 29.3, "max_dmg": 32.2, "school": "disease", "target_scope": "single",
-             "condition": None, "interval_s": 1.0, "duration_s": 10.0},
-            {"kind": "hit", "min_dmg": 0.0, "max_dmg": 0.0, "school": "disease", "target_scope": "single",
-             "condition": None, "per_hp_rate": 9.0, "hp_fraction": 0.25},
-            {"kind": "dot", "min_dmg": 0.0, "max_dmg": 0.0, "school": "disease", "target_scope": "single",
-             "condition": None, "interval_s": 1.0, "duration_s": 10.0, "per_hp_rate": 9.0, "hp_fraction": 0.25},
+            {
+                "kind": "hit",
+                "min_dmg": 29.3,
+                "max_dmg": 32.2,
+                "school": "disease",
+                "target_scope": "single",
+                "condition": None,
+            },
+            {
+                "kind": "dot",
+                "min_dmg": 29.3,
+                "max_dmg": 32.2,
+                "school": "disease",
+                "target_scope": "single",
+                "condition": None,
+                "interval_s": 1.0,
+                "duration_s": 10.0,
+            },
+            {
+                "kind": "hit",
+                "min_dmg": 0.0,
+                "max_dmg": 0.0,
+                "school": "disease",
+                "target_scope": "single",
+                "condition": None,
+                "per_hp_rate": 9.0,
+                "hp_fraction": 0.25,
+            },
+            {
+                "kind": "dot",
+                "min_dmg": 0.0,
+                "max_dmg": 0.0,
+                "school": "disease",
+                "target_scope": "single",
+                "condition": None,
+                "interval_s": 1.0,
+                "duration_s": 10.0,
+                "per_hp_rate": 9.0,
+                "hp_fraction": 0.25,
+            },
         ],
         "procs": [],
     },
     "rabies": {
         "components": [
-            {"kind": "hit", "min_dmg": 72.0, "max_dmg": 84.2, "school": "disease", "target_scope": "single", "condition": None},
-            {"kind": "dot", "min_dmg": 57.1, "max_dmg": 69.3, "school": "disease", "target_scope": "single",
-             "condition": None, "interval_s": 4.0, "duration_s": 16.0},
-            {"kind": "dot", "min_dmg": 114.6, "max_dmg": 139.0, "school": "disease", "target_scope": "single",
-             "condition": None, "interval_s": 4.0, "duration_s": 16.0},
+            {
+                "kind": "hit",
+                "min_dmg": 72.0,
+                "max_dmg": 84.2,
+                "school": "disease",
+                "target_scope": "single",
+                "condition": None,
+            },
+            {
+                "kind": "dot",
+                "min_dmg": 57.1,
+                "max_dmg": 69.3,
+                "school": "disease",
+                "target_scope": "single",
+                "condition": None,
+                "interval_s": 4.0,
+                "duration_s": 16.0,
+            },
+            {
+                "kind": "dot",
+                "min_dmg": 114.6,
+                "max_dmg": 139.0,
+                "school": "disease",
+                "target_scope": "single",
+                "condition": None,
+                "interval_s": 4.0,
+                "duration_s": 16.0,
+            },
         ],
         "procs": [
             {
@@ -830,7 +908,14 @@ STATIC_AA_BASES: dict[str, dict] = {
                 "per_minute": None,
                 "trigger_count": 1.0,
                 "components": [
-                    {"kind": "hit", "min_dmg": 5.1, "max_dmg": 5.1, "school": "disease", "target_scope": "single", "condition": None},
+                    {
+                        "kind": "hit",
+                        "min_dmg": 5.1,
+                        "max_dmg": 5.1,
+                        "school": "disease",
+                        "target_scope": "single",
+                        "condition": None,
+                    },
                 ],
             }
         ],

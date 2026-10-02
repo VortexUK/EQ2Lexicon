@@ -695,7 +695,11 @@ def _build_abilities_sync(
         # are damage abilities). Proc-carrying permanents (the Mythical's
         # Divine Light → Shock of Light damage shield) become PASSIVES —
         # their stats part is in the sheet but the proc stream is not.
-        if beneficial and not components and not (duration_s and TEMP_BUFF_MIN_DURATION_S <= duration_s <= TEMP_BUFF_MAX_DURATION_S):
+        if (
+            beneficial
+            and not components
+            and not (duration_s and TEMP_BUFF_MIN_DURATION_S <= duration_s <= TEMP_BUFF_MAX_DURATION_S)
+        ):
             if procs:
                 spell_passives.append(
                     RotationAbilityResponse(
@@ -798,11 +802,7 @@ def _build_abilities_sync(
                         if c.kind != "dot" or not c.duration_s or not c.interval_s:
                             continue
                         old_dur = c.duration_s
-                        new_dur = (
-                            old_dur * (1 + adj["amount"] / 100)
-                            if adj["is_pct"]
-                            else old_dur + adj["amount"]
-                        )
+                        new_dur = old_dur * (1 + adj["amount"] / 100) if adj["is_pct"] else old_dur + adj["amount"]
                         new_dur = max(new_dur, 0.1)
                         c.interval_s = c.interval_s * (new_dur / old_dur)
                         c.duration_s = new_dur
