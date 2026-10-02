@@ -90,6 +90,15 @@ FROM guild_history
 WHERE world = ? AND name_lower = ? AND day >= ?
 ORDER BY day;
 
+-- Latest-known member count per guild on a world — one row per guild from
+-- its most recent history day (SQLite's bare-column-with-MAX rule pins
+-- members to the MAX(day) row). Feeds the recruiting browse cards.
+-- :name select_latest_member_counts
+SELECT name_lower, members, MAX(day) AS day
+FROM guild_history
+WHERE world = ?
+GROUP BY name_lower;
+
 -- :name upsert_character
 INSERT INTO characters (name_lower, world, name, level, guild_name, data_json, last_resolved_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)

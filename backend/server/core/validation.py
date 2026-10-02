@@ -30,6 +30,11 @@ WORLD_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 '_-]{0,30}$")
 # the existing _validate_guild_name in web/routes/guild.py.
 GUILD_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '_-]{0,63}$")
 
+# Only a real Discord invite: discord.gg/<code> or discord.com/invite/<code>.
+# Anything else (a phishing lookalike, a javascript: URL) is refused. Shared
+# by the admin site-settings invite and guild recruitment profiles.
+DISCORD_INVITE_RE = re.compile(r"^https://(?:discord\.gg/[A-Za-z0-9-]{2,64}|discord\.com/invite/[A-Za-z0-9-]{2,64})/?$")
+
 
 def validate_character_name(name: str | None) -> str | None:
     """Return ``name`` if it matches the EQ2 character-name shape, else None.

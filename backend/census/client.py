@@ -497,6 +497,18 @@ class CensusClient:
         rows = data.get("guild_list", [])
         return rows[0].get("id") if rows else None
 
+    async def get_guild_name_by_id(self, guild_id: int | str) -> tuple[bool, str | None]:
+        """``(census_ok, current_name)`` for a census guild id — the
+        recruitment sweep's existence check. ``census_ok`` False means the
+        lookup itself failed (never infer disbandment from it); name ``None``
+        with ``census_ok`` True means census answered and the guild no
+        longer exists."""
+        data = await self._census_get("guild/", {"id": str(guild_id), "c:show": "id,name"})
+        if data is None:
+            return False, None
+        rows = data.get("guild_list", [])
+        return True, (rows[0].get("name") if rows else None)
+
     async def get_guild_roster_brief(self, guild_id: int | str) -> list[dict] | None:
         """Every census-known character in the guild (recently-logged-in
         players only — the standard census caveat) with id/name/level/class,

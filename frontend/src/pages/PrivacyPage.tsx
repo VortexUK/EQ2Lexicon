@@ -49,7 +49,7 @@ If a guild officer enables attendance tracking, EQ2Parser sends periodic snapsho
 Tokens you create for the upload clients are stored hashed. We keep the token's name, a short prefix for display, creation, last-use and revocation times.
 
 ### Other things you do on the site
-Favourite characters, saved AA plans (optionally shared by link), raid availability, item-watch entries, guild raid schedules and settings, role requests and the notes on them, and download counts for the clients. Officer actions record which Discord account took them.
+Favourite characters, saved AA plans (optionally shared by link), raid availability, item-watch entries, guild raid schedules and settings, guild recruitment profiles and uploaded guild logos (each save and logo upload records which Discord account made it), role requests and the notes on them, and download counts for the clients. Officer actions record which Discord account took them.
 
 ### Server logs and security
 Our application logs record, per request, a request id, your Discord id when signed in, and the server world. A small number of security-relevant events also record your **IP address and browser user agent**: an invalid or non-approved API token, a failed upload signature, a rejected malformed upload, and a client exceeding its upload budget. Our hosting provider's edge also keeps standard HTTP access logs (IP address, user agent, path, status, timing) for every request. We do not run analytics, advertising, or tracking scripts of any kind.

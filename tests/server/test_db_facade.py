@@ -78,6 +78,18 @@ _FACADE_EXEMPT = {
     "get_settings",
     "upsert_settings",
     "officers_can_delete_parses",
+    # guild_recruitment domain bypasses the facade too (the routes and the
+    # recruitment sweep import the store directly)
+    "get_profile",
+    "upsert_profile",
+    "get_logo",
+    "set_logo",
+    "clear_logo",
+    "list_recruiting",
+    "list_listed_worlds",
+    "list_listed_ids",
+    "set_guild_name",
+    "delist",
     # site_settings: aliased on the facade under site-specific names
     # (get_site_setting / set_site_setting / all_site_settings)
     "get_setting",

@@ -18,6 +18,7 @@ import { GuildAdornCheckTab } from './guild/GuildAdornCheckTab'
 import { GuildAttendanceTab } from './guild/GuildAttendanceTab'
 import { GuildProgressionTab } from './guild/GuildProgressionTab'
 import { GuildRaidScheduleTab } from './guild/GuildRaidScheduleTab'
+import { GuildRecruitmentTab } from './guild/GuildRecruitmentTab'
 import { GuildSettingsTab } from './guild/GuildSettingsTab'
 
 // Lazy: the History tab is the only consumer of Recharts (the vendor-charts
@@ -425,7 +426,7 @@ function ItemWatchTab({ guildName }: { guildName: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'progression', 'history', 'raids', 'attendance', 'claims', 'watch', 'settings']
+const GUILD_TABS: readonly Tab[] = ['roster', 'spells', 'adorns', 'progression', 'history', 'raids', 'recruitment', 'attendance', 'claims', 'watch', 'settings']
 // Tabs that share the member table card + the name/rank filter bar.
 const MEMBER_TABLE_TABS: ReadonlySet<Tab> = new Set<Tab>(['roster', 'spells', 'adorns', 'progression'])
 
@@ -663,6 +664,7 @@ export default function GuildPage() {
         <TabButton active={tab === 'progression'} onClick={() => switchTab('progression')}>Progression</TabButton>
         <TabButton active={tab === 'history'} onClick={() => switchTab('history')}>History</TabButton>
         <TabButton active={tab === 'raids'} onClick={() => switchTab('raids')}>Raid Schedule</TabButton>
+        <TabButton active={tab === 'recruitment'} onClick={() => switchTab('recruitment')}>Recruitment</TabButton>
         {isSubscriber(auth) && (
           <TabButton active={tab === 'attendance'} onClick={() => switchTab('attendance')}>Attendance</TabButton>
         )}
@@ -779,6 +781,18 @@ export default function GuildPage() {
       {tab === 'raids' && guildName && (
         <Card className="p-0">
           <GuildRaidScheduleTab guildName={guildName} isOfficer={isOfficer || isAdmin(auth)} />
+        </Card>
+      )}
+
+      {/* Recruitment — public view, officer/admin edit; self-contained loading */}
+      {tab === 'recruitment' && guildName && (
+        <Card className="p-0">
+          <GuildRecruitmentTab
+            guildName={guildName}
+            canEdit={isOfficer || isAdmin(auth)}
+            isAdminUser={isAdmin(auth)}
+            members={roster?.members ?? null}
+          />
         </Card>
       )}
 

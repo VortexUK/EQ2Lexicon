@@ -278,3 +278,42 @@ def test_init_db_migrates_pre_stamp_user_availability_table(tmp_path: Path) -> N
         assert "updated_at" in cols
         row = conn.execute("SELECT status, updated_at FROM user_availability WHERE discord_id='u1'").fetchone()
         assert row == ("afk", 0)
+
+
+def test_init_db_rebuilds_name_keyed_guild_recruitment_table(tmp_path: Path) -> None:
+    """guild_recruitment's name-keyed first cut (dev-only, pre-release) is
+    rebuilt onto the census-guild-id PK. Rows can't be mapped onto the NOT
+    NULL id, so the rebuild starts empty — acceptable because that shape
+    never deployed. Both indexes must exist on the rebuilt table."""
+    db = tmp_path / "users.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript("""
+            CREATE TABLE guild_recruitment (
+                world            TEXT    NOT NULL,
+                guild_name       TEXT    NOT NULL,
+                recruiting       INTEGER NOT NULL DEFAULT 0,
+                description      TEXT    NOT NULL DEFAULT '',
+                classes_json     TEXT    NOT NULL DEFAULT '[]',
+                tags_json        TEXT    NOT NULL DEFAULT '[]',
+                contacts_json    TEXT    NOT NULL DEFAULT '[]',
+                discord_url      TEXT,
+                updated_by       TEXT,
+                updated_at       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                logo             BLOB,
+                logo_media_type  TEXT,
+                logo_uploaded_by TEXT,
+                logo_uploaded_at INTEGER,
+                PRIMARY KEY (world, guild_name)
+            );
+            INSERT INTO guild_recruitment (world, guild_name, recruiting, description, updated_by)
+            VALUES ('Varsoon', 'Exordium', 1, 'dev-only throwaway row', 'u1');
+        """)
+    users_db.init_db(db)
+    with sqlite3.connect(db) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(guild_recruitment)")}
+        assert "guild_id" in cols
+        pk_cols = [row[1] for row in conn.execute("PRAGMA table_info(guild_recruitment)") if row[5] > 0]
+        assert set(pk_cols) == {"world", "guild_id"}
+        assert conn.execute("SELECT COUNT(*) FROM guild_recruitment").fetchone()[0] == 0
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(guild_recruitment)")}
+        assert {"idx_guild_recruitment_name", "idx_guild_recruitment_listing"} <= indexes

@@ -67,6 +67,11 @@ _AUTHOR_COLUMNS: tuple[tuple[str, str], ...] = (
     ("attendance_segments", "set_by"),
     ("discord_guild_links", "linked_by"),
     ("guild_settings", "updated_by"),
+    # Recruitment: both author ids are tombstoned; the logo blob and the
+    # profile text stay (guild assets, not the person's data). Contacts are
+    # in-game character names — public Census game data, out of scope.
+    ("guild_recruitment", "updated_by"),
+    ("guild_recruitment", "logo_uploaded_by"),
 )
 
 

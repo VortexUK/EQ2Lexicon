@@ -138,4 +138,13 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     if "updated_at" not in avail_cols:
         conn.execute(_SQL["alter_user_availability_add_updated_at"])
 
+    # Migrate: guild_recruitment re-keyed by census guild id (2026-10).
+    # guild_id joins the PK, which ALTER TABLE can't do, so this is a
+    # rebuild. The name-keyed first cut existed only on dev boxes for a few
+    # hours pre-release (never deployed) and its rows carry no census id to
+    # map onto the NOT NULL PK — the rebuild starts empty.
+    recruit_cols = {row[1] for row in conn.execute("PRAGMA table_info(guild_recruitment)")}
+    if recruit_cols and "guild_id" not in recruit_cols:
+        conn.executescript(_SQL["rebuild_guild_recruitment_guild_id"])
+
     conn.commit()

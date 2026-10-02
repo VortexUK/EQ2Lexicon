@@ -111,6 +111,12 @@ def _seed_users(db: Path) -> None:
             "VALUES ('Varsoon', 'Exordium', 0, ?)",
             (VICTIM,),
         )
+        c.execute(
+            "INSERT INTO guild_recruitment (world, guild_id, guild_name, recruiting, description, updated_by, "
+            "logo, logo_media_type, logo_uploaded_by, logo_uploaded_at) "
+            "VALUES ('Varsoon', 42, 'Exordium', 1, 'We raid.', ?, X'01', 'image/webp', ?, ?)",
+            (VICTIM, VICTIM, NOW),
+        )
 
 
 def _seed_parses(db: Path) -> None:
@@ -176,6 +182,13 @@ def test_erase_removes_owned_rows_tombstones_authorship_and_strips_uploads(users
     assert _count(users_db, "SELECT COUNT(*) FROM user_roles WHERE granted_by = ?", DELETED_USER_ID) == 1
     assert _count(users_db, "SELECT COUNT(*) FROM attendance_overrides WHERE set_by = ?", DELETED_USER_ID) == 1
     assert _count(users_db, "SELECT COUNT(*) FROM guild_settings WHERE updated_by = ?", DELETED_USER_ID) == 1
+    # Recruitment: both author columns tombstoned; the guild's profile text
+    # and logo blob stay (guild assets, not the person's data).
+    assert _count(users_db, "SELECT COUNT(*) FROM guild_recruitment WHERE updated_by = ?", DELETED_USER_ID) == 1
+    assert _count(users_db, "SELECT COUNT(*) FROM guild_recruitment WHERE logo_uploaded_by = ?", DELETED_USER_ID) == 1
+    with sqlite3.connect(users_db) as c:
+        logo, desc = c.execute("SELECT logo, description FROM guild_recruitment").fetchone()
+    assert logo == b"\x01" and desc == "We raid."
     assert result.tombstoned["character_claims.reviewed_by"] == 1
     # Voice rows for the victim gone, the other person's and the raid row kept.
     assert _count(users_db, "SELECT COUNT(*) FROM attendance_observations WHERE character_name = ?", VICTIM) == 0

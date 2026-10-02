@@ -449,3 +449,35 @@ CREATE TABLE IF NOT EXISTS site_settings (
     updated_by TEXT    NOT NULL,                              -- admin discord id
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
+
+-- Guild recruitment profiles: officer-editable, publicly viewable. An
+-- absent row means "not recruiting" with an empty profile. Keyed by the
+-- census guild id so a profile (and its logo) survives a guild RENAME;
+-- guild_name is a display/lookup column refreshed on every officer save
+-- and by the daily census sweep (which also auto-delists guilds whose id
+-- no longer exists in census). The logo is a server-re-encoded 200x200-max
+-- WebP stored as a BLOB so it rides the users.db litestream replication
+-- and the erasure sweep. The JSON list columns are validated server-side
+-- against fixed catalogues (adventure class names / curated tag slugs /
+-- roster character names) before any write. Column comments must not
+-- contain commas (_assertions.py).
+CREATE TABLE IF NOT EXISTS guild_recruitment (
+    world            TEXT    NOT NULL,
+    guild_id         INTEGER NOT NULL,              -- census guild id (rename-proof anchor)
+    guild_name       TEXT    NOT NULL,              -- current name verbatim casing (kept fresh)
+    recruiting       INTEGER NOT NULL DEFAULT 0,    -- 1 = listed on the browse page
+    description      TEXT    NOT NULL DEFAULT '',   -- sanitised + blocklist-screened free text
+    classes_json     TEXT    NOT NULL DEFAULT '[]', -- JSON array of needed adventure class names
+    tags_json        TEXT    NOT NULL DEFAULT '[]', -- JSON array of curated tag slugs
+    contacts_json    TEXT    NOT NULL DEFAULT '[]', -- JSON array of in-game contact character names
+    discord_url      TEXT,                          -- validated https discord invite or NULL
+    updated_by       TEXT,                          -- discord id of the last profile save
+    updated_at       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    logo             BLOB,                          -- re-encoded WebP bytes or NULL
+    logo_media_type  TEXT,                          -- image/webp when a logo is present
+    logo_uploaded_by TEXT,                          -- discord id of the logo uploader
+    logo_uploaded_at INTEGER,                       -- unix seconds (drives the ETag + cache busting)
+    PRIMARY KEY (world, guild_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_guild_recruitment_name ON guild_recruitment(world, guild_name);
+CREATE INDEX IF NOT EXISTS idx_guild_recruitment_listing ON guild_recruitment(world, recruiting);

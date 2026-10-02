@@ -69,6 +69,7 @@ from backend.server.api.export import router as export_router
 from backend.server.api.favorites import router as favorites_router
 from backend.server.api.guild import router as guild_router
 from backend.server.api.guild_officer import router as guild_officer_router
+from backend.server.api.guild_recruitment import router as guild_recruitment_router
 from backend.server.api.guild_settings import router as guild_settings_router
 from backend.server.api.health import router as health_router
 from backend.server.api.item import router as item_router
@@ -523,7 +524,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         APP_INFO_LEGACY.info({"world": _WORLD, "version": "0.1.0"})  # legacy; drop next release
 
         # ---- async background tasks (tracked so shutdown can cancel) ----
-        from backend.server import census_health, raid_live, refresh_queue, xpac_rollover
+        from backend.server import census_health, raid_live, recruitment_sweep, refresh_queue, xpac_rollover
         from backend.server.api.parses.list import prewarm_parses_list
         from backend.server.api.rankings import prewarm_rankings_kills
 
@@ -538,6 +539,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             asyncio.create_task(_parse_cleanup_loop(), name="parse-cleanup-loop"),
             asyncio.create_task(raid_live.poll_loop(), name="raid-live-poll"),
             asyncio.create_task(xpac_rollover.poll_loop(), name="xpac-rollover-poll"),
+            asyncio.create_task(recruitment_sweep.sweep_loop(), name="recruitment-sweep"),
         ]
 
         try:
@@ -689,6 +691,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         admin_router,
         guild_router,
         guild_officer_router,
+        guild_recruitment_router,
         guild_settings_router,
         item_watch_router,
         raid_planning_router,

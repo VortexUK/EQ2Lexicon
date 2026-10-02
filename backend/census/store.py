@@ -17,6 +17,7 @@ import json
 import logging
 import sqlite3
 import time
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
@@ -260,6 +261,21 @@ class CensusStore(BaseCatalogue):
             }
             for r in rows
         ]
+
+    @staticmethod
+    def latest_guild_member_counts(conn: sqlite3.Connection, world: str, names_lower: Iterable[str]) -> dict[str, int]:
+        """Latest-known member count for each requested guild, keyed by
+        name_lower; guilds with no history rows are simply absent. One
+        grouped pass over guild_history (bare ``members`` rides the
+        MAX(day) row). Feeds the recruiting browse cards."""
+        wanted = set(names_lower)
+        if not wanted:
+            return {}
+        out: dict[str, int] = {}
+        for name_lower, members, _day in conn.execute(_SQL["select_latest_member_counts"], (world,)):
+            if name_lower in wanted and members is not None:
+                out[name_lower] = int(members)
+        return out
 
     # ── Character AAs ────────────────────────────────────────────────────────
 

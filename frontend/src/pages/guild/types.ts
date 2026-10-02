@@ -65,6 +65,7 @@ export type Tab =
   | 'progression'
   | 'history'
   | 'raids'
+  | 'recruitment'
   | 'attendance'
   | 'claims'
   | 'watch'
@@ -93,6 +94,23 @@ export interface GuildSettings {
   officers_can_delete_parses: boolean
   updated_at: number | null
   updated_by_name: string | null
+}
+
+/** GET/PUT /api/guild/{name}/recruitment — the officer-editable profile. */
+export interface RecruitmentProfile {
+  recruiting: boolean
+  description: string
+  classes: string[]
+  tags: string[]
+  contacts: string[]
+  discord_url: string | null
+  updated_at: number | null
+  updated_by_name: string | null
+  has_logo: boolean
+  logo_uploaded_at: number | null
+  logo_uploaded_by_name: string | null
+  /** The curated tag slugs — single source of truth is the backend. */
+  available_tags: string[]
 }
 
 // Shared table-cell utility classes (invariant, dynamic bits stay inline at call sites)

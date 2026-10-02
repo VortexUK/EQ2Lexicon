@@ -156,3 +156,35 @@ ALTER TABLE discord_guild_links ADD COLUMN parses_posted_at INTEGER NOT NULL DEF
 
 -- :name alter_user_availability_add_updated_at
 ALTER TABLE user_availability ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
+
+-- ---------------------------------------------------------------------------
+-- guild_recruitment — re-key from (world, guild_name) to the census guild id
+-- ---------------------------------------------------------------------------
+
+-- Multi-statement rebuild; run via conn.executescript. Guarded on the
+-- absence of the `guild_id` column. The name-keyed first cut of this table
+-- existed only on dev boxes for a few hours pre-release (never deployed)
+-- and its rows carry no census id to map onto the NOT NULL PK -- so the
+-- rebuild starts empty. Keep the column list in step with schema.sql.
+-- :name rebuild_guild_recruitment_guild_id
+DROP TABLE guild_recruitment;
+CREATE TABLE guild_recruitment (
+    world            TEXT    NOT NULL,
+    guild_id         INTEGER NOT NULL,
+    guild_name       TEXT    NOT NULL,
+    recruiting       INTEGER NOT NULL DEFAULT 0,
+    description      TEXT    NOT NULL DEFAULT '',
+    classes_json     TEXT    NOT NULL DEFAULT '[]',
+    tags_json        TEXT    NOT NULL DEFAULT '[]',
+    contacts_json    TEXT    NOT NULL DEFAULT '[]',
+    discord_url      TEXT,
+    updated_by       TEXT,
+    updated_at       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    logo             BLOB,
+    logo_media_type  TEXT,
+    logo_uploaded_by TEXT,
+    logo_uploaded_at INTEGER,
+    PRIMARY KEY (world, guild_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_guild_recruitment_name ON guild_recruitment(world, guild_name);
+CREATE INDEX IF NOT EXISTS idx_guild_recruitment_listing ON guild_recruitment(world, recruiting);

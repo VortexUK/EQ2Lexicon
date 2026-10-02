@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -16,6 +15,7 @@ from backend.server.auth_deps import require_admin as _require_admin
 from backend.server.constants import ADMIN_PARSE_LIST_MAX_LIMIT
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
+from backend.server.core.validation import DISCORD_INVITE_RE
 from backend.server.db import (
     delete_claim,
     delete_claims_for_user,
@@ -907,11 +907,9 @@ async def erase_user(discord_id: str, request: Request) -> dict:
 # Site-wide settings (not per-server) — the community Discord invite
 # ---------------------------------------------------------------------------
 
-# Only a real Discord invite: discord.gg/<code> or discord.com/invite/<code>.
-# Anything else (a phishing lookalike, a javascript: URL) is refused.
-_DISCORD_INVITE_RE = re.compile(
-    r"^https://(?:discord\.gg/[A-Za-z0-9-]{2,64}|discord\.com/invite/[A-Za-z0-9-]{2,64})/?$"
-)
+# Only a real Discord invite — shared validator (also used by guild
+# recruitment profiles); aliased to keep this module's call sites unchanged.
+_DISCORD_INVITE_RE = DISCORD_INVITE_RE
 
 
 class SiteSettingsUpdate(BaseModel):
