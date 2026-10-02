@@ -513,7 +513,9 @@ def test_parse_item_spell_timing():
     all-spell cast time). Skill-scoped variants don't match."""
     from backend.eq2db.spell_effects import parse_item_spell_timing
 
-    assert parse_item_spell_timing(["Reduces reuse time of hostile spells by 1 percent."]) == [("reuse", "hostile", 1.0)]
+    assert parse_item_spell_timing(["Reduces reuse time of hostile spells by 1 percent."]) == [
+        ("reuse", "hostile", 1.0)
+    ]
     assert parse_item_spell_timing(["Reduces cast time of all spells by 5 percent."]) == [("cast", "all", 5.0)]
     assert parse_item_spell_timing(["Reduces reuse time of beneficial spells by 3 percent."]) == [
         ("reuse", "beneficial", 3.0)

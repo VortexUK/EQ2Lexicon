@@ -131,7 +131,10 @@ async def test_proc_carrying_permanent_beneficial_becomes_passive(app):
             "Divine Light",
             beneficial=1,
             effects=[
-                {"description": "When damaged this spell will cast Shock of Light on target's attacker.", "indentation": 0},
+                {
+                    "description": "When damaged this spell will cast Shock of Light on target's attacker.",
+                    "indentation": 0,
+                },
                 {"description": "Inflicts 1,866 - 2,281 divine damage on target.", "indentation": 1},
                 {"description": "Reduces all damage done to the target by 8%.", "indentation": 0},
             ],
@@ -493,7 +496,10 @@ async def test_rotation_lifeburn_static_base_with_per_hp(app):
     row["tier"] = 1
     row["effects"] = json.dumps(
         [
-            {"description": "Inflicts 109 - 121 disease damage on target instantly and every second.", "indentation": 0},
+            {
+                "description": "Inflicts 109 - 121 disease damage on target instantly and every second.",
+                "indentation": 0,
+            },
             {
                 "description": "Inflicts an additional 18 points of disease damage to target "
                 "for each health point consumed instantly and every second.",
@@ -1082,7 +1088,9 @@ async def test_rotation_own_aa_adjustments_compress_dot(app):
         ),
         patch.object(mod._aas, "get_tree", lambda tid: tree),
         patch.object(mod._spells, "find_by_ids", lambda ids: {1: soulrot}),
-        patch.object(mod._spells, "find_by_crc", lambda crc, tier=None: enhance_row if (crc, tier) == (901, 5) else None),
+        patch.object(
+            mod._spells, "find_by_crc", lambda crc, tier=None: enhance_row if (crc, tier) == (901, 5) else None
+        ),
         patch.object(mod._items, "spell_meta_by_names", lambda names: meta),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
