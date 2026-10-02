@@ -190,3 +190,17 @@ describe('engine buff integration', () => {
     expect(r.totalDamage).toBe(750)
   })
 })
+
+
+describe('primary-attribute buff mods', () => {
+  it('only the PRIMARY attribute flat applies to primary_stat', () => {
+    // Templar (wis): +53.5 WIS applies; +73.6 AGI does nothing.
+    const mods = { wisFlat: 53.5, agiFlat: 73.6 }
+    const templar = applyMods({ primary_stat: 998, primary_attr: 'wis' }, mods)
+    expect(templar.primary_stat).toBeCloseTo(1051.5)
+    const scout = applyMods({ primary_stat: 800, primary_attr: 'agi' }, mods)
+    expect(scout.primary_stat).toBeCloseTo(873.6)
+    const unknown = applyMods({ primary_stat: 500 }, mods)
+    expect(unknown.primary_stat).toBe(500)
+  })
+})

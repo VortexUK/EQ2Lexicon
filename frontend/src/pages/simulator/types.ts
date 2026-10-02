@@ -136,6 +136,9 @@ export interface SimStats {
    * scout / STR fighter), resolved by the caller — feeds the
    * level-capped primary-stat damage bonus. */
   primary_stat?: number | null
+  /** WHICH attribute primary_stat is — lets buff windows apply only the
+   * pertinent flat attribute add (AGI on a templar does nothing). */
+  primary_attr?: 'str' | 'agi' | 'wis' | 'int'
   potency?: number | null
   fervor?: number | null
   /** Gear/AA "increases base damage" percentages (e.g. choker +25%,
@@ -166,6 +169,7 @@ export interface SimStats {
 export interface BuffMods {
   castSpeedPct?: number
   reuseSpeedPct?: number
+  recoverySpeedPct?: number
   dmgPct?: number
   critChancePct?: number
   critBonusPct?: number
@@ -175,6 +179,12 @@ export interface BuffMods {
   abilityModFlat?: number
   potencyPct?: number
   fervorPct?: number
+  /** Flat attribute adds — only the character's PRIMARY attribute does
+   * anything (applyMods maps "<primary_attr>Flat" onto primary_stat). */
+  strFlat?: number
+  agiFlat?: number
+  wisFlat?: number
+  intFlat?: number
 }
 
 /** One active buff window on the timeline. Windows with the same buffId

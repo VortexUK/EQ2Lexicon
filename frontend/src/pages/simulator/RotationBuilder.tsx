@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react'
+import { useState } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { Badge, Button, Card, SectionLabel } from '../../components/ui'
+import AbilityTooltip from './AbilityTooltip'
 import { effCastTime, effRecast } from './formulas'
 import type { RotationAbility, SimStats } from './types'
 
@@ -88,6 +90,14 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
   onChange: (rotation: string[]) => void
   onToggleDotHold: (name: string, hold: boolean) => void
 }) {
+  // Icon-hover tooltip: the ability at the character's ADJUSTED values.
+  const [tip, setTip] = useState<{ ability: RotationAbility; x: number; y: number } | null>(null)
+  const tipHandlers = (a: RotationAbility) => ({
+    onMouseEnter: (e: ReactMouseEvent) => setTip({ ability: a, x: e.clientX, y: e.clientY }),
+    onMouseMove: (e: ReactMouseEvent) => setTip(t => (t ? { ...t, x: e.clientX, y: e.clientY } : t)),
+    onMouseLeave: () => setTip(null),
+  })
+
   const inRotation = new Set(rotation)
   // Palette shows damage abilities only — utility/buff rows with nothing
   // the engine can model just add noise.
@@ -127,7 +137,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
               onClick={() => onChange([...rotation, a.base_name])}
               className="appearance-none border-0 bg-transparent w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left cursor-pointer hover:bg-gold/10"
             >
-              <SpellIcon ability={a} />
+              <span {...tipHandlers(a)}><SpellIcon ability={a} /></span>
               <div className="min-w-0 flex-1">
                 <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
                   {a.name}
@@ -156,7 +166,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
             return (
               <li key={name} className="flex items-center gap-2 px-2 py-1.5 rounded-sm bg-surface-raised border border-border">
                 <span className="text-[0.75rem] text-gold font-semibold w-5 text-right shrink-0">{i + 1}.</span>
-                <SpellIcon ability={a} />
+                <span {...tipHandlers(a)}><SpellIcon ability={a} /></span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[0.85rem] font-medium truncate flex items-center gap-1.5">
                     {a.name}
@@ -188,6 +198,7 @@ export default function RotationBuilder({ abilities, rotation, dotHold, stats, a
           })}
         </ol>
       </Card>
+      {tip && <AbilityTooltip ability={tip.ability} stats={stats} x={tip.x} y={tip.y} />}
     </div>
   )
 }

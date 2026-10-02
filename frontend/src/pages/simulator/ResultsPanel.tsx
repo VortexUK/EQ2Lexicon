@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Badge, Card, SectionLabel } from '../../components/ui'
 import { fmtNum } from '../../formatters'
 import type { RotationAbility, SimResult } from './types'
@@ -15,10 +16,12 @@ export function abilityColour(index: number): string {
   return SEGMENT_COLOURS[index % SEGMENT_COLOURS.length]
 }
 
-function Timeline({ result, fightDurationS, colourFor }: {
+function Timeline({ result, fightDurationS, colourFor, highlight }: {
   result: SimResult
   fightDurationS: number
   colourFor: (ability: string) => string
+  /** Dim every segment except this ability's (hover from the table). */
+  highlight?: string | null
 }) {
   const W = 1000
   const H = 34
@@ -28,8 +31,18 @@ function Timeline({ result, fightDurationS, colourFor }: {
       {result.timeline.filter(s => s.ability !== '').map((s, i) => {
         const x = (s.t / fightDurationS) * W
         const w = Math.max((s.dur / fightDurationS) * W, 1)
+        const hot = highlight != null && s.ability === highlight
+        const dim = highlight != null && !hot
         return (
-          <rect key={i} x={x} y={10} width={Math.min(w, W - x)} height={16} fill={colourFor(s.ability)}>
+          <rect
+            key={i}
+            x={x}
+            y={hot ? 6 : 10}
+            width={Math.min(w, W - x)}
+            height={hot ? 24 : 16}
+            fill={colourFor(s.ability)}
+            fillOpacity={dim ? 0.18 : 1}
+          >
             <title>{`${s.ability} @ ${s.t.toFixed(1)}s`}</title>
           </rect>
         )
@@ -44,6 +57,8 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
   rotation: string[]
   abilities: Record<string, RotationAbility>
 }) {
+  // Hovered table row (ability key) — drives the timeline highlight.
+  const [hovered, setHovered] = useState<string | null>(null)
   if (!result || rotation.length === 0) {
     return (
       <Card className="rounded-sm px-4 py-3">
@@ -57,6 +72,11 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
     const idx = rotation.indexOf(name)
     return idx >= 0 ? abilityColour(idx) : '#8a8a8a'
   }
+
+  // Hovering a table row highlights that ability's casts on the timeline
+  // (only abilities that actually have segments — procs/auto are streams).
+  const highlight =
+    hovered != null && result.timeline.some(seg => seg.ability === hovered) ? hovered : null
 
   return (
     <Card className="rounded-sm px-4 py-3">
@@ -79,7 +99,7 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
       </div>
 
       <div className="mt-3">
-        <Timeline result={result} fightDurationS={fightDurationS} colourFor={colourFor} />
+        <Timeline result={result} fightDurationS={fightDurationS} colourFor={colourFor} highlight={highlight} />
       </div>
 
       <div className="overflow-x-auto mt-3">
@@ -97,7 +117,12 @@ export default function ResultsPanel({ result, fightDurationS, rotation, abiliti
           </thead>
           <tbody>
             {result.perAbility.map(e => (
-              <tr key={e.ability} className="border-b border-border">
+              <tr
+                key={e.ability}
+                className={`border-b border-border ${highlight === e.ability ? 'bg-gold/5' : ''}`}
+                onMouseEnter={() => setHovered(e.ability)}
+                onMouseLeave={() => setHovered(null)}
+              >
                 <td className="py-1.5 pr-2">
                   <span className="inline-block w-2.5 h-2.5 rounded-[2px] mr-1.5 align-baseline" style={{ background: colourFor(e.ability) }} />
                   {e.label ?? abilities[e.ability]?.name ?? e.ability}

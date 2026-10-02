@@ -76,7 +76,7 @@ async def _get(app, char: CharacterResponse, name: str = "Sihtric", aa_trees: li
     mock_db = MagicMock()
     mock_db.exists.return_value = True
     with (
-        patch("backend.server.api.character.rotation.character_cache", mock_cache),
+        patch("backend.server.api.character.views.character_cache", mock_cache),
         patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
         patch("backend.server.api.character.rotation._fetch_aa_trees", AsyncMock(return_value=aa_trees or [])),
     ):
@@ -506,7 +506,7 @@ async def test_character_buffs_uses_owned_ranks(app):
     mock_db = MagicMock()
     mock_db.exists.return_value = True
     with (
-        patch("backend.server.api.character.rotation.character_cache", mock_cache),
+        patch("backend.server.api.character.views.character_cache", mock_cache),
         patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
         patch.object(mod._spells, "find_by_ids", lambda ids: {i: rows[i] for i in ids if i in rows}),
         patch.object(mod._items, "spell_meta_by_names", lambda names: {}),
@@ -578,7 +578,7 @@ async def test_character_buffs_applies_member_aa_adjustments(app):
     mock_db = MagicMock()
     mock_db.exists.return_value = True
     with (
-        patch("backend.server.api.character.rotation.character_cache", mock_cache),
+        patch("backend.server.api.character.views.character_cache", mock_cache),
         patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
         patch(
             "backend.server.api.character.rotation._fetch_aa_trees",
@@ -798,7 +798,7 @@ async def test_rotation_derived_modifiers(app):
         p1,
         p2,
         p3,
-        patch("backend.server.api.character.rotation.character_cache", mock_cache),
+        patch("backend.server.api.character.views.character_cache", mock_cache),
         patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
         patch(
             "backend.server.api.character.rotation._fetch_aa_trees",
@@ -844,11 +844,9 @@ async def test_rotation_404_unknown_character(app):
     mock_census.get_character = AsyncMock(return_value=None)
     with (
         patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
-        patch("backend.server.api.character.rotation.character_cache") as mock_cache,
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient", return_value=mock_census),
     ):
-        mock_cache.get_stale.return_value = (None, False)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/character/Nobody/rotation-data")
     assert r.status_code == 404

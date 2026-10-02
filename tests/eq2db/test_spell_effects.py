@@ -271,7 +271,7 @@ def test_parse_stat_mods_maps_modelable_stats():
         "Increases Multi Attack of group members (AE) by 35.3.",
         "Increases DPS of raid and group members (AE) by 24.2.",
         "Increases Crit Chance of target by 5.0.",
-        "Increases STR and AGI of group members (AE) by 96.6.",  # unmapped
+        "Increases STR and AGI of group members (AE) by 96.6.",  # attr flats (both)
         "Increases Mitigation of group members (AE) vs noxious damage by 480.",  # unmapped shape
         "Heals group members (AE) for 100.",  # not a stat line
     ]
@@ -281,6 +281,8 @@ def test_parse_stat_mods_maps_modelable_stats():
         "doubleAttackPct": 35.3,
         "dpsModPct": 24.2,
         "critChancePct": 5.0,
+        "strFlat": 96.6,
+        "agiFlat": 96.6,
     }
 
 
@@ -431,3 +433,30 @@ def test_target_cast_proc_with_trigger_budget():
     assert proc["name"] == "Sloth's Habitat"
     (c,) = proc["components"]
     assert (c["min_dmg"], c["max_dmg"]) == (420.0, 513.0)
+
+
+def test_parse_stat_mods_attributes_and_compound_phrases():
+    """Attribute buffs map to <attr>Flat keys; compound phrases grant the
+    amount to each listed stat; STA stays unmapped."""
+    mods = parse_stat_mods(
+        [
+            "Increases WIS of group members (AE) by 53.5.",
+            "Increases AGI, STR and STA of target by 73.6.",
+            "Increases Haste of group members (AE) by 30.5.",
+        ]
+    )
+    assert mods == {"wisFlat": 53.5, "agiFlat": 73.6, "strFlat": 73.6, "hastePct": 30.5}
+
+
+def test_parse_stat_mods_recovery_speed_grammars():
+    """Recovery speed: the stat-line form ("Increases Ability Recovery
+    Speed of caster by 48%") and the ally-buff form (Time Compression:
+    "Improves recovery speed of spells by 40%."). The per-ability
+    Enhance-Jab shape (no "of spells") must NOT match."""
+    assert parse_stat_mods(["Increases Ability Recovery Speed of caster by 48.0%"]) == {"recoverySpeedPct": 48.0}
+    assert parse_stat_mods(["Improves recovery speed of spells by 40%."]) == {"recoverySpeedPct": 40.0}
+    assert parse_stat_mods(["Improves casting and recovery speed of spells by 30%"]) == {
+        "recoverySpeedPct": 30.0,
+        "castSpeedPct": 30.0,
+    }
+    assert parse_stat_mods(["Improves casting and recovery speed by 60%."]) == {}

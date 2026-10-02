@@ -75,13 +75,6 @@ export default function SimulatorPage() {
    * the ranks that character actually owns. */
   const [groupMembers, setGroupMembers] = useState<string[]>([])
   const [groupBuffs, setGroupBuffs] = useState<string[]>([])
-  /** User corrections to the auto-derived hidden bonuses (base damage %,
-   * cast speed %, reuse %) — null trusts the derived value. */
-  const [overrides, setOverrides] = useState<{ base: number | null; cast: number | null; reuse: number | null }>({
-    base: null,
-    cast: null,
-    reuse: null,
-  })
   /** name → their buff book; undefined = loading, null = lookup failed. */
   const [memberBooks, setMemberBooks] = useState<Record<string, GroupMemberBook | null | undefined>>({})
   const [observed, setObserved] = useState<ObservedHits>({})
@@ -137,14 +130,6 @@ export default function SimulatorPage() {
       setProcChanceOverrides(saved.procChanceOverrides ?? {})
       setGroupMembers(saved.groupMembers ?? [])
       setGroupBuffs(saved.groupBuffs ?? [])
-      setOverrides(
-        saved.overrides ?? {
-          // Legacy manual values become corrections; 0 meant "unset".
-          base: saved.baseDamageBonusPct || null,
-          cast: saved.hiddenCastSpeedPct || null,
-          reuse: null,
-        },
-      )
       setObserved(saved.observed ?? {})
       setFightDuration(saved.fightDuration ?? DEFAULT_FIGHT_S)
       setIncomingHitsPerMinute(saved.incomingHitsPerMinute ?? 0)
@@ -169,7 +154,6 @@ export default function SimulatorPage() {
       setProcChanceOverrides({})
       setGroupMembers([])
       setGroupBuffs([])
-      setOverrides({ base: null, cast: null, reuse: null })
       setObserved({})
       setFightDuration(DEFAULT_FIGHT_S)
       setIncomingHitsPerMinute(0)
@@ -223,7 +207,6 @@ export default function SimulatorPage() {
       procChanceOverrides,
       groupMembers,
       groupBuffs,
-      overrides,
       observed,
       fightDuration,
       incomingHitsPerMinute,
@@ -231,7 +214,7 @@ export default function SimulatorPage() {
       autoAttackMode,
       target,
     })
-  }, [selectedName, loadedFor, rotation, dotHold, externalBuffs, permanentBuffs, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, overrides, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
+  }, [selectedName, loadedFor, rotation, dotHold, externalBuffs, permanentBuffs, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
 
   // Fetch each needed character's buff book once (kept across simmed
   // characters — the book belongs to that character, not the sim
@@ -275,6 +258,24 @@ export default function SimulatorPage() {
 
   const server = useServer()
   const buffSheet = useMemo(() => buffSheetForXpac(server?.currentXpac ?? null), [server?.currentXpac])
+
+  // Mods from ALWAYS-ON ticked buffs (permanent sheet buffs + non-temp
+  // group-member buffs) — shown as "+x" deltas on the Adjusted-stats and
+  // Auto-attack cards. Temps act as timed windows in the sim and are
+  // deliberately excluded here (a flat +x would overstate them).
+  const alwaysOnMods: BuffMods = useMemo(() => {
+    const sum: Record<string, number> = {}
+    const add = (m: Record<string, number | undefined>) => {
+      for (const [k, v] of Object.entries(m)) if (v) sum[k] = (sum[k] ?? 0) + v
+    }
+    for (const b of buffSheet?.sheet.buffs ?? []) {
+      if (b.kind === 'permanent' && permanentBuffs.includes(b.id)) add(b.mods as Record<string, number | undefined>)
+    }
+    for (const { buff } of enabledGroupBuffObjs) {
+      if (!isTempBuff(buff)) add(buff.mods)
+    }
+    return sum as BuffMods
+  }, [buffSheet, permanentBuffs, enabledGroupBuffObjs])
 
   // Supplier resolution: a sheet buff with an attached supplier CHARACTER
   // takes its timing/mods/procs from that character's owned rank (their
@@ -341,12 +342,12 @@ export default function SimulatorPage() {
   }, [externalBuffs, buffDefs, fightDuration, buffSheet, permanentBuffs, enabledGroupBuffObjs])
   const externalUptimes = useMemo(() => buffUptimes(buffWindows, fightDuration), [buffWindows, fightDuration])
 
-  // Effective hidden bonuses: the user's correction wins, else the
-  // auto-derived value from gear/adorns/sets/AAs.
+  // Hidden bonuses auto-derived from gear/adorns/sets/AAs — applied
+  // directly (detection has proven reliable; the override UI is gone).
   const derived = rotData?.derived
-  const effBaseDamage = overrides.base ?? derived?.base_damage_bonus_pct ?? 0
-  const effCastSpeed = overrides.cast ?? derived?.cast_speed_bonus_pct ?? 0
-  const effReuse = overrides.reuse ?? derived?.reuse_bonus_pct ?? 0
+  const effBaseDamage = derived?.base_damage_bonus_pct ?? 0
+  const effCastSpeed = derived?.cast_speed_bonus_pct ?? 0
+  const effReuse = derived?.reuse_bonus_pct ?? 0
 
   // Sheet stats + the class's resolved primary attribute (WIS priest /
   // INT mage / AGI scout / STR fighter) + the hidden bonuses — the stats
@@ -355,15 +356,16 @@ export default function SimulatorPage() {
     const s = charData?.stats
     if (!s) return {}
     const archetype = (classes.find(c => c.name === charData.cls)?.archetype ?? '').toLowerCase()
-    const key = archetype.startsWith('priest')
-      ? s.wis_eff
+    const attr = archetype.startsWith('priest')
+      ? ('wis' as const)
       : archetype.startsWith('mage')
-        ? s.int_eff
+        ? ('int' as const)
         : archetype.startsWith('scout')
-          ? s.agi_eff
+          ? ('agi' as const)
           : archetype.startsWith('fighter')
-            ? s.str_eff
-            : null
+            ? ('str' as const)
+            : undefined
+    const key = attr === 'wis' ? s.wis_eff : attr === 'int' ? s.int_eff : attr === 'agi' ? s.agi_eff : attr === 'str' ? s.str_eff : null
     // Auto-attack weapon per the chosen mode. VALIDATED (wand log
     // session): the sheet weapon min/max/delay are fully COOKED — the
     // game folds STR/DPS-stat/haste in — so dps/attack_speed are zeroed
@@ -385,6 +387,7 @@ export default function SimulatorPage() {
       dps: 0,
       attack_speed: 0,
       primary_stat: key,
+      primary_attr: attr,
       base_damage_bonus_pct: effBaseDamage,
       casting_speed: (s.casting_speed ?? 0) + effCastSpeed,
       reuse_speed: (s.reuse_speed ?? 0) + effReuse,
@@ -662,16 +665,15 @@ export default function SimulatorPage() {
       {selectedName && !loading && rotData && charData && (
         <DerivedPanel
           derived={rotData.derived}
-          overrides={overrides}
           stats={simStats}
           sheet={charData.stats}
+          buffMods={alwaysOnMods}
           primaryLabel={
             (() => {
               const a = (classes.find(c => c.name === charData.cls)?.archetype ?? '').toLowerCase()
               return a.startsWith('priest') ? 'WIS' : a.startsWith('mage') ? 'INT' : a.startsWith('scout') ? 'AGI' : a.startsWith('fighter') ? 'STR' : 'Primary'
             })()
           }
-          onOverride={setOverrides}
         />
       )}
 
@@ -699,12 +701,14 @@ export default function SimulatorPage() {
                   <option value="off">Off</option>
                 </select>
                 {autoExpectations && (
-                  <span className="text-[0.78rem] text-text-muted" title="Expected auto-attack output per weapon (cooked sheet values, crit included)">
-                    {(['melee', 'ranged'] as const).map((m, i) => {
+                  <span
+                    className="text-[0.78rem] text-text-muted flex flex-col gap-0.5"
+                    title="Expected auto-attack output per weapon (cooked sheet values, crit included)"
+                  >
+                    {(['melee', 'ranged'] as const).map(m => {
                       const e = autoExpectations[m]
                       return (
                         <span key={m} className={autoAttackMode === m ? 'text-gold' : undefined}>
-                          {i > 0 && <span className="text-text-muted"> · </span>}
                           {m === 'melee' ? 'melee' : 'ranged'}{' '}
                           {e ? `~${fmtNum(Math.round(e.dps))} dps (${fmtNum(Math.round(e.perSwing))}/swing)` : '—'}
                         </span>
@@ -713,6 +717,23 @@ export default function SimulatorPage() {
                   </span>
                 )}
               </div>
+              {charData && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[0.75rem] text-text-muted">
+                  {(
+                    [
+                      ['DPS', charData.stats.dps, alwaysOnMods.dpsModPct],
+                      ['Haste', charData.stats.attack_speed, alwaysOnMods.hastePct],
+                      ['Multi attack', charData.stats.double_attack, alwaysOnMods.doubleAttackPct],
+                      ['Flurry', charData.stats.flurry, undefined],
+                    ] as const
+                  ).map(([label, base, delta]) => (
+                    <span key={label}>
+                      {label} <span className="text-text font-medium">{(base ?? 0).toFixed(1)}</span>
+                      {delta ? <span className="text-success"> +{delta.toFixed(1)}</span> : null}
+                    </span>
+                  ))}
+                </div>
+              )}
             </Card>
           }
           suggestSlot={<SuggestOrder simConfig={simConfig} onApply={handleRotationChange} />}

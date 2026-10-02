@@ -444,10 +444,15 @@ class ItemCatalogue(BaseCatalogue):
         """Populate classification_list for rows that predate the column.
 
         Uses SQLite's json_extract to pull the array straight out of raw_json.
-        Rows that already have a non-NULL value are left untouched, so this is
-        a cheap no-op after the first successful run.
+        Version-gated like the sibling backfills: without the gate the
+        UPDATE's table scan (~0.56s) ran on EVERY init_db connection —
+        profiling showed it as 85% of the rotation endpoint's latency.
+        New rows always get the column from item_to_row, so once is enough.
         """
+        if get_meta(conn, "classification_backfill_version") == "1":
+            return  # already done
         conn.execute(_SQL["backfill_classification_list"])
+        set_meta(conn, "classification_backfill_version", "1")
         conn.commit()
 
     @staticmethod

@@ -45,13 +45,10 @@ from backend.eq2db.spells import DB_PATH as _SPELLS_DB
 from backend.eq2db.spells import SpellRow
 from backend.eq2db.spells import catalogue as _spells
 from backend.server.api.character import router
-from backend.server.api.character.views import _build_char_response
-from backend.server.cache import character_cache
-from backend.server.core.cache_keys import char_cache_key
-from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.api.character.views import resolve_character_store_first
 from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
-from backend.server.server_context import current_server, current_world
+from backend.server.server_context import current_server
 
 _log = logging.getLogger(__name__)
 
@@ -887,19 +884,10 @@ async def _fetch_aa_trees(name: str) -> list[tuple[int, dict[str, int]]]:
 
 
 async def _resolve_character(name: str):
-    """Cache-first character resolution (cache → live census), 404 when
-    unknown — shared by rotation-data and the group-member buff read."""
-    cache_key = char_cache_key(name, current_world())
-    cached, _ = character_cache.get_stale(cache_key)
-    if cached is not None:
-        return cached
-    async with shared_census_client() as client:
-        raw = await client.get_character(name, current_world())
-    if raw is None:
-        raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {current_world()}")
-    char = _build_char_response(raw)
-    character_cache.set(cache_key, char)
-    return char
+    """Store-first character resolution — the character page's read path
+    (hot cache → census store with background refresh → one live fetch),
+    so a cold cache or a down Census never blocks the simulator."""
+    return await resolve_character_store_first(name)
 
 
 @router.get("/character/{name}/rotation-data", response_model=CharacterRotationDataResponse)

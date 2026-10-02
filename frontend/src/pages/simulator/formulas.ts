@@ -54,9 +54,11 @@ export const SPEED_STAT_MAX_EFFECT = 125
  * chance of a third), soft-capped at 600. */
 export const MULTI_ATTACK_CAP = 600
 export const FLURRY_CAP = 100
-/** A flurry proc strikes the target 2-4 times (community description) —
- * modeled as this many EXTRA hits per proc. Tunable. */
-export const FLURRY_EXTRA_HITS = 2
+/** Extra hits per flurry proc. LOG-FITTED to 1: a 10.7-minute pure-auto
+ * session (178 base swings) showed 21.9% extra-hit lines vs the sheet's
+ * DA 15.7 + flurry 6.9 — dead on MA + flurry×1 (22.6%) and 2.6σ below
+ * flurry×2 (29.5%). */
+export const FLURRY_EXTRA_HITS = 1
 /** DoTs with no known duration assume this many seconds (flagged "est."). */
 export const FALLBACK_DOT_DURATION_S = 12
 

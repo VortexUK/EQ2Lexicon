@@ -184,7 +184,7 @@ def _num(s: str) -> float:
 #: by 30.5."). Only stats the simulator models are mapped; everything else
 #: stays visible in the effect lines but contributes no mods.
 _STAT_LINE_RE = re.compile(
-    r"^Increases (?P<stat>[A-Za-z' -]+?) of (?P<tgt>group members \(AE\)|raid and group members \(AE\)|target|caster)"
+    r"^Increases (?P<stat>[A-Za-z', -]+?) of (?P<tgt>group members \(AE\)|raid and group members \(AE\)|target|caster)"
     r"(?: and [^b]*?)? by (?P<amt>[\d,]+(?:\.\d+)?)%?\.?$"
 )
 
@@ -203,8 +203,22 @@ _STAT_MOD_KEYS = {
     "casting speed": "castSpeedPct",
     "ability reuse speed": "reuseSpeedPct",
     "reuse speed": "reuseSpeedPct",
+    "ability recovery speed": "recoverySpeedPct",
+    "recovery speed": "recoverySpeedPct",
     "potency": "potencyPct",
     "fervor": "fervorPct",
+    # Attributes — FLAT adds. Only pertinent when they hit the character's
+    # PRIMARY attribute: the frontend maps "<primary_attr>Flat" onto
+    # primary_stat and ignores the rest (AGI on a templar does nothing;
+    # STA deliberately absent).
+    "str": "strFlat",
+    "strength": "strFlat",
+    "agi": "agiFlat",
+    "agility": "agiFlat",
+    "wis": "wisFlat",
+    "wisdom": "wisFlat",
+    "int": "intFlat",
+    "intelligence": "intFlat",
 }
 
 
@@ -290,22 +304,41 @@ def parse_base_damage_bonus_pct(lines: list[str]) -> float:
     return total
 
 
+#: Ally-buff speed grammar (Time Compression: "Improves recovery speed of
+#: spells by 40%."). The "of spells" anchor keeps per-ability AA lines
+#: ("Improves casting and recovery speed by 60%" — Enhance Jab) excluded.
+_SPEED_OF_SPELLS_RE = re.compile(
+    r"^Improves (?P<cast>casting and )?recovery speed of spells by (?P<amt>[\d,]+(?:\.\d+)?)%\.?$"
+)
+
+
 def parse_stat_mods(lines: list[str]) -> dict[str, float]:
     """Modelable stat mods from a buff's effect lines → {BuffMods key:
     amount}. Duplicate stats sum. Unmapped stats (attributes, mitigation,
     skills, regen…) are ignored — the caller shows the raw lines."""
     mods: dict[str, float] = {}
     for line in lines:
+        sp = _SPEED_OF_SPELLS_RE.match(line.strip())
+        if sp is not None:
+            amt = _num(sp.group("amt"))
+            if amt:
+                mods["recoverySpeedPct"] = mods.get("recoverySpeedPct", 0.0) + amt
+                if sp.group("cast"):
+                    mods["castSpeedPct"] = mods.get("castSpeedPct", 0.0) + amt
+            continue
         m = _STAT_LINE_RE.match(line.strip())
         if m is None:
-            continue
-        key = _STAT_MOD_KEYS.get(m.group("stat").strip().lower())
-        if key is None:
             continue
         amt = _num(m.group("amt"))
         if amt == 0:
             continue  # era-drifted zero lines ("Increases Fervor by 0.0")
-        mods[key] = mods.get(key, 0.0) + amt
+        # Compound phrases ("AGI, STR and STA of target") grant the amount
+        # to EACH listed stat — split and map every part.
+        phrase = m.group("stat").strip().lower()
+        for part in (p.strip() for chunk in phrase.split(",") for p in chunk.split(" and ")):
+            key = _STAT_MOD_KEYS.get(part)
+            if key is not None:
+                mods[key] = mods.get(key, 0.0) + amt
     return mods
 
 

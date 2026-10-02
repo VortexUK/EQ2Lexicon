@@ -59,6 +59,7 @@ export function modsAt(windows: BuffWindow[], t: number): BuffMods {
   const total: Required<BuffMods> = {
     castSpeedPct: 0,
     reuseSpeedPct: 0,
+    recoverySpeedPct: 0,
     dmgPct: 0,
     critChancePct: 0,
     critBonusPct: 0,
@@ -68,12 +69,17 @@ export function modsAt(windows: BuffWindow[], t: number): BuffMods {
     abilityModFlat: 0,
     potencyPct: 0,
     fervorPct: 0,
+    strFlat: 0,
+    agiFlat: 0,
+    wisFlat: 0,
+    intFlat: 0,
   }
   for (const w of windows) {
     if (seen.has(w.buffId) || w.start > t + 1e-9 || t >= w.end - 1e-9) continue
     seen.add(w.buffId)
     total.castSpeedPct += w.mods.castSpeedPct ?? 0
     total.reuseSpeedPct += w.mods.reuseSpeedPct ?? 0
+    total.recoverySpeedPct += w.mods.recoverySpeedPct ?? 0
     total.dmgPct += w.mods.dmgPct ?? 0
     total.critChancePct += w.mods.critChancePct ?? 0
     total.critBonusPct += w.mods.critBonusPct ?? 0
@@ -83,17 +89,35 @@ export function modsAt(windows: BuffWindow[], t: number): BuffMods {
     total.abilityModFlat += w.mods.abilityModFlat ?? 0
     total.potencyPct += w.mods.potencyPct ?? 0
     total.fervorPct += w.mods.fervorPct ?? 0
+    total.strFlat += w.mods.strFlat ?? 0
+    total.agiFlat += w.mods.agiFlat ?? 0
+    total.wisFlat += w.mods.wisFlat ?? 0
+    total.intFlat += w.mods.intFlat ?? 0
   }
   return total
 }
 
 /** Sheet stats + additive buff mods (dmgPct is NOT here — it multiplies
  * damage and is applied by the engine at cast time). */
+/** The flat attribute add that actually matters: the one hitting the
+ * character's primary attribute (AGI on a templar does nothing). */
+export function primaryAttrFlat(base: SimStats, mods: BuffMods): number {
+  switch (base.primary_attr) {
+    case 'str': return mods.strFlat ?? 0
+    case 'agi': return mods.agiFlat ?? 0
+    case 'wis': return mods.wisFlat ?? 0
+    case 'int': return mods.intFlat ?? 0
+    default: return 0
+  }
+}
+
 export function applyMods(base: SimStats, mods: BuffMods): SimStats {
   return {
     ...base,
+    primary_stat: (base.primary_stat ?? 0) + primaryAttrFlat(base, mods),
     casting_speed: (base.casting_speed ?? 0) + (mods.castSpeedPct ?? 0),
     reuse_speed: (base.reuse_speed ?? 0) + (mods.reuseSpeedPct ?? 0),
+    recovery_speed: (base.recovery_speed ?? 0) + (mods.recoverySpeedPct ?? 0),
     crit_chance: (base.crit_chance ?? 0) + (mods.critChancePct ?? 0),
     crit_bonus: (base.crit_bonus ?? 0) + (mods.critBonusPct ?? 0),
     attack_speed: (base.attack_speed ?? 0) + (mods.hastePct ?? 0),

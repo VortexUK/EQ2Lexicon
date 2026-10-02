@@ -22,7 +22,14 @@ const MOD_LABEL: Record<string, string> = {
   critBonusPct: 'Crit Bonus',
   castSpeedPct: 'Cast Speed',
   reuseSpeedPct: 'Reuse',
+  recoverySpeedPct: 'Recovery',
   abilityModFlat: 'Ability Mod',
+  potencyPct: 'Potency',
+  fervorPct: 'Fervor',
+  strFlat: 'STR',
+  agiFlat: 'AGI',
+  wisFlat: 'WIS',
+  intFlat: 'INT',
 }
 
 export function isTempBuff(b: ClassBuff): boolean {

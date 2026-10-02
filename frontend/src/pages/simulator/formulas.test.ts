@@ -362,9 +362,10 @@ describe('autoAttackDps', () => {
   })
 
   it('multi attack is linear past 100 and flurry adds extra hits', () => {
-    // MA 237 → +2.37 swings; flurry 10 → +0.2 (2 hits per proc).
+    // MA 237 → +2.37 swings; flurry 10 → +0.1 (ONE hit per proc —
+    // log-fitted: 178-swing session, extras 21.9% vs DA 15.7 + flurry 6.9).
     expect(extraSwingFactor({ double_attack: 237 })).toBeCloseTo(3.37)
-    expect(extraSwingFactor({ flurry: 10 })).toBeCloseTo(1.2)
+    expect(extraSwingFactor({ flurry: 10 })).toBeCloseTo(1.1)
     expect(extraSwingFactor({ double_attack: 700 })).toBeCloseTo(7)
   })
 

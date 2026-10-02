@@ -437,7 +437,16 @@ async def get_character(request: Request, name: str) -> CharacterResponse:
     sanitised = validate_character_name(name)
     if sanitised is None:
         raise HTTPException(status_code=400, detail="Character name is invalid (must be 1-15 letters).")
-    name = sanitised
+    return await resolve_character_store_first(sanitised)
+
+
+async def resolve_character_store_first(name: str) -> CharacterResponse:
+    """The character read path: hot cache → durable census store (serving
+    stale data instantly with a throttled background refresh) → one live
+    fetch only for a never-seen name. Shared by the character route and
+    the simulator's rotation/character-buffs endpoints so none of them
+    block on (or 404 because of) a down Census. Raises 404 (unknown
+    character) or 503 (never seen and Census unavailable)."""
     cache_key = char_cache_key(name, current_world())
     now = int(time.time())
     STALE_S = CHARACTER_STALE_S
