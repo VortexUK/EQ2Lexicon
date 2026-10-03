@@ -49,6 +49,7 @@ from backend.server.db.raid_planning import store as planning_db
 from backend.server.db.raid_schedule import store as schedule_db
 from backend.server.limiter import limiter, upload_rate_key
 from backend.server.parses.db import store as parses_db
+from backend.server.parses.pet_detection import is_known_pet_name
 from backend.server.server_context import current_world
 
 _log = logging.getLogger(__name__)
@@ -263,7 +264,11 @@ def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | Non
                 if not c.get("ally") or not c.get("is_player"):
                     continue
                 name = _validate_character_name(c.get("name") or "")
-                if name is None:
+                # Known-pet re-check by NAME, not just the persisted flag:
+                # historic combatant rows classified before a pet name joined
+                # the blocklist (Bonecruncher/Mistrunner) still carry
+                # is_player=1, and reconstruction reads exactly those rows.
+                if name is None or is_known_pet_name(name):
                     continue
                 m = members.get(name.lower())
                 if m is None:
@@ -308,7 +313,30 @@ async def reconstruct_attendance(request: Request, guild_name: str, body: Recons
             status_code=404,
             detail="No raid-sized parses found for that evening — nothing to reconstruct from.",
         )
-    members = members[:_MAX_RAID]
+
+    # Best-effort alt→main attribution: a player who swapped characters
+    # mid-night (or raided purely on an alt) credits their MAIN — one roster
+    # row under the main's name with the alts' intervals merged in.
+    # Resolution comes from approved claims + raid-planner roles (the same
+    # table the parser's DKP substitution uses); unclaimed characters keep
+    # their own row.
+    role_rows = await planning_db.get_roles(world, guild)
+    claims = await planning_db.claims_map(world)
+    primaries = await planning_db.primary_claims(world)
+    _, char_mains = derive.resolve_mains(role_rows, claims, primaries)
+    mains_lower = {alt.lower(): main for alt, main in char_mains.items()}
+    merged: dict[str, dict] = {}
+    for m in members:
+        name = str(m["name"])
+        main = mains_lower.get(name.lower(), name)
+        cur = merged.get(main.lower())
+        if cur is None:
+            merged[main.lower()] = {"name": main, "first_seen": m["first_seen"], "last_seen": m["last_seen"]}
+        else:
+            cur["first_seen"] = min(cur["first_seen"], m["first_seen"])
+            cur["last_seen"] = max(cur["last_seen"], m["last_seen"])
+    alts_merged = len(members) - len(merged)
+    members = list(merged.values())[:_MAX_RAID]
 
     import time as _time  # noqa: PLC0415
 
@@ -335,6 +363,7 @@ async def reconstruct_attendance(request: Request, guild_name: str, body: Recons
         day=body.date,
         raid=len(members),
         fights=fight_count,
+        alts_merged=alts_merged,
         merged=result["merged"],
     )
     return {

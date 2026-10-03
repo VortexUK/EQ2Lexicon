@@ -83,9 +83,11 @@ def resolve_mains(
 
     A player's raid main is their claimed character rostered as 'raider' —
     preferring the primary claim when several qualify, else alphabetical.
+    A player with NO rostered raider falls back to their primary claim, so
+    someone who only ever raids on alts still credits their main.
 
-    user_mains: {discord_id: main display name} (players with no rostered
-                raider are absent — a pure-alt player has no main).
+    user_mains: {discord_id: main display name} (players with neither a
+                rostered raider nor a primary claim are absent).
     char_mains: {char display name: main display name} — the parser's
                 DKP-substitution table. Covers every rostered character
                 (raiders map to themselves, rostered alts to their owner's
@@ -106,6 +108,12 @@ def resolve_mains(
     for uid, lowers in candidates.items():
         primary = sorted(lo for lo in lowers if lo in primaries)
         user_mains[uid] = display[(primary or sorted(lowers))[0]]
+    # Primary-claim fallback for players with no rostered raider (sorted so
+    # two primaries for one player — shouldn't happen — stay deterministic).
+    for lower in sorted(primaries):
+        uid = claims.get(lower)
+        if uid is not None and uid not in user_mains:
+            user_mains[uid] = display.get(lower, lower.capitalize())
 
     char_mains: dict[str, str] = {}
     for lower, role in roles.items():

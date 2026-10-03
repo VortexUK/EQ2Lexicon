@@ -82,6 +82,23 @@ def test_stage4_regex_match_is_pet():
     assert out[1] is False, "Auto-pet name should override cls"
 
 
+def test_stage4_fixed_name_pets_are_always_pets():
+    """Deity pets carry constant player-shaped names — never players, even
+    when a raid's bucket-fill has headroom (that's exactly how they leaked
+    into attendance reconstruction before the FIXED_NAME_PETS list)."""
+    from backend.server.parses.pet_detection import FIXED_NAME_PETS, is_known_pet_name
+
+    for name in ("Bonecruncher", "Mistrunner"):
+        assert is_known_pet_name(name), name
+    # Case-insensitive, and the cls signal never outranks the list.
+    out = classify_combatants(
+        [_ally(1, "Bonecruncher"), _ally(2, "mistrunner", cls="Conjuror"), _ally(3, "Menludiir", cls="Wizard")],
+        "raid",
+    )
+    assert out[1] is False and out[2] is False and out[3] is True
+    assert all(n == n.lower() for n in FIXED_NAME_PETS), "set is matched lowercased"
+
+
 def test_stage5_cls_resolved_is_player():
     out = classify_combatants([_ally(1, "Menludiir", cls="Wizard")], "raid")
     assert out[1] is True

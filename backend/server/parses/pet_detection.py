@@ -46,14 +46,26 @@ KNOWN_EXAMPLES = {
     "jentik",
 }
 
+# Fixed-name pets whose names collide with the player-name shape. Unlike the
+# auto-named set these are game-constant NPC pet names (deity pets) — ALWAYS
+# pets, never players, on every server. Also filtered by the attendance
+# reconstruction path (which reads historic combatant rows classified before
+# a name joined this list). Keep in step with EQ2Parser's
+# CombatantClassifier.KnownPetNames (a verbatim port of this pipeline).
+FIXED_NAME_PETS = {
+    "bonecruncher",
+    "mistrunner",
+}
+
 
 # ── Pipeline ────────────────────────────────────────────────────────────
 
 
-def _is_known_pet_name(name: str) -> bool:
-    """Stage 4 helper: regex match OR explicit known-example."""
+def is_known_pet_name(name: str) -> bool:
+    """Stage 4: regex match OR explicit known auto-pet OR fixed-name pet.
+    Public — the attendance reconstruction filter uses it too."""
     lower = name.strip().lower()
-    if lower in KNOWN_EXAMPLES:
+    if lower in KNOWN_EXAMPLES or lower in FIXED_NAME_PETS:
         return True
     return bool(EQ2_PET_PATTERN.match(lower))
 
@@ -110,7 +122,7 @@ def classify_combatants(
         if " " in name:
             pets.append(c)
             continue
-        if _is_known_pet_name(name):
+        if is_known_pet_name(name):
             pets.append(c)
             continue
         if c.get("cls"):

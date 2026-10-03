@@ -828,10 +828,30 @@ def test_resolve_mains_prefers_primary_claim():
 def test_resolve_mains_pure_alt_player_has_no_main():
     from backend.server.attendance import resolve_mains
 
+    # No rostered raider AND no primary claim → genuinely no main.
     rows = _role_rows(Alty="raid_alt")
     user_mains, char_mains = resolve_mains(rows, {"alty": "u1"}, set())
     assert user_mains == {}
     assert char_mains == {"Alty": "Alty"}
+
+
+def test_resolve_mains_falls_back_to_primary_claim_without_rostered_raider():
+    """A player who only ever raids on alts still credits their main: with
+    no rostered raider, the PRIMARY claim is the main (best effort)."""
+    from backend.server.attendance import resolve_mains
+
+    rows = _role_rows(Alty="raid_alt")
+    claims = {"alty": "u1", "mainy": "u1", "loner": "u2"}
+    user_mains, char_mains = resolve_mains(rows, claims, primaries={"mainy"})
+    assert user_mains == {"u1": "Mainy"}
+    assert char_mains["Alty"] == "Mainy"  # rostered alt → fallback main
+    assert char_mains["Mainy"] == "Mainy"  # the unrostered primary itself
+    assert "Loner" not in char_mains  # u2 has no primary → no mapping
+    # A rostered raider still outranks the primary-claim fallback.
+    rows2 = _role_rows(Raidy="raider", Alty="raid_alt")
+    claims2 = {"raidy": "u1", "alty": "u1", "mainy": "u1"}
+    user_mains2, _ = resolve_mains(rows2, claims2, primaries={"mainy"})
+    assert user_mains2 == {"u1": "Raidy"}
 
 
 @pytest.mark.asyncio
@@ -1497,8 +1517,13 @@ def test_parse_roster_sync_clusters_and_filters(parses_db_path):
 
     day = session_day_for(T0)
     # The raid: two fights an hour apart; Latey only shows for the second.
-    _seed_parse_fight(parses_db_path, started_at=T0, players=_SQUAD)
-    _seed_parse_fight(parses_db_path, title="Silverwing", started_at=T0 + 3600, players=(*_SQUAD, "Latey"))
+    # Bonecruncher is a fixed-name pet seeded with is_player=1 — exactly the
+    # stale pre-blocklist classification reconstruction reads — and must be
+    # re-filtered by NAME.
+    _seed_parse_fight(parses_db_path, started_at=T0, players=(*_SQUAD, "Bonecruncher"))
+    _seed_parse_fight(
+        parses_db_path, title="Silverwing", started_at=T0 + 3600, players=(*_SQUAD, "Latey", "Mistrunner")
+    )
     # Noise: a 5-man earlier, another guild's raid, a hidden fight, and a
     # lone raid-sized fight far enough before to be its own (smaller) cluster.
     _seed_parse_fight(parses_db_path, title="Groupmob", started_at=T0 + 300, players=_SQUAD[:5])
@@ -1511,6 +1536,7 @@ def test_parse_roster_sync_clusters_and_filters(parses_db_path):
     assert fights == 2
     by_name = {m["name"]: m for m in members}
     assert len(by_name) == 9
+    assert "Bonecruncher" not in by_name and "Mistrunner" not in by_name
     assert (by_name["Raidera"]["first_seen"], by_name["Raidera"]["last_seen"]) == (T0, T0 + 3600 + 600)
     assert (by_name["Latey"]["first_seen"], by_name["Latey"]["last_seen"]) == (T0 + 3600, T0 + 3600 + 600)
     assert zones == ["Veeshan's Peak"]
@@ -1546,3 +1572,45 @@ async def test_reconstruct_route_creates_session_and_is_rerunnable(app, parses_d
 
     assert missing.status_code == 404
     assert bad.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reconstruct_attributes_alts_to_their_mains(app, parses_db_path):
+    """Character swaps and alt-only nights credit the player's MAIN: Betabonk
+    raids the first fight, swaps to Sennspank for the second → one roster row
+    'Betabonk' spanning both. A player who only brought an alt (Altc) is
+    credited as their primary claim (Mainc). Unclaimed characters keep their
+    own rows — it's all best effort via claims."""
+    from backend.server.db.claims import store as claims_store
+
+    async def _claim(uid: str, char: str, *, primary: bool = False) -> None:
+        claim = await claims_store.submit_claim(uid, char, world=_WORLD)
+        await claims_store.review_claim(claim["id"], "approved", admin_id="admin")
+        if primary:
+            await claims_store.set_primary(uid, claim["id"], world=_WORLD)
+
+    await _claim("u-swap", "Betabonk", primary=True)
+    await _claim("u-swap", "Sennspank")
+    await _claim("u-pure", "Mainc", primary=True)
+    await _claim("u-pure", "Altc")
+
+    day = session_day_for(T0)
+    _seed_parse_fight(parses_db_path, started_at=T0, players=(*_SQUAD[:7], "Betabonk", "Altc"))
+    _seed_parse_fight(
+        parses_db_path, title="Silverwing", started_at=T0 + 3600, players=(*_SQUAD[:7], "Sennspank", "Altc")
+    )
+
+    _, p_officer = _member_gate_patches(officer=True)
+    with p_officer:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            res = await c.post(f"/api/guild/{_GUILD}/attendance/reconstruct", json={"date": day})
+    assert res.status_code == 200, res.text
+    assert res.json()["raid_members"] == 9  # 7 squad + Betabonk + Mainc
+
+    obs = await attendance_db.observations_for_session(res.json()["session_id"])
+    raid = {o["character_name"]: o for o in obs if o["kind"] == "raid"}
+    assert "Sennspank" not in raid and "Altc" not in raid
+    # The swap's time lands on the main, spanning BOTH fights.
+    assert (raid["Betabonk"]["first_seen"], raid["Betabonk"]["last_seen"]) == (T0, T0 + 3600 + 600)
+    # The alt-only player is credited as their primary claim.
+    assert (raid["Mainc"]["first_seen"], raid["Mainc"]["last_seen"]) == (T0, T0 + 3600 + 600)
