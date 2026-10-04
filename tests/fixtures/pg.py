@@ -102,14 +102,22 @@ def provision_for_session() -> None:
         print("[pg-fixtures] another pytest session holds the test database — waiting for it to finish...")
         _session_lock_conn.execute("SELECT pg_advisory_lock(%s)", (_SESSION_LOCK_ID,))
 
+    # Family schemas are derived from the migration files' two-line headers,
+    # so adding 0003_census.sql etc. needs no fixture change.
+    families: list[str] = []
+    for path in pg_migrate.migration_files():
+        first = path.read_text(encoding="utf-8").splitlines()[0].strip().lower()
+        if first.startswith("create schema if not exists "):
+            families.append(first.removeprefix("create schema if not exists ").rstrip(";").strip())
     with pg.connection() as conn:
         # Drop the ledger so pg_migrate re-applies everything, then the
         # session schemas and any scratch schemas a crashed run left over.
         conn.execute("DROP TABLE IF EXISTS public.schema_migrations")
-        conn.execute("DROP SCHEMA IF EXISTS users CASCADE")
-        rows = conn.execute("SELECT nspname FROM pg_namespace WHERE nspname LIKE 'users\\_s%'").fetchall()
-        for r in rows:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{r["nspname"]}" CASCADE')
+        for fam in families:
+            conn.execute(pgsql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(pgsql.Identifier(fam)))
+            rows = conn.execute("SELECT nspname FROM pg_namespace WHERE nspname LIKE %s", (fam + r"\_s%",)).fetchall()
+            for r in rows:
+                conn.execute(pgsql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(pgsql.Identifier(r["nspname"])))
         conn.commit()
     pg_migrate.run()
 
