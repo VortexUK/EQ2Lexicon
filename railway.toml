@@ -2,15 +2,12 @@
 builder = "nixpacks"
 
 [deploy]
-# Start sequence (see litestream.yml for context):
-#   1. Make sure the volume dirs exist (first deploy after volume creation).
-#   2. Restore both DBs from R2 if-replica-exists (no-op if the volume
-#      already has them, recovers them if the volume was wiped, and skipped
-#      cleanly when the R2 env vars aren't set yet — `|| true`).
-#   3. Exec the app under litestream's supervision so every write is
-#      streamed to R2 in near-real-time.
-# The trailing `exec` matters: litestream then becomes PID 1's child and
-# Railway's restart policy applies to the app process correctly.
+# Start sequence (post-Postgres-migration):
+#   1. Make sure the read-only catalogue mirror dirs exist on the volume
+#      (items/spells/recipes are still hand-copied SQLite files; the
+#      writable families live in Supabase Postgres — DATABASE_URL).
+#   2. Exec the app. Schema migrations run inside the app lifespan
+#      (backend/pg_migrate.py) — a deploy IS a migration run.
 #
 # Python binary discovery (2026-05-27): we MUST use the project's venv
 # (`/app/.venv/bin/python`) — that's where `uv sync` installed the
@@ -24,16 +21,17 @@ builder = "nixpacks"
 # dump of every candidate runs unconditionally so any future Nixpacks
 # layout change is visible in the first 10 log lines without another
 # round-trip through build logs.
-startCommand = "set -x; USERS_DB=${DB_USERS_PATH:-/app/data/users.db}; PARSES_DB=${DB_PARSES_PATH:-/app/data/parses/parses.db}; ZONES_DB=${DB_ZONES_PATH:-/app/data/zones/zones.db}; RAIDS_DB=${DB_RAIDS_PATH:-/app/data/raids/raids.db}; mkdir -p \"$(dirname \"$USERS_DB\")\" \"$(dirname \"$PARSES_DB\")\" \"$(dirname \"$ZONES_DB\")\" \"$(dirname \"$RAIDS_DB\")\"; echo '=== python path discovery ==='; (which python python3 2>&1 || true); (ls -la /app/.venv/bin/ 2>&1 | head -20 || true); (ls -la /opt/venv/bin/ 2>&1 | head -20 || true); echo \"PATH=$PATH\"; echo '=== end discovery ==='; PYTHON_BIN=''; for c in /app/.venv/bin/python /opt/venv/bin/python; do if [ -x \"$c\" ]; then PYTHON_BIN=\"$c\"; break; fi; done; if [ -z \"$PYTHON_BIN\" ]; then PYTHON_BIN=$(command -v python || command -v python3 || echo ''); fi; if [ -z \"$PYTHON_BIN\" ]; then echo 'FATAL: no python found in project venv or on PATH' >&2; exit 78; fi; echo \"Resolved Python: $PYTHON_BIN\"; echo \"Resolved DB paths for litestream: USERS=$USERS_DB PARSES=$PARSES_DB ZONES=$ZONES_DB RAIDS=$RAIDS_DB\"; (litestream restore -if-replica-exists -config /app/litestream.yml \"$USERS_DB\" || true); (litestream restore -if-replica-exists -config /app/litestream.yml \"$PARSES_DB\" || true); (litestream restore -if-replica-exists -config /app/litestream.yml \"$ZONES_DB\" || true); (litestream restore -if-replica-exists -config /app/litestream.yml \"$RAIDS_DB\" || true); exec litestream replicate -config /app/litestream.yml -exec \"$PYTHON_BIN main.py\""
+startCommand = "set -x; ITEMS_DB=${DB_ITEMS_PATH:-/app/data/items/items.db}; SPELLS_DB=${DB_SPELLS_PATH:-/app/data/spells/spells.db}; RECIPES_DB=${DB_RECIPES_PATH:-/app/data/recipes/recipes.db}; mkdir -p \"$(dirname \"$ITEMS_DB\")\" \"$(dirname \"$SPELLS_DB\")\" \"$(dirname \"$RECIPES_DB\")\"; echo '=== python path discovery ==='; (which python python3 2>&1 || true); (ls -la /app/.venv/bin/ 2>&1 | head -20 || true); (ls -la /opt/venv/bin/ 2>&1 | head -20 || true); echo \"PATH=$PATH\"; echo '=== end discovery ==='; PYTHON_BIN=''; for c in /app/.venv/bin/python /opt/venv/bin/python; do if [ -x \"$c\" ]; then PYTHON_BIN=\"$c\"; break; fi; done; if [ -z \"$PYTHON_BIN\" ]; then PYTHON_BIN=$(command -v python || command -v python3 || echo ''); fi; if [ -z \"$PYTHON_BIN\" ]; then echo 'FATAL: no python found in project venv or on PATH' >&2; exit 78; fi; echo \"Resolved Python: $PYTHON_BIN\"; exec \"$PYTHON_BIN\" main.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 # Don't route traffic (or call the deploy live) until the app actually
 # serves — without this Railway switches the edge to the new container the
-# moment it starts, while litestream restore + python imports + lifespan
-# are still running, and every request 502s through Cloudflare. NOTE: with
-# an attached volume Railway still deploys WITH downtime (the volume can
-# only mount one container), so the goal is a window of a few seconds:
-# fast old-process exit (see main.py signal handling) + gated cutover here.
+# moment it starts, while python imports + lifespan (pool open + pending
+# migrations) are still running, and every request 502s through
+# Cloudflare. NOTE: with an attached volume Railway still deploys WITH
+# downtime (the volume can only mount one container), so the goal is a
+# window of a few seconds: fast old-process exit (see main.py signal
+# handling) + gated cutover here.
 healthcheckPath = "/api/health"
 healthcheckTimeout = 300
 watchPaths = ["**", "!ops/**", "!docs/**"]

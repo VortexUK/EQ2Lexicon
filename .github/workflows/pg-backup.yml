@@ -1,0 +1,58 @@
+name: Nightly Postgres backup
+
+# pg_dump of the five family schemas → Cloudflare R2 (the bucket litestream
+# used pre-migration, repurposed). Restore drill:
+#   pg_restore -d "$DATABASE_URL" --clean --if-exists eq2lexicon-<ts>.dump
+# Secrets: SUPABASE_DB_URL (session pooler, sslmode=require), R2_ENDPOINT,
+# R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"  # 04:17 UTC daily
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: pg_dump (family schemas only)
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          ts=$(date -u +%Y%m%dT%H%M%SZ)
+          dump="eq2lexicon-$ts.dump"
+          # Only our schemas — Supabase-internal schemas (auth/storage/…)
+          # are not ours to dump and would fail on permissions.
+          pg_dump -Fc -d "$DATABASE_URL" \
+            -n users -n parses -n census -n zones -n raids -n public \
+            -f "$dump"
+          ls -la "$dump"
+          echo "DUMP=$dump" >> "$GITHUB_ENV"
+
+      - name: Upload to R2 and prune dumps older than 30 days
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          aws s3 cp "$DUMP" "s3://$R2_BUCKET/pgdump/$DUMP" --endpoint-url "$R2_ENDPOINT"
+          cutoff=$(date -u -d '30 days ago' +%Y%m%dT%H%M%SZ)
+          aws s3 ls "s3://$R2_BUCKET/pgdump/" --endpoint-url "$R2_ENDPOINT" \
+            | awk '{print $4}' \
+            | while read -r f; do
+                [ -n "$f" ] || continue
+                tspart=$(printf '%s' "$f" | sed -E 's/^eq2lexicon-([0-9TZ]+)\.dump$/\1/')
+                if [ "$tspart" != "$f" ] && [ "$tspart" \< "$cutoff" ]; then
+                  echo "pruning $f"
+                  aws s3 rm "s3://$R2_BUCKET/pgdump/$f" --endpoint-url "$R2_ENDPOINT"
+                fi
+              done
