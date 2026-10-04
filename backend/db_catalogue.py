@@ -313,6 +313,7 @@ class AsyncStoreBase(PathBound):
                 db.row_factory = aiosqlite.Row
             yield db
 
+
 # ---------------------------------------------------------------------------
 # Postgres bases — the migrated families (users / parses / census / zones /
 # raids). One database, one schema per family; connections come from

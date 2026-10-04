@@ -1,7 +1,7 @@
 """Raid-schedule DB layer + API tests.
 
-DB layer is exercised against a temp users.db (stores re-pointed by the
-autouse fixture). The API is
+DB layer is exercised against a leased scratch Postgres schema (stores
+re-pointed by the autouse fixture). The API is
 tested with the ``app`` fixture: a signed session cookie for auth + mocked
 ``_officer_chars`` / db helpers (same pattern as test_item_watch_routes.py).
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import itsdangerous
@@ -18,9 +17,8 @@ import pytest
 from better_profanity import profanity
 from httpx import ASGITransport, AsyncClient
 
-from backend.server.db import init_db
 from backend.server.db.raid_schedule import store as rs
-from tests.fixtures.users_db import point_users_db_at
+from tests.fixtures.pg import pg_conn
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
@@ -37,30 +35,36 @@ def sentinel_profanity():
 
 
 # ---------------------------------------------------------------------------
-# DB layer (temp users.db)
+# DB layer (leased scratch schema)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)  # creates raid_teams / raid_slots (+ asserts schema)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point users.db (constant + every domain store) at this test's temp DB."""
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
+
+
+def _ensure_user(schema: str, discord_id: str) -> None:
+    """raid_teams.updated_by is an enforced FK to users on Postgres —
+    seed the id the DB-layer tests write with."""
+    with pg_conn(schema) as conn:
+        conn.execute(
+            "INSERT INTO users (discord_id, discord_name, access_status) "
+            "VALUES (%s, %s, 'approved') ON CONFLICT (discord_id) DO NOTHING",
+            (discord_id, discord_id),
+        )
 
 
 async def test_replace_then_get_round_trips(users_db):
+    _ensure_user(users_db, "disc1")
     teams = [
         {
             "name": "Team 1",
             "primary_tz": "America/New_York",
             "twitch_login": "foochan",
-            "raids": [{"days": "2,4", "start_min": 1200, "end_min": 1380, "label": "Prog"}],
+            "raids": [{"days": [2, 4], "start_min": 1200, "end_min": 1380, "label": "Prog"}],
         }
     ]
     await rs.replace_schedule("Varsoon", "Exordium", teams, "disc1")
@@ -68,11 +72,12 @@ async def test_replace_then_get_round_trips(users_db):
     assert len(got) == 1
     assert got[0]["name"] == "Team 1"
     assert got[0]["twitch_login"] == "foochan"
-    assert got[0]["raids"][0]["days"] == "2,4"
+    assert got[0]["raids"][0]["days"] == [2, 4]
     assert got[0]["raids"][0]["start_min"] == 1200
 
 
 async def test_replace_is_a_full_replace_and_scoped(users_db):
+    _ensure_user(users_db, "disc1")
     await rs.replace_schedule(
         "Varsoon",
         "Exordium",
@@ -181,7 +186,7 @@ async def test_put_officer_saves_and_converts(app):
     team = saved_teams[0]
     assert team["twitch_login"] == "mychannel"  # url → login
     assert team["raids"][0]["start_min"] == 1200  # "20:00" → minutes
-    assert team["raids"][0]["days"] == "2,4"
+    assert team["raids"][0]["days"] == [2, 4]
 
 
 async def test_put_rejects_too_many_teams(app):

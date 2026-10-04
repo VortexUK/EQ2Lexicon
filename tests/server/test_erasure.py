@@ -15,12 +15,12 @@ from unittest.mock import patch
 import itsdangerous
 import pytest
 from httpx import ASGITransport, AsyncClient
+from psycopg.types.json import Json
 
-from backend.server.db import init_db
 from backend.server.db.erasure import DELETED_SOURCE_DSN, DELETED_USER_ID, erase_user_sync
 from backend.server.parses import db as pdb
+from tests.fixtures.pg import pg_conn
 from tests.fixtures.users import make_fake_admin
-from tests.fixtures.users_db import point_users_db_at
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 VICTIM = "111"
@@ -28,11 +28,11 @@ OTHER = "222"
 NOW = 1_800_000_000
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
+@pytest.fixture(autouse=True)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 @pytest.fixture
@@ -43,79 +43,76 @@ def parses_db(tmp_path, monkeypatch) -> Path:
     return db
 
 
-@pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
-
-
-def _seed_users(db: Path) -> None:
-    with sqlite3.connect(db) as c:
+def _seed_users(schema: str) -> None:
+    with pg_conn(schema) as c:
         for uid, name in ((VICTIM, "Victim"), (OTHER, "Other")):
             c.execute(
                 "INSERT INTO users (discord_id, discord_name, discord_username, first_seen, last_seen, access_status) "
-                "VALUES (?, ?, ?, ?, ?, 'approved')",
+                "VALUES (%s, %s, %s, %s, %s, 'approved')",
                 (uid, name, name.lower(), NOW, NOW),
             )
         c.execute(
-            "INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, created_at) VALUES (?, 'act', 'h1', 'eq2c_aaaa', ?)",
+            "INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, created_at) VALUES (%s, 'act', 'h1', 'eq2c_aaaa', %s)",
             (VICTIM, NOW),
         )
         c.execute(
-            "INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, created_at) VALUES (?, 'act', 'h2', 'eq2c_bbbb', ?)",
+            "INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, created_at) VALUES (%s, 'act', 'h2', 'eq2c_bbbb', %s)",
             (OTHER, NOW),
         )
-        c.execute("INSERT INTO user_roles (discord_id, role, granted_by) VALUES (?, 'supporter', ?)", (VICTIM, OTHER))
-        c.execute("INSERT INTO user_roles (discord_id, role, granted_by) VALUES (?, 'contributor', ?)", (OTHER, VICTIM))
+        c.execute("INSERT INTO user_roles (discord_id, role, granted_by) VALUES (%s, 'supporter', %s)", (VICTIM, OTHER))
+        c.execute(
+            "INSERT INTO user_roles (discord_id, role, granted_by) VALUES (%s, 'contributor', %s)", (OTHER, VICTIM)
+        )
         c.execute(
             "INSERT INTO character_claims (discord_id, character_name, status, requested_at, reviewed_by, world) "
-            "VALUES (?, 'Sihtric', 'approved', ?, ?, 'Varsoon')",
+            "VALUES (%s, 'Sihtric', 'approved', %s, %s, 'Varsoon')",
             (VICTIM, NOW, OTHER),
         )
         c.execute(
             "INSERT INTO character_claims (discord_id, character_name, status, requested_at, reviewed_by, world) "
-            "VALUES (?, 'Alt', 'approved', ?, ?, 'Varsoon')",
+            "VALUES (%s, 'Alt', 'approved', %s, %s, 'Varsoon')",
             (OTHER, NOW, VICTIM),
         )
         c.execute(
-            "INSERT INTO character_favorites (discord_id, character_name, world) VALUES (?, 'Alt', 'Varsoon')",
+            "INSERT INTO character_favorites (discord_id, character_name, world) VALUES (%s, 'Alt', 'Varsoon')",
             (VICTIM,),
         )
-        c.execute("INSERT INTO download_events (discord_id, slug) VALUES (?, 'act-plugin')", (VICTIM,))
+        c.execute("INSERT INTO download_events (discord_id, slug) VALUES (%s, 'act-plugin')", (VICTIM,))
         c.execute(
             "INSERT INTO attendance_sessions (world, guild_name, session_day, seq, started_at, ended_at, uploaders) "
-            "VALUES ('Varsoon', 'Exordium', '2026-09-20', 0, ?, ?, ?)",
-            (NOW, NOW + 3600, json.dumps({VICTIM: NOW, OTHER: NOW})),
+            "VALUES ('Varsoon', 'Exordium', '2026-09-20', 0, %s, %s, %s)",
+            (NOW, NOW + 3600, Json({VICTIM: NOW, OTHER: NOW})),
         )
-        sid = c.execute("SELECT id FROM attendance_sessions").fetchone()[0]
+        sid = c.execute("SELECT id FROM attendance_sessions").fetchone()["id"]
         c.execute(
             "INSERT INTO attendance_observations (session_id, character_name, kind, first_seen, last_seen) "
-            "VALUES (?, ?, 'voice', ?, ?)",
+            "VALUES (%s, %s, 'voice', %s, %s)",
             (sid, VICTIM, NOW, NOW),
         )
         c.execute(
             "INSERT INTO attendance_observations (session_id, character_name, kind, first_seen, last_seen) "
-            "VALUES (?, ?, 'voice', ?, ?)",
+            "VALUES (%s, %s, 'voice', %s, %s)",
             (sid, OTHER, NOW, NOW),
         )
         c.execute(
             "INSERT INTO attendance_observations (session_id, character_name, kind, first_seen, last_seen) "
-            "VALUES (?, 'Sihtric', 'raid', ?, ?)",
+            "VALUES (%s, 'Sihtric', 'raid', %s, %s)",
             (sid, NOW, NOW),
         )
         c.execute(
-            "INSERT INTO attendance_overrides (session_id, character_name, category, set_by) VALUES (?, 'Alt', 'afk', ?)",
+            "INSERT INTO attendance_overrides (session_id, character_name, category, set_by) VALUES (%s, 'Alt', 'afk', %s)",
             (sid, VICTIM),
         )
         c.execute(
             "INSERT INTO guild_settings (world, guild_name, officers_can_delete_parses, updated_by) "
-            "VALUES ('Varsoon', 'Exordium', 0, ?)",
+            "VALUES ('Varsoon', 'Exordium', 0, %s)",
             (VICTIM,),
         )
         c.execute(
             "INSERT INTO guild_recruitment (world, guild_id, guild_name, recruiting, description, updated_by, "
             "logo, logo_media_type, logo_uploaded_by, logo_uploaded_at) "
-            "VALUES ('Varsoon', 42, 'Exordium', 1, 'We raid.', ?, X'01', 'image/webp', ?, ?)",
-            (VICTIM, VICTIM, NOW),
+            "VALUES ('Varsoon', 42, 'Exordium', 1, 'We raid.', %s, %s, 'image/webp', %s, %s)",
+            (VICTIM, b"\x01", VICTIM, NOW),
         )
 
 
@@ -149,8 +146,15 @@ def _seed_parses(db: Path) -> None:
 
 
 def _count(db: Path, sql: str, *params) -> int:
+    """parses.db (still SQLite) — ``?`` placeholders."""
     with sqlite3.connect(db) as c:
         return c.execute(sql, params).fetchone()[0]
+
+
+def _count_u(schema: str, sql: str, *params) -> int:
+    """users schema (Postgres) — ``%s`` placeholders, COUNT aliased AS n."""
+    with pg_conn(schema) as c:
+        return c.execute(sql, params).fetchone()["n"]
 
 
 # ---------------------------------------------------------------------------
@@ -162,42 +166,47 @@ def test_erase_removes_owned_rows_tombstones_authorship_and_strips_uploads(users
     _seed_users(users_db)
     _seed_parses(parses_db)
 
-    result = erase_user_sync(VICTIM, users_path=users_db, parses_path=parses_db, now=NOW)
+    result = erase_user_sync(VICTIM, users_schema=users_db, parses_path=parses_db, now=NOW)
 
     assert result.found is True
     # Owned rows gone; the other user's rows intact.
-    assert _count(users_db, "SELECT COUNT(*) FROM users WHERE discord_id = ?", VICTIM) == 0
-    assert _count(users_db, "SELECT COUNT(*) FROM users WHERE discord_id = ?", OTHER) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM api_tokens WHERE user_id = ?", VICTIM) == 0
-    assert _count(users_db, "SELECT COUNT(*) FROM api_tokens WHERE user_id = ?", OTHER) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM user_roles WHERE discord_id = ?", VICTIM) == 0
-    assert _count(users_db, "SELECT COUNT(*) FROM character_claims WHERE discord_id = ?", VICTIM) == 0
-    assert _count(users_db, "SELECT COUNT(*) FROM character_claims WHERE discord_id = ?", OTHER) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM character_favorites WHERE discord_id = ?", VICTIM) == 0
-    assert _count(users_db, "SELECT COUNT(*) FROM download_events WHERE discord_id = ?", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", OTHER) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = %s", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = %s", OTHER) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM user_roles WHERE discord_id = %s", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM character_claims WHERE discord_id = %s", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM character_claims WHERE discord_id = %s", OTHER) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM character_favorites WHERE discord_id = %s", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM download_events WHERE discord_id = %s", VICTIM) == 0
     # Authorship tombstoned to the placeholder row, which now exists.
-    assert _count(users_db, "SELECT COUNT(*) FROM users WHERE discord_id = ?", DELETED_USER_ID) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM character_claims WHERE reviewed_by = ?", VICTIM) == 0
-    assert _count(users_db, "SELECT COUNT(*) FROM character_claims WHERE reviewed_by = ?", DELETED_USER_ID) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM user_roles WHERE granted_by = ?", DELETED_USER_ID) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM attendance_overrides WHERE set_by = ?", DELETED_USER_ID) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM guild_settings WHERE updated_by = ?", DELETED_USER_ID) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", DELETED_USER_ID) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM character_claims WHERE reviewed_by = %s", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM character_claims WHERE reviewed_by = %s", DELETED_USER_ID) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM user_roles WHERE granted_by = %s", DELETED_USER_ID) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM attendance_overrides WHERE set_by = %s", DELETED_USER_ID) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM guild_settings WHERE updated_by = %s", DELETED_USER_ID) == 1
     # Recruitment: both author columns tombstoned; the guild's profile text
     # and logo blob stay (guild assets, not the person's data).
-    assert _count(users_db, "SELECT COUNT(*) FROM guild_recruitment WHERE updated_by = ?", DELETED_USER_ID) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM guild_recruitment WHERE logo_uploaded_by = ?", DELETED_USER_ID) == 1
-    with sqlite3.connect(users_db) as c:
-        logo, desc = c.execute("SELECT logo, description FROM guild_recruitment").fetchone()
-    assert logo == b"\x01" and desc == "We raid."
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM guild_recruitment WHERE updated_by = %s", DELETED_USER_ID) == 1
+    assert (
+        _count_u(users_db, "SELECT COUNT(*) AS n FROM guild_recruitment WHERE logo_uploaded_by = %s", DELETED_USER_ID)
+        == 1
+    )
+    with pg_conn(users_db) as c:
+        row = c.execute("SELECT logo, description FROM guild_recruitment").fetchone()
+    assert bytes(row["logo"]) == b"\x01" and row["description"] == "We raid."
     assert result.tombstoned["character_claims.reviewed_by"] == 1
     # Voice rows for the victim gone, the other person's and the raid row kept.
-    assert _count(users_db, "SELECT COUNT(*) FROM attendance_observations WHERE character_name = ?", VICTIM) == 0
-    assert _count(users_db, "SELECT COUNT(*) FROM attendance_observations WHERE character_name = ?", OTHER) == 1
-    assert _count(users_db, "SELECT COUNT(*) FROM attendance_observations WHERE kind = 'raid'") == 1
+    assert (
+        _count_u(users_db, "SELECT COUNT(*) AS n FROM attendance_observations WHERE character_name = %s", VICTIM) == 0
+    )
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM attendance_observations WHERE character_name = %s", OTHER) == 1
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM attendance_observations WHERE kind = 'raid'") == 1
     assert result.voice_observations_deleted == 1
-    # Uploaders audit scrubbed.
-    with sqlite3.connect(users_db) as c:
-        uploaders = json.loads(c.execute("SELECT uploaders FROM attendance_sessions").fetchone()[0])
+    # Uploaders audit scrubbed (jsonb — comes back parsed).
+    with pg_conn(users_db) as c:
+        uploaders = c.execute("SELECT uploaders FROM attendance_sessions").fetchone()["uploaders"]
     assert uploaders == {OTHER: NOW}
     assert result.sessions_scrubbed == 1
     # parses.db: uploads stay, identity stripped; hidden_by cleared; reports gone.
@@ -215,11 +224,11 @@ def test_erase_removes_owned_rows_tombstones_authorship_and_strips_uploads(users
 
 def test_erase_is_idempotent_and_never_touches_the_tombstone(users_db, parses_db):
     _seed_users(users_db)
-    assert erase_user_sync(VICTIM, users_path=users_db, parses_path=parses_db, now=NOW).found is True
-    again = erase_user_sync(VICTIM, users_path=users_db, parses_path=parses_db, now=NOW)
+    assert erase_user_sync(VICTIM, users_schema=users_db, parses_path=parses_db, now=NOW).found is True
+    again = erase_user_sync(VICTIM, users_schema=users_db, parses_path=parses_db, now=NOW)
     assert again.found is False
-    assert erase_user_sync(DELETED_USER_ID, users_path=users_db, parses_path=parses_db).found is False
-    assert _count(users_db, "SELECT COUNT(*) FROM users WHERE discord_id = ?", DELETED_USER_ID) == 1
+    assert erase_user_sync(DELETED_USER_ID, users_schema=users_db, parses_path=parses_db).found is False
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", DELETED_USER_ID) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +262,7 @@ async def test_admin_erase_route(app, users_db, parses_db):
     assert selfie.status_code == 400
     assert audit.call_args.args[0] == "user_erased"
     assert audit.call_args.kwargs["discord_id"] == VICTIM
-    assert _count(users_db, "SELECT COUNT(*) FROM users WHERE discord_id = ?", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", VICTIM) == 0
 
 
 async def test_admin_erase_requires_admin(app):
@@ -270,7 +279,7 @@ async def test_self_service_erase_requires_typed_username_and_clears_session(app
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", cookies=cookies) as client:
             wrong = await client.request("DELETE", "/api/auth/me", json={"confirm": "someone-else"})
             assert wrong.status_code == 400
-            assert _count(users_db, "SELECT COUNT(*) FROM users WHERE discord_id = ?", VICTIM) == 1
+            assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", VICTIM) == 1
             ok = await client.request("DELETE", "/api/auth/me", json={"confirm": " Victim "})
             assert ok.status_code == 200
             assert ok.json()["ok"] is True
@@ -280,7 +289,7 @@ async def test_self_service_erase_requires_typed_username_and_clears_session(app
     assert "session=null" in set_cookie and "1970" in set_cookie
     assert audit.call_args.args[0] == "user_erased"
     assert audit.call_args.kwargs["self_service"] is True
-    assert _count(users_db, "SELECT COUNT(*) FROM users WHERE discord_id = ?", VICTIM) == 0
+    assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", VICTIM) == 0
     assert _count(parses_db, "SELECT COUNT(*) FROM encounters WHERE source_dsn = ?", DELETED_SOURCE_DSN) == 1
 
 

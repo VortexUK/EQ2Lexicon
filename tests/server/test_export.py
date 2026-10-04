@@ -13,8 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.server.db import init_db
-from tests.fixtures.users_db import point_users_db_at
+from tests.fixtures.pg import pg_conn
 from tests.server._parses_ingest_fixtures import _fake_require_user, _minimal_payload, _signed_post_kwargs
 
 # ---------------------------------------------------------------------------
@@ -22,16 +21,11 @@ from tests.server._parses_ingest_fixtures import _fake_require_user, _minimal_pa
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 @pytest.fixture
@@ -48,12 +42,16 @@ def isolated_parses_db(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return p
 
 
-def _grant_api(users_db: Path, discord_id: str = "discord-123") -> None:
-    import sqlite3
-
-    with sqlite3.connect(users_db) as conn:
+def _grant_api(users_db: str, discord_id: str = "discord-123") -> None:
+    with pg_conn(users_db) as conn:
+        # user_roles.discord_id FK is enforced on Postgres — seed the user row.
         conn.execute(
-            "INSERT OR IGNORE INTO user_roles (discord_id, role, granted_by) VALUES (?, 'api', 'test')",
+            "INSERT INTO users (discord_id, discord_name, access_status) VALUES (%s, %s, 'approved') "
+            "ON CONFLICT DO NOTHING",
+            (discord_id, discord_id),
+        )
+        conn.execute(
+            "INSERT INTO user_roles (discord_id, role, granted_by) VALUES (%s, 'api', 'test') ON CONFLICT DO NOTHING",
             (discord_id,),
         )
 

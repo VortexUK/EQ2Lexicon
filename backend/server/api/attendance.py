@@ -16,7 +16,6 @@ and the availability calendar.
 from __future__ import annotations
 
 import datetime as dt
-import json
 import logging
 import sqlite3
 from typing import cast
@@ -474,7 +473,7 @@ async def list_attendance(request: Request, guild_name: str, limit: int = 25, be
         out.append(
             {
                 **s,
-                "zones": json.loads(s["zones"] or "[]"),
+                "zones": s["zones"] or [],  # jsonb — psycopg hands back the parsed list
                 "scheduled": bool(s["scheduled"]),
                 "counts": derive.session_counts(char_rows),
             }
@@ -596,9 +595,9 @@ async def get_attendance_session(request: Request, guild_name: str, session_id: 
                 row["timeline_by"] = display.get(segs[0]["set_by"]) or segs[0]["set_by"]
 
     session["scheduled"] = bool(session["scheduled"])
-    session["zones"] = json.loads(session["zones"] or "[]")
+    session["zones"] = session["zones"] or []  # jsonb — already parsed
     # Uploader discord ids are an audit detail — officers only.
-    session["uploaders"] = sorted(json.loads(session["uploaders"] or "{}")) if is_officer else None
+    session["uploaders"] = sorted(session["uploaders"] or {}) if is_officer else None
     return {"is_officer": is_officer, "session": session, "characters": char_rows, "users": user_rows}
 
 

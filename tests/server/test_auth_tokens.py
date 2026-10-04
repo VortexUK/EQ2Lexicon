@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import psycopg
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from tests.fixtures.users_db import point_users_db_at
+from tests.fixtures.pg import pg_conn
 
 
 def _fake_session_user(request=None) -> dict:
@@ -150,28 +151,21 @@ async def test_revoke_404_when_token_missing_or_not_yours(app):
 
 
 # ---------------------------------------------------------------------------
-# DB-layer unit tests (use a temp file DB)
+# DB-layer unit tests (use an isolated leased schema)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def tmp_users_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "users.db"
-    from backend.server import db as users_db
-
-    # init_db creates schema; point every domain store at the temp path.
-    users_db.init_db(db_path)
-    point_users_db_at(monkeypatch, db_path)
-    # Seed a user row so the FK on api_tokens.user_id is satisfied.
-    import sqlite3 as _sqlite3
-
-    with _sqlite3.connect(db_path) as conn:
+def tmp_users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``) — every
+    store already points at it. Seed a user row so the FK on
+    api_tokens.user_id is satisfied (enforced on Postgres)."""
+    with pg_conn(users_schema) as conn:
         conn.execute(
-            "INSERT INTO users (discord_id, discord_name, access_status) VALUES (?, ?, ?)",
+            "INSERT INTO users (discord_id, discord_name, access_status) VALUES (%s, %s, %s)",
             ("user-123", "Alice", "approved"),
         )
-        conn.commit()
-    return db_path
+    return users_schema
 
 
 @pytest.mark.asyncio
@@ -209,16 +203,24 @@ async def test_db_lookup_rejects_garbage(tmp_users_db):
 
 @pytest.mark.asyncio
 async def test_db_lookup_survives_failed_last_used_touch(tmp_users_db, monkeypatch):
-    """The last-used bump is COSMETIC — a busy users.db there must never
-    fail token auth (live 2026-09-12: a raid-night upload burst hit
+    """The last-used bump is COSMETIC — a busy DB there must never fail
+    token auth (live 2026-09-12: a raid-night upload burst hit
     'database is locked' on the touch and 500d /attendance/ingest)."""
     from backend.server import db as users_db
     from backend.server.db import tokens as tokens_mod
 
     raw, _ = await users_db.mint_api_token("user-123", "First")
-    # Force the touch to blow up with OperationalError (same family the
-    # locked-database failure raises).
-    monkeypatch.setitem(tokens_mod._SQL, "update_last_used_at", "UPDATE no_such_table SET x = ? WHERE y = ?")
+    # Force the touch to blow up with OperationalError (the transient
+    # connection-trouble family the store deliberately swallows).
+    touch_sql = tokens_mod._SQL["update_last_used_at"]
+    orig_execute = psycopg.AsyncConnection.execute
+
+    async def _exec(self, query, *args, **kwargs):
+        if query == touch_sql:
+            raise psycopg.OperationalError("simulated connection failure during touch")
+        return await orig_execute(self, query, *args, **kwargs)
+
+    monkeypatch.setattr(psycopg.AsyncConnection, "execute", _exec)
 
     found = await users_db.lookup_api_token(raw)
     assert found is not None
@@ -229,16 +231,13 @@ async def test_db_lookup_survives_failed_last_used_touch(tmp_users_db, monkeypat
 @pytest.mark.asyncio
 async def test_db_revoke_scoped_to_user(tmp_users_db):
     """A user can't revoke another user's token."""
-    import sqlite3 as _sqlite3
-
     from backend.server import db as users_db
 
-    with _sqlite3.connect(tmp_users_db) as conn:
+    with pg_conn(tmp_users_db) as conn:
         conn.execute(
-            "INSERT INTO users (discord_id, discord_name, access_status) VALUES (?, ?, ?)",
+            "INSERT INTO users (discord_id, discord_name, access_status) VALUES (%s, %s, %s)",
             ("user-456", "Bob", "approved"),
         )
-        conn.commit()
 
     raw_alice, row_alice = await users_db.mint_api_token("user-123", "Alice's")
     # Bob tries to revoke Alice's token
@@ -339,15 +338,17 @@ async def test_whoami_returns_empty_allowed_servers_when_unset(app):
 
 
 @pytest.mark.asyncio
-async def test_whoami_returns_static_roles(app):
+async def test_whoami_returns_static_roles(app, users_schema):
     """static_roles carries DB-granted roles — EQ2Parser reads it (plus
     is_admin) to decide whether to show its Raid tab (the attendance
     limited-preview gate)."""
+    from backend.server import db as users_db
+
+    # user_roles.discord_id FK is enforced on Postgres — seed the user row.
+    await users_db.upsert_user(discord_id="user-non-admin", discord_name="alice", discord_username="alice", avatar=None)
     with patch("backend.server.api.auth_tokens.require_user_session_or_token", _fake_token_user):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             before = (await client.get("/api/auth/whoami")).json()
-            from backend.server import db as users_db
-
             await users_db.grant_role("user-non-admin", "subscriber", granted_by="test")
             after = (await client.get("/api/auth/whoami")).json()
     assert before["static_roles"] == []

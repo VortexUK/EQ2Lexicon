@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 
 from backend.server.api.rankings import _apply_era_lock
-from backend.server.db import init_db
 from backend.server.db.servers import store as servers_db
 from backend.server.xpac_rollover import (
     XPAC_MAX_LEVEL,
@@ -16,19 +14,15 @@ from backend.server.xpac_rollover import (
     parse_dt,
     rollover_due,
 )
-from tests.fixtures.users_db import point_users_db_at
-
-
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
 
 
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``. The seeds already contain the
+    Varsoon (default) + Wuoshi server rows at max_level 70; ``_seed`` below
+    UPDATEs them in place."""
+    return users_schema
 
 
 _NOW = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)

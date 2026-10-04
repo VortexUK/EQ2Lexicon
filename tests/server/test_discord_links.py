@@ -2,25 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from backend.server.db import init_db
 from backend.server.db.discord_links import store as links_db
-from tests.fixtures.users_db import point_users_db_at
-
-
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
 
 
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 _GID = "648253204760625160"

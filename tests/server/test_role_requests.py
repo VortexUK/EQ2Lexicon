@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-import sqlite3
 from unittest.mock import AsyncMock, patch
 
+import psycopg.errors
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -90,7 +90,7 @@ async def test_submit_role_request_409_when_pending_exists(app):
         patch("backend.server.api.role_requests.has_role", return_value=False),
         patch(
             "backend.server.api.role_requests.create_role_request",
-            side_effect=sqlite3.IntegrityError("UNIQUE constraint failed"),
+            side_effect=psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

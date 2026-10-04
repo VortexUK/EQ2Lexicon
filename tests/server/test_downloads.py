@@ -1,45 +1,44 @@
 """Download-counter DB layer + API tests.
 
-DB layer runs against a temp users.db (which also proves the download_events
-schema block passes _assertions.py via init_db). The API is tested with the
-``app`` fixture: a signed session cookie for auth + mocked db helpers (same
-pattern as test_favorites.py).
+DB layer runs against an isolated leased users schema (conftest
+``users_schema``). The API is tested with the ``app`` fixture: a signed
+session cookie for auth + mocked db helpers (same pattern as
+test_favorites.py).
 """
 
 from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import itsdangerous
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.server.db import init_db
 from backend.server.db.downloads import store as dl
-from tests.fixtures.users_db import point_users_db_at
+from tests.fixtures.pg import pg_conn
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
 
 # ---------------------------------------------------------------------------
-# DB layer (temp users.db)
+# DB layer (isolated leased schema)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)  # creates download_events (+ asserts schema completeness)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point users.db (constant + every domain store) at this test's temp DB."""
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``. Seeds the user rows the FK on
+    download_events.discord_id now actually enforces (SQLite never did)."""
+    with pg_conn(users_schema) as conn:
+        for uid in ("disc1", "disc2"):
+            conn.execute(
+                "INSERT INTO users (discord_id, discord_name) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (uid, uid),
+            )
+    return users_schema
 
 
 async def test_record_is_idempotent_per_user(users_db):

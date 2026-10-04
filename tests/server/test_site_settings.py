@@ -3,33 +3,25 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.server import server_context
-from backend.server.db import init_db
 from backend.server.db.site_settings import DISCORD_INVITE_URL_KEY, SiteSettingsStore
 from backend.server.db.site_settings import store as site_settings
 from tests.fixtures.users import make_fake_admin
-from tests.fixtures.users_db import point_users_db_at
 
 _ADMIN = make_fake_admin(id="admin-1", username="boss")
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
     server_context.load_registry()
+    return users_schema
 
 
 # ---------------------------------------------------------------------------

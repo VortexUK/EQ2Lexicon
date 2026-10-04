@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from backend.server.api.rankings import _apply_percentiles, _scope_for
-from backend.server.db.servers import ServersStore
 
 
 class TestApplyPercentiles:
@@ -447,7 +446,6 @@ import pytest
 
 from backend.server.parses import db as pdb
 from backend.server.parses.models import Combatant, CombatantSnapshot, Encounter
-from tests.fixtures.users_db import point_users_db_at
 
 
 def _ins(conn, encid, title, *, success, players, guild, duration):
@@ -640,18 +638,14 @@ async def test_rankings_rejects_bad_size(app, rankings_db):
 
 
 @pytest.mark.asyncio
-async def test_rankings_default_xpac_per_server(app, monkeypatch, tmp_path):
+async def test_rankings_default_xpac_per_server(app, users_schema):
     """The rankings /filters endpoint's default_expansion reflects the active
     server's current_xpac, not a global env var."""
     from backend.server import db, server_context
 
-    # Point the DB at a temp file and seed a Wuoshi server row.
-    p = tmp_path / "users.db"
-    db.init_db(p)
-    point_users_db_at(monkeypatch, p)
-    ServersStore(p).upsert_server_settings_sync(
-        "Wuoshi", max_level=70, current_xpac="Echoes of Faydwer", launch_dt=None
-    )
+    # Isolated leased schema (seeded with Varsoon + Wuoshi rows) — set
+    # Wuoshi's xpac and reload the registry from it.
+    db.upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac="Echoes of Faydwer", launch_dt=None)
     server_context.load_registry()
 
     raid_tree = [
@@ -673,7 +667,7 @@ async def test_rankings_default_xpac_per_server(app, monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
+async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path, users_schema):
     """The /rankings leaderboard endpoint must return per-world data via the
     executor call path.
 
@@ -688,12 +682,10 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path):
     from backend.server import db, server_context
     from backend.server.api import rankings as rk
 
-    # Register both servers so x-server: wuoshi resolves correctly.
-    p = tmp_path / "users.db"
-    db.init_db(p)
-    point_users_db_at(monkeypatch, p)
-    ServersStore(p).upsert_server_settings_sync("Varsoon", max_level=50, current_xpac=None, launch_dt=None)
-    ServersStore(p).upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None)
+    # Register both servers so x-server: wuoshi resolves correctly (the
+    # leased schema seeds both rows; refresh their settings and reload).
+    db.upsert_server_settings_sync("Varsoon", max_level=50, current_xpac=None, launch_dt=None)
+    db.upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None)
     server_context.load_registry()
 
     # Seed a Varsoon boss kill and a distinct Wuoshi boss kill.

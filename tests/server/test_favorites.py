@@ -1,16 +1,15 @@
 """Character-favourites DB layer + API tests.
 
-DB layer is exercised against a temp users.db (explicit ``path=``) — this also
-proves the new schema block passes ``_assertions.py`` via ``init_db``. The API
-is tested with the ``app`` fixture: a signed session cookie for auth + mocked
-db helpers (same pattern as test_raid_schedule.py).
+DB layer is exercised against an isolated leased users schema (conftest
+``users_schema``). The API is tested with the ``app`` fixture: a signed
+session cookie for auth + mocked db helpers (same pattern as
+test_raid_schedule.py).
 """
 
 from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import itsdangerous
@@ -18,9 +17,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.cache import favorite_count_cache
-from backend.server.db import init_db, review_claim, submit_claim
+from backend.server.db import review_claim, submit_claim
 from backend.server.db.favorites import store as fav
-from tests.fixtures.users_db import point_users_db_at
+from tests.fixtures.pg import pg_conn
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
@@ -35,21 +34,22 @@ def _clear_count_cache():
 
 
 # ---------------------------------------------------------------------------
-# DB layer (temp users.db)
+# DB layer (isolated leased schema)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)  # creates character_favorites (+ asserts schema completeness)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point users.db (constant + every domain store) at this test's temp DB."""
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``. Seeds the user rows the FK on
+    character_favorites.discord_id now actually enforces (SQLite never did)."""
+    with pg_conn(users_schema) as conn:
+        for uid in ("disc1", "disc2", "disc3"):
+            conn.execute(
+                "INSERT INTO users (discord_id, discord_name) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (uid, uid),
+            )
+    return users_schema
 
 
 async def test_add_remove_round_trip(users_db):
@@ -100,15 +100,12 @@ async def test_world_scoping(users_db):
 
 
 async def test_list_newest_first(users_db):
-    import aiosqlite
-
     await fav.add_favorite("disc1", "Alpha", "Varsoon", cap=_CAP)
     await fav.add_favorite("disc1", "Bravo", "Varsoon", cap=_CAP)
     # Force distinct created_at so ordering is deterministic.
-    async with aiosqlite.connect(users_db) as db:
-        await db.execute("UPDATE character_favorites SET created_at = 100 WHERE character_name = 'Alpha'")
-        await db.execute("UPDATE character_favorites SET created_at = 200 WHERE character_name = 'Bravo'")
-        await db.commit()
+    with pg_conn(users_db) as conn:
+        conn.execute("UPDATE character_favorites SET created_at = 100 WHERE character_name = 'Alpha'")
+        conn.execute("UPDATE character_favorites SET created_at = 200 WHERE character_name = 'Bravo'")
     rows = await fav.list_favorites("disc1", "Varsoon")
     assert [r["character_name"] for r in rows] == ["Bravo", "Alpha"]
 

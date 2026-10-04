@@ -569,6 +569,38 @@ async def test_rotation_acceleration_strike_static_base(app):
 
 
 @pytest.mark.asyncio
+async def test_rotation_exorcise_pulse_interval_measured(app):
+    """Exorcise's maintained stream ticks every 7.1s in game vs the census
+    text's 6s. The correction is keyed by spell name — the AA lives in the
+    shared CLERIC class tree, so Templar and Inquisitor both get it."""
+    from backend.server.api.character import rotation as mod
+
+    row = _row(903, "Exorcise", spell_type="spells", level=70, crc=890, beneficial=1)
+    row["tier"] = 1
+    row["target_type"] = "self"
+    row["effects"] = json.dumps(
+        [
+            {"description": "Applies Exorcise instantly and every 6 seconds.", "indentation": 0},
+            {"description": "Inflicts 269 - 448 divine damage on targets in Area of Effect.", "indentation": 1},
+        ]
+    )
+    tree = {"name": "Cleric", "tree_type": "class", "nodes": [{"node_id": 100, "name": "Exorcise", "spellcrc": 890}]}
+    p1, p2, p3 = _catalogue_patches({})
+    with (
+        p1,
+        p2,
+        p3,
+        patch.object(mod._aas, "get_tree", lambda tid: tree),
+        patch.object(mod._spells, "find_by_crc_bands", lambda crc, tier: [row] if crc == 890 else []),
+    ):
+        r = await _get(app, _fake_char(spell_ids=[]), aa_trees=[(3, {"100": 1})])
+    (a,) = r.json()["abilities"]
+    dots = [c for c in a["components"] if c["kind"] == "dot"]
+    assert dots and all(c["interval_s"] == 7.1 and c["from_pulse"] for c in dots)
+    assert a["maintained"] is True  # self pulse, no duration → toggle
+
+
+@pytest.mark.asyncio
 async def test_rotation_lifeburn_static_base_with_per_hp(app):
     """Lifeburn: census bands are era-drifted; the static base carries the
     tooltip-reversed flat hit+dot AND the per-HP components (9/HP, ~25%

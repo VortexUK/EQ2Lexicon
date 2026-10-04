@@ -1,18 +1,17 @@
 """Raid-attendance tests — store merge semantics, category derivation, routes.
 
-Store tests run against a temp users.db (stores re-pointed by the autouse
-fixture, same pattern as test_raid_planning.py). The ingest route reuses the
-HMAC signing helpers from tests/server/_parses_ingest_fixtures.py so the
-signature contract stays pinned by one source of truth; guild resolution and
-the schedule probe are patched in the attendance module's namespace (the
-route imports them by name).
+Store tests run against a leased scratch Postgres schema (stores re-pointed
+by the autouse fixture, same pattern as test_raid_planning.py). The ingest
+route reuses the HMAC signing helpers from
+tests/server/_parses_ingest_fixtures.py so the signature contract stays
+pinned by one source of truth; guild resolution and the schedule probe are
+patched in the attendance module's namespace (the route imports them by
+name).
 """
 
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -20,14 +19,13 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.server import attendance as derive
 from backend.server.attendance import derive_categories, session_counts
-from backend.server.db import init_db
 from backend.server.db.attendance import (
     MAX_SESSION_SPAN_S,
     MERGE_GAP_S,
     session_day_for,
 )
 from backend.server.db.attendance import store as attendance_db
-from tests.fixtures.users_db import point_users_db_at
+from tests.fixtures.pg import pg_conn
 from tests.server._parses_ingest_fixtures import _fake_require_user, _signed_post_kwargs
 
 # ---------------------------------------------------------------------------
@@ -35,30 +33,31 @@ from tests.server._parses_ingest_fixtures import _fake_require_user, _signed_pos
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
+@pytest.fixture(autouse=True)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
-
-
-@pytest.fixture(autouse=True)
-def _grant_subscriber(users_db: Path):
-    """Attendance is in limited preview behind the 'subscriber' role — grant
-    it to the identities the route tests act as (the HMAC fixture's token
-    user + the guild-view session user). The gate's own tests use other
-    ids."""
-    import sqlite3
-
-    with sqlite3.connect(users_db) as conn:
+def _seed_users(users_db: str):
+    """Seed the Discord identities the tests write rows for — claims and
+    user_availability carry enforced FKs to users on Postgres (SQLite never
+    enabled the pragma). Also grant 'subscriber': attendance is in limited
+    preview behind that role — the HMAC fixture's token user + the
+    guild-view session user get it; the gate's own tests use other ids."""
+    with pg_conn(users_db) as conn:
+        for did in ("discord-123", "member-1", "u-main", "u-afk", "u-voice", "u-swap", "u-pure"):
+            conn.execute(
+                "INSERT INTO users (discord_id, discord_name, access_status) "
+                "VALUES (%s, %s, 'approved') ON CONFLICT (discord_id) DO NOTHING",
+                (did, did),
+            )
         for did in ("discord-123", "member-1"):
             conn.execute(
-                "INSERT OR IGNORE INTO user_roles (discord_id, role, granted_by) VALUES (?, 'subscriber', 'test')",
+                "INSERT INTO user_roles (discord_id, role, granted_by) VALUES (%s, 'subscriber', 'test') "
+                "ON CONFLICT DO NOTHING",
                 (did,),
             )
 
@@ -128,7 +127,7 @@ async def test_create_then_read_back():
     assert {(o["character_name"], o["kind"]) for o in obs} == {("Tanky", "raid"), ("Benchy", "online")}
     session = await attendance_db.get_session(res["session_id"])
     assert session is not None
-    assert json.loads(session["zones"]) == ["VP"]
+    assert session["zones"] == ["VP"]  # jsonb comes back parsed
     assert session["started_at"] == T0 and session["ended_at"] == T0 + 600
 
 
@@ -152,8 +151,8 @@ async def test_two_uploaders_merge_commutatively(low_window_floor):
             results[order] = (
                 session["started_at"],
                 session["ended_at"],
-                json.loads(session["zones"]),
-                sorted(json.loads(session["uploaders"])),
+                session["zones"],
+                sorted(session["uploaders"]),  # jsonb dict — sorted() iterates its keys
                 [(o["character_name"], o["first_seen"], o["last_seen"]) for o in obs],
             )
             await attendance_db.delete_session(r1["session_id"])

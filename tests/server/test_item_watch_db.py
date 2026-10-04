@@ -1,8 +1,8 @@
 """Per-server item-watch isolation tests — DB-helper layer (COV-005).
 
 Tests call DB helpers directly with explicit ``world`` args so they run
-without a live HTTP layer and stay fast.  The conftest plants a temp DB and
-calls init_db() for us.
+without a live HTTP layer and stay fast.  Each test runs against an
+isolated leased users schema (conftest ``users_schema``).
 
 HTTP-layer tests live in test_item_watch_routes.py.
 
@@ -11,23 +11,26 @@ Mirrors the convention in test_claim_per_server.py.
 
 from __future__ import annotations
 
-import sqlite3
-
 import pytest
 
-from backend.server import db
 from backend.server.db import (
     add_item_watch,
     list_item_watches,
     remove_item_watch,
     upsert_user,
 )
+from tests.fixtures.pg import pg_conn
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_PATH = db.DB_PATH  # redirected to pytest tmpdir by conftest.py
+
+@pytest.fixture(autouse=True)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 async def _seed_user(discord_id: str) -> None:
@@ -45,30 +48,36 @@ async def _seed_user(discord_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_world_column_exists_in_schema():
-    """init_db (run by conftest) must have added the world column to item_watch."""
-    with sqlite3.connect(_PATH) as conn:
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(item_watch)")}
+def test_world_column_exists_in_schema(users_db):
+    """The migration schema must carry the world column on item_watch."""
+    with pg_conn(users_db) as conn:
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = 'item_watch'",
+            (users_db,),
+        ).fetchall()
+    cols = {r["column_name"] for r in rows}
     assert "world" in cols, "world column not found in item_watch"
 
 
-def test_unique_constraint_includes_world():
+def test_unique_constraint_includes_world(users_db):
     """The UNIQUE constraint on item_watch must cover (world, guild_name, character_name, item_id).
 
-    We verify this by checking the sqlite_master index definition — the old
-    constraint was (guild_name, character_name, item_id) only.
+    We verify this against pg_index (which covers both UNIQUE constraints and
+    unique indexes) — the old SQLite constraint was (guild_name,
+    character_name, item_id) only.
     """
-    with sqlite3.connect(_PATH) as conn:
-        # The inline UNIQUE on the CREATE TABLE becomes an unnamed auto-index
-        # in sqlite_master. We can inspect the table's info via index_list.
-        index_rows = list(conn.execute("PRAGMA index_list(item_watch)"))
-        # Collect all column sets for unique indexes
-        unique_col_sets: list[frozenset[str]] = []
-        for row in index_rows:
-            if row[2] == 1:  # unique flag
-                idx_name = row[1]
-                cols = frozenset(r[2] for r in conn.execute(f"PRAGMA index_info({idx_name!r})"))
-                unique_col_sets.append(cols)
+    with pg_conn(users_db) as conn:
+        # search_path is the leased schema, so the regclass resolves there.
+        rows = conn.execute(
+            """
+            SELECT i.indexrelid::regclass::text AS idx_name, array_agg(a.attname) AS cols
+            FROM pg_index i
+            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+            WHERE i.indrelid = 'item_watch'::regclass AND i.indisunique
+            GROUP BY i.indexrelid
+            """
+        ).fetchall()
+    unique_col_sets = [frozenset(r["cols"]) for r in rows]
 
     target = frozenset({"world", "guild_name", "character_name", "item_id"})
     assert target in unique_col_sets, (

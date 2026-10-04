@@ -2,26 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from backend.bot.guild_context import FALLBACK_WORLD, resolve_guild_context
-from backend.server.db import init_db
 from backend.server.db.discord_links import store as links_db
 from tests.fixtures.users_db import point_users_db_at
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 @pytest.mark.asyncio
@@ -46,12 +38,12 @@ async def test_linked_guild_resolves():
 
 
 @pytest.mark.asyncio
-async def test_missing_table_degrades_to_fallback(tmp_path, monkeypatch):
-    """The bot may race the web lifespan's init_db on a fresh deploy — a
+async def test_missing_table_degrades_to_fallback(monkeypatch):
+    """The bot may race the web lifespan's migrations on a fresh deploy — a
     missing registry table must resolve to the fallback, never crash."""
-    empty = tmp_path / "empty.db"
-    empty.touch()
-    monkeypatch.setattr(links_db, "path", empty)
+    # A never-migrated schema: the registry SELECT raises UndefinedTable
+    # (a psycopg.Error subclass — the family guild_context degrades on).
+    point_users_db_at(monkeypatch, "users_schema_that_does_not_exist")
     ctx = await resolve_guild_context(42)
     assert (ctx.world, ctx.linked) == (FALLBACK_WORLD, False)
 

@@ -1,43 +1,50 @@
 """Raid-planning DB layer + API tests.
 
-DB layer runs against a temp users.db (stores re-pointed by the autouse
-fixture). The API is tested with the ``app`` fixture, a signed session
-cookie for auth, and mocked ``_officer_chars`` / ``_roster_rank_map`` /
-roster helpers (same pattern as test_raid_schedule.py).
+DB layer runs against a leased scratch Postgres schema (stores re-pointed
+by the autouse fixture). The API is tested with the ``app`` fixture, a
+signed session cookie for auth, and mocked ``_officer_chars`` /
+``_roster_rank_map`` / roster helpers (same pattern as
+test_raid_schedule.py).
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.server.db import init_db
-from tests.fixtures.users_db import point_users_db_at
+from backend.server.db.availability import store as availability_db
+from backend.server.db.raid_planning import store as planning_db
+from tests.fixtures.pg import pg_conn
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
+@pytest.fixture(autouse=True)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def _seed_common_users(users_db: str) -> None:
+    """user_availability.discord_id and character_claims.discord_id are
+    enforced FKs to users on Postgres (SQLite never enabled the pragma) —
+    seed the ids the tests write with."""
+    with pg_conn(users_db) as conn:
+        for did in ("u1", "u2", "member-1"):
+            conn.execute(
+                "INSERT INTO users (discord_id, discord_name, access_status) "
+                "VALUES (%s, %s, 'approved') ON CONFLICT (discord_id) DO NOTHING",
+                (did, did),
+            )
 
-
-from backend.server.db.availability import store as availability_db  # noqa: E402
-from backend.server.db.raid_planning import store as planning_db  # noqa: E402
 
 _WORLD = "Varsoon"
 _GUILD = "Exordium"
@@ -667,14 +674,12 @@ def test_merge_availability_newest_wins():
 
 
 @pytest.mark.asyncio
-async def test_planner_officer_edit_overrides_stale_self_declaration(app):
+async def test_planner_officer_edit_overrides_stale_self_declaration(app, users_db):
     """The live complaint: a player self-declared AFK, the officer changes
     the character to Tentative on the planner — the newer officer edit must
     actually show (the old always-player-wins merge silently masked it),
     and an officer 'Available' must clear the badge, until the player
     re-declares (newest edit wins again)."""
-    import sqlite3 as _sq
-
     from backend.server.db import upsert_user
     from backend.server.db.claims import store as claims_db
 
@@ -686,9 +691,8 @@ async def test_planner_officer_edit_overrides_stale_self_declaration(app):
 
     # The player declared AFK a while ago (age the stamp).
     await availability_db.set_days("member-1", {today: "afk"})
-    with _sq.connect(availability_db.path) as conn:
+    with pg_conn(users_db) as conn:
         conn.execute("UPDATE user_availability SET updated_at = 1000 WHERE discord_id = 'member-1'")
-        conn.commit()
 
     # Officer corrects the character to tentative (stamped now → newer).
     await availability_db.set_character_days(_WORLD, "Tanky", {today: "tentative"}, set_by="officer-1")

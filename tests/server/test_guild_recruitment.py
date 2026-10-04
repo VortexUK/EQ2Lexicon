@@ -13,8 +13,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import sqlite3
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import itsdangerous
@@ -26,9 +24,8 @@ from PIL import Image
 import backend.server.api.guild_recruitment as recruitment_api
 from backend.server import recruitment_sweep
 from backend.server.api.guild_recruitment import RECRUITMENT_TAGS, _process_logo
-from backend.server.db import init_db
 from backend.server.db.guild_recruitment import store as gr
-from tests.fixtures.users_db import point_users_db_at
+from tests.fixtures.pg import pg_conn
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
@@ -36,16 +33,11 @@ _WORLD = "Varsoon"  # the test app's default world
 _GID = 42
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 @pytest.fixture(autouse=True)
@@ -145,7 +137,7 @@ async def test_list_recruiting_is_world_scoped_ordered_and_blob_free(users_db):
     await _save_profile(world="Wuoshi", gid=3, name="Elsewhere")
     await _save_profile(gid=4, name="Hidden", recruiting=False)
     # Bump Alpha so it is the most recent edit.
-    with sqlite3.connect(users_db) as c:
+    with pg_conn(users_db) as c:
         c.execute("UPDATE guild_recruitment SET updated_at = updated_at + 60 WHERE guild_id = 1")
     rows = await gr.list_recruiting(_WORLD)
     assert [r["guild_name"] for r in rows] == ["Alpha", "Beta"]

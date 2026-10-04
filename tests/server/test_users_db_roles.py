@@ -1,6 +1,6 @@
 """Tests for web.db.users role + role_request helpers — COV-012.
 
-Uses a per-test temp DB via the project conftest _TEST_DB_DIR pattern.
+Runs against an isolated leased users schema (conftest ``users_schema``).
 Covers: grant_role, revoke_role, list_roles_for_user, has_role,
 create_role_request, list_role_requests, review_and_grant_role,
 withdraw_role_request, user_has_capability_via_db, role_has_capability,
@@ -11,9 +11,6 @@ Target: ≥ 75% on web.db.users.
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from backend.server.db import (
@@ -23,7 +20,6 @@ from backend.server.db import (
     get_user_access_status,
     grant_role,
     has_role,
-    init_db,
     list_all_users,
     list_pending_users,
     list_role_assignments,
@@ -38,23 +34,17 @@ from backend.server.db import (
     user_has_capability_via_db,
     withdraw_role_request,
 )
-from tests.fixtures.users_db import point_users_db_at
-
-
-@pytest.fixture
-def db_path(tmp_path: Path) -> Path:
-    p = tmp_path / "users.db"
-    init_db(p)
-    return p
+from tests.fixtures.pg import pg_conn
 
 
 @pytest.fixture(autouse=True)
-def _stores_at_db_path(db_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point users.db (constant + every domain store) at this test's temp DB."""
-    point_users_db_at(monkeypatch, db_path)
+def db_path(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``db_path``."""
+    return users_schema
 
 
-async def _seed_user(db_path: Path, discord_id: str = "user-1", name: str = "TestUser") -> None:
+async def _seed_user(db_path: str, discord_id: str = "user-1", name: str = "TestUser") -> None:
     await upsert_user(discord_id, name, name.lower(), None)
 
 
@@ -65,44 +55,44 @@ async def _seed_user(db_path: Path, discord_id: str = "user-1", name: str = "Tes
 
 class TestRoleHelpers:
     @pytest.mark.asyncio
-    async def test_grant_role_returns_true_on_insert(self, db_path: Path):
+    async def test_grant_role_returns_true_on_insert(self, db_path: str):
         await _seed_user(db_path)
         result = await grant_role("user-1", "contributor", granted_by="admin-1")
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_grant_role_idempotent_returns_false(self, db_path: Path):
+    async def test_grant_role_idempotent_returns_false(self, db_path: str):
         await _seed_user(db_path)
         await grant_role("user-1", "contributor", granted_by="admin-1")
         second = await grant_role("user-1", "contributor", granted_by="admin-1")
         assert second is False
 
     @pytest.mark.asyncio
-    async def test_revoke_role_returns_true_when_held(self, db_path: Path):
+    async def test_revoke_role_returns_true_when_held(self, db_path: str):
         await _seed_user(db_path)
         await grant_role("user-1", "contributor", granted_by="admin-1")
         assert await revoke_role("user-1", "contributor") is True
 
     @pytest.mark.asyncio
-    async def test_revoke_role_returns_false_when_not_held(self, db_path: Path):
+    async def test_revoke_role_returns_false_when_not_held(self, db_path: str):
         await _seed_user(db_path)
         assert await revoke_role("user-1", "contributor") is False
 
     @pytest.mark.asyncio
-    async def test_list_roles_for_user(self, db_path: Path):
+    async def test_list_roles_for_user(self, db_path: str):
         await _seed_user(db_path)
         await grant_role("user-1", "contributor", granted_by="admin-1")
         roles = await list_roles_for_user("user-1")
         assert "contributor" in roles
 
     @pytest.mark.asyncio
-    async def test_has_role_returns_true_when_granted(self, db_path: Path):
+    async def test_has_role_returns_true_when_granted(self, db_path: str):
         await _seed_user(db_path)
         await grant_role("user-1", "contributor", granted_by="admin-1")
         assert await has_role("user-1", "contributor") is True
 
     @pytest.mark.asyncio
-    async def test_has_role_returns_false_when_absent(self, db_path: Path):
+    async def test_has_role_returns_false_when_absent(self, db_path: str):
         await _seed_user(db_path)
         assert await has_role("user-1", "contributor") is False
 
@@ -114,7 +104,7 @@ class TestRoleHelpers:
 
 class TestRoleRequestHelpers:
     @pytest.mark.asyncio
-    async def test_create_role_request_returns_int_id(self, db_path: Path):
+    async def test_create_role_request_returns_int_id(self, db_path: str):
         await _seed_user(db_path)
         request_id = await create_role_request("user-1", "contributor", user_note="please")
         assert isinstance(request_id, int)
@@ -124,7 +114,7 @@ class TestRoleRequestHelpers:
         assert row["role"] == "contributor"
 
     @pytest.mark.asyncio
-    async def test_list_role_requests_pending_oldest_first(self, db_path: Path):
+    async def test_list_role_requests_pending_oldest_first(self, db_path: str):
         await _seed_user(db_path, discord_id="user-1")
         await _seed_user(db_path, discord_id="user-2", name="Other")
         await create_role_request("user-1", "contributor", user_note=None)
@@ -133,7 +123,7 @@ class TestRoleRequestHelpers:
         assert rows[0]["id"] <= rows[-1]["id"]  # oldest (lower id) first
 
     @pytest.mark.asyncio
-    async def test_list_role_requests_approved_newest_first(self, db_path: Path):
+    async def test_list_role_requests_approved_newest_first(self, db_path: str):
         await _seed_user(db_path, discord_id="user-1")
         await _seed_user(db_path, discord_id="user-2", name="Other")
         r1_id = await create_role_request("user-1", "contributor", user_note=None)
@@ -152,7 +142,7 @@ class TestRoleRequestHelpers:
 
 class TestReviewAndGrantRole:
     @pytest.mark.asyncio
-    async def test_atomic_approve_and_grant(self, db_path: Path):
+    async def test_atomic_approve_and_grant(self, db_path: str):
         await _seed_user(db_path)
         rr_id = await create_role_request("user-1", "contributor", user_note=None)
         result = await review_and_grant_role(rr_id, "approved", "admin-1")
@@ -162,7 +152,7 @@ class TestReviewAndGrantRole:
         assert await has_role("user-1", "contributor")
 
     @pytest.mark.asyncio
-    async def test_idempotent_user_already_has_role(self, db_path: Path):
+    async def test_idempotent_user_already_has_role(self, db_path: str):
         """If user already has the role, approve still succeeds (INSERT OR IGNORE)."""
         await _seed_user(db_path)
         await grant_role("user-1", "contributor", granted_by="admin-1")
@@ -171,7 +161,7 @@ class TestReviewAndGrantRole:
         assert result is not None
 
     @pytest.mark.asyncio
-    async def test_returns_none_for_already_reviewed_request(self, db_path: Path):
+    async def test_returns_none_for_already_reviewed_request(self, db_path: str):
         await _seed_user(db_path)
         rr_id = await create_role_request("user-1", "contributor", user_note=None)
         await review_role_request(rr_id, "rejected", "admin-1")
@@ -187,20 +177,20 @@ class TestReviewAndGrantRole:
 
 class TestWithdrawRoleRequest:
     @pytest.mark.asyncio
-    async def test_withdraw_pending_request(self, db_path: Path):
+    async def test_withdraw_pending_request(self, db_path: str):
         await _seed_user(db_path)
         rr_id = await create_role_request("user-1", "contributor", user_note=None)
         assert await withdraw_role_request(rr_id, "user-1") is True
 
     @pytest.mark.asyncio
-    async def test_withdraw_already_approved_returns_false(self, db_path: Path):
+    async def test_withdraw_already_approved_returns_false(self, db_path: str):
         await _seed_user(db_path)
         rr_id = await create_role_request("user-1", "contributor", user_note=None)
         await review_role_request(rr_id, "approved", "admin-1")
         assert await withdraw_role_request(rr_id, "user-1") is False
 
     @pytest.mark.asyncio
-    async def test_withdraw_scoped_to_requester(self, db_path: Path):
+    async def test_withdraw_scoped_to_requester(self, db_path: str):
         await _seed_user(db_path, discord_id="user-1")
         rr_id = await create_role_request("user-1", "contributor", user_note=None)
         # Different user tries to withdraw
@@ -214,36 +204,30 @@ class TestWithdrawRoleRequest:
 
 class TestCapabilityHelpers:
     @pytest.mark.asyncio
-    async def test_user_has_capability_via_granted_role(self, db_path: Path):
+    async def test_user_has_capability_via_granted_role(self, db_path: str):
         """If the user has a role that maps to a capability, returns True."""
-        import aiosqlite
-
         await _seed_user(db_path)
         # Seed role_permissions directly
-        async with aiosqlite.connect(db_path) as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO role_permissions (role, capability) VALUES (?, ?)",
+        with pg_conn(db_path) as conn:
+            conn.execute(
+                "INSERT INTO role_permissions (role, capability) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 ("contributor", "edit_zones"),
             )
-            await db.commit()
         await grant_role("user-1", "contributor", granted_by="admin-1")
         assert await user_has_capability_via_db("user-1", "edit_zones") is True
 
     @pytest.mark.asyncio
-    async def test_user_lacks_capability_without_role(self, db_path: Path):
+    async def test_user_lacks_capability_without_role(self, db_path: str):
         await _seed_user(db_path)
         assert await user_has_capability_via_db("user-1", "edit_zones") is False
 
     @pytest.mark.asyncio
-    async def test_role_has_capability(self, db_path: Path):
-        import aiosqlite
-
-        async with aiosqlite.connect(db_path) as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO role_permissions (role, capability) VALUES (?, ?)",
+    async def test_role_has_capability(self, db_path: str):
+        with pg_conn(db_path) as conn:
+            conn.execute(
+                "INSERT INTO role_permissions (role, capability) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 ("contributor", "edit_raids"),
             )
-            await db.commit()
         assert await role_has_capability("contributor", "edit_raids") is True
         assert await role_has_capability("contributor", "nonexistent") is False
 
@@ -255,12 +239,12 @@ class TestCapabilityHelpers:
 
 class TestSetUserAccess:
     @pytest.mark.asyncio
-    async def test_returns_true_on_update(self, db_path: Path):
+    async def test_returns_true_on_update(self, db_path: str):
         await _seed_user(db_path)
         assert await set_user_access("user-1", "approved") is True
 
     @pytest.mark.asyncio
-    async def test_returns_false_for_unknown_user(self, db_path: Path):
+    async def test_returns_false_for_unknown_user(self, db_path: str):
         assert await set_user_access("ghost-user", "approved") is False
 
 
@@ -271,7 +255,7 @@ class TestSetUserAccess:
 
 class TestListRoleAssignments:
     @pytest.mark.asyncio
-    async def test_returns_mapping_of_user_to_roles(self, db_path: Path):
+    async def test_returns_mapping_of_user_to_roles(self, db_path: str):
         await _seed_user(db_path)
         await grant_role("user-1", "contributor", granted_by="admin-1")
         assignments = await list_role_assignments()
@@ -279,7 +263,7 @@ class TestListRoleAssignments:
         assert "contributor" in assignments["user-1"]
 
     @pytest.mark.asyncio
-    async def test_returns_empty_for_no_roles(self, db_path: Path):
+    async def test_returns_empty_for_no_roles(self, db_path: str):
         await _seed_user(db_path)
         assignments = await list_role_assignments()
         assert "user-1" not in assignments
@@ -292,22 +276,22 @@ class TestListRoleAssignments:
 
 class TestOpenSignup:
     @pytest.mark.asyncio
-    async def test_default_new_user_is_pending(self, db_path: Path):
+    async def test_default_new_user_is_pending(self, db_path: str):
         status = await upsert_user("u-new", "New", "new", None)
         assert status == "pending"
 
     @pytest.mark.asyncio
-    async def test_open_signup_approves_new_user(self, db_path: Path):
+    async def test_open_signup_approves_new_user(self, db_path: str):
         status = await upsert_user("u-open", "Open", "open", None, open_signup=True)
         assert status == "approved"
 
     @pytest.mark.asyncio
-    async def test_admin_always_approved_even_without_open_signup(self, db_path: Path):
+    async def test_admin_always_approved_even_without_open_signup(self, db_path: str):
         status = await upsert_user("u-admin", "Admin", "admin", None, admin_ids=frozenset({"u-admin"}))
         assert status == "approved"
 
     @pytest.mark.asyncio
-    async def test_open_signup_does_not_reapprove_on_relogin(self, db_path: Path):
+    async def test_open_signup_does_not_reapprove_on_relogin(self, db_path: str):
         # First login while signup is closed → pending.
         await upsert_user("u-relog", "Re", "re", None, open_signup=False)
         # Re-login with the flag now ON must NOT auto-approve an existing user;
@@ -316,7 +300,7 @@ class TestOpenSignup:
         assert status == "pending"
 
     @pytest.mark.asyncio
-    async def test_approve_all_pending_clears_backlog_idempotently(self, db_path: Path):
+    async def test_approve_all_pending_clears_backlog_idempotently(self, db_path: str):
         await upsert_user("p1", "P1", "p1", None)
         await upsert_user("p2", "P2", "p2", None)
         n = await approve_all_pending()

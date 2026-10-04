@@ -40,7 +40,7 @@ def test_slot_active_handles_midnight_crossing():
 
 
 def test_team_scheduled_now_uses_team_timezone():
-    team = {"primary_tz": "America/New_York", "raids": [{"days": "2,4", "start_min": 1200, "end_min": 1380}]}
+    team = {"primary_tz": "America/New_York", "raids": [{"days": [2, 4], "start_min": 1200, "end_min": 1380}]}
     # Wed 02:00 UTC (winter) == Tue 21:00 EST → inside the Tue window.
     assert rl.team_scheduled_now(team, now=datetime(2026, 1, 14, 2, 0, tzinfo=UTC)) is True
     # Wed 18:00 UTC == Wed 13:00 EST → not a raid day/time.
@@ -90,7 +90,7 @@ async def test_refresh_populates_cache_for_scheduled_live_teams(monkeypatch):
             "name": "Main",
             "primary_tz": "America/New_York",
             "twitch_login": "foo",
-            "raids": [{"days": "2,4", "start_min": 1200, "end_min": 1380}],
+            "raids": [{"days": [2, 4], "start_min": 1200, "end_min": 1380}],
         },
         # Not scheduled now (Mondays only) → excluded even if it were live.
         {
@@ -99,7 +99,7 @@ async def test_refresh_populates_cache_for_scheduled_live_teams(monkeypatch):
             "name": "T",
             "primary_tz": "America/New_York",
             "twitch_login": "bar",
-            "raids": [{"days": "1", "start_min": 1200, "end_min": 1380}],
+            "raids": [{"days": [1], "start_min": 1200, "end_min": 1380}],
         },
     ]
     with (
