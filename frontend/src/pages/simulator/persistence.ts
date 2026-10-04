@@ -44,6 +44,8 @@ export interface SavedSimState {
   fightDuration: number
   /** Hits/min on damage-shield buff targets ('when_damaged' procs). */
   incomingHitsPerMinute?: number
+  /** EQ2 membership Perks (+20% beneficial duration). Absent = ON. */
+  perks?: boolean
   autoAttack: boolean
   /** Which weapon auto-attacks (legacy saves carry only the boolean). */
   autoAttackMode?: 'melee' | 'ranged' | 'off'

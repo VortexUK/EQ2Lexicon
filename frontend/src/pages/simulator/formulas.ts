@@ -43,6 +43,12 @@ export const COMPONENT_FLAT_LEVEL_MIN = 61
  * Applied to single-target proc payloads only — maintained pulse
  * streams (aoe scope) verifiably carry none. */
 export const PROC_AM_SHARE = 1 / 3
+/** EQ2 membership Perks grant +20% beneficial spell duration — every
+ * temp-buff window (own, group and raid) runs 1.2× its census length
+ * (Badbang's Accelerated examine: 39.6s vs the 33.0s census value).
+ * Toggleable in the Fight panel (default ON) since not every account
+ * has perks active. Hostile effect durations (dots) are unaffected. */
+export const PERK_BENEFICIAL_DURATION_MULT = 1.2
 /** Crit multiplier = 1.3 + crit bonus (modern engine). */
 export const CRIT_BASE_MULT = 1.3
 /** USER-VERIFIED on Wuoshi (RoK TLE): Fervor applies, Crit Bonus does

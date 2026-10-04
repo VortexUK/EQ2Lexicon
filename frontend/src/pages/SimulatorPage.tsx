@@ -22,7 +22,7 @@ import type { ObservedHits } from './simulator/calibration'
 import CalibrationPanel from './simulator/CalibrationPanel'
 import DerivedPanel from './simulator/DerivedPanel'
 import { simulate } from './simulator/engine'
-import { autoAttackDps, autoSwingRate } from './simulator/formulas'
+import { autoAttackDps, autoSwingRate, PERK_BENEFICIAL_DURATION_MULT } from './simulator/formulas'
 import GroupMakeupPanel, { isTempBuff } from './simulator/GroupMakeupPanel'
 import PassivesPanel from './simulator/PassivesPanel'
 import { loadSimState, saveSimState } from './simulator/persistence'
@@ -66,6 +66,9 @@ export default function SimulatorPage() {
   /** Hits/min on whatever carries the damage-shield buffs (Divine Light
    * on the tank) — drives 'when_damaged' proc streams. 0 = off. */
   const [incomingHitsPerMinute, setIncomingHitsPerMinute] = useState(0)
+  /** EQ2 membership Perks: +20% beneficial spell duration on every
+   * temp-buff window. Default ON — most raiders run with perks. */
+  const [perksOn, setPerksOn] = useState(true)
   const [activeConditions, setActiveConditions] = useState<string[]>([])
   const [externalBuffs, setExternalBuffs] = useState<ExternalBuffConfig[]>([])
   const [permanentBuffs, setPermanentBuffs] = useState<string[]>([])
@@ -100,11 +103,18 @@ export default function SimulatorPage() {
   const charData = char.data && selectedName && char.data.name.toLowerCase() === selectedName.toLowerCase() ? char.data : null
   const rotData = rot.data && selectedName && rot.data.character_name.toLowerCase() === selectedName.toLowerCase() ? rot.data : null
 
+  const perkMult = perksOn ? PERK_BENEFICIAL_DURATION_MULT : 1
+
   const abilities = useMemo(() => {
     const map: Record<string, RotationAbility> = {}
-    for (const a of rotData?.abilities ?? []) if (!a.maintained) map[a.base_name] = a
+    for (const a of rotData?.abilities ?? []) {
+      if (a.maintained) continue
+      // Perks stretch BENEFICIAL durations (own temp-buff windows);
+      // hostile durations (dot windows) are untouched.
+      map[a.base_name] = a.beneficial && a.duration_s ? { ...a, duration_s: a.duration_s * perkMult } : a
+    }
     return map
-  }, [rotData])
+  }, [rotData, perkMult])
 
   // Maintained toggles ("Until Cancelled" self pulses — Exorcise): not
   // cast in rotation; they join the passives section as pulse streams.
@@ -145,6 +155,7 @@ export default function SimulatorPage() {
       setObserved(saved.observed ?? {})
       setFightDuration(saved.fightDuration ?? DEFAULT_FIGHT_S)
       setIncomingHitsPerMinute(saved.incomingHitsPerMinute ?? 0)
+      setPerksOn(saved.perks ?? true)
       if (saved.autoAttackMode) {
         setAutoAttackMode(saved.autoAttackMode)
         setAutoAttackTouched(true) // the saved choice wins over the class default
@@ -172,6 +183,7 @@ export default function SimulatorPage() {
       setObserved({})
       setFightDuration(DEFAULT_FIGHT_S)
       setIncomingHitsPerMinute(0)
+      setPerksOn(true)
       setAutoAttackTouched(false)
       setActiveConditions([])
       setTargetCount(1)
@@ -228,11 +240,12 @@ export default function SimulatorPage() {
       observed,
       fightDuration,
       incomingHitsPerMinute,
+      perks: perksOn,
       autoAttack: autoAttackMode !== 'off',
       autoAttackMode,
       target,
     })
-  }, [selectedName, loadedFor, rotation, dotHold, firstCastAt, externalBuffs, permanentBuffs, permanentTiers, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, groupBuffStartAt, observed, fightDuration, incomingHitsPerMinute, autoAttackMode, target])
+  }, [selectedName, loadedFor, rotation, dotHold, firstCastAt, externalBuffs, permanentBuffs, permanentTiers, disabledPassives, procChanceOverrides, groupMembers, groupBuffs, groupBuffStartAt, observed, fightDuration, incomingHitsPerMinute, perksOn, autoAttackMode, target])
 
   // Fetch each needed character's buff book once (kept across simmed
   // characters — the book belongs to that character, not the sim
@@ -377,22 +390,25 @@ export default function SimulatorPage() {
   }, [externalBuffs, buffSheet, memberBooks])
 
   const buffDefs = useMemo(() => {
+    // Perks apply to the default (census/curated) durations; a manually
+    // entered per-config duration is taken literally.
+    const perked = (d: number) => d * perkMult
     const out: Record<string, ExternalBuffDef> = {}
     for (const b of buffSheet?.sheet.buffs ?? []) {
       const sup = suppliedExternal[b.id]
       out[b.id] =
         sup?.status === 'ok' && sup.entry
           ? {
-              duration_s: sup.entry.duration_s ?? b.duration_s,
+              duration_s: perked(sup.entry.duration_s ?? b.duration_s),
               recast_s: sup.entry.recast_s || b.recast_s,
               // The supplier's parsed mods when any; the curated estimates
               // otherwise (census text can be era-drifted to zeros).
               mods: Object.keys(sup.entry.mods).length > 0 ? sup.entry.mods : b.mods,
             }
-          : { duration_s: b.duration_s, recast_s: b.recast_s, mods: b.mods }
+          : { duration_s: perked(b.duration_s), recast_s: b.recast_s, mods: b.mods }
     }
     return out
-  }, [buffSheet, suppliedExternal])
+  }, [buffSheet, suppliedExternal, perkMult])
 
   const buffWindows = useMemo(() => {
     const out: BuffWindow[] = buildExternalWindows(externalBuffs, buffDefs, fightDuration)
@@ -409,7 +425,7 @@ export default function SimulatorPage() {
         }
         continue
       }
-      const dur = b.duration_s as number
+      const dur = (b.duration_s as number) * perkMult
       const recast = Math.max(b.recast_s, dur)
       const offset = Math.max(0, groupBuffStartAt[b.base_name] ?? 0)
       for (let s = offset; s < fightDuration; s += recast) {
@@ -428,7 +444,7 @@ export default function SimulatorPage() {
     }
     return out
   // eslint-disable-next-line react-hooks/exhaustive-deps -- permanentMods reads permTierData/permanentTiers
-  }, [externalBuffs, buffDefs, fightDuration, buffSheet, permanentBuffs, enabledGroupBuffObjs, groupBuffStartAt, rotData?.derived, permTierData, permanentTiers])
+  }, [externalBuffs, buffDefs, fightDuration, buffSheet, permanentBuffs, enabledGroupBuffObjs, groupBuffStartAt, rotData?.derived, permTierData, permanentTiers, perkMult])
   const externalUptimes = useMemo(() => buffUptimes(buffWindows, fightDuration), [buffWindows, fightDuration])
 
   // Hidden bonuses auto-derived from gear/adorns/sets/AAs — applied
@@ -749,6 +765,19 @@ export default function SimulatorPage() {
                 aria-label="Incoming hits per minute on damage-shield targets"
               />
               <span className="text-text-muted text-[0.8rem]">/min</span>
+            </label>
+            <label
+              className="flex items-center gap-2 text-[0.85rem] cursor-pointer"
+              title="EQ2 membership Perks grant +20% beneficial spell duration — stretches every temp-buff window (own, group and raid buffs). Turn off for accounts without perks active."
+            >
+              <input
+                type="checkbox"
+                checked={perksOn}
+                onChange={e => setPerksOn(e.target.checked)}
+                className="accent-[var(--color-gold)]"
+              />
+              Perks
+              <span className="text-text-muted text-[0.72rem]">(+20% buff duration)</span>
             </label>
           </div>
           {availableConditions.length > 0 && (
