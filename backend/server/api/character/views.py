@@ -358,15 +358,14 @@ def _build_char_response(char) -> CharacterResponse:
 
 async def _prewarm_for_world(world: str, sem: asyncio.Semaphore) -> None:
     """Pre-warm the character cache for all approved claims in one world."""
-    import aiosqlite
-
-    from backend.server.db import DB_PATH
+    from backend import pg
+    from backend.server.db import SCHEMA as _USERS_SCHEMA
 
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT DISTINCT character_name FROM character_claims WHERE status = 'approved' AND world = ?",
+        async with pg.aconnection() as db:
+            await db.execute(pg.search_path_sql(_USERS_SCHEMA))
+            async with await db.execute(
+                "SELECT DISTINCT character_name FROM character_claims WHERE status = 'approved' AND world = %s",
                 (world,),
             ) as cur:
                 names = [row["character_name"] for row in await cur.fetchall()]

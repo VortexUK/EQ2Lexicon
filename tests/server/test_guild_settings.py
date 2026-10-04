@@ -9,30 +9,22 @@ from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import itsdangerous
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.server.db import init_db
 from backend.server.db.guild_settings import store as gs
-from tests.fixtures.users_db import point_users_db_at
 
 _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 
 
-@pytest.fixture
-def users_db(tmp_path) -> Path:
-    db = tmp_path / "users.db"
-    init_db(db)
-    return db
-
-
 @pytest.fixture(autouse=True)
-def _stores_at_tmp(users_db: Path, monkeypatch: pytest.MonkeyPatch):
-    point_users_db_at(monkeypatch, users_db)
+def users_db(users_schema: str) -> str:
+    """Isolated leased schema per test (conftest ``users_schema``), aliased
+    so tests can keep naming it ``users_db``."""
+    return users_schema
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,6 @@
 -- unavailable.
 SELECT DISTINCT guild_name
 FROM item_watch
-WHERE LOWER(guild_name) LIKE ?
+WHERE LOWER(guild_name) LIKE %s
 ORDER BY guild_name
 LIMIT 25;

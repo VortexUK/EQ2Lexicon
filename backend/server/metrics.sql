@@ -1,10 +1,10 @@
 -- SQL for backend/server/metrics.py — Prometheus collector COUNT queries.
 
 -- :name count_users_by_access_status
-SELECT COUNT(*) FROM users WHERE access_status = ?;
+SELECT COUNT(*) AS n FROM users WHERE access_status = %s;
 
 -- :name count_claims_by_status
-SELECT COUNT(*) FROM character_claims WHERE status = ?;
+SELECT COUNT(*) AS n FROM character_claims WHERE status = %s;
 
 -- :name count_visible_encounters
 SELECT COUNT(*) FROM encounters WHERE hidden_at IS NULL;

@@ -1,68 +1,29 @@
-"""Backend user/claims/tokens/servers DB layer.
+"""Backend user/claims/tokens/servers DB layer — the users Postgres schema.
 
-Carved out of the original 1309-line web/db.py. Five unrelated domains
-each get their own module:
+Carved out of the original 1309-line web/db.py. Each domain gets its own
+module (users, claims, item_watch, tokens, servers, …); the schema DDL
+lives in db/migrations/0001_users.sql, applied by backend/pg_migrate.py
+from the app lifespan (deploy = migrate) and by the test fixtures.
 
-  - users.py      — users table + role/role_request/role_permission helpers
-  - claims.py     — character_claims table
-  - item_watch.py — item_watch table
-  - tokens.py     — api_tokens table
-  - servers.py    — servers (per-server registry) table
-
-The init_db() orchestrator + the DB_PATH constant live here. Every
-per-domain helper is re-exported from this module so the existing
-`from web import db as users_db; users_db.get_active_claims(...)` API
-shape is preserved — no consumer rewrites needed.
+Every per-domain helper is re-exported from this module so the existing
+`from backend.server import db as users_db; users_db.get_active_claims(...)`
+API shape is preserved — no consumer rewrites needed.
 """
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-
-from backend.db_helpers import resolve_db_path
-from backend.server.db._assertions import assert_schema_complete
-from backend.server.db.migrations import apply_migrations
-from backend.server.db.schema import SCHEMA as _SQLITE_SCHEMA
-
-DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
-
 #: Postgres schema the users family lives in (see db/migrations/
 #: 0001_users.sql). Tests re-point each store's ``schema`` at leased
-#: scratch schemas; DB_PATH above survives only until the remaining
-#: SQLite consumers (erasure's parses half) finish migrating.
+#: scratch schemas via tests/fixtures/users_db.point_users_db_at.
 SCHEMA = "users"
-
-
-def init_db(path: Path | None = None) -> None:
-    """Create tables if they don't exist + apply migrations.
-
-    Called once at startup. Idempotent. Order:
-      1. executescript SCHEMA — creates tables + the indices known at v1.
-      2. apply_migrations(conn) — ALTER TABLE + post-ALTER index creates + seeds.
-
-    Memory [[test-migrations-against-old-db-shape]]: any new column added
-    here MUST be added to BOTH SCHEMA (for fresh DBs) and migrations.py
-    (for existing DBs). Column-dependent indexes live in migrations.py
-    AFTER the ADD COLUMN — never in SCHEMA.
-    """
-    # Read DB_PATH at call time, not def time — the default-arg capture
-    # pattern is exactly what the store conversion eliminated everywhere
-    # else, and conftest re-points DB_PATH after import (BE-096 race).
-    path = Path(path) if path is not None else DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as conn:
-        conn.executescript(_SQLITE_SCHEMA)
-        apply_migrations(conn)
-        assert_schema_complete(conn)
 
 
 # ---------------------------------------------------------------------------
 # Facade: re-export each domain store's bound methods so the existing
 # `users_db.get_active_claims(...)` API shape is preserved. The domains are
-# XStore(AsyncStoreBase) classes now (backend/db_catalogue.py) — the bound
-# methods read the shared instance's `path` dynamically, so conftest
-# re-points one attribute per store and every alias follows.
+# XStore(PgStoreBase) classes (backend/db_catalogue.py) — the bound methods
+# read the shared instance's `schema` dynamically, so conftest re-points one
+# attribute per store and every alias follows.
 # ---------------------------------------------------------------------------
 
 from backend.server.db.aa_plans import store as aa_plans_store  # noqa: E402
@@ -138,8 +99,8 @@ upsert_user = users_store.upsert_user
 user_has_capability_via_db = users_store.user_has_capability_via_db
 withdraw_role_request = users_store.withdraw_role_request
 
-#: Every domain store over users.db — conftest re-points `store.path` on
-#: each after re-resolving DB_PATH from the env.
+#: Every domain store over the users schema — tests re-point
+#: `store.schema` on each (tests/fixtures/users_db.point_users_db_at).
 ALL_STORES = (
     aa_plans_store,
     attendance_store,

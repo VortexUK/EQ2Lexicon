@@ -2,14 +2,16 @@
 
 Test isolation note
 -------------------
-Both ``web.db.DB_PATH`` and ``parses.db.DB_PATH`` are evaluated at module
-import time. To stop the test suite from touching the developer's real
-``data/users.db`` / ``data/parses/parses.db`` (the production files), we
-redirect both via env vars **before** any ``web.*`` import below.
+SQLite families: ``parses.db.DB_PATH`` (and the catalogue paths) are
+evaluated at module import time. To stop the test suite from touching the
+developer's real data files, we redirect them via env vars **before** any
+``web.*`` import below. The tmp dir is wiped at the start of every pytest
+session, so tests start from an empty DB every run.
 
-The tmp dir is wiped at the start of every pytest session, so tests start
-from an empty DB every run. Per-test isolation is then up to individual
-fixtures / mocks — most tests already mock the DB-touching calls outright.
+Postgres (users family): tests/fixtures/pg.py points ``pg.dsn()`` at the
+local TEST database (TEST_DATABASE_URL) and rebuilds the session schemas
+from db/migrations/ — never the developer's .env Supabase DSN. Per-test
+isolation comes from the ``users_schema`` fixture (leased scratch schemas).
 
 BE-096: env vars are set inside ``pytest_configure`` (a plugin-ordered hook
 that runs after plugin discovery, before test collection) to avoid a race
@@ -63,7 +65,6 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     BE-096: moved from module-level os.environ calls to avoid a race with
     pytest plugins (e.g. pytest-asyncio) that may import web.app during
     plugin discovery."""
-    os.environ["DB_USERS_PATH"] = str(_TEST_DB_DIR / "users.db")
     os.environ["DB_PARSES_PATH"] = str(_TEST_DB_DIR / "backend.server.parses.db")
     os.environ["DB_CENSUS_PATH"] = str(_TEST_DB_DIR / "backend.census.db")
     os.environ["DB_ZONES_PATH"] = str(_TEST_DB_DIR / "zones.db")
@@ -89,6 +90,18 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     # with HTTPS_ONLY=true in their env still gets a working test run.
     os.environ["HTTPS_ONLY"] = "false"
 
+    # --- Postgres (users family) -------------------------------------
+    # psycopg's async side can't run on Windows' ProactorEventLoop; the
+    # policy must be set before pytest-asyncio creates any loop.
+    from backend import pg as _pg
+
+    _pg.ensure_selector_event_loop_policy()
+    # Point pg.dsn() at the local TEST database (never the .env Supabase
+    # DSN) and rebuild the session schemas from the migration files.
+    from tests.fixtures.pg import provision_for_session
+
+    provision_for_session()
+
     # Imports below this line read the env vars above when they evaluate their
     # module-level constants (DB_PATH, SESSION_SECRET, ...).
     from backend.census import store as census_store
@@ -108,14 +121,10 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     from backend.eq2db import recipes as recipes_db
     from backend.eq2db import spells as spells_db
     from backend.eq2db import zones as zones_db
-    from backend.server import db as users_db
     from backend.server.parses import db as parses_db
 
     parses_db.DB_PATH = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
     parses_db.store.path = parses_db.DB_PATH
-    users_db.DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
-    for _store in users_db.ALL_STORES:
-        _store.path = users_db.DB_PATH
     census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
     census_store.store.path = census_store.DB_PATH
     # eq2db catalogue modules: re-point both the module constant AND the
@@ -131,11 +140,10 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
         mod.DB_PATH = resolve_db_path(env_var, subdir, filename)
         mod.catalogue.path = mod.DB_PATH
 
-    # Create both schemas immediately. FastAPI's startup hooks (which would
-    # normally call init_db) don't fire under ASGITransport, so without this
-    # step API-token / parses tests would hit a missing-table OperationalError
-    # the first time they read from the DB.
-    users_db.init_db()
+    # Create the parses schema immediately. FastAPI's startup hooks don't
+    # fire under ASGITransport, so without this step parses tests would hit
+    # a missing-table OperationalError the first time they read from the DB.
+    # (The users family is provisioned by provision_for_session above.)
     parses_db.store.init_db()
 
 
@@ -226,6 +234,7 @@ def mock_character_cache():
 # directory (the fixtures' module location is implementation detail).
 from tests.fixtures.logging_state import _logging_state_isolation  # noqa: F401,E402
 from tests.fixtures.parses_db import parses_db_conn, parses_db_path  # noqa: F401,E402
+from tests.fixtures.pg import users_schema  # noqa: F401,E402
 
 
 @pytest.fixture(autouse=True)

@@ -33,9 +33,10 @@ sys.path.insert(0, str(_REPO))
 
 from dotenv import load_dotenv  # noqa: E402
 
+from backend import pg  # noqa: E402
 from backend.census.client import CensusClient  # noqa: E402
 from backend.eq2db import zones as zones_db  # noqa: E402
-from backend.server.db import DB_PATH as USERS_DB_PATH  # noqa: E402
+from backend.server.db import SCHEMA as USERS_SCHEMA  # noqa: E402
 from backend.server.parses.db import DB_PATH as PARSES_DB_PATH  # noqa: E402
 
 load_dotenv(_REPO / ".env")
@@ -78,19 +79,22 @@ def _read_primary_character() -> tuple[str, str] | None:
     """Return ``(discord_id, character_name)`` of the user's primary claim.
 
     Picks the oldest approved+primary claim if multiple exist (single-user dev
-    DBs effectively only have one). Returns None if no primary is set.
+    DBs effectively only have one). Returns None if no primary is set (or the
+    users schema is unreachable/unmigrated).
     """
-    if not USERS_DB_PATH.exists():
+    try:
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(USERS_SCHEMA))
+            row = conn.execute(
+                """
+                SELECT discord_id, character_name FROM character_claims
+                WHERE status = 'approved' AND is_primary = 1
+                ORDER BY requested_at ASC LIMIT 1
+                """,
+            ).fetchone()
+    except Exception:
         return None
-    with sqlite3.connect(USERS_DB_PATH) as conn:
-        row = conn.execute(
-            """
-            SELECT discord_id, character_name FROM character_claims
-            WHERE status = 'approved' AND is_primary = 1
-            ORDER BY requested_at ASC LIMIT 1
-            """,
-        ).fetchone()
-    return (row[0], row[1]) if row else None
+    return (row["discord_id"], row["character_name"]) if row else None
 
 
 async def _resolve_guild_via_census(character_name: str, world: str, attempts: int = 4) -> str | None:

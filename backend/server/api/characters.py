@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import logging
 
-import aiosqlite
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from backend import pg
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
-from backend.server.db import DB_PATH
+from backend.server.db import SCHEMA as _USERS_SCHEMA
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
 from backend.sql_loader import load_sql
@@ -65,9 +65,9 @@ def _store_search_sync(q: str, world: str) -> list[CharNameResult]:
 
 
 async def _local_search(q: str) -> list[CharNameResult]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(_SQL["local_search_by_prefix"], (f"{q.lower()}%",)) as cur:
+    async with pg.aconnection() as db:
+        await db.execute(pg.search_path_sql(_USERS_SCHEMA))
+        async with await db.execute(_SQL["local_search_by_prefix"], (f"{q.lower()}%",)) as cur:
             rows = await cur.fetchall()
     return [CharNameResult(name=r["character_name"]) for r in rows]
 

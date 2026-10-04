@@ -249,8 +249,9 @@ class _DBCollector(Collector):
     def collect(self):  # type: ignore[override]
         # Lazy imports — keep metrics.py importable from tests without the
         # full DB modules loaded.
+        from backend import pg
         from backend.eq2db import raids as raids_db
-        from backend.server.db import DB_PATH as users_db_path
+        from backend.server.db import SCHEMA as users_schema
         from backend.server.parses import db as parses_db
 
         g_users = GaugeMetricFamily("users_total", "Registered users by access status", labels=["status"])
@@ -273,20 +274,21 @@ class _DBCollector(Collector):
             "ACT spell-timer definitions stored across all encounters",
         )
 
-        # users.db ----------------------------------------------------------
-        conn = self._get_conn("users", users_db_path)
-        if conn is not None:
-            try:
+        # users schema (Postgres) --------------------------------------------
+        # Tiny COUNTs per scrape; a short-lived pooled checkout beats keeping
+        # a scrape-lifetime connection around. (The P2 metrics split replaces
+        # this with 60s-cached counts.)
+        try:
+            with pg.connection() as conn:
+                conn.execute(pg.search_path_sql(users_schema))
                 for status in ("approved", "pending", "denied"):
                     row = conn.execute(_SQL["count_users_by_access_status"], (status,)).fetchone()
-                    g_users.add_metric([status], row[0] if row else 0)
-
+                    g_users.add_metric([status], row["n"] if row else 0)
                 for status in ("pending", "approved", "rejected", "withdrawn", "superseded"):
                     row = conn.execute(_SQL["count_claims_by_status"], (status,)).fetchone()
-                    g_claims.add_metric([status], row[0] if row else 0)
-            except Exception:
-                _log.exception("[metrics] users.db collector error")
-                self._close_conn("users")
+                    g_claims.add_metric([status], row["n"] if row else 0)
+        except Exception:
+            _log.exception("[metrics] users-schema collector error")
 
         # parses.db — encounters split by hidden_at (visible vs soft-deleted)
         # so dashboards can distinguish "live leaderboard rows" from
@@ -342,12 +344,12 @@ class _DBFileSizeCollector(Collector):
         from backend.eq2db import recipes as recipes_db
         from backend.eq2db import spells as spells_db
         from backend.eq2db import zones as zones_db
-        from backend.server.db import DB_PATH as users_db_path
         from backend.server.parses import db as parses_db
 
         # Map label → Path. Centralised so adding a new DB is one tuple.
+        # (users moved to Postgres — its size gauge returns in the P2
+        # metrics split as pg_total_relation_size per schema.)
         candidates = [
-            ("users", users_db_path),
             ("parses", parses_db.DB_PATH),
             ("census", census_store.DB_PATH),
             ("raids", raids_db.DB_PATH),

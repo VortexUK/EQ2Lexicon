@@ -4,10 +4,10 @@ import asyncio
 import logging
 import time
 
-import aiosqlite
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from backend import pg
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _scrub
 from backend.server.cache import guild_cache
@@ -22,7 +22,7 @@ from backend.server.core.cache_keys import (
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_guild_name as _validate_guild_name_lib
-from backend.server.db import DB_PATH as _USERS_DB_PATH
+from backend.server.db import SCHEMA as _USERS_SCHEMA
 from backend.server.db import get_active_claims
 from backend.server.guild_cache import (
     _bg_refresh_guild,
@@ -529,9 +529,9 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
         return GuildSearchResponse(results=[GuildNameResult(name=n) for n in store_names], total=len(store_names))
 
     # Census failed — fall back to locally-tracked guilds in item_watch
-    async with aiosqlite.connect(_USERS_DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(_SQL["local_guild_search_by_prefix"], (f"{q.lower()}%",)) as cur:
+    async with pg.aconnection() as db:
+        await db.execute(pg.search_path_sql(_USERS_SCHEMA))
+        async with await db.execute(_SQL["local_guild_search_by_prefix"], (f"{q.lower()}%",)) as cur:
             rows = await cur.fetchall()
 
     results = [GuildNameResult(name=r["guild_name"]) for r in rows]
