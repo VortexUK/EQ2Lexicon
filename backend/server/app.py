@@ -473,7 +473,17 @@ def create_app(session_secret: str | None = None) -> FastAPI:
                 f"(web/routes/rankings.py). Set WEB_CONCURRENCY=1 or rewrite "
                 f"both layers to use a cross-process backplane before scaling."
             )
-        users_db.init_db()
+        # Postgres: open the shared pools, then apply any pending migrations
+        # — a deploy IS a migration run (ledger + advisory lock make this
+        # idempotent and safe against overlapping containers). The sync
+        # runner goes through run_sync so startup never blocks the loop.
+        from backend import pg, pg_migrate
+        from backend.server.core.executor import run_sync
+
+        await pg.open_pools()
+        _applied = await run_sync(pg_migrate.run)
+        if _applied:
+            _log.info("[startup] applied %d migration(s): %s", len(_applied), ", ".join(_applied))
         # Open-signup backlog clear: when OPEN_SIGNUP is on, auto-approve any
         # users already waiting in the pending queue so the policy applies to
         # them too (new logins are auto-approved at upsert time). Idempotent —
@@ -554,6 +564,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             # Close the shared aiohttp session(s) so the process exits
             # without aiohttp's "Unclosed client session" warning.
             await census_lifecycle.aclose_all()
+            await pg.close_pools()
 
     async def _cache_sweep_loop() -> None:
         """Periodically evict max_age-expired entries from all caches.

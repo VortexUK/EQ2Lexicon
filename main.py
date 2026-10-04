@@ -155,4 +155,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    # psycopg's async side can't run on Windows' default ProactorEventLoop —
+    # select the selector policy before the loop exists (no-op on Linux).
+    from backend import pg
+
+    pg.ensure_selector_event_loop_policy()
     asyncio.run(main())

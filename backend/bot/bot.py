@@ -51,14 +51,11 @@ class EQ2Bot(commands.Bot):
         from backend.core.logging_config import configure_logging
 
         configure_logging()
-        # The bot shares users.db with the web half but starts concurrently
-        # with it — the web lifespan owns init_db, so run it defensively
-        # here too (idempotent CREATE IF NOT EXISTS + guarded migrations)
-        # before any cog can touch the registry.
-        from backend.server import db as users_db
-
-        await asyncio.to_thread(users_db.init_db)
-
+        # The bot shares the users schema with the web half and starts
+        # concurrently with it. The web lifespan owns pools + migrations;
+        # pre-lifespan bot queries fall back to direct psycopg connections
+        # (backend/pg.py) and registry lookups degrade on psycopg.Error
+        # (guild_context), so no defensive init is needed here.
         self.census = CensusClient(service_id=SERVICE_ID)
         self.tree.error(self._on_app_command_error)
 
