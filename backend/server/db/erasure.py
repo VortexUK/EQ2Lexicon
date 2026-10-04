@@ -1,8 +1,9 @@
 """Account erasure — the right-to-be-forgotten mechanics behind the privacy
 policy (2026-09-28).
 
-One sync function over BOTH SQLite files (users.db and parses.db), run from
-the routes through ``run_sync``:
+One sync function over BOTH stores — the ``users`` Postgres schema and the
+parses SQLite file (Postgres in P2, when the halves unify into one
+transaction) — run from the routes through ``run_sync``:
 
 - rows that ARE the person go: the ``users`` row and everything keyed to
   their Discord id (tokens, roles, role requests, claims, favourites,
@@ -26,13 +27,15 @@ supporters cache, the metrics last-seen map) is cleared by the route.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.server import db as _users_db  # DB_PATH read at call time (tests re-point it)
+from psycopg.types.json import Json
+
+from backend import pg
+from backend.server import db as _users_db  # SCHEMA read at call time (tests re-point it)
 from backend.server.parses.db import store as parses_store
 
 #: The placeholder users row every tombstoned reference points at.
@@ -101,11 +104,11 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
 
 
-def _ensure_tombstone(conn: sqlite3.Connection, now: int) -> None:
+def _ensure_tombstone(conn, now: int) -> None:
     conn.execute(
         "INSERT INTO users (discord_id, discord_name, discord_username, avatar, first_seen, last_seen, "
-        "access_status) VALUES (?, 'Deleted user', 'deleted', NULL, ?, ?, 'denied') "
-        "ON CONFLICT(discord_id) DO NOTHING",
+        "access_status) VALUES (%s, 'Deleted user', 'deleted', NULL, %s, %s, 'denied') "
+        "ON CONFLICT (discord_id) DO NOTHING",
         (DELETED_USER_ID, now, now),
     )
 
@@ -113,57 +116,53 @@ def _ensure_tombstone(conn: sqlite3.Connection, now: int) -> None:
 def erase_user_sync(
     discord_id: str,
     *,
-    users_path: Path | None = None,
+    users_schema: str | None = None,
     parses_path: Path | None = None,
     now: int | None = None,
 ) -> ErasureResult:
-    """Erase one Discord account from both databases. Idempotent: a second
+    """Erase one Discord account from both stores. Idempotent: a second
     call finds nothing and reports ``found=False``. The tombstone id itself
-    can never be erased."""
+    can never be erased. The users half is ONE Postgres transaction with
+    constraints deferred (replacing SQLite's PRAGMA foreign_keys=OFF), so a
+    crash mid-way leaves nothing half-erased; migrations guarantee every
+    table exists, so the SQLite-era per-table existence probes are gone."""
     if not discord_id or discord_id == DELETED_USER_ID:
         return ErasureResult(found=False)
     now = int(now if now is not None else time.time())
     result = ErasureResult(found=False)
 
-    users_db = Path(users_path) if users_path is not None else _users_db.DB_PATH
-    with sqlite3.connect(users_db) as conn:
-        conn.execute("PRAGMA foreign_keys = OFF")  # we order the deletes ourselves
-        found_user = conn.execute("SELECT 1 FROM users WHERE discord_id = ?", (discord_id,)).fetchone()
+    schema = users_schema if users_schema is not None else _users_db.SCHEMA
+    with pg.connection() as conn:
+        conn.execute(pg.search_path_sql(schema))
+        # The users-referencing FKs are DEFERRABLE INITIALLY IMMEDIATE —
+        # defer them all so statement order inside this transaction is free.
+        conn.execute("SET CONSTRAINTS ALL DEFERRED")
+        found_user = conn.execute("SELECT 1 FROM users WHERE discord_id = %s", (discord_id,)).fetchone()
         result.found = found_user is not None
         _ensure_tombstone(conn, now)
         for table, column in _AUTHOR_COLUMNS:
-            if not _table_exists(conn, table):
-                continue
-            cur = conn.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (DELETED_USER_ID, discord_id))
+            cur = conn.execute(f"UPDATE {table} SET {column} = %s WHERE {column} = %s", (DELETED_USER_ID, discord_id))
             if cur.rowcount:
                 result.tombstoned[f"{table}.{column}"] = cur.rowcount
         for table, column in _OWNED_ROWS:
-            if not _table_exists(conn, table):
-                continue
-            cur = conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (discord_id,))
+            cur = conn.execute(f"DELETE FROM {table} WHERE {column} = %s", (discord_id,))
             if cur.rowcount:
                 result.deleted[table] = cur.rowcount
-        if _table_exists(conn, "attendance_observations"):
-            cur = conn.execute(
-                "DELETE FROM attendance_observations WHERE kind = 'voice' AND character_name = ?", (discord_id,)
-            )
-            result.voice_observations_deleted = cur.rowcount
-        if _table_exists(conn, "attendance_sessions"):
-            rows = conn.execute(
-                "SELECT id, uploaders FROM attendance_sessions WHERE uploaders LIKE ?", (f"%{discord_id}%",)
-            ).fetchall()
-            for session_id, raw in rows:
-                try:
-                    uploaders = json.loads(raw or "{}")
-                except ValueError:
-                    continue
-                if isinstance(uploaders, dict) and discord_id in uploaders:
-                    uploaders.pop(discord_id)
-                    conn.execute(
-                        "UPDATE attendance_sessions SET uploaders = ? WHERE id = ?", (json.dumps(uploaders), session_id)
-                    )
-                    result.sessions_scrubbed += 1
-        cur = conn.execute("DELETE FROM users WHERE discord_id = ?", (discord_id,))
+        cur = conn.execute(
+            "DELETE FROM attendance_observations WHERE kind = 'voice' AND character_name = %s", (discord_id,)
+        )
+        result.voice_observations_deleted = cur.rowcount
+        # uploaders is jsonb: `?` is the key-exists operator (psycopg only
+        # treats %s as a placeholder, so the bare ? passes through).
+        rows = conn.execute(
+            "SELECT id, uploaders FROM attendance_sessions WHERE uploaders ? %s", (discord_id,)
+        ).fetchall()
+        for row in rows:
+            uploaders = row["uploaders"] or {}
+            uploaders.pop(discord_id, None)
+            conn.execute("UPDATE attendance_sessions SET uploaders = %s WHERE id = %s", (Json(uploaders), row["id"]))
+            result.sessions_scrubbed += 1
+        cur = conn.execute("DELETE FROM users WHERE discord_id = %s", (discord_id,))
         if cur.rowcount:
             result.deleted["users"] = cur.rowcount
         conn.commit()
