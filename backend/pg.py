@@ -21,8 +21,10 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from typing import Any
 
 import psycopg
+from psycopg import sql as pgsql
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
@@ -66,7 +68,7 @@ async def close_pools() -> None:
 
 
 @asynccontextmanager
-async def aconnection() -> AsyncIterator[psycopg.AsyncConnection]:
+async def aconnection() -> AsyncIterator[psycopg.AsyncConnection[Any]]:
     """Async checkout: pooled when the lifespan opened pools, else a
     short-lived direct connection (tests / scripts / pre-lifespan bot).
     psycopg commits on clean ``async with`` exit and rolls back on
@@ -75,22 +77,22 @@ async def aconnection() -> AsyncIterator[psycopg.AsyncConnection]:
         async with _async_pool.connection() as conn:
             yield conn
     else:
-        async with await psycopg.AsyncConnection.connect(dsn(), row_factory=dict_row) as conn:
+        async with await psycopg.AsyncConnection.connect(dsn(), row_factory=dict_row) as conn:  # type: ignore[arg-type]
             yield conn
 
 
 @contextmanager
-def connection() -> Iterator[psycopg.Connection]:
+def connection() -> Iterator[psycopg.Connection[Any]]:
     """Sync twin of :func:`aconnection`."""
     if _sync_pool is not None:
         with _sync_pool.connection() as conn:
             yield conn
     else:
-        with psycopg.connect(dsn(), row_factory=dict_row) as conn:
+        with psycopg.connect(dsn(), row_factory=dict_row) as conn:  # type: ignore[arg-type]
             yield conn
 
 
-def search_path_sql(schema: str) -> psycopg.sql.Composed:
+def search_path_sql(schema: str) -> pgsql.Composed:
     """The one statement stores run at checkout — composed so a schema
     name can never inject (test scratch schemas are generated names)."""
-    return psycopg.sql.SQL("SET search_path TO {}, public").format(psycopg.sql.Identifier(schema))
+    return pgsql.SQL("SET search_path TO {}, public").format(pgsql.Identifier(schema))
