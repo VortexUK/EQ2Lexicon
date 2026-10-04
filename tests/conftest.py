@@ -222,6 +222,7 @@ from tests.fixtures.census_db import census_schema  # noqa: F401,E402
 from tests.fixtures.logging_state import _logging_state_isolation  # noqa: F401,E402
 from tests.fixtures.parses_db import parses_db_conn, parses_db_path  # noqa: F401,E402
 from tests.fixtures.pg import users_schema  # noqa: F401,E402
+from tests.fixtures.zones_raids_db import raids_schema, zones_schema  # noqa: F401,E402
 
 
 @pytest.fixture(autouse=True)
