@@ -90,7 +90,7 @@ def team_scheduled_now(team: dict, now: datetime | None = None) -> bool:
     wd = local.isoweekday()
     mn = local.hour * 60 + local.minute
     for r in team.get("raids", []):
-        days = [int(d) for d in str(r.get("days", "")).split(",") if d]
+        days = [int(d) for d in (r.get("days") or [])]
         if days and _slot_active_now(days, r["start_min"], r["end_min"], wd, mn):
             return True
     return False

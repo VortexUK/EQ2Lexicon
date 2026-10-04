@@ -1,4 +1,4 @@
-"""users.db raid-attendance store (async aiosqlite).
+"""users-schema raid-attendance store (psycopg).
 
 Canonical merged attendance per guild raid night. Multiple officers run the
 parser simultaneously and each POSTs cumulative snapshots; ``apply_snapshot``
@@ -12,20 +12,21 @@ the availability calendar's date currency) and ``seq`` disambiguates genuine
 double-headers (>3h apart). The ``scheduled`` flag + ``team_index`` are
 frozen at ingest so later schedule edits never rewrite history.
 
-Mirrors the favorites/raid_schedule domain pattern: per-call connections via
-``AsyncStoreBase._db()``; tests re-point ``store.path`` via ALL_STORES.
+Mirrors the guild_settings/raid_schedule domain pattern: pooled per-call
+connections via ``PgStoreBase._db()``; tests re-point ``store.schema`` via
+ALL_STORES.
 """
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from psycopg.types.json import Json
+
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -49,12 +50,13 @@ def session_day_for(started_at: int) -> str:
     return datetime.fromtimestamp(started_at - ROLLOVER_S, tz=UTC).date().isoformat()
 
 
-class AttendanceStore(AsyncStoreBase):
-    """users.db `attendance` domain. Schema/migrations are owned by the
-    package orchestrator (backend.server.db.init_db)."""
+class AttendanceStore(PgStoreBase):
+    """users-schema `attendance` domain. Schema DDL is owned by
+    db/migrations/0001_users.sql; methods check out pooled connections
+    scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def apply_snapshot(
         self,
@@ -84,8 +86,17 @@ class AttendanceStore(AsyncStoreBase):
         extend = len(raid_members) >= MIN_RAID_FOR_WINDOW
 
         async with self._db(row_factory=True) as db:
-            await db.execute("BEGIN IMMEDIATE")
             try:
+                # psycopg's implicit transaction opens at this first execute.
+                # The advisory xact lock (auto-released at commit/rollback)
+                # serialises concurrent snapshot folds per (world, guild)
+                # exactly as SQLite's BEGIN IMMEDIATE eager write lock did —
+                # two uploaders can't both miss the other's freshly inserted
+                # session and double-create.
+                await db.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    (f"attendance:{world.lower()}:{guild_name.lower()}",),
+                )
                 # Merge matching uses the full observation window so overnight
                 # online rows still land in the right session…
                 row = await (
@@ -108,16 +119,18 @@ class AttendanceStore(AsyncStoreBase):
                 if merged and row is not None:
                     session_id = row["id"]
                     session_day = row["session_day"]
-                    zone_set = set(json.loads(row["zones"] or "[]")) | set(zones)
-                    uploaders = json.loads(row["uploaders"] or "{}")
+                    # zones/uploaders are jsonb — psycopg hands back the
+                    # parsed list/dict directly, no json.loads round-trip.
+                    zone_set = set(row["zones"] or []) | set(zones)
+                    uploaders = row["uploaders"] or {}
                     uploaders[discord_id] = sent_at
                     await db.execute(
                         _SQL["merge_session_window"],
                         (
                             win_start if extend else row["started_at"],
                             win_end if extend else row["ended_at"],
-                            json.dumps(sorted(zone_set)),
-                            json.dumps(uploaders),
+                            Json(sorted(zone_set)),
+                            Json(uploaders),
                             1 if scheduled else 0,
                             team_index,
                             session_id,
@@ -128,7 +141,7 @@ class AttendanceStore(AsyncStoreBase):
                     seq_row = await (
                         await db.execute(_SQL["select_max_seq"], (world, guild_name, session_day))
                     ).fetchone()
-                    seq = seq_row[0] if seq_row else 0  # aggregate always returns a row
+                    seq = seq_row["seq"] if seq_row else 0  # aggregate always returns a row
                     cur = await db.execute(
                         _SQL["insert_session"],
                         (
@@ -138,14 +151,14 @@ class AttendanceStore(AsyncStoreBase):
                             seq,
                             win_start,
                             win_end,
-                            json.dumps(sorted(set(zones))),
+                            Json(sorted(set(zones))),
                             1 if scheduled else 0,
                             team_index,
-                            json.dumps({discord_id: sent_at}),
+                            Json({discord_id: sent_at}),
                         ),
                     )
                     _row = await cur.fetchone()
-                    session_id = _row[0] if _row else None
+                    session_id = _row["id"] if _row else None
 
                 for kind, members in (("raid", raid_members), ("online", online_guildies)):
                     for m in members:
@@ -164,7 +177,7 @@ class AttendanceStore(AsyncStoreBase):
         voice poller's "is a raid happening right now?" probe. None when
         nothing is within the merge gap."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["select_live_session"],
                 (world, guild_name, at + MERGE_GAP_S, at - MERGE_GAP_S),
             ) as cur:
@@ -187,28 +200,28 @@ class AttendanceStore(AsyncStoreBase):
         self, world: str, guild_name: str, *, limit: int = 50, before_id: int | None = None
     ) -> list[dict]:
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_sessions"], (world, guild_name, before_id, before_id, limit)) as cur:
+            async with await db.execute(
+                _SQL["select_sessions"], (world, guild_name, before_id, before_id, limit)
+            ) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
     async def get_session(self, session_id: int) -> dict | None:
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_session"], (session_id,)) as cur:
+            async with await db.execute(_SQL["select_session"], (session_id,)) as cur:
                 row = await cur.fetchone()
                 return dict(row) if row else None
 
     async def observations_for_session(self, session_id: int) -> list[dict]:
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_observations"], (session_id,)) as cur:
+            async with await db.execute(_SQL["select_observations"], (session_id,)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
     async def observations_for_sessions(self, session_ids: list[int]) -> dict[int, list[dict]]:
         if not session_ids:
             return {}
-        placeholders = ",".join("?" * len(session_ids))
         out: dict[int, list[dict]] = {sid: [] for sid in session_ids}
         async with self._db(row_factory=True) as db:
-            sql = _SQL["select_observations_many"].format(placeholders=placeholders)
-            async with db.execute(sql, session_ids) as cur:
+            async with await db.execute(_SQL["select_observations_many"], (session_ids,)) as cur:
                 for r in await cur.fetchall():
                     out[r["session_id"]].append(dict(r))
         return out
@@ -232,17 +245,15 @@ class AttendanceStore(AsyncStoreBase):
     async def overrides_for_session(self, session_id: int) -> dict[str, dict]:
         """{character_name_lower: {character_name, category, set_by, set_at}}."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_overrides"], (session_id,)) as cur:
+            async with await db.execute(_SQL["select_overrides"], (session_id,)) as cur:
                 return {r["character_name"].lower(): dict(r) for r in await cur.fetchall()}
 
     async def overrides_for_sessions(self, session_ids: list[int]) -> dict[int, dict[str, dict]]:
         if not session_ids:
             return {}
-        placeholders = ",".join("?" * len(session_ids))
         out: dict[int, dict[str, dict]] = {sid: {} for sid in session_ids}
         async with self._db(row_factory=True) as db:
-            sql = _SQL["select_overrides_many"].format(placeholders=placeholders)
-            async with db.execute(sql, session_ids) as cur:
+            async with await db.execute(_SQL["select_overrides_many"], (session_ids,)) as cur:
                 for r in await cur.fetchall():
                     out[r["session_id"]][r["character_name"].lower()] = dict(r)
         return out
@@ -275,7 +286,7 @@ class AttendanceStore(AsyncStoreBase):
         ended_at, set_by}]} ordered by started_at."""
         out: dict[str, list[dict]] = {}
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_segments"], (session_id,)) as cur:
+            async with await db.execute(_SQL["select_segments"], (session_id,)) as cur:
                 for r in await cur.fetchall():
                     out.setdefault(r["character_name"].lower(), []).append(dict(r))
         return out
@@ -283,11 +294,9 @@ class AttendanceStore(AsyncStoreBase):
     async def segments_for_sessions(self, session_ids: list[int]) -> dict[int, dict[str, list[dict]]]:
         if not session_ids:
             return {}
-        placeholders = ",".join("?" * len(session_ids))
         out: dict[int, dict[str, list[dict]]] = {sid: {} for sid in session_ids}
         async with self._db(row_factory=True) as db:
-            sql = _SQL["select_segments_many"].format(placeholders=placeholders)
-            async with db.execute(sql, session_ids) as cur:
+            async with await db.execute(_SQL["select_segments_many"], (session_ids,)) as cur:
                 for r in await cur.fetchall():
                     out[r["session_id"]].setdefault(r["character_name"].lower(), []).append(dict(r))
         return out

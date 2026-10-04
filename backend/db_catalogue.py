@@ -46,7 +46,7 @@ import sqlite3
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -312,3 +312,52 @@ class AsyncStoreBase(PathBound):
             if row_factory:
                 db.row_factory = aiosqlite.Row
             yield db
+
+# ---------------------------------------------------------------------------
+# Postgres bases — the migrated families (users / parses / census / zones /
+# raids). One database, one schema per family; connections come from
+# backend.pg (pooled under the app lifespan, direct otherwise) and select
+# their family schema via search_path at checkout, so every query in the
+# .sql sidecars stays unqualified. Schema DDL is owned by db/migrations/
+# via backend.pg_migrate — stores never create tables.
+# ---------------------------------------------------------------------------
+
+
+class SchemaBound:
+    """Schema-name identity for Postgres stores — the migrated analog of
+    :class:`PathBound`. Tests re-point ``store.schema`` at leased scratch
+    schemas exactly as they re-pointed ``store.path`` at tmp files. No
+    ``__fspath__`` (nothing to open as a file) and no exists-degrade:
+    migrations run before the app serves, so a missing relation is a real
+    fault, never a soft empty result."""
+
+    def __init__(self, schema: str) -> None:
+        self.schema = schema
+
+    def __repr__(self) -> str:  # pragma: no cover — debugging nicety
+        return f"<{type(self).__name__} schema={self.schema}>"
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, type(self)) and type(other) is type(self) and other.schema == self.schema
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.schema))
+
+
+class PgStoreBase(SchemaBound):
+    """Base for the async (formerly aiosqlite) users-family domain stores.
+
+    ``_db()`` keeps its name and contextmanager shape so store methods port
+    with minimal churn; rows are ALWAYS dict-shaped (psycopg dict_row — the
+    ``row_factory`` kwarg survives for signature compatibility and is
+    ignored). psycopg commits on clean ``async with`` exit and rolls back
+    on exception, so the explicit ``await db.commit()`` calls inside store
+    methods remain correct (and make the commit point explicit)."""
+
+    @asynccontextmanager
+    async def _db(self, *, row_factory: bool = True) -> AsyncIterator[Any]:
+        from backend import pg  # deferred: sync-only consumers never pay the import
+
+        async with pg.aconnection() as conn:
+            await conn.execute(pg.search_path_sql(self.schema))
+            yield conn

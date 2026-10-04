@@ -4,22 +4,22 @@
 SELECT * FROM servers ORDER BY display_name;
 
 -- :name find_by_subdomain
-SELECT * FROM servers WHERE subdomain = ?;
+SELECT * FROM servers WHERE subdomain = %s;
 
 -- :name find_by_world
-SELECT * FROM servers WHERE world = ?;
+SELECT * FROM servers WHERE world = %s;
 
 -- :name upsert_server_settings
-UPDATE servers SET max_level = ?, current_xpac = ?, launch_dt = ?,
-       next_xpac = ?, next_xpac_dt = ?,
-       updated_at = strftime('%s','now')
-WHERE world = ?;
+UPDATE servers SET max_level = %s, current_xpac = %s, launch_dt = %s,
+       next_xpac = %s, next_xpac_dt = %s,
+       updated_at = floor(extract(epoch from now()))
+WHERE world = %s;
 
 -- :name clear_all_defaults
 UPDATE servers SET is_default = 0;
 
 -- :name set_default_by_world
-UPDATE servers SET is_default = 1 WHERE world = ?;
+UPDATE servers SET is_default = 1 WHERE world = %s;
 
 -- :name set_default_fallback
 UPDATE servers SET is_default = 1 WHERE world =
@@ -29,7 +29,7 @@ UPDATE servers SET is_default = 1 WHERE world =
 -- still being set: a repeat/concurrent call matches zero rows.
 -- :name apply_xpac_rollover
 UPDATE servers
-   SET current_xpac = ?, max_level = ?, current_xpac_started_dt = ?,
+   SET current_xpac = %s, max_level = %s, current_xpac_started_dt = %s,
        next_xpac = NULL, next_xpac_dt = NULL,
-       updated_at = strftime('%s','now')
- WHERE world = ? AND next_xpac IS NOT NULL;
+       updated_at = floor(extract(epoch from now()))
+ WHERE world = %s AND next_xpac IS NOT NULL;

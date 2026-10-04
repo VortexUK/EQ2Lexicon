@@ -1,4 +1,4 @@
-"""users.db per-user raid-availability calendar (async aiosqlite).
+"""users per-user raid-availability calendar (async psycopg).
 
 Only non-default days are stored — an absent row means Available, so a
 player who never touches the calendar is always available (per the raid-
@@ -11,10 +11,8 @@ re-point ``store.path``.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -50,17 +48,17 @@ def merge_availability(
     return {n: s for n, (s, _) in merged.items()}
 
 
-class AvailabilityStore(AsyncStoreBase):
-    """users.db `user_availability` domain. Schema/migrations are owned by
-    the package orchestrator (backend.server.db.init_db)."""
+class AvailabilityStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def get_range(self, discord_id: str, from_day: str, to_day: str) -> dict[str, str]:
         """{YYYY-MM-DD: 'tentative'|'afk'} for the window. Absent = available."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_range"], (discord_id, from_day, to_day)) as cur:
+            async with await db.execute(_SQL["select_range"], (discord_id, from_day, to_day)) as cur:
                 return {r["day"]: r["status"] for r in await cur.fetchall()}
 
     async def set_days(self, discord_id: str, days: dict[str, str]) -> None:
@@ -81,7 +79,7 @@ class AvailabilityStore(AsyncStoreBase):
         """{discord_id: status} for every user with a non-default entry on
         ``day`` — the raid planner overlays this onto the claims map."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_statuses_for_day"], (day,)) as cur:
+            async with await db.execute(_SQL["select_statuses_for_day"], (day,)) as cur:
                 return {r["discord_id"]: r["status"] for r in await cur.fetchall()}
 
     async def statuses_for_day_with_times(self, day: str) -> dict[str, tuple[str, int]]:
@@ -89,7 +87,7 @@ class AvailabilityStore(AsyncStoreBase):
         merge against officer character entries. Legacy rows (pre-stamp)
         carry updated_at 0, so any stamped officer edit beats them."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_statuses_for_day_with_times"], (day,)) as cur:
+            async with await db.execute(_SQL["select_statuses_for_day_with_times"], (day,)) as cur:
                 return {r["discord_id"]: (r["status"], r["updated_at"]) for r in await cur.fetchall()}
 
     async def set_character_days(self, world: str, character_name: str, days: dict[str, str], *, set_by: str) -> None:
@@ -112,14 +110,14 @@ class AvailabilityStore(AsyncStoreBase):
         (``available`` rows included — consumers checking for 'afk' are
         unaffected; the planner merge drops them after precedence)."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["char_statuses_for_day"], (world, day)) as cur:
+            async with await db.execute(_SQL["char_statuses_for_day"], (world, day)) as cur:
                 return {r["character_name"]: r["status"] for r in await cur.fetchall()}
 
     async def char_statuses_for_day_with_times(self, world: str, day: str) -> dict[str, tuple[str, int]]:
         """{character_name_lower: (status, updated_at)} — the officer half
         of the newest-edit-wins planner merge."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["char_statuses_for_day_with_times"], (world, day)) as cur:
+            async with await db.execute(_SQL["char_statuses_for_day_with_times"], (world, day)) as cur:
                 return {r["character_name"]: (r["status"], r["updated_at"]) for r in await cur.fetchall()}
 
 

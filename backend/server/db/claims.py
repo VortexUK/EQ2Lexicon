@@ -1,6 +1,6 @@
-"""users.db character_claims table helpers.
+"""users ``character_claims`` helpers (async psycopg).
 
-Carved out of the original 1309-line web/db.py. Async (aiosqlite) helpers
+Carved out of the original 1309-line web/db.py. Async (psycopg) helpers
 for the character claims domain. Per-call connections open via the
 shared ``AsyncStoreBase._db()``; tests re-point ``store.path``.
 
@@ -14,22 +14,19 @@ Claim statuses:
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class ClaimsStore(AsyncStoreBase):
-    """users.db `claims` domain. Schema/migrations are owned by the package
-    orchestrator (backend.server.db.init_db); methods open per-call
-    connections against ``self.path``."""
+class ClaimsStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def get_active_claims(
         self,
@@ -44,7 +41,7 @@ class ClaimsStore(AsyncStoreBase):
         primaries are completely independent.
         """
         async with self._db(row_factory=True) as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["list_active_claims"],
                 (discord_id, world),
             ) as cur:
@@ -70,7 +67,7 @@ class ClaimsStore(AsyncStoreBase):
         async with self._db(row_factory=True) as db:
             # Reject if this character name is already claimed (approved or pending)
             # by anyone *on this world* (EQ2 names are unique only within a server)
-            async with db.execute(
+            async with await db.execute(
                 _SQL["check_character_name_taken"],
                 (character_name, world),
             ) as cur:
@@ -90,9 +87,9 @@ class ClaimsStore(AsyncStoreBase):
                 (discord_id, character_name, world),
             )
             _row = await cur.fetchone()
-            new_id = _row[0] if _row else None
+            new_id = _row["id"] if _row else None
             await db.commit()
-            async with db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
+            async with await db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
                 row = await cur2.fetchone()
         assert row is not None, "INSERT succeeded but SELECT returned nothing"
         return dict(row)
@@ -112,13 +109,13 @@ class ClaimsStore(AsyncStoreBase):
         """
         async with self._db() as db:
             # Check if this claim is primary before withdrawing (and capture world from row)
-            async with db.execute(
+            async with await db.execute(
                 _SQL["select_primary_and_world"],
                 (claim_id, discord_id),
             ) as cur:
                 row = await cur.fetchone()
-            was_primary = row is not None and row[0] == 1
-            claim_world = row[1] if row is not None else world
+            was_primary = row is not None and row["is_primary"] == 1
+            claim_world = row["world"] if row is not None else world
 
             cur = await db.execute(
                 _SQL["withdraw_claim"],
@@ -150,7 +147,7 @@ class ClaimsStore(AsyncStoreBase):
         """
         async with self._db() as db:
             # Verify the claim belongs to this user, is approved, and is on the right world
-            async with db.execute(
+            async with await db.execute(
                 _SQL["find_approved_claim_for_user_on_world"],
                 (claim_id, discord_id, world),
             ) as cur:
@@ -175,7 +172,7 @@ class ClaimsStore(AsyncStoreBase):
     ) -> dict | None:
         """Return a single claim joined with its submitting user's info."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["find_claim_with_user"],
                 (claim_id,),
             ) as cur:
@@ -198,14 +195,14 @@ class ClaimsStore(AsyncStoreBase):
             where_parts: list[str] = []
             params: list = []
             if status:
-                where_parts.append("c.status = ?")
+                where_parts.append("c.status = %s")
                 params.append(status)
             if world is not None:
-                where_parts.append("c.world = ?")
+                where_parts.append("c.world = %s")
                 params.append(world)
             where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
             order = "ASC" if status == "pending" else "DESC"
-            async with db.execute(
+            async with await db.execute(
                 _SQL["list_claims"].format(where_sql=where_sql, order=order),
                 params,
             ) as cur:
@@ -229,13 +226,13 @@ class ClaimsStore(AsyncStoreBase):
         Returns the updated claim (with user info) or None if not found.
         """
         async with self._db() as db:
-            async with db.execute(_SQL["select_claim_user_and_world"], (claim_id,)) as cur:
+            async with await db.execute(_SQL["select_claim_user_and_world"], (claim_id,)) as cur:
                 row = await cur.fetchone()
             if not row:
                 return None
-            discord_id = row[0]
-            claim_world = row[1]
-            character_name = row[2]
+            discord_id = row["discord_id"]
+            claim_world = row["world"]
+            character_name = row["character_name"]
 
             await db.execute(
                 _SQL["review_claim"],
@@ -243,7 +240,7 @@ class ClaimsStore(AsyncStoreBase):
             )
             # Auto-assign primary if this is the user's first approved character on this world
             if status == "approved":
-                async with db.execute(
+                async with await db.execute(
                     _SQL["check_user_has_primary_on_world"],
                     (discord_id, claim_world, claim_id),
                 ) as cur:

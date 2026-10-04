@@ -10,8 +10,9 @@ old env-WORLD pin; unlinked servers (and DMs) fall back to
 from __future__ import annotations
 
 import logging
-import sqlite3
 from dataclasses import dataclass
+
+import psycopg
 
 from backend.server.db.discord_links import store as links_store
 
@@ -69,7 +70,9 @@ async def resolve_guild_context(discord_guild_id: int | None) -> GuildContext:
         return _FALLBACK
     try:
         link = await links_store.get_link(str(discord_guild_id))
-    except sqlite3.OperationalError as exc:
+    # psycopg.Error covers both "schema not migrated yet" (UndefinedTable)
+    # and connection trouble — the bot racing the web lifespan either way.
+    except psycopg.Error as exc:
         _log.warning("[bot] guild-link lookup failed (%s) — using fallback world", exc)
         return _FALLBACK
     if link is None:

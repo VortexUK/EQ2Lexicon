@@ -1,4 +1,4 @@
-"""users.db ``guild_recruitment`` domain (async aiosqlite).
+"""users ``guild_recruitment`` domain (async psycopg).
 
 Per-guild recruitment profiles: officer-editable, publicly viewable. Rows
 are keyed by the CENSUS GUILD ID so a profile (and its logo) survives a
@@ -6,9 +6,9 @@ guild rename; ``guild_name`` is a lookup/display column refreshed on every
 officer save and by the daily census sweep, which also auto-delists guilds
 whose id no longer exists in census. An absent row reads as "not
 recruiting" with an empty profile, so callers never merge defaults. The
-200x200-max WebP logo lives in a BLOB column — users.db is
-litestream-replicated, so logos survive volume wipes and are transactional
-with their attribution columns.
+200x200-max WebP logo lives in a bytea column — transactional with its
+attribution columns and inside the same Postgres backups as everything
+else.
 
 Audit/erasure notes: ``updated_by`` and ``logo_uploaded_by`` are Discord
 ids and are tombstoned by the erasure sweep; the logo blob itself is the
@@ -19,10 +19,9 @@ GUILD's asset and stays. ``contacts_json`` holds in-game character names
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -51,23 +50,23 @@ def _loads_list(raw: str | None) -> list[str]:
     return [str(v) for v in value] if isinstance(value, list) else []
 
 
-class GuildRecruitmentStore(AsyncStoreBase):
-    """Schema/migrations are owned by the package orchestrator
-    (backend.server.db.init_db); methods open per-call connections against
-    ``self.path``. The logo BLOB is only ever read by :meth:`get_logo` —
-    profile/list reads carry a ``has_logo`` flag instead. Every write that
-    (re)binds a name to an id first purges rows holding that name under a
-    different id (census name ownership is unique per world, so such rows
-    are provably stale — a disbanded guild whose name was recycled)."""
+class GuildRecruitmentStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``. The logo bytea is
+    only ever read by :meth:`get_logo` — profile/list reads carry a
+    ``has_logo`` flag instead. Every write that (re)binds a name to an id
+    first purges rows holding that name under a different id (census name
+    ownership is unique per world, so such rows are provably stale — a
+    disbanded guild whose name was recycled)."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def get_profile(self, world: str, guild_name: str) -> dict:
         """The guild's profile with JSON columns decoded; the empty-profile
         defaults when the guild has no row."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_profile"], (world, guild_name)) as cur:
+            async with await db.execute(_SQL["select_profile"], (world, guild_name)) as cur:
                 row = await cur.fetchone()
         if row is None:
             return dict(_EMPTY_PROFILE)
@@ -127,12 +126,14 @@ class GuildRecruitmentStore(AsyncStoreBase):
         """``{logo, logo_media_type, logo_uploaded_at}`` or ``None`` when the
         guild has no row or no logo."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_logo"], (world, guild_name)) as cur:
+            async with await db.execute(_SQL["select_logo"], (world, guild_name)) as cur:
                 row = await cur.fetchone()
         if row is None:
             return None
         return {
-            "logo": row["logo"],
+            # psycopg returns bytea as memoryview — materialise to bytes at
+            # the store boundary so Response(content=...) keeps working.
+            "logo": bytes(row["logo"]),
             "logo_media_type": row["logo_media_type"],
             "logo_uploaded_at": row["logo_uploaded_at"],
         }
@@ -162,7 +163,7 @@ class GuildRecruitmentStore(AsyncStoreBase):
         """Every recruiting guild in the world (newest edit first), JSON
         decoded, no blobs."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_recruiting"], (world,)) as cur:
+            async with await db.execute(_SQL["select_recruiting"], (world,)) as cur:
                 rows = await cur.fetchall()
         return [
             {
@@ -185,15 +186,15 @@ class GuildRecruitmentStore(AsyncStoreBase):
     async def list_listed_worlds(self) -> list[str]:
         """Every world with at least one recruiting=1 row."""
         async with self._db() as db:
-            async with db.execute(_SQL["select_listed_worlds"]) as cur:
+            async with await db.execute(_SQL["select_listed_worlds"]) as cur:
                 rows = await cur.fetchall()
-        return [row[0] for row in rows]
+        return [row["world"] for row in rows]
 
     async def list_listed_ids(self, world: str) -> list[dict]:
         """``[{guild_id, guild_name}]`` for every row with recruiting=1 —
         the sweep's work list."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_listed_ids"], (world,)) as cur:
+            async with await db.execute(_SQL["select_listed_ids"], (world,)) as cur:
                 rows = await cur.fetchall()
         return [{"guild_id": row["guild_id"], "guild_name": row["guild_name"]} for row in rows]
 

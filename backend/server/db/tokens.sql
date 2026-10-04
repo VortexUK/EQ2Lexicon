@@ -1,25 +1,25 @@
--- SQL for backend/server/db/tokens.py (async aiosqlite).
+-- SQL for backend/server/db/tokens.py (psycopg, users schema).
 -- API tokens are hashed (sha256); raw token is shown once at mint time.
 
 -- :name mint_token
 INSERT INTO api_tokens (user_id, name, token_hash, token_prefix)
-VALUES (?, ?, ?, ?)
+VALUES (%s, %s, %s, %s)
 RETURNING id;
 
 -- :name find_by_id
-SELECT * FROM api_tokens WHERE id = ?;
+SELECT * FROM api_tokens WHERE id = %s;
 
 -- :name list_for_user
 -- Hash + user_id omitted from the SELECT — UI doesn't need them.
 SELECT id, name, token_prefix, created_at, last_used_at, revoked_at
 FROM api_tokens
-WHERE user_id = ?
+WHERE user_id = %s
 ORDER BY created_at DESC;
 
 -- :name revoke_token
 UPDATE api_tokens
-SET revoked_at = strftime('%s','now')
-WHERE id = ? AND user_id = ? AND revoked_at IS NULL;
+SET revoked_at = floor(extract(epoch from now()))
+WHERE id = %s AND user_id = %s AND revoked_at IS NULL;
 
 -- :name lookup_by_hash
 SELECT t.id AS token_id, t.user_id, t.name AS token_name, t.revoked_at,
@@ -28,7 +28,7 @@ SELECT t.id AS token_id, t.user_id, t.name AS token_name, t.revoked_at,
        u.access_status
 FROM api_tokens t
 JOIN users u ON u.discord_id = t.user_id
-WHERE t.token_hash = ?;
+WHERE t.token_hash = %s;
 
 -- :name update_last_used_at
-UPDATE api_tokens SET last_used_at = ? WHERE id = ?;
+UPDATE api_tokens SET last_used_at = %s WHERE id = %s;

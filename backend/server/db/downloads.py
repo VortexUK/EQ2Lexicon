@@ -1,4 +1,4 @@
-"""users.db download_events helpers (async aiosqlite).
+"""users download_events helpers (async psycopg).
 
 Records which signed-in users clicked each direct-download link on the
 Downloads page (parser installer / portable zip / ACT plugin dll). The whole
@@ -12,22 +12,19 @@ tests re-point ``store.path`` (conftest does it for every ``ALL_STORES`` entry).
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class DownloadsStore(AsyncStoreBase):
-    """users.db `download_events` domain. Schema is owned by the package
-    orchestrator (backend.server.db.init_db); methods open per-call
-    connections against ``self.path``."""
+class DownloadsStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def record_download(self, discord_id: str, slug: str) -> bool:
         """Record that a user clicked a download. Idempotent per (user, slug):
@@ -40,15 +37,15 @@ class DownloadsStore(AsyncStoreBase):
     async def count_for_slug(self, slug: str) -> int:
         """Distinct downloaders for one slug."""
         async with self._db() as db:
-            async with db.execute(_SQL["count_for_slug"], (slug,)) as cur:
+            async with await db.execute(_SQL["count_for_slug"], (slug,)) as cur:
                 row = await cur.fetchone()
-                return row[0] if row else 0
+                return row["n"] if row else 0
 
     async def counts(self) -> dict[str, int]:
         """Distinct-downloader count for every slug that has at least one row."""
         async with self._db() as db:
-            async with db.execute(_SQL["count_all"]) as cur:
-                return {row[0]: row[1] for row in await cur.fetchall()}
+            async with await db.execute(_SQL["count_all"]) as cur:
+                return {row["slug"]: row["n"] for row in await cur.fetchall()}
 
 
 # The shared default instance — every runtime consumer goes through this.

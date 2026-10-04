@@ -33,6 +33,17 @@ from psycopg_pool import AsyncConnectionPool, ConnectionPool
 _DSN_VARS = ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_CONNECTION_STRING")
 
 
+def ensure_selector_event_loop_policy() -> None:
+    """psycopg's async side cannot run on Windows' default ProactorEventLoop.
+    Call before asyncio.run() on entry points that touch Postgres (main.py,
+    conftest, scripts). No-op elsewhere; production Linux is unaffected."""
+    import asyncio
+    import sys
+
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 def dsn() -> str:
     for var in _DSN_VARS:
         value = os.getenv(var)
@@ -68,7 +79,9 @@ async def close_pools() -> None:
 
 
 @asynccontextmanager
-async def aconnection() -> AsyncIterator[psycopg.AsyncConnection[Any]]:
+async def aconnection() -> AsyncIterator[Any]:
+    # Yields Any on purpose: psycopg's stubs demand LiteralString queries,
+    # but the house pattern is named SQL blocks loaded from .sql sidecars.
     """Async checkout: pooled when the lifespan opened pools, else a
     short-lived direct connection (tests / scripts / pre-lifespan bot).
     psycopg commits on clean ``async with`` exit and rolls back on
@@ -82,7 +95,7 @@ async def aconnection() -> AsyncIterator[psycopg.AsyncConnection[Any]]:
 
 
 @contextmanager
-def connection() -> Iterator[psycopg.Connection[Any]]:
+def connection() -> Iterator[Any]:
     """Sync twin of :func:`aconnection`."""
     if _sync_pool is not None:
         with _sync_pool.connection() as conn:

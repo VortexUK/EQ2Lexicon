@@ -1,4 +1,4 @@
-"""users.db aa_plans helpers (async aiosqlite).
+"""users aa_plans helpers (async psycopg).
 
 Saved AA planner builds — owned by a Discord user, pinned to the character
 they were planned from, shareable read-only via the always-minted
@@ -9,44 +9,43 @@ the shared ``AsyncStoreBase._db()``; tests re-point ``store.path``.
 from __future__ import annotations
 
 import secrets
-from pathlib import Path
 
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class AAPlansStore(AsyncStoreBase):
-    """users.db `aa_plans` domain. Schema/migrations are owned by the package
-    orchestrator (backend.server.db.init_db)."""
+class AAPlansStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def list_plans(self, discord_id: str, world: str, character_name: str) -> list[dict]:
         """The user's plans for one character, newest-updated first (summary
         rows — allocations excluded to keep the list light)."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_plans_for_character"], (discord_id, world, character_name)) as cur:
+            async with await db.execute(_SQL["select_plans_for_character"], (discord_id, world, character_name)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
     async def count_plans(self, discord_id: str, world: str, character_name: str) -> int:
         async with self._db() as db:
-            async with db.execute(_SQL["count_plans_for_character"], (discord_id, world, character_name)) as cur:
+            async with await db.execute(_SQL["count_plans_for_character"], (discord_id, world, character_name)) as cur:
                 row = await cur.fetchone()
-                return int(row[0]) if row else 0
+                return int(row["n"]) if row else 0
 
     async def get_plan(self, plan_id: int) -> dict | None:
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_plan"], (plan_id,)) as cur:
+            async with await db.execute(_SQL["select_plan"], (plan_id,)) as cur:
                 row = await cur.fetchone()
                 return dict(row) if row else None
 
     async def get_plan_by_slug(self, slug: str) -> dict | None:
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_plan_by_slug"], (slug,)) as cur:
+            async with await db.execute(_SQL["select_plan_by_slug"], (slug,)) as cur:
                 row = await cur.fetchone()
                 return dict(row) if row else None
 
@@ -68,7 +67,7 @@ class AAPlansStore(AsyncStoreBase):
             )
             row = await cur.fetchone()
             await db.commit()
-            plan_id = row[0] if row else 0
+            plan_id = row["id"] if row else 0
         plan = await self.get_plan(int(plan_id or 0))
         if plan is None:  # pragma: no cover — insert+select on one path
             raise RuntimeError("aa_plan insert did not persist")

@@ -118,7 +118,7 @@ def _slot_to_db(slot: RaidSlotInput) -> dict:
     if span > _MAX_SPAN_MIN:
         raise HTTPException(status_code=400, detail="A raid can be at most 5 hours long.")
     label = sanitize_text(slot.label, max_len=_MAX_TEXT_LEN) or None
-    return {"days": ",".join(str(d) for d in days), "start_min": start, "end_min": end, "label": label}
+    return {"days": days, "start_min": start, "end_min": end, "label": label}
 
 
 def _screen_text(value: str, *, actor: str, guild: str, field: str) -> None:
@@ -138,7 +138,7 @@ def _fmt_schedule(teams: list[dict]) -> RaidScheduleResponse:
         login = t.get("twitch_login")
         raids = [
             RaidSlotResponse(
-                days=[int(d) for d in str(r["days"]).split(",") if d],
+                days=[int(d) for d in (r["days"] or [])],
                 start_min=r["start_min"],
                 end_min=r["end_min"],
                 label=r.get("label"),

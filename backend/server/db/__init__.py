@@ -23,9 +23,15 @@ from pathlib import Path
 from backend.db_helpers import resolve_db_path
 from backend.server.db._assertions import assert_schema_complete
 from backend.server.db.migrations import apply_migrations
-from backend.server.db.schema import SCHEMA
+from backend.server.db.schema import SCHEMA as _SQLITE_SCHEMA
 
 DB_PATH = resolve_db_path("DB_USERS_PATH", "users.db")
+
+#: Postgres schema the users family lives in (see db/migrations/
+#: 0001_users.sql). Tests re-point each store's ``schema`` at leased
+#: scratch schemas; DB_PATH above survives only until the remaining
+#: SQLite consumers (erasure's parses half) finish migrating.
+SCHEMA = "users"
 
 
 def init_db(path: Path | None = None) -> None:
@@ -46,7 +52,7 @@ def init_db(path: Path | None = None) -> None:
     path = Path(path) if path is not None else DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
-        conn.executescript(SCHEMA)
+        conn.executescript(_SQLITE_SCHEMA)
         apply_migrations(conn)
         assert_schema_complete(conn)
 

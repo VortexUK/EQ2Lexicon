@@ -1,28 +1,28 @@
-"""users.db item_watch table helpers.
+"""users-schema item_watch table helpers (psycopg).
 
-Carved out of the original 1309-line web/db.py. Async (aiosqlite) helpers
-for the item watch domain. Per-call connections open via the
-shared ``AsyncStoreBase._db()``; tests re-point ``store.path``.
+Carved out of the original 1309-line web/db.py. Async helpers for the item
+watch domain. Methods check out pooled connections via the shared
+``PgStoreBase._db()``; tests re-point ``store.schema``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from psycopg.errors import UniqueViolation
 
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class ItemWatchStore(AsyncStoreBase):
-    """users.db `item_watch` domain. Schema/migrations are owned by the package
-    orchestrator (backend.server.db.init_db); methods open per-call
-    connections against ``self.path``."""
+class ItemWatchStore(PgStoreBase):
+    """users-schema `item_watch` domain. Schema DDL is owned by
+    db/migrations/0001_users.sql; methods check out pooled connections
+    scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def add_item_watch(
         self,
@@ -45,14 +45,12 @@ class ItemWatchStore(AsyncStoreBase):
                     _SQL["add_watch"],
                     (world, guild_name, character_name, item_id, item_name, added_by, added_by_name),
                 )
-            except Exception as exc:
-                if "UNIQUE" in str(exc):
-                    raise ValueError(f"'{item_name}' is already being watched for {character_name}.") from exc
-                raise
+            except UniqueViolation as exc:
+                raise ValueError(f"'{item_name}' is already being watched for {character_name}.") from exc
             _row = await cur.fetchone()
-            new_id = _row[0] if _row else None
+            new_id = _row["id"] if _row else None
             await db.commit()
-            async with db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
+            async with await db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
                 row = await cur2.fetchone()
         assert row is not None, "INSERT succeeded but SELECT returned nothing"
         return dict(row)
@@ -64,7 +62,7 @@ class ItemWatchStore(AsyncStoreBase):
     ) -> list[dict]:
         """Return all item watch entries for a guild on a given server, ordered by added_at descending."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["list_for_guild"], (guild_name, world)) as cur:
+            async with await db.execute(_SQL["list_for_guild"], (guild_name, world)) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
 

@@ -12,8 +12,7 @@ revoked separately without rewriting the request row).
 
 from __future__ import annotations
 
-import sqlite3
-
+import psycopg.errors
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -94,7 +93,7 @@ async def submit_role_request(body: SubmitRoleRequest, request: Request) -> Role
         raise HTTPException(status_code=409, detail=f"You already have the {body.role!r} role")
     try:
         new_id = await create_role_request(user["id"], body.role, body.note)
-    except sqlite3.IntegrityError as exc:
+    except psycopg.errors.UniqueViolation as exc:
         # The partial unique index on (discord_id, role) WHERE status='pending'
         # catches this — surface a clean 409 rather than a 500.
         raise HTTPException(

@@ -1,4 +1,4 @@
-"""users.db `guild_settings` domain (async aiosqlite).
+"""users `guild_settings` domain (async psycopg).
 
 Per-guild feature switches that only the guild LEADER (Census rank_id 0)
 or a site admin may change. One boolean column per setting: the DB default
@@ -14,10 +14,9 @@ only the leader, admins and each parse's own uploader may delete.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
 
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -25,19 +24,18 @@ _SQL = load_sql(__file__)
 DEFAULT_GUILD_SETTINGS: dict[str, bool] = {"officers_can_delete_parses": True}
 
 
-class GuildSettingsStore(AsyncStoreBase):
-    """Schema/migrations are owned by the package orchestrator
-    (backend.server.db.init_db); methods open per-call connections against
-    ``self.path``."""
+class GuildSettingsStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def get_settings(self, world: str, guild_name: str) -> dict:
         """``{officers_can_delete_parses, updated_by, updated_at}`` — the
         defaults (and ``None`` audit fields) when the guild has no row."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_settings"], (world, guild_name)) as cur:
+            async with await db.execute(_SQL["select_settings"], (world, guild_name)) as cur:
                 row = await cur.fetchone()
         if row is None:
             return {**DEFAULT_GUILD_SETTINGS, "updated_by": None, "updated_at": None}
@@ -68,10 +66,8 @@ class GuildSettingsStore(AsyncStoreBase):
         if not names:
             return {}
         flags = dict.fromkeys(names, True)
-        placeholders = ",".join("?" * len(names))
-        sql = _SQL["select_delete_flags"].format(placeholders=placeholders)
         async with self._db(row_factory=True) as db:
-            async with db.execute(sql, (world, *names)) as cur:
+            async with await db.execute(_SQL["select_delete_flags"], (world, names)) as cur:
                 for row in await cur.fetchall():
                     flags[row["guild_name"]] = bool(row["officers_can_delete_parses"])
         return flags

@@ -1,43 +1,40 @@
-"""users.db raid_teams / raid_slots helpers (async aiosqlite).
+"""users-schema raid_teams / raid_slots helpers (psycopg).
 
-Officer-editable, publicly-viewable guild raid schedules. Mirrors the
-item_watch domain: per-call connections via the shared ``AsyncStoreBase._db()``;
-tests re-point ``store.path``. A team carries a ``raids`` list of its slots.
+Officer-editable, publicly-viewable guild raid schedules. A team carries a
+``raids`` list of its slots; ``days`` is a real integer[] column (ISO
+weekdays) — no CSV round-trip anywhere.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-import aiosqlite
-
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class RaidScheduleStore(AsyncStoreBase):
-    """users.db `raid_schedule` domain. Schema/migrations are owned by the package
-    orchestrator (backend.server.db.init_db); methods open per-call
-    connections against ``self.path``."""
+class RaidScheduleStore(PgStoreBase):
+    """users-schema `raid_schedule` domain. Schema DDL is owned by
+    db/migrations/0001_users.sql; methods check out pooled connections
+    scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     @staticmethod
-    async def _teams_with_slots(db: aiosqlite.Connection, teams: list[dict]) -> list[dict]:
+    async def _teams_with_slots(db: Any, teams: list[dict]) -> list[dict]:
         for t in teams:
-            async with db.execute(_SQL["select_slots"], (t["id"],)) as cur:
+            async with await db.execute(_SQL["select_slots"], (t["id"],)) as cur:
                 t["raids"] = [dict(r) for r in await cur.fetchall()]
         return teams
 
     async def get_schedule(self, world: str, guild_name: str) -> list[dict]:
         """Return this guild's raid teams (ordered) each with a ``raids`` list."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_teams"], (world, guild_name)) as cur:
+            async with await db.execute(_SQL["select_teams"], (world, guild_name)) as cur:
                 teams = [dict(r) for r in await cur.fetchall()]
             return await RaidScheduleStore._teams_with_slots(db, teams)
 
@@ -57,7 +54,7 @@ class RaidScheduleStore(AsyncStoreBase):
         """
         async with self._db() as db:
             try:
-                await db.execute("BEGIN")
+                # psycopg opens the transaction implicitly on first execute.
                 await db.execute(_SQL["delete_slots_for_guild"], (world, guild_name))
                 await db.execute(_SQL["delete_teams_for_guild"], (world, guild_name))
                 for team_index, team in enumerate(teams):
@@ -74,7 +71,7 @@ class RaidScheduleStore(AsyncStoreBase):
                         ),
                     )
                     _row = await cur.fetchone()
-                    team_id = _row[0] if _row else None
+                    team_id = _row["id"] if _row else None
                     for slot_index, raid in enumerate(team.get("raids", [])):
                         await db.execute(
                             _SQL["insert_slot"],
@@ -96,7 +93,7 @@ class RaidScheduleStore(AsyncStoreBase):
         """Every team across all worlds/guilds that has a twitch_login, each with
         its raids. Used by the Twitch-live poller (Part 2)."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_teams_with_twitch"]) as cur:
+            async with await db.execute(_SQL["select_teams_with_twitch"]) as cur:
                 teams = [dict(r) for r in await cur.fetchall()]
             return await RaidScheduleStore._teams_with_slots(db, teams)
 

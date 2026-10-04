@@ -1,34 +1,34 @@
-"""users.db servers table helpers (per-server registry).
+"""users-schema servers table helpers (per-server registry).
 
-Carved out of the original 1309-line web/db.py. Synchronous (sqlite3) helpers
-for the servers domain — these are called at startup and from sync admin
-endpoints, so they use the stdlib driver directly.
+Synchronous psycopg helpers — called at startup (load_registry) and from
+sync admin paths, through backend.pg's sync pool (direct connections
+before the lifespan opens it).
 
-Tests re-point ``store.path`` or construct ``ServersStore(tmp_db)``.
+Tests re-point ``store.schema`` or construct ``ServersStore(schema)``.
 """
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+from typing import Any
 
-from backend.db_catalogue import PathBound
-from backend.server.db import DB_PATH
+from backend import pg
+from backend.db_catalogue import SchemaBound
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class ServersStore(PathBound):
-    """users.db `servers` domain. Schema/migrations are owned by the package
-    orchestrator (backend.server.db.init_db); methods open per-call
-    connections against ``self.path``."""
+class ServersStore(SchemaBound):
+    """users-schema `servers` domain (the one synchronous store — it must
+    never grow async methods; startup registry loading is sync). Schema DDL
+    is owned by db/migrations/0001_users.sql."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     @staticmethod
-    def _server_row(row: sqlite3.Row) -> dict:
+    def _server_row(row: dict[str, Any]) -> dict:
         return {
             "world": row["world"],
             "subdomain": row["subdomain"],
@@ -43,19 +43,19 @@ class ServersStore(PathBound):
         }
 
     def list_servers_sync(self) -> list[dict]:
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
-            return [ServersStore._server_row(r) for r in conn.execute(_SQL["list_all"])]
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
+            return [ServersStore._server_row(r) for r in conn.execute(_SQL["list_all"]).fetchall()]
 
     def get_server_by_subdomain_sync(self, subdomain: str) -> dict | None:
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
             row = conn.execute(_SQL["find_by_subdomain"], (subdomain.lower(),)).fetchone()
             return ServersStore._server_row(row) if row else None
 
     def get_server_by_world_sync(self, world: str) -> dict | None:
-        with sqlite3.connect(self.path) as conn:
-            conn.row_factory = sqlite3.Row
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
             row = conn.execute(_SQL["find_by_world"], (world,)).fetchone()
             return ServersStore._server_row(row) if row else None
 
@@ -69,7 +69,8 @@ class ServersStore(PathBound):
         next_xpac: str | None = None,
         next_xpac_dt: str | None = None,
     ) -> None:
-        with sqlite3.connect(self.path) as conn:
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
             conn.execute(
                 _SQL["upsert_server_settings"],
                 (max_level, current_xpac, launch_dt, next_xpac, next_xpac_dt, world),
@@ -81,7 +82,8 @@ class ServersStore(PathBound):
         the level cap, stamp the rollover instant (the rankings era-lock
         cutoff) and clear the countdown fields. Guarded on next_xpac still
         being set so a concurrent/repeat call is a no-op."""
-        with sqlite3.connect(self.path) as conn:
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
             cur = conn.execute(_SQL["apply_xpac_rollover"], (current_xpac, max_level, started_dt, world))
             conn.commit()
             return cur.rowcount > 0
@@ -93,7 +95,8 @@ class ServersStore(PathBound):
         unknown (i.e. no row matched the second UPDATE — there are never 0 defaults
         after this call succeeds).
         """
-        with sqlite3.connect(self.path) as conn:
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
             # First clear all, then set the target. Single transaction → never 0 or 2 defaults.
             conn.execute(_SQL["clear_all_defaults"])
             cur = conn.execute(_SQL["set_default_by_world"], (world,))

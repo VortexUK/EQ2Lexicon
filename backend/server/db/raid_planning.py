@@ -1,4 +1,4 @@
-"""users.db raid-planning helpers (async aiosqlite).
+"""users raid-planning helpers (async psycopg).
 
 Two concerns, both officer-curated and guild-member-viewable:
 
@@ -10,16 +10,14 @@ Two concerns, both officer-curated and guild-member-viewable:
     the raid-schedule editor regenerates team rows on save (ids are not
     stable); the schedule PUT prunes placements for removed teams.
 
-Per-call connections via the shared ``AsyncStoreBase._db()``; tests
-re-point ``store.path``.
+Per-call pooled connections via the shared ``PgStoreBase._db()``; tests
+re-point ``store.schema``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -27,19 +25,19 @@ _SQL = load_sql(__file__)
 VALID_ROLES = ("raider", "raid_alt")
 
 
-class RaidPlanningStore(AsyncStoreBase):
-    """users.db `raid_planning` domain. Schema/migrations are owned by the
-    package orchestrator (backend.server.db.init_db)."""
+class RaidPlanningStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     # ── Roster roles ─────────────────────────────────────────────────────────
 
     async def get_roles(self, world: str, guild_name: str) -> list[dict]:
         """All roster designations for a guild: [{character_name, role, ...}]."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_roles"], (world, guild_name)) as cur:
+            async with await db.execute(_SQL["select_roles"], (world, guild_name)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
     async def set_role(
@@ -79,7 +77,7 @@ class RaidPlanningStore(AsyncStoreBase):
     async def get_placements(self, world: str, guild_name: str, team_index: int) -> list[dict]:
         """One team's layout: [{character_name, group_num, slot, sitout}]."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_placements"], (world, guild_name, team_index)) as cur:
+            async with await db.execute(_SQL["select_placements"], (world, guild_name, team_index)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
     async def replace_placements(
@@ -98,7 +96,8 @@ class RaidPlanningStore(AsyncStoreBase):
         """
         async with self._db() as db:
             try:
-                await db.execute("BEGIN")
+                # psycopg opens the transaction implicitly at the first
+                # execute — no explicit BEGIN (it would warn on the server).
                 await db.execute(_SQL["delete_placements_for_team"], (world, guild_name, team_index))
                 for p in placements:
                     await db.execute(
@@ -131,7 +130,7 @@ class RaidPlanningStore(AsyncStoreBase):
         the home-page availability panel checks the viewer's claimed
         characters against this to decide whether to show itself."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_roles_for_world"], (world,)) as cur:
+            async with await db.execute(_SQL["select_roles_for_world"], (world,)) as cur:
                 return {r["name_lower"]: r["role"] for r in await cur.fetchall()}
 
     # ── Player mapping ───────────────────────────────────────────────────────
@@ -141,14 +140,14 @@ class RaidPlanningStore(AsyncStoreBase):
         world — who plays whom, for availability overlay + the duplicate-
         player warning."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_claims_for_world"], (world,)) as cur:
+            async with await db.execute(_SQL["select_claims_for_world"], (world,)) as cur:
                 return {r["name_lower"]: r["discord_id"] for r in await cur.fetchall()}
 
     async def primary_claims(self, world: str) -> set[str]:
         """Lower-cased names of every primary-claimed character on the world —
         the tie-breaker when a player has several rostered raiders."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_primary_claims_for_world"], (world,)) as cur:
+            async with await db.execute(_SQL["select_primary_claims_for_world"], (world,)) as cur:
                 return {r["name_lower"] for r in await cur.fetchall()}
 
 

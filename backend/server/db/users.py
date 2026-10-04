@@ -1,29 +1,27 @@
-"""users.db users table + role / role_request / role_permission helpers.
+"""users `users` domain (async psycopg).
 
-Carved out of the original 1309-line web/db.py. Async (aiosqlite) helpers
-for the users domain. Per-call connections open via the shared
-``AsyncStoreBase._db()``; tests re-point ``store.path``.
+Carved out of the original 1309-line web/db.py. Async helpers for the
+users + role / role_request / role_permission domain. Per-call pooled
+connections via the shared ``PgStoreBase._db()``; tests re-point
+``store.schema``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from backend.db_catalogue import AsyncStoreBase
+from backend.db_catalogue import PgStoreBase
 from backend.server.core.sql_helpers import build_where
-from backend.server.db import DB_PATH
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class UsersStore(AsyncStoreBase):
-    """users.db `users` domain. Schema/migrations are owned by the package
-    orchestrator (backend.server.db.init_db); methods open per-call
-    connections against ``self.path``."""
+class UsersStore(PgStoreBase):
+    """Schema DDL is owned by db/migrations/0001_users.sql; methods check
+    out pooled connections scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def upsert_user(
         self,
@@ -62,14 +60,14 @@ class UsersStore(AsyncStoreBase):
                 ),
             )
             await db.commit()
-            async with db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
+            async with await db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
                 row = await cur.fetchone()
         return row["access_status"] if row else "pending"
 
     async def get_user_access_status(self, discord_id: str) -> str:
         """Return the access_status for a user, or 'pending' if not found."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
+            async with await db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
                 row = await cur.fetchone()
         return row["access_status"] if row else "pending"
 
@@ -82,18 +80,16 @@ class UsersStore(AsyncStoreBase):
         if not ids:
             return {}
         async with self._db(row_factory=True) as db:
-            placeholders = ",".join("?" for _ in ids)
-            async with db.execute(
-                _SQL["select_display_names_by_ids"].format(placeholders=placeholders),
-                ids,
-            ) as cur:
+            # The id list binds as ONE array parameter (= ANY) — no composed
+            # placeholder strings and no variable-count limits.
+            async with await db.execute(_SQL["select_display_names_by_ids"], (ids,)) as cur:
                 rows = await cur.fetchall()
         return {r["discord_id"]: r["discord_name"] for r in rows}
 
     async def list_pending_users(self) -> list[dict]:
         """Return all users with access_status = 'pending', newest first."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["list_pending_users"]) as cur:
+            async with await db.execute(_SQL["list_pending_users"]) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
@@ -110,7 +106,7 @@ class UsersStore(AsyncStoreBase):
     async def list_all_users(self) -> list[dict]:
         """Return all users with access_status and total claim count, newest first."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["list_all_users_with_claim_count"]) as cur:
+            async with await db.execute(_SQL["list_all_users_with_claim_count"]) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
@@ -162,18 +158,18 @@ class UsersStore(AsyncStoreBase):
     async def list_roles_for_user(self, discord_id: str) -> list[str]:
         """All roles assigned to a single user, sorted for stable display."""
         async with self._db() as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["list_roles_for_user"],
                 (discord_id,),
             ) as cur:
                 rows = await cur.fetchall()
-        return [r[0] for r in rows]
+        return [r["role"] for r in rows]
 
     async def has_role(self, discord_id: str, role: str) -> bool:
         """Cheap (indexed) existence check — used on the hot path of the editor
         auth dep, so kept as a single-row SELECT rather than reusing list_roles."""
         async with self._db() as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["check_has_role"],
                 (discord_id, role),
             ) as cur:
@@ -185,10 +181,10 @@ class UsersStore(AsyncStoreBase):
         role: str,
         user_note: str | None,
     ) -> int:
-        """Submit a pending role request. Raises ``sqlite3.IntegrityError`` if the
-        user already has a pending request for this role (the partial unique index
-        on (discord_id, role) WHERE status='pending' enforces it). Returns the new
-        request's id."""
+        """Submit a pending role request. Raises ``psycopg.errors.UniqueViolation``
+        if the user already has a pending request for this role (the partial unique
+        index on (discord_id, role) WHERE status='pending' enforces it). Returns
+        the new request's id."""
         async with self._db() as db:
             cur = await db.execute(
                 _SQL["create_role_request"],
@@ -196,7 +192,7 @@ class UsersStore(AsyncStoreBase):
             )
             row = await cur.fetchone()
             await db.commit()
-        return int(row[0]) if row else 0
+        return int(row["id"]) if row else 0
 
     async def list_role_requests(
         self,
@@ -213,10 +209,10 @@ class UsersStore(AsyncStoreBase):
         where: list[str] = []
         params: list = []
         if status is not None:
-            where.append("rr.status = ?")
+            where.append("rr.status = %s")
             params.append(status)
         if discord_id is not None:
-            where.append("rr.discord_id = ?")
+            where.append("rr.discord_id = %s")
             params.append(discord_id)
         where_sql = build_where(where)
         # Pending: oldest first (FIFO queue). Anything resolved: newest first.
@@ -226,7 +222,7 @@ class UsersStore(AsyncStoreBase):
             else "ORDER BY rr.requested_at DESC, rr.id DESC"
         )
         async with self._db(row_factory=True) as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["list_role_requests"].format(where_sql=where_sql, order_sql=order_sql),
                 params,
             ) as cur:
@@ -238,7 +234,7 @@ class UsersStore(AsyncStoreBase):
         admin approve/reject endpoints for the 404 check + the role/discord_id
         payload that the grant flow needs."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["get_role_request"],
                 (request_id,),
             ) as cur:
@@ -289,16 +285,15 @@ class UsersStore(AsyncStoreBase):
             if cur.rowcount == 0:
                 return None
             # Fetch the request row so we can grant the role
-            async with db.execute(
+            async with await db.execute(
                 _SQL["select_role_request_grant_info"],
                 (request_id,),
             ) as sel:
                 row = await sel.fetchone()
             if row is not None:
-                discord_id, role = row
                 await db.execute(
                     _SQL["grant_role"],
-                    (discord_id, role, admin_id),
+                    (row["discord_id"], row["role"], admin_id),
                 )
             await db.commit()
         return await self.get_role_request(request_id)
@@ -330,7 +325,7 @@ class UsersStore(AsyncStoreBase):
         admin (synthetic) or officer (dynamic) — those live in the auth dep on
         top of this primitive."""
         async with self._db() as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["check_user_has_capability"],
                 (discord_id, capability),
             ) as cur:
@@ -346,7 +341,7 @@ class UsersStore(AsyncStoreBase):
         Used by the auth dep to decide whether to bother running the dynamic
         officer check at all — if officers don't have the capability, no point."""
         async with self._db() as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["check_role_has_capability"],
                 (role, capability),
             ) as cur:
@@ -358,11 +353,11 @@ class UsersStore(AsyncStoreBase):
         Used by the admin user-list endpoint to join roles in without N+1 queries
         against ``list_roles_for_user``."""
         async with self._db() as db:
-            async with db.execute(_SQL["list_all_role_assignments"]) as cur:
+            async with await db.execute(_SQL["list_all_role_assignments"]) as cur:
                 rows = await cur.fetchall()
         out: dict[str, list[str]] = {}
-        for discord_id, role in rows:
-            out.setdefault(discord_id, []).append(role)
+        for row in rows:
+            out.setdefault(row["discord_id"], []).append(row["role"])
         return out
 
 

@@ -1,8 +1,8 @@
-"""users.db api_tokens table helpers.
+"""users-schema api_tokens table helpers (psycopg).
 
-Carved out of the original 1309-line web/db.py. Async (aiosqlite) helpers
-for the API token domain. Per-call connections open via the shared
-``AsyncStoreBase._db()``; tests re-point ``store.path``.
+Carved out of the original 1309-line web/db.py. Async helpers for the API
+token domain. Methods check out pooled connections via the shared
+``PgStoreBase._db()``; tests re-point ``store.schema``.
 
 Raw tokens are 'eq2c_' + 32 url-safe base64 chars (≈192 bits entropy).
 Only the SHA-256 hash is stored; the raw token is shown to the user once
@@ -14,12 +14,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
-import sqlite3
 import time
-from pathlib import Path
 
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+import psycopg
+
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _log = logging.getLogger(__name__)
@@ -29,13 +29,13 @@ _SQL = load_sql(__file__)
 TOKEN_PREFIX = "eq2c_"
 
 
-class TokensStore(AsyncStoreBase):
-    """users.db `tokens` domain. Schema/migrations are owned by the package
-    orchestrator (backend.server.db.init_db); methods open per-call
-    connections against ``self.path``."""
+class TokensStore(PgStoreBase):
+    """users-schema `tokens` domain. Schema DDL is owned by
+    db/migrations/0001_users.sql; methods check out pooled connections
+    scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     @staticmethod
     def generate_token() -> tuple[str, str, str]:
@@ -71,9 +71,9 @@ class TokensStore(AsyncStoreBase):
                 (user_id, name, h, prefix),
             )
             _row = await cur.fetchone()
-            new_id = _row[0] if _row else None
+            new_id = _row["id"] if _row else None
             await db.commit()
-            async with db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
+            async with await db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
                 row = await cur2.fetchone()
         assert row is not None
         return raw, dict(row)
@@ -81,7 +81,7 @@ class TokensStore(AsyncStoreBase):
     async def list_api_tokens(self, user_id: str) -> list[dict]:
         """All tokens for a user, newest first. Hash is omitted — UI doesn't need it."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["list_for_user"],
                 (user_id,),
             ) as cur:
@@ -111,7 +111,7 @@ class TokensStore(AsyncStoreBase):
             return None
         h = TokensStore.hash_token(raw_token)
         async with self._db(row_factory=True) as db:
-            async with db.execute(
+            async with await db.execute(
                 _SQL["lookup_by_hash"],
                 (h,),
             ) as cur:
@@ -121,28 +121,27 @@ class TokensStore(AsyncStoreBase):
             # Coalesce last_used_at writes to 60s buckets.
             #
             # Plugin uploads fire multiple times per second during a raid; committing
-            # an UPDATE on every upload was a real write-storm risk (WAL mitigates
-            # locking but the disk write itself is the cost). Sub-minute precision
-            # on this column isn't useful — the UI shows "last used 5 min ago",
-            # not "last used 0.6 seconds ago". The existing SELECT already pulled
-            # the current value as part of the row fetch in lookup callers; check
-            # against it here.
+            # an UPDATE on every upload was a real write-storm risk. Sub-minute
+            # precision on this column isn't useful — the UI shows "last used
+            # 5 min ago", not "last used 0.6 seconds ago". The existing SELECT
+            # already pulled the current value as part of the row fetch in lookup
+            # callers; check against it here.
             now = int(time.time())
             last_used = row["last_used_at"]
             did_write = last_used is None or (now - int(last_used)) >= 60
             if did_write:
                 # The touch is COSMETIC bookkeeping — it must never fail the
-                # auth path. Under a raid-night upload burst, concurrent
-                # writers can still contend past the busy timeout; a lost
-                # last-used bump costs nothing, a 500 here fails the whole
-                # upload (seen live 2026-09-12 on /attendance/ingest).
+                # auth path. A transient connection fault or lock contention
+                # under a raid-night upload burst costs a lost last-used bump,
+                # which is nothing; a 500 here fails the whole upload (seen
+                # live 2026-09-12 on /attendance/ingest, SQLite era).
                 try:
                     await db.execute(
                         _SQL["update_last_used_at"],
                         (now, row["token_id"]),
                     )
                     await db.commit()
-                except sqlite3.OperationalError as exc:
+                except psycopg.OperationalError as exc:
                     _log.warning("[tokens] last-used touch skipped (db busy): %s", exc)
                     did_write = False
         result = dict(row)

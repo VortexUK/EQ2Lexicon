@@ -1,4 +1,4 @@
-"""users.db discord_guild_links helpers (async aiosqlite).
+"""users-schema discord_guild_links helpers (psycopg).
 
 Maps a Discord server (guild) to an EQ2 (world, guild_name) pair — the
 bot's per-Discord-guild context. Configured in Discord via the /lexicon
@@ -6,29 +6,28 @@ command group (manage_guild gated); consumed by every world-aware bot
 command (backend/bot/guild_context.py) and by the Phase 3 voice-attendance
 poller (voice_channel_id = the raid voice channel to snapshot).
 
-Mirrors the downloads domain: per-call connections via
-``AsyncStoreBase._db()``; tests re-point ``store.path`` (conftest does it
+Mirrors the guild_settings domain: pooled per-call connections via
+``PgStoreBase._db()``; tests re-point ``store.schema`` (conftest does it
 for every ``ALL_STORES`` entry). The bot imports this store directly — no
 facade aliases.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from backend.db_catalogue import AsyncStoreBase
-from backend.server.db import DB_PATH
+from backend.db_catalogue import PgStoreBase
+from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
 
 
-class DiscordLinksStore(AsyncStoreBase):
-    """users.db `discord_guild_links` domain. Schema is owned by the package
-    orchestrator (backend.server.db.init_db)."""
+class DiscordLinksStore(PgStoreBase):
+    """users-schema `discord_guild_links` domain. Schema DDL is owned by
+    db/migrations/0001_users.sql; methods check out pooled connections
+    scoped to ``self.schema``."""
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     async def upsert_link(self, discord_guild_id: str, world: str, guild_name: str, linked_by: str) -> None:
         """Create or update a Discord-guild → EQ2-guild mapping. Relinking
@@ -48,7 +47,7 @@ class DiscordLinksStore(AsyncStoreBase):
 
     async def get_link(self, discord_guild_id: str) -> dict | None:
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_link"], (discord_guild_id,)) as cur:
+            async with await db.execute(_SQL["select_link"], (discord_guild_id,)) as cur:
                 row = await cur.fetchone()
                 return dict(row) if row else None
 
@@ -62,7 +61,7 @@ class DiscordLinksStore(AsyncStoreBase):
         """Every link with voice polling configured — the voice poller's
         per-tick work list."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_voice_links"]) as cur:
+            async with await db.execute(_SQL["select_voice_links"]) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
     async def set_parses_channel(self, discord_guild_id: str, channel_id: str | None) -> bool:
@@ -84,7 +83,7 @@ class DiscordLinksStore(AsyncStoreBase):
         """Every link with parse posting configured — the parse poster's
         per-tick work list."""
         async with self._db(row_factory=True) as db:
-            async with db.execute(_SQL["select_parse_links"]) as cur:
+            async with await db.execute(_SQL["select_parse_links"]) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
 
