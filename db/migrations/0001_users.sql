@@ -50,6 +50,12 @@ CREATE INDEX idx_claims_world   ON character_claims (world);
 -- Ported from migrations.sql (post-ALTER home no longer needed — the
 -- two-phase schema/migrations split is dead on Postgres).
 CREATE INDEX idx_claims_primary ON character_claims (world, is_primary) WHERE is_primary = 1;
+-- REVIEW (applied, user-approved): one APPROVED claim per character per
+-- world, enforced by the database instead of only by the supersede flow.
+-- The copy script audits prod data for violations before load (a
+-- historical double-approval fails loudly at rehearsal, not silently).
+CREATE UNIQUE INDEX idx_claims_one_approved
+    ON character_claims (world, lower(character_name)) WHERE status = 'approved';
 
 CREATE TABLE item_watch (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -164,7 +170,11 @@ CREATE TABLE raid_slots (
     id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     team_id    bigint  NOT NULL REFERENCES raid_teams(id) ON DELETE CASCADE,
     slot_index integer NOT NULL,     -- 0..3
-    days       text    NOT NULL,     -- CSV of ISO weekdays (1=Mon..7=Sun); int[] conversion escalated to review
+    -- REVIEW (applied, user-approved): ISO weekdays (1=Mon..7=Sun) as a real
+    -- array instead of the SQLite CSV string — the API already speaks
+    -- lists, so only the store/poller layer changes (lands with the P1
+    -- raid_schedule store swap; the copy script splits prod CSV).
+    days       integer[] NOT NULL,
     start_min  integer NOT NULL,     -- minutes since midnight in the team tz
     end_min    integer NOT NULL,     -- may cross midnight; span <= 300 (5h)
     label      text,
