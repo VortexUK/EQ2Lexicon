@@ -15,6 +15,24 @@ jobs:
   python:
     name: Python (lint + types + tests)
     runs-on: ubuntu-latest
+    services:
+      # Users-family tests run against real PostgreSQL (tests/fixtures/pg.py
+      # provisions schemas from db/migrations/); SQLite families still use
+      # tmpdir files. Match the local dev install's major version.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eq2lexicon_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/eq2lexicon_test
     steps:
       - uses: actions/checkout@v7
 
