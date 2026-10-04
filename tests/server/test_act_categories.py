@@ -3,8 +3,8 @@
 Categories are synthetic encounters under the "General" raid zone, so the
 existing per-encounter trigger routes address them via
 /api/zones/General/encounters/{position}/... — covered here end-to-end
-against a real tmp raids.db (no resolution mocking: the General branch in
-_resolve_encounter_sync bypasses zones_db entirely)."""
+against a real leased raids schema (no resolution mocking: the General
+branch in _resolve_encounter_sync bypasses zones_db entirely)."""
 
 from __future__ import annotations
 
@@ -13,17 +13,12 @@ from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture
-def raids_tmp(tmp_path, monkeypatch):
-    """Point the raids catalogue at a fresh tmp DB for each test."""
-    from backend.eq2db.raids import catalogue
-    from backend.server.api.act import _shared
-
-    db_file = tmp_path / "raids.db"
-    monkeypatch.setattr(catalogue, "path", db_file)
-    # The module-level "already inited" flag would skip schema creation on
-    # the fresh file.
-    monkeypatch.setattr(_shared, "_RAIDS_DB_INIT_DONE", False)
-    return db_file
+def raids_tmp(raids_schema: str) -> str:
+    """Isolated leased raids schema per test (conftest ``raids_schema``) —
+    the shared catalogue is already re-pointed at it, which covers the act
+    routes' ``raids_db.init_db()`` checkouts. Aliased so the tests can keep
+    naming it ``raids_tmp``."""
+    return raids_schema
 
 
 def _writer_client(app):

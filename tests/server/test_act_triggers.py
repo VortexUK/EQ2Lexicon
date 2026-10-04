@@ -15,9 +15,9 @@ the route layer behaves correctly given a resolved encounter."""
 
 from __future__ import annotations
 
-import sqlite3
 from unittest.mock import patch
 
+import psycopg.errors
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -372,7 +372,7 @@ async def test_create_spell_timer_name_collision_is_409(app):
         patch("backend.server.api.act.spell_timers.raids_db.init_db") as m_init,
         patch(
             "backend.server.api.act.spell_timers.raids_db.upsert_act_spell_timer",
-            side_effect=sqlite3.IntegrityError("UNIQUE constraint failed"),
+            side_effect=psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
         ),
     ):
         m_init.return_value.close = lambda: None

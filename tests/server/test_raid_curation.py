@@ -12,7 +12,7 @@ Endpoints covered:
 
 Most tests mock the zones_db helpers and assert the route layer's auth +
 HTTP-status behaviour. The bottom section runs real end-to-end roundtrips
-against a throwaway zones.db to verify the SQL contracts.
+against a leased scratch zones schema to verify the SQL contracts.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.auth_deps import require_admin
+from tests.fixtures.pg import pg_conn
 
 # A representative hydrated-zone shape — matches what the real helpers return.
 _ZONE = {
@@ -242,16 +243,13 @@ async def test_delete_zone_happy_path(app, admin_override):
 # ── Real-helper roundtrip tests (no SQL mocks) ────────────────────────────────
 
 
-def _seed_zones(db_path):
-    """Insert a representative set of zones into a fresh zones.db."""
-    from backend.eq2db import zones as zdb
-
-    conn = zdb.ZoneCatalogue(db_path).init_db()
-    try:
+def _seed_zones(schema):
+    """Insert a representative set of zones into a fresh zones schema."""
+    with pg_conn(schema) as conn:
         # RoK raid + RoK non-raid + EoF raid (raid_x2) + TSO raid.
-        conn.executemany(
+        conn.cursor().executemany(
             "INSERT INTO zones (id, name, name_lower, expansion_short, expansion_name, "
-            "expansion_year, expansion_confidence) VALUES (?, ?, ?, ?, ?, ?, 'category')",
+            "expansion_year, expansion_confidence) VALUES (%s, %s, %s, %s, %s, %s, 'category')",
             [
                 (1, "Veeshan's Peak", "veeshan's peak", "RoK", "Rise of Kunark", 2007),
                 (2, "Karnor's Castle", "karnor's castle", "RoK", "Rise of Kunark", 2007),
@@ -259,23 +257,20 @@ def _seed_zones(db_path):
                 (4, "Munzok's Material Bastion", "munzok's material bastion", "TSO", "The Shadow Odyssey", 2008),
             ],
         )
-        conn.executemany(
-            "INSERT INTO zone_types (zone_id, type) VALUES (?, ?)",
+        conn.cursor().executemany(
+            "INSERT INTO zone_types (zone_id, type) VALUES (%s, %s)",
             [
                 (1, "raid_x4"),
                 (3, "raid_x2"),
                 (4, "raid_x4"),
             ],
         )
-        conn.commit()
-    finally:
-        conn.close()
 
 
-def test_add_then_list_then_remove_expansion_roundtrip(tmp_path):
+def test_add_then_list_then_remove_expansion_roundtrip(zones_schema):
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
 
     # Initially nothing featured.
@@ -303,11 +298,11 @@ def test_add_then_list_then_remove_expansion_roundtrip(tmp_path):
     assert zdb.ZoneCatalogue(db).remove_featured_raid_expansion("TSO") is False
 
 
-def test_add_zone_validates_raid_type(tmp_path):
+def test_add_zone_validates_raid_type(zones_schema):
     """Only raid_x4/raid_x2-tagged zones can be featured."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
 
     # raid_x4 → OK
@@ -326,13 +321,13 @@ def test_add_zone_validates_raid_type(tmp_path):
     assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Imaginary") is None
 
 
-def test_featured_zones_imply_expansion_in_list(tmp_path):
+def test_featured_zones_imply_expansion_in_list(zones_schema):
     """Adding a featured zone whose expansion isn't explicitly featured
     must still surface that expansion in list_featured_raid_expansions
     (the implicit case)."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
 
     # No featured_raid_expansions rows, but feature a RoK raid zone.
@@ -347,24 +342,24 @@ def test_featured_zones_imply_expansion_in_list(tmp_path):
     assert "RoK" not in available
 
 
-def test_remove_expansion_cascades_to_featured_zones(tmp_path):
+def test_remove_expansion_cascades_to_featured_zones(zones_schema):
     """Removing an expansion wipes its featured_raid_zones rows, but the
     underlying zone_encounters data is left intact."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
 
     # Seed a curator encounter for Veeshan's Peak so we can verify it survives.
-    import sqlite3
-
-    with sqlite3.connect(db) as conn:
-        conn.execute("INSERT INTO zone_encounters (id, zone_id, encounter_name, position) VALUES (10, 1, 'Druushk', 1)")
+    with pg_conn(db) as conn:
+        conn.execute(
+            "INSERT INTO zone_encounters (id, zone_id, encounter_name, position) "
+            "OVERRIDING SYSTEM VALUE VALUES (10, 1, 'Druushk', 1)"
+        )
         conn.execute(
             "INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) "
             "VALUES (10, 'Druushk', 'druushk', 0)"
         )
-        conn.commit()
 
     # Feature the expansion + zone.
     assert zdb.ZoneCatalogue(db).add_featured_raid_expansion("RoK") is True
@@ -376,18 +371,18 @@ def test_remove_expansion_cascades_to_featured_zones(tmp_path):
     assert zdb.ZoneCatalogue(db).list_featured_raid_zones("RoK") == []
 
     # But the underlying zone_encounters / mobs row is preserved.
-    with sqlite3.connect(db) as conn:
-        n = conn.execute("SELECT COUNT(*) FROM zone_encounters WHERE id = 10").fetchone()[0]
-        m = conn.execute("SELECT COUNT(*) FROM zone_encounter_mobs WHERE encounter_id = 10").fetchone()[0]
+    with pg_conn(db) as conn:
+        n = conn.execute("SELECT COUNT(*) AS n FROM zone_encounters WHERE id = 10").fetchone()["n"]
+        m = conn.execute("SELECT COUNT(*) AS n FROM zone_encounter_mobs WHERE encounter_id = 10").fetchone()["n"]
     assert n == 1
     assert m == 1
 
 
-def test_available_zones_excludes_featured(tmp_path):
+def test_available_zones_excludes_featured(zones_schema):
     """Once a zone is featured, it's no longer offered in the 'add zone' picker."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
 
     before = {z["name"] for z in zdb.ZoneCatalogue(db).list_available_raid_zones("RoK")}
@@ -399,73 +394,67 @@ def test_available_zones_excludes_featured(tmp_path):
     assert "Veeshan's Peak" not in after
 
 
-def test_remove_zone_preserves_encounters(tmp_path):
+def test_remove_zone_preserves_encounters(zones_schema):
     """remove_featured_raid_zone wipes the featured row only — boss data
     in zone_encounters stays untouched."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
 
-    import sqlite3
-
-    with sqlite3.connect(db) as conn:
+    with pg_conn(db) as conn:
         conn.execute(
-            "INSERT INTO zone_encounters (id, zone_id, encounter_name, position) VALUES (11, 1, 'Phara Dar', 1)"
+            "INSERT INTO zone_encounters (id, zone_id, encounter_name, position) "
+            "OVERRIDING SYSTEM VALUE VALUES (11, 1, 'Phara Dar', 1)"
         )
         conn.execute(
             "INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) "
             "VALUES (11, 'Phara Dar', 'phara dar', 0)"
         )
-        conn.commit()
 
     assert zdb.ZoneCatalogue(db).add_featured_raid_zone("Veeshan's Peak") is not None
     assert zdb.ZoneCatalogue(db).remove_featured_raid_zone("Veeshan's Peak") is True
 
-    with sqlite3.connect(db) as conn:
-        n = conn.execute("SELECT COUNT(*) FROM zone_encounters WHERE id = 11").fetchone()[0]
+    with pg_conn(db) as conn:
+        n = conn.execute("SELECT COUNT(*) AS n FROM zone_encounters WHERE id = 11").fetchone()["n"]
     assert n == 1
 
 
 # ── Categories + drag-reorder ────────────────────────────────────────────────
 
 
-def _seed_multi_raid_expansion(db_path):
-    """Seed a zones.db with four raid_x4 zones in the RoK expansion. All four
-    are featured under the (NULL = "Uncategorised") lane so the reorder
+def _seed_multi_raid_expansion(schema):
+    """Seed a zones schema with four raid_x4 zones in the RoK expansion. All
+    four are featured under the (NULL = "Uncategorised") lane so the reorder
     tests have a baseline to permute."""
     from backend.eq2db import zones as zdb
 
-    _seed_zones(db_path)
+    _seed_zones(schema)
     # Add three more RoK raid_x4 zones so we have 4 to permute.
-    conn = zdb.ZoneCatalogue(db_path).init_db()
-    try:
-        conn.executemany(
+    with pg_conn(schema) as conn:
+        conn.cursor().executemany(
             "INSERT INTO zones (id, name, name_lower, expansion_short, expansion_name, "
-            "expansion_year, expansion_confidence) VALUES (?, ?, ?, ?, ?, ?, 'category')",
+            "expansion_year, expansion_confidence) VALUES (%s, %s, %s, %s, %s, %s, 'category')",
             [
                 (5, "Trakanon's Lair", "trakanon's lair", "RoK", "Rise of Kunark", 2007),
                 (6, "Chardok: The Bloodied Halls", "chardok: the bloodied halls", "RoK", "Rise of Kunark", 2007),
                 (7, "Sebilis", "sebilis", "RoK", "Rise of Kunark", 2007),
             ],
         )
-        conn.executemany(
-            "INSERT INTO zone_types (zone_id, type) VALUES (?, ?)",
+        conn.cursor().executemany(
+            "INSERT INTO zone_types (zone_id, type) VALUES (%s, %s)",
             [(5, "raid_x4"), (6, "raid_x4"), (7, "raid_x4")],
         )
-        conn.commit()
-    finally:
-        conn.close()
     # Feature all four (each lands at next position in the NULL lane).
     for n in ("Veeshan's Peak", "Trakanon's Lair", "Chardok: The Bloodied Halls", "Sebilis"):
-        assert zdb.ZoneCatalogue(db_path).add_featured_raid_zone(n) is not None
+        assert zdb.ZoneCatalogue(schema).add_featured_raid_zone(n) is not None
 
 
-def test_add_featured_raid_zone_assigns_increasing_positions_in_null_lane(tmp_path):
+def test_add_featured_raid_zone_assigns_increasing_positions_in_null_lane(zones_schema):
     """First add → position 0, second → 1, third → 2. All in the NULL lane."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_multi_raid_expansion(db)
     rows = zdb.ZoneCatalogue(db).list_featured_raid_zones("RoK")
     positions = [(r["name"], r["position"], r["category"]) for r in rows]
@@ -478,12 +467,12 @@ def test_add_featured_raid_zone_assigns_increasing_positions_in_null_lane(tmp_pa
     ]
 
 
-def test_list_featured_raid_zones_sorted_by_category_then_position(tmp_path):
+def test_list_featured_raid_zones_sorted_by_category_then_position(zones_schema):
     """After categorising a subset, list returns NULL-lane first then
     categorised lanes ordered by (category, position)."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_multi_raid_expansion(db)
 
     # Put VP + Chardok in "Wing A" (positions 0, 1), leave the rest NULL.
@@ -508,12 +497,12 @@ def test_list_featured_raid_zones_sorted_by_category_then_position(tmp_path):
     ]
 
 
-def test_reorder_zones_autocreates_missing_categories(tmp_path):
+def test_reorder_zones_autocreates_missing_categories(zones_schema):
     """A category name that appears in `ordering` but isn't yet tracked in
     featured_raid_categories is inserted at MAX(position)+1."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_multi_raid_expansion(db)
     assert zdb.ZoneCatalogue(db).list_featured_raid_categories("RoK") == []
 
@@ -535,12 +524,12 @@ def test_reorder_zones_autocreates_missing_categories(tmp_path):
     assert positions[0] != positions[1]
 
 
-def test_reorder_zones_returns_false_for_unfeatured_zone(tmp_path):
+def test_reorder_zones_returns_false_for_unfeatured_zone(zones_schema):
     """A zone in `ordering` that isn't in featured_raid_zones for the
     expansion → reorder returns False (route layer maps to 400)."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_multi_raid_expansion(db)
 
     ok = zdb.ZoneCatalogue(db).reorder_featured_raid_zones(
@@ -550,12 +539,12 @@ def test_reorder_zones_returns_false_for_unfeatured_zone(tmp_path):
     assert ok is False
 
 
-def test_reorder_categories_atomic_two_phase(tmp_path):
+def test_reorder_categories_atomic_two_phase(zones_schema):
     """Reordering categories rewrites position via the two-phase pattern —
     no UNIQUE/ordering collision possible even when swapping positions."""
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_multi_raid_expansion(db)
 
     # Create three categories at positions 0, 1, 2.
@@ -585,10 +574,10 @@ def test_reorder_categories_atomic_two_phase(tmp_path):
     assert [c["name"] for c in cats_after] == ["C", "B", "A"]
 
 
-def test_reorder_categories_returns_false_for_missing_category(tmp_path):
+def test_reorder_categories_returns_false_for_missing_category(zones_schema):
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_multi_raid_expansion(db)
     ok = zdb.ZoneCatalogue(db).reorder_featured_raid_categories(
         "RoK",
@@ -841,10 +830,10 @@ async def test_delete_category_nonexistent_returns_removed_false(app, admin_over
 # ── Real-helper roundtrip tests for create + delete category ─────────────────
 
 
-def test_create_featured_raid_category_roundtrip(tmp_path):
+def test_create_featured_raid_category_roundtrip(zones_schema):
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
     assert zdb.ZoneCatalogue(db).add_featured_raid_expansion("RoK") is True
 
@@ -864,10 +853,10 @@ def test_create_featured_raid_category_roundtrip(tmp_path):
     assert tier2_pos > tier1_pos
 
 
-def test_delete_featured_raid_category_moves_zones_to_null(tmp_path):
+def test_delete_featured_raid_category_moves_zones_to_null(zones_schema):
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_multi_raid_expansion(db)
 
     # Put VP in "Wing A".
@@ -895,10 +884,9 @@ def test_delete_featured_raid_category_moves_zones_to_null(tmp_path):
     assert zdb.ZoneCatalogue(db).delete_featured_raid_category("RoK", "Wing A") is False
 
 
-def test_delete_featured_raid_category_nonexistent_returns_false(tmp_path):
+def test_delete_featured_raid_category_nonexistent_returns_false(zones_schema):
     from backend.eq2db import zones as zdb
 
-    db = tmp_path / "zones.db"
+    db = zones_schema
     _seed_zones(db)
-    zdb.ZoneCatalogue(db).init_db()
     assert zdb.ZoneCatalogue(db).delete_featured_raid_category("RoK", "DoesNotExist") is False

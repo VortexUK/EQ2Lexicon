@@ -3,17 +3,11 @@ behaviour wired into PUT /api/zones/{zone}/overview."""
 
 from __future__ import annotations
 
-import os
-import shutil
-import sqlite3
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.eq2db import raids as raids_db
 from backend.server import db as users_db
 
 # ---------------------------------------------------------------------------
@@ -41,16 +35,12 @@ def _writer_client(app):
 
 
 @pytest.fixture()
-def raids_tmp(tmp_path):
-    """Point raid_strategies at a real RaidCatalogue over a temp raids.db.
-
-    The catalogue is a full drop-in for the route module's ``raids_db``
-    binding (init_db uses the instance path; SOURCE_* are class attributes;
-    the write helpers are staticmethods). Returns the Path so individual
-    tests can open it for inspection."""
-    db_path = tmp_path / "raids_test.db"
-    with patch("backend.server.api.raid_strategies.raids_db", raids_db.RaidCatalogue(db_path)):
-        yield db_path
+def raids_tmp(raids_schema: str) -> str:
+    """Isolated leased raids schema (conftest ``raids_schema``) — the shared
+    catalogue the raid_strategies routes bind as ``raids_db`` is already
+    re-pointed at it, so no route-module patch is needed. Aliased so the
+    tests can keep naming it ``raids_tmp``."""
+    return raids_schema
 
 
 # ---------------------------------------------------------------------------
@@ -61,8 +51,6 @@ def raids_tmp(tmp_path):
 @pytest.mark.asyncio
 async def test_first_overview_write_creates_revision_with_null_before(app, raids_tmp):
     """PUT a brand-new overview → GET revisions shows one row with before_md=None."""
-    raids_db.RaidCatalogue(raids_tmp).init_db().close()
-
     with patch("backend.server.api.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()):
         async with _writer_client(app) as client:
             put_r = await client.put(
@@ -85,8 +73,6 @@ async def test_first_overview_write_creates_revision_with_null_before(app, raids
 @pytest.mark.asyncio
 async def test_overview_update_creates_revision_with_before_and_after(app, raids_tmp):
     """PUT twice with different markdown → two revision rows newest-first."""
-    raids_db.RaidCatalogue(raids_tmp).init_db().close()
-
     with patch("backend.server.api.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()):
         async with _writer_client(app) as client:
             await client.put(
@@ -114,8 +100,6 @@ async def test_overview_update_creates_revision_with_before_and_after(app, raids
 @pytest.mark.asyncio
 async def test_overview_unchanged_skips_revision(app, raids_tmp):
     """PUT the same markdown twice → only ONE revision row (no duplicate)."""
-    raids_db.RaidCatalogue(raids_tmp).init_db().close()
-
     same_md = "## tactics unchanged"
     with patch("backend.server.api.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()):
         async with _writer_client(app) as client:
@@ -140,8 +124,6 @@ async def test_revisions_endpoint_404_unknown_zone(app):
 @pytest.mark.asyncio
 async def test_revisions_endpoint_returns_empty_when_no_overview_written(app, raids_tmp):
     """Zone exists in zones.db but no overview PUT yet → 200 with empty revisions list."""
-    raids_db.RaidCatalogue(raids_tmp).init_db().close()
-
     with patch("backend.server.api.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/zones/The Emerald Halls/overview/revisions")
@@ -151,10 +133,8 @@ async def test_revisions_endpoint_returns_empty_when_no_overview_written(app, ra
 
 
 @pytest.mark.asyncio
-async def test_revisions_endpoint_returns_editor_display_name(app, raids_tmp):
+async def test_revisions_endpoint_returns_editor_display_name(app, raids_tmp, users_schema):
     """PUT overview as a known user → GET revisions shows edited_by_name."""
-    raids_db.RaidCatalogue(raids_tmp).init_db().close()
-
     # Seed the user so get_display_names_for_discord_ids resolves.
     await users_db.upsert_user(
         discord_id="known-editor-1",

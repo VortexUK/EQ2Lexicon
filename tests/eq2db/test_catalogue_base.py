@@ -1,8 +1,11 @@
-"""Tests for the BaseCatalogue dunder surface (backend/eq2db/_catalogue.py).
+"""Tests for the SQLite base-class dunder surface (backend/db_catalogue.py:
+PathBound / BaseCatalogue — still the base for items/spells/recipes/aas/classes).
 
-Exercised through RaidCatalogue (no caches, FOREIGN_KEYS=True) and
-SpellCatalogue (crc cache) so the behaviour is proven on real subclasses,
-not a synthetic stub.
+Exercised through RecipeCatalogue (no caches) and SpellCatalogue (crc cache)
+so the behaviour is proven on real subclasses, not a synthetic stub.
+(RaidCatalogue/ZoneCatalogue were the original concrete examples but moved
+to PgCatalogue in the Postgres cutover — same intent, SQLite-resident
+catalogues now carry the cases.)
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from backend.db_catalogue import BaseCatalogue
-from backend.eq2db.raids import RaidCatalogue
+from backend.eq2db.recipes import RecipeCatalogue
 from backend.eq2db.spells import SpellCatalogue
 
 # ---------------------------------------------------------------------------
@@ -24,15 +27,15 @@ from backend.eq2db.spells import SpellCatalogue
 
 class TestRepr:
     def test_missing_db(self, tmp_path: Path):
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         r = repr(cat)
-        assert r.startswith("RaidCatalogue(")
+        assert r.startswith("RecipeCatalogue(")
         assert "missing" in r
         # !r-escaped on Windows, so compare against the repr of the string
-        assert repr(str(tmp_path / "raids.db")) in r
+        assert repr(str(tmp_path / "recipes.db")) in r
 
     def test_ready_db(self, tmp_path: Path):
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         cat.init_db().close()
         assert "ready" in repr(cat)
 
@@ -43,7 +46,7 @@ class TestRepr:
         assert "crc_cache=1" in repr(cat)
 
     def test_no_cache_subclass_has_no_cache_suffix(self, tmp_path: Path):
-        r = repr(RaidCatalogue(tmp_path / "raids.db"))
+        r = repr(RecipeCatalogue(tmp_path / "recipes.db"))
         assert r.endswith("missing)")
 
 
@@ -54,10 +57,10 @@ class TestRepr:
 
 class TestBool:
     def test_false_when_db_missing(self, tmp_path: Path):
-        assert not RaidCatalogue(tmp_path / "nope.db")
+        assert not RecipeCatalogue(tmp_path / "nope.db")
 
     def test_true_when_db_exists(self, tmp_path: Path):
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         cat.init_db().close()
         assert cat
 
@@ -69,24 +72,24 @@ class TestBool:
 
 class TestEqHash:
     def test_same_class_same_path_equal(self, tmp_path: Path):
-        p = tmp_path / "raids.db"
-        assert RaidCatalogue(p) == RaidCatalogue(p)
-        assert hash(RaidCatalogue(p)) == hash(RaidCatalogue(p))
+        p = tmp_path / "recipes.db"
+        assert RecipeCatalogue(p) == RecipeCatalogue(p)
+        assert hash(RecipeCatalogue(p)) == hash(RecipeCatalogue(p))
 
     def test_different_path_not_equal(self, tmp_path: Path):
-        assert RaidCatalogue(tmp_path / "a.db") != RaidCatalogue(tmp_path / "b.db")
+        assert RecipeCatalogue(tmp_path / "a.db") != RecipeCatalogue(tmp_path / "b.db")
 
     def test_different_class_same_path_not_equal(self, tmp_path: Path):
         p = tmp_path / "x.db"
-        assert RaidCatalogue(p) != SpellCatalogue(p)
+        assert RecipeCatalogue(p) != SpellCatalogue(p)
 
     def test_non_catalogue_not_equal(self, tmp_path: Path):
-        assert RaidCatalogue(tmp_path / "x.db") != "x.db"
+        assert RecipeCatalogue(tmp_path / "x.db") != "x.db"
 
     def test_usable_as_dict_key(self, tmp_path: Path):
-        p = tmp_path / "raids.db"
-        d = {RaidCatalogue(p): "hit"}
-        assert d[RaidCatalogue(p)] == "hit"
+        p = tmp_path / "recipes.db"
+        d = {RecipeCatalogue(p): "hit"}
+        assert d[RecipeCatalogue(p)] == "hit"
 
 
 # ---------------------------------------------------------------------------
@@ -96,18 +99,18 @@ class TestEqHash:
 
 class TestFspath:
     def test_os_fspath(self, tmp_path: Path):
-        p = tmp_path / "raids.db"
-        assert os.fspath(RaidCatalogue(p)) == str(p)
+        p = tmp_path / "recipes.db"
+        assert os.fspath(RecipeCatalogue(p)) == str(p)
 
     def test_path_conversion(self, tmp_path: Path):
-        p = tmp_path / "raids.db"
-        assert Path(RaidCatalogue(p)) == p
+        p = tmp_path / "recipes.db"
+        assert Path(RecipeCatalogue(p)) == p
 
     def test_sqlite_connect_accepts_catalogue(self, tmp_path: Path):
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         cat.init_db().close()
         with sqlite3.connect(cat) as conn:
-            n = conn.execute("SELECT COUNT(*) FROM raid_zones").fetchone()[0]
+            n = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
         conn.close()
         assert n == 0
 
@@ -119,17 +122,17 @@ class TestFspath:
 
 class TestContextManager:
     def test_with_yields_initialised_connection(self, tmp_path: Path):
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         with cat as conn:
             # Schema exists — init_db ran.
-            n = conn.execute("SELECT COUNT(*) FROM raid_encounters").fetchone()[0]
+            n = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
             assert n == 0
         # Connection is CLOSED on exit (unlike sqlite3's own CM).
         with pytest.raises(sqlite3.ProgrammingError):
             conn.execute("SELECT 1")
 
     def test_nested_with_blocks_close_their_own_conn(self, tmp_path: Path):
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         with cat as outer:
             with cat as inner:
                 assert inner is not outer
@@ -140,7 +143,7 @@ class TestContextManager:
             outer.execute("SELECT 1")
 
     def test_close_happens_on_exception(self, tmp_path: Path):
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         with pytest.raises(RuntimeError):
             with cat as conn:
                 raise RuntimeError("boom")
@@ -158,13 +161,13 @@ class TestReadHelperErrors:
         """File exists but tables don't (fresh volume / stub) -> [] not raise."""
         db = tmp_path / "stub.db"
         sqlite3.connect(db).close()  # zero-byte real file, no schema
-        cat = RaidCatalogue(db)
-        assert cat._fetchall("SELECT * FROM raid_zones") == []
-        assert cat._fetchone("SELECT * FROM raid_zones") is None
+        cat = RecipeCatalogue(db)
+        assert cat._fetchall("SELECT * FROM recipes") == []
+        assert cat._fetchone("SELECT * FROM recipes") is None
 
     def test_other_operational_errors_propagate(self, tmp_path: Path):
         """Non-schema faults (here: SQL syntax) must NOT be swallowed as empty."""
-        cat = RaidCatalogue(tmp_path / "raids.db")
+        cat = RecipeCatalogue(tmp_path / "recipes.db")
         cat.init_db().close()
         with pytest.raises(sqlite3.OperationalError):
             cat._fetchall("SELEKT broken")
@@ -187,7 +190,7 @@ class TestInitSubclass:
     def test_subclass_of_concrete_catalogue_inherits_schema(self, tmp_path: Path):
         # A test double subclassing a real catalogue is fine — it inherits
         # the parent's _create_schema.
-        class Doubled(RaidCatalogue):
+        class Doubled(RecipeCatalogue):
             pass
 
         Doubled(tmp_path / "x.db").init_db().close()

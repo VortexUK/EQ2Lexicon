@@ -243,25 +243,22 @@ async def test_remove_type_not_allowlisted_400(app, editor_override):
 # ── Integration with the real zones_db helpers (no SQL mocks) ─────────────────
 
 
-def test_add_then_remove_roundtrip_via_real_helpers(tmp_path):
+def test_add_then_remove_roundtrip_via_real_helpers(zones_schema):
     """Exercise the real add_zone_type / remove_zone_type helpers against a
-    throwaway zones.db. Catches schema drift or SQL typos that the
+    leased scratch zones schema. Catches schema drift or SQL typos that the
     route-level mock tests above would miss. No HTTP layer — just the
-    SQLite helpers — so we sidestep the run_sync ↔ mock-recursion issue
+    storage helpers — so we sidestep the run_sync ↔ mock-recursion issue
     and keep this test focused on the storage contract."""
     from backend.eq2db import zones as zones_db
+    from tests.fixtures.pg import pg_conn
 
-    db_path = tmp_path / "zones.db"
-    conn = zones_db.ZoneCatalogue(db_path).init_db()
-    try:
+    db_path = zones_schema
+    with pg_conn(zones_schema) as conn:
         conn.execute(
             "INSERT INTO zones (id, name, name_lower, expansion_short, expansion_name, "
             "expansion_confidence) VALUES (1, 'Crushbone Keep', 'crushbone keep', 'RoK', "
             "'Rise of Kunark', 'category')"
         )
-        conn.commit()
-    finally:
-        conn.close()
 
     # Add
     r1 = zones_db.ZoneCatalogue(db_path).add_zone_type("Crushbone Keep", "dungeon")

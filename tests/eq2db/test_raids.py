@@ -1,37 +1,30 @@
-"""Tests for the manual-edit protection in census/raids_db helpers.
+"""Tests for the manual-edit protection in the raids catalogue helpers.
 
 The encounter helper (upsert_raid_encounter) has always had this protection;
 the zone helper (upsert_raid_zone) gained it alongside the wiki-seed ingest
 pipeline so a re-scrape can't overwrite admin/officer-edited zone overviews.
+
+Postgres edition: each test leases an isolated scratch raids schema via the
+``raids_schema`` fixture and opens a schema-scoped pooled connection with
+``RaidCatalogue(raids_schema).init_db()`` (the analog of the old
+``RaidCatalogue(tmp_path / 'raids.db').init_db()``). Rows are dicts.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from backend.eq2db.raids import RaidCatalogue
 from backend.eq2db.raids import catalogue as raids_db
-
-
-@pytest.fixture
-def db_path(tmp_path: Path) -> Path:
-    """Per-test DB so writes don't leak. Returns the file path; callers open
-    + close their own connection via RaidCatalogue(path).init_db()."""
-    return tmp_path / "raids.db"
-
 
 # ---------------------------------------------------------------------------
 # upsert_raid_zone — SOURCE_MANUAL preserves markdown on re-scrape
 # ---------------------------------------------------------------------------
 
 
-def test_rescrape_preserves_manual_zone_markdown(db_path: Path):
+def test_rescrape_preserves_manual_zone_markdown(raids_schema: str):
     """A human-edited zone (overview/background/access) survives a later
     SOURCE_SCRAPE upsert intact. Wiki-owned fields (expansion, wiki_url,
     level_range, last_synced_at) do get refreshed."""
-    conn = RaidCatalogue(db_path).init_db()
+    conn = RaidCatalogue(raids_schema).init_db()
     try:
         # First write: simulate a route-level manual edit.
         raids_db.upsert_raid_zone(
@@ -58,27 +51,27 @@ def test_rescrape_preserves_manual_zone_markdown(db_path: Path):
         row = conn.execute(
             "SELECT source, overview_md, background_md, access_md, "
             "  wiki_url, level_range, last_synced_at "
-            "FROM raid_zones WHERE zone_name = ?",
+            "FROM raid_zones WHERE zone_name = %s",
             ("The Emerald Halls",),
         ).fetchone()
     finally:
         conn.close()
 
     # Manual edits survive untouched.
-    assert row[0] == "manual"
-    assert row[1] == "## Our composition\n\n- 2 tanks, 6 healers, 16 dps"
-    assert row[2] == "Our notes"
-    assert row[3] == "Our access"
+    assert row["source"] == "manual"
+    assert row["overview_md"] == "## Our composition\n\n- 2 tanks, 6 healers, 16 dps"
+    assert row["background_md"] == "Our notes"
+    assert row["access_md"] == "Our access"
     # Wiki-owned fields DID get refreshed (so wiki_url/level_range stay current).
-    assert row[4] == "https://eq2.fandom.com/wiki/The_Emerald_Halls"
-    assert row[5] == "80"
-    assert row[6] is not None  # last_synced_at stamped
+    assert row["wiki_url"] == "https://eq2.fandom.com/wiki/The_Emerald_Halls"
+    assert row["level_range"] == "80"
+    assert row["last_synced_at"] is not None  # last_synced_at stamped
 
 
-def test_rescrape_refreshes_when_existing_is_also_scrape(db_path: Path):
+def test_rescrape_refreshes_when_existing_is_also_scrape(raids_schema: str):
     """When the existing row is itself a scrape, a fresh scrape overwrites
     its markdown — that's how wiki edits propagate."""
-    conn = RaidCatalogue(db_path).init_db()
+    conn = RaidCatalogue(raids_schema).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,
@@ -95,18 +88,18 @@ def test_rescrape_refreshes_when_existing_is_also_scrape(db_path: Path):
             source=raids_db.SOURCE_SCRAPE,
         )
         row = conn.execute(
-            "SELECT overview_md FROM raid_zones WHERE zone_name = ?",
+            "SELECT overview_md FROM raid_zones WHERE zone_name = %s",
             ("The Emerald Halls",),
         ).fetchone()
     finally:
         conn.close()
-    assert row[0] == "NEW WIKI"
+    assert row["overview_md"] == "NEW WIKI"
 
 
-def test_manual_upsert_creates_new_row(db_path: Path):
+def test_manual_upsert_creates_new_row(raids_schema: str):
     """A first-write with SOURCE_MANUAL inserts cleanly (no existing row to
     protect). Used by the lazy-create path in _write_overview_sync."""
-    conn = RaidCatalogue(db_path).init_db()
+    conn = RaidCatalogue(raids_schema).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,
@@ -116,12 +109,12 @@ def test_manual_upsert_creates_new_row(db_path: Path):
             source=raids_db.SOURCE_MANUAL,
         )
         row = conn.execute(
-            "SELECT source, overview_md FROM raid_zones WHERE zone_name = ?",
+            "SELECT source, overview_md FROM raid_zones WHERE zone_name = %s",
             ("Veeshan's Peak",),
         ).fetchone()
     finally:
         conn.close()
-    assert row == ("manual", "hello")
+    assert (row["source"], row["overview_md"]) == ("manual", "hello")
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +123,8 @@ def test_manual_upsert_creates_new_row(db_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_rescrape_preserves_manual_encounter_strategy(db_path: Path):
-    conn = RaidCatalogue(db_path).init_db()
+def test_rescrape_preserves_manual_encounter_strategy(raids_schema: str):
+    conn = RaidCatalogue(raids_schema).init_db()
     try:
         zone_id = raids_db.upsert_raid_zone(
             conn,
@@ -157,10 +150,10 @@ def test_rescrape_preserves_manual_encounter_strategy(db_path: Path):
             source=raids_db.SOURCE_SCRAPE,
         )
         row = conn.execute(
-            "SELECT source, strategy_md FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+            "SELECT source, strategy_md FROM raid_encounters WHERE raid_zone_id = %s AND mob_name_lower = %s",
             (zone_id, "prince thirneg"),
         ).fetchone()
     finally:
         conn.close()
-    assert row[0] == "manual"
-    assert row[1] == "OUR STRAT"
+    assert row["source"] == "manual"
+    assert row["strategy_md"] == "OUR STRAT"

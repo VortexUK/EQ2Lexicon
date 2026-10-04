@@ -10,6 +10,9 @@ The fix wraps every nullable column in COALESCE so None means
 'don't touch' instead of 'clobber to NULL'. Destructive writes go
 through targeted UPDATEs (e.g. _update_overview_sync), not through
 upsert_raid_zone.
+
+Postgres edition: leased scratch schema via ``raids_schema``; dict rows,
+%s params.
 """
 
 from __future__ import annotations
@@ -18,12 +21,11 @@ from backend.eq2db.raids import RaidCatalogue
 from backend.eq2db.raids import catalogue as raids_db
 
 
-def test_upsert_with_none_overview_preserves_existing_overview(tmp_path):
+def test_upsert_with_none_overview_preserves_existing_overview(raids_schema: str):
     """The regression scenario: an existing zone has a curator-written
     overview_md. A subsequent upsert_raid_zone call WITHOUT overview_md
     (the strategy-write path) must NOT wipe it to NULL."""
-    db = tmp_path / "raids.db"
-    conn = RaidCatalogue(db).init_db()
+    conn = RaidCatalogue(raids_schema).init_db()
     try:
         # 1. Curator writes an overview — overview_md is set.
         raids_db.upsert_raid_zone(
@@ -34,11 +36,11 @@ def test_upsert_with_none_overview_preserves_existing_overview(tmp_path):
             source=raids_db.SOURCE_MANUAL,
         )
         row = conn.execute(
-            "SELECT overview_md, source FROM raid_zones WHERE zone_name = ?",
+            "SELECT overview_md, source FROM raid_zones WHERE zone_name = %s",
             ("Mistmoore's Inner Sanctum",),
         ).fetchone()
-        assert row[0] == "Bring poison cures. Stagger interrupts on Mob B."
-        assert row[1] == raids_db.SOURCE_MANUAL
+        assert row["overview_md"] == "Bring poison cures. Stagger interrupts on Mob B."
+        assert row["source"] == raids_db.SOURCE_MANUAL
 
         # 2. Curator edits a boss strategy — _write_strategy_sync auto-creates
         #    the zone parent by calling upsert_raid_zone() WITHOUT overview_md.
@@ -51,20 +53,19 @@ def test_upsert_with_none_overview_preserves_existing_overview(tmp_path):
             # overview_md not passed — defaults to None
         )
         row = conn.execute(
-            "SELECT overview_md, source FROM raid_zones WHERE zone_name = ?",
+            "SELECT overview_md, source FROM raid_zones WHERE zone_name = %s",
             ("Mistmoore's Inner Sanctum",),
         ).fetchone()
         # The fix: overview_md is preserved, not nulled.
-        assert row[0] == "Bring poison cures. Stagger interrupts on Mob B."
-        assert row[1] == raids_db.SOURCE_MANUAL
+        assert row["overview_md"] == "Bring poison cures. Stagger interrupts on Mob B."
+        assert row["source"] == raids_db.SOURCE_MANUAL
     finally:
         conn.close()
 
 
-def test_upsert_with_none_access_md_preserves_existing(tmp_path):
+def test_upsert_with_none_access_md_preserves_existing(raids_schema: str):
     """Same defensive contract for access_md."""
-    db = tmp_path / "raids.db"
-    conn = RaidCatalogue(db).init_db()
+    conn = RaidCatalogue(raids_schema).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,
@@ -79,13 +80,13 @@ def test_upsert_with_none_access_md_preserves_existing(tmp_path):
             expansion_short="EoF",
             source=raids_db.SOURCE_MANUAL,
         )
-        row = conn.execute("SELECT access_md FROM raid_zones WHERE zone_name = ?", ("X",)).fetchone()
-        assert row[0] == "Get to the back of the zone via the side passage."
+        row = conn.execute("SELECT access_md FROM raid_zones WHERE zone_name = %s", ("X",)).fetchone()
+        assert row["access_md"] == "Get to the back of the zone via the side passage."
     finally:
         conn.close()
 
 
-def test_upsert_with_non_none_overview_overwrites(tmp_path):
+def test_upsert_with_non_none_overview_overwrites(raids_schema: str):
     """The fix must NOT break the case where a caller DOES want to write
     a fresh overview_md — only None means 'don't touch'. A non-None
     value still overwrites the existing row.
@@ -93,8 +94,7 @@ def test_upsert_with_non_none_overview_overwrites(tmp_path):
     This is the wiki re-scrape case where source=SCRAPE hits an existing
     source=SCRAPE row: the markdown should be refreshed with the latest
     wiki content."""
-    db = tmp_path / "raids.db"
-    conn = RaidCatalogue(db).init_db()
+    conn = RaidCatalogue(raids_schema).init_db()
     try:
         raids_db.upsert_raid_zone(
             conn,
@@ -110,7 +110,7 @@ def test_upsert_with_non_none_overview_overwrites(tmp_path):
             overview_md="New wiki content",
             source=raids_db.SOURCE_SCRAPE,
         )
-        row = conn.execute("SELECT overview_md FROM raid_zones WHERE zone_name = ?", ("Y",)).fetchone()
-        assert row[0] == "New wiki content"
+        row = conn.execute("SELECT overview_md FROM raid_zones WHERE zone_name = %s", ("Y",)).fetchone()
+        assert row["overview_md"] == "New wiki content"
     finally:
         conn.close()

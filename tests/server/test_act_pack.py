@@ -41,14 +41,13 @@ class TestVocabulary:
 
 
 @pytest.fixture
-def seeded_raids_db(tmp_path, monkeypatch):
-    """A raids.db with one curated encounter (trigger + timer, enriched) and
-    one bare encounter (no ACT content — must be excluded from the pack),
-    swapped in as the shared catalogue's path."""
+def seeded_raids_db(raids_schema):
+    """A leased raids schema with one curated encounter (trigger + timer,
+    enriched) and one bare encounter (no ACT content — must be excluded from
+    the pack). The shared catalogue is already re-pointed at the schema."""
     from backend.eq2db import raids as raids_module
 
-    p = tmp_path / "raids.db"
-    conn = RaidCatalogue(p).init_db()
+    conn = raids_module.catalogue.init_db()
     zone_id = raids_module.catalogue.upsert_raid_zone(
         conn, zone_name="Freethinker Hideout", expansion_short="EoF", source="manual"
     )
@@ -77,9 +76,7 @@ def seeded_raids_db(tmp_path, monkeypatch):
         damage_type="crushing",
     )
     conn.close()
-
-    monkeypatch.setattr(raids_module.catalogue, "path", p)
-    return p
+    return raids_schema
 
 
 @pytest.mark.asyncio
@@ -118,12 +115,12 @@ async def test_pack_version_changes_on_edit(app, seeded_raids_db):
     from backend.eq2db.raids import catalogue
 
     conn = RaidCatalogue(seeded_raids_db).init_db()
-    enc = conn.execute("SELECT id FROM raid_encounters WHERE mob_name = 'Malkonis D''Morte'").fetchone()[0]
+    enc = conn.execute("SELECT id FROM raid_encounters WHERE mob_name = 'Malkonis D''Morte'").fetchone()["id"]
     RaidCatalogue.upsert_act_trigger(
         conn, raid_encounter_id=enc, regex="Come out and join me my brethren!", sound_data="Adds"
     )
     conn.close()
-    assert catalogue.path == seeded_raids_db  # the endpoint reads the seeded file
+    assert catalogue.schema == seeded_raids_db  # the endpoint reads the seeded schema
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         after = (await client.get("/api/act/pack")).json()["version"]
