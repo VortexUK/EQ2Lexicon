@@ -1,4 +1,5 @@
--- SQL for backend/server/api/parses/list.py — encounter listing + detail.
+-- SQL for backend/server/api/parses/list.py — encounter listing + detail
+-- (psycopg, parses schema).
 --
 -- player_count_subquery is exposed as a Python name (_PLAYER_COUNT_SQL) for
 -- rankings.py which composes it into its own .sql via .format() — keep it
@@ -29,13 +30,13 @@ WHERE c.encounter_id = e.id AND c.is_player = 1
 -- deterministic tiebreaks. Used by the merger to evaluate mutual
 -- containment of two uploads' top-N sets.
 SELECT name FROM combatants
-WHERE encounter_id = ? AND is_player = 1
+WHERE encounter_id = %s AND is_player = 1
 ORDER BY encdps DESC, name ASC
-LIMIT ?;
+LIMIT %s;
 
 -- :name all_ally_names
 SELECT name FROM combatants
-WHERE encounter_id = ? AND is_player = 1;
+WHERE encounter_id = %s AND is_player = 1;
 
 -- ---------------------------------------------------------------------------
 -- Lazy combatant-classification trigger
@@ -52,36 +53,38 @@ WHERE encounter_id = ? AND is_player = 1;
 -- load (thousands of write+commit cycles per cold cache fill, colliding
 -- with raid-night ingest → "database is locked").
 SELECT 1 FROM combatants
-WHERE encounter_id = ? AND ally = 1 AND is_player IS NULL LIMIT 1;
+WHERE encounter_id = %s AND ally = 1 AND is_player IS NULL LIMIT 1;
 
 -- :name encounters_with_unclassified_combatants
--- {placeholders} = comma-joined "?,?,..." for the IN list. Batched form of
--- has_unclassified_combatants: the rankings rebuild probes its whole
--- candidate set in a handful of queries instead of one per encounter.
+-- Batched form of has_unclassified_combatants: the rankings rebuild probes
+-- its whole candidate set in ONE = ANY query (the SQLite 500-id IN-list
+-- chunking is gone) instead of one probe per encounter.
 SELECT DISTINCT encounter_id FROM combatants
-WHERE encounter_id IN ({placeholders}) AND ally = 1 AND is_player IS NULL;
+WHERE encounter_id = ANY(%s) AND ally = 1 AND is_player IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- Encounter list + detail
 -- ---------------------------------------------------------------------------
 
--- :name list_encounters_recent
--- Encounter rows most-recent-first, capped at the inner ? limit. Caller
+-- Encounter rows most-recent-first, capped at the inner %s limit. Caller
 -- composes the WHERE filter from request params and templates both
 -- where_sql (the full "WHERE ... AND ...") and player_count_sql (the
--- correlated subquery) in via .format().
+-- correlated subquery) in via .format(). (Comment kept OUTSIDE the block —
+-- the composed where_sql contains %s and psycopg counts placeholders
+-- inside comments.)
+-- :name list_encounters_recent
 SELECT * FROM (
     SELECT e.*,
         ({player_count_sql}) AS player_count,
         (SELECT COUNT(*) FROM combatants c2 WHERE c2.encounter_id = e.id) AS combatant_count
     FROM encounters e
-)
+) sub
 {where_sql}
 ORDER BY started_at DESC
-LIMIT ?;
+LIMIT %s;
 
 -- :name select_encounter_by_id_and_world
 -- World-scoped fetch by encounter id. The world scope keeps a viewer on
 -- one server from reading another server's encounter by guessing its
 -- integer id.
-SELECT * FROM encounters WHERE id = ? AND world = ?;
+SELECT * FROM encounters WHERE id = %s AND world = %s;

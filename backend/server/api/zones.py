@@ -267,12 +267,12 @@ async def _resolve_primary_guild(discord_id: str) -> tuple[str | None, str | Non
 
 def _most_recent_parsed_guild_sync(discord_id: str) -> str | None:
     """Most recent non-null guild_name this user has uploaded a parse for."""
-    if not parses_db.path.exists():
-        return None
-    with sqlite3.connect(parses_db.path) as conn:
-        conn.execute("PRAGMA query_only = ON")
+    conn = parses_db.init_db()
+    try:
         row = conn.execute(_SQL["most_recent_parsed_guild"], (discord_id,)).fetchone()
-    return row[0] if row else None
+    finally:
+        conn.close()
+    return row["guild_name"] if row else None
 
 
 def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
@@ -285,22 +285,24 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
     ``zone_encounter_mobs.mob_name_lower`` — solo bosses match directly, group
     encounters collapse (any one mob ACT logs counts the whole encounter as
     cleared). Aggregation happens in Python rather than SQL because the parses
-    and zones data live in separate SQLite files and we'd rather avoid
-    cross-DB ATTACH.
+    data lives in Postgres while the zones data is a local SQLite file — a
+    Python stitch beats any cross-database join contraption.
     """
-    if not parses_db.path.exists() or not zones_db.path.exists():
+    if not zones_db.path.exists():
         return {}
 
     # Pull every winning row for the guild as (id, title_lower, started_at).
     # We need the timestamp + id to surface "last kill" — a DISTINCT title pass
     # wouldn't be enough.
-    with sqlite3.connect(parses_db.path) as pconn:
-        pconn.execute("PRAGMA query_only = ON")
+    pconn = parses_db.init_db()
+    try:
         kills = [
-            (row[0], row[1].lower(), row[2])
+            (row["id"], row["title"].lower(), row["started_at"])
             for row in pconn.execute(_SQL["list_kills_for_guild"], (guild_name,)).fetchall()
-            if row[1]
+            if row["title"]
         ]
+    finally:
+        pconn.close()
 
     if not kills:
         return {}

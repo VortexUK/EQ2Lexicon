@@ -290,19 +290,18 @@ class _DBCollector(Collector):
         except Exception:
             _log.exception("[metrics] users-schema collector error")
 
-        # parses.db — encounters split by hidden_at (visible vs soft-deleted)
-        # so dashboards can distinguish "live leaderboard rows" from
-        # accumulated history.
-        conn = self._get_conn("parses", parses_db.DB_PATH)
-        if conn is not None:
-            try:
+        # parses schema (Postgres) — encounters split by hidden_at (visible vs
+        # soft-deleted) so dashboards can distinguish "live leaderboard rows"
+        # from accumulated history.
+        try:
+            with pg.connection() as conn:
+                conn.execute(pg.search_path_sql(parses_db.SCHEMA))
                 row = conn.execute(_SQL["count_visible_encounters"]).fetchone()
-                g_parses.add_metric(["visible"], row[0] if row else 0)
+                g_parses.add_metric(["visible"], row["n"] if row else 0)
                 row = conn.execute(_SQL["count_hidden_encounters"]).fetchone()
-                g_parses.add_metric(["hidden"], row[0] if row else 0)
-            except Exception:
-                _log.exception("[metrics] parses.db collector error")
-                self._close_conn("parses")
+                g_parses.add_metric(["hidden"], row["n"] if row else 0)
+        except Exception:
+            _log.exception("[metrics] parses-schema collector error")
 
         # raids.db — strategies + the ACT trigger pack.
         conn = self._get_conn("raids", raids_db.DB_PATH)
@@ -344,13 +343,11 @@ class _DBFileSizeCollector(Collector):
         from backend.eq2db import recipes as recipes_db
         from backend.eq2db import spells as spells_db
         from backend.eq2db import zones as zones_db
-        from backend.server.parses import db as parses_db
 
         # Map label → Path. Centralised so adding a new DB is one tuple.
-        # (users moved to Postgres — its size gauge returns in the P2
-        # metrics split as pg_total_relation_size per schema.)
+        # (users + parses moved to Postgres — covered by the schema-size
+        # gauge below instead of a file stat.)
         candidates = [
-            ("parses", parses_db.DB_PATH),
             ("census", census_store.DB_PATH),
             ("raids", raids_db.DB_PATH),
             ("zones", zones_db.DB_PATH),
@@ -374,6 +371,30 @@ class _DBFileSizeCollector(Collector):
                 _log.exception("[metrics] db file-size for %s", label)
 
         yield g_size
+
+        # Migrated families: total relation size per Postgres schema — the
+        # growth-trend replacement for their old file gauges (and the
+        # measurement behind the Supabase tier decision).
+        g_pg = GaugeMetricFamily(
+            "pg_schema_size_bytes",
+            "Total relation size per migrated Postgres family schema (bytes)",
+            labels=["schema"],
+        )
+        try:
+            from backend import pg
+
+            with pg.connection() as conn:
+                rows = conn.execute(
+                    "SELECT schemaname AS s,"
+                    " SUM(pg_total_relation_size((quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass))::bigint AS b"
+                    " FROM pg_tables WHERE schemaname IN ('users', 'parses', 'census', 'zones', 'raids')"
+                    " GROUP BY schemaname"
+                ).fetchall()
+            for r in rows:
+                g_pg.add_metric([r["s"]], r["b"] or 0)
+        except Exception:
+            _log.exception("[metrics] pg schema-size collector error")
+        yield g_pg
 
 
 class _CensusHealthCollector(Collector):

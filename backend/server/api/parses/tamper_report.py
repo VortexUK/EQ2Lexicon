@@ -27,9 +27,9 @@ and rely on logging for diagnostics.
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
 
+import psycopg
 from fastapi import HTTPException, Request
 
 from backend.core.log_safety import scrub as _safe_for_log
@@ -245,7 +245,7 @@ async def report_tamper(
             uploader_discord_name=discord_name,
             payload_json=payload_json,
         )
-    except sqlite3.Error:
+    except psycopg.Error:
         # Drop discord_id from the diagnostic log — encid + reason are
         # the actionable bits, and the actor's identity is in the DB
         # row when the insert succeeded (and on every other call in

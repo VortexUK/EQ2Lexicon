@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import sqlite3
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request
@@ -219,8 +218,6 @@ def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | Non
     the session merge gap and only the largest cluster counts (the raid
     night, not an afternoon group). Returns (canonical_guild, members,
     zones, fight_count) — SYNC, runs in the executor."""
-    if not parses_db.path.exists():
-        return None, [], [], 0
     # API-layer helpers imported locally to keep the module-load DAG
     # cycle-free (same pattern as cleanup.py / parse_posts.py).
     from backend.server.api.parses.list import _PLAYER_COUNT_SQL, _ensure_classified  # noqa: PLC0415
@@ -229,21 +226,22 @@ def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | Non
     # session_day = date(started_at - 6h UTC), so day D covers fights whose
     # started_at falls in [D 06:00 UTC, D+1 06:00 UTC).
     win_start = int(dt.datetime(d.year, d.month, d.day, tzinfo=dt.UTC).timestamp()) + ROLLOVER_S
+    # lower(e.guild_name) = lower(%s) rides idx_encounters_world_guild_lower —
+    # the Postgres replacement for SQLite's `COLLATE NOCASE` comparison.
     sql = (
         f"SELECT e.id, e.guild_name, e.zone, e.started_at, e.ended_at, ({_PLAYER_COUNT_SQL}) AS player_count "
-        "FROM encounters e WHERE e.world = ? AND e.guild_name = ? COLLATE NOCASE AND e.hidden_at IS NULL "
-        "AND e.started_at >= ? AND e.started_at < ?"
+        "FROM encounters e WHERE e.world = %s AND lower(e.guild_name) = lower(%s) AND e.hidden_at IS NULL "
+        "AND e.started_at >= %s AND e.started_at < %s"
     )
     conn = parses_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
         rows = [dict(r) for r in conn.execute(sql, (world, guild_name, win_start, win_start + 86_400)).fetchall()]
         for r in rows:
             if _ensure_classified(conn, r["id"], r.get("zone")):
                 refreshed = conn.execute(
-                    "SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1", (r["id"],)
+                    "SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1", (r["id"],)
                 ).fetchone()
-                r["player_count"] = int(refreshed[0])
+                r["player_count"] = int(refreshed["n"]) if refreshed else 0
         rows = [r for r in rows if (r.get("player_count") or 0) >= _RECONSTRUCT_MIN_PLAYERS]
         if not rows:
             return None, [], [], 0

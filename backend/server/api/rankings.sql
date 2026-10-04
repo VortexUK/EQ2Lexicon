@@ -44,7 +44,7 @@ SELECT encounter_name FROM zone_encounters
 WHERE zone_id = ? ORDER BY position;
 
 -- ---------------------------------------------------------------------------
--- parses.db — winning-encounters scan + player_count refresh
+-- parses schema (Postgres) — winning-encounters scan + player_count refresh
 -- ---------------------------------------------------------------------------
 
 -- :name list_winning_encounters_with_player_count
@@ -55,10 +55,10 @@ SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by,
        e.started_at, e.duration_s, e.success_level, e.ingested_at,
        ({player_count_sql}) AS player_count
 FROM encounters e
-WHERE e.success_level = 1 AND e.world = ?
+WHERE e.success_level = 1 AND e.world = %s
 ORDER BY e.started_at DESC;
 
 -- :name count_player_combatants_for_encounter
 -- Refresh the player count for one encounter after the lazy backfill
 -- classifies its combatants.
-SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1;
+SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1;

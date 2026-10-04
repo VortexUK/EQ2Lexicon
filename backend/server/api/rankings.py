@@ -656,14 +656,11 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
 
     ``world`` scopes to the active server so each server sees only its own
     leaderboard data."""
-    if not parses_db.path.exists():
-        return []
     import time as _time  # noqa: PLC0415 — phase timings for the rebuild log
 
     t0 = _time.monotonic()
     conn = parses_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             _SQL["list_winning_encounters_with_player_count"].format(player_count_sql=_PLAYER_COUNT_SQL),
             (world,),
@@ -688,7 +685,7 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
                     _SQL["count_player_combatants_for_encounter"],
                     (r["id"],),
                 ).fetchone()
-                r["player_count"] = int(refreshed[0])
+                r["player_count"] = int(refreshed["n"]) if refreshed else 0
         t_classify = _time.monotonic()
         # Gate + canonicalise per row (scope is known from player_count): raid
         # bosses resolve against zones.db, everything else via the heuristic.

@@ -7,10 +7,10 @@ SELECT COUNT(*) AS n FROM users WHERE access_status = %s;
 SELECT COUNT(*) AS n FROM character_claims WHERE status = %s;
 
 -- :name count_visible_encounters
-SELECT COUNT(*) FROM encounters WHERE hidden_at IS NULL;
+SELECT COUNT(*) AS n FROM encounters WHERE hidden_at IS NULL;
 
 -- :name count_hidden_encounters
-SELECT COUNT(*) FROM encounters WHERE hidden_at IS NOT NULL;
+SELECT COUNT(*) AS n FROM encounters WHERE hidden_at IS NOT NULL;
 
 -- :name count_raid_encounters
 SELECT COUNT(*) FROM raid_encounters;

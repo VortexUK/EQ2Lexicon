@@ -462,8 +462,6 @@ async def list_parses_admin(
     world = current_world()
 
     def _query() -> list[dict]:
-        if not parses_db.path.exists():
-            return []
         conn = parses_db.init_db()
         try:
             return parses_db.list_encounters_for_admin(
@@ -552,8 +550,6 @@ async def list_tamper_reports_admin(
     world = current_world()
 
     def _query() -> tuple[list[dict], int]:
-        if not parses_db.path.exists():
-            return [], 0
         conn = parses_db.init_db()
         try:
             rows = parses_db.list_tamper_reports(
@@ -617,8 +613,6 @@ async def acknowledge_tamper_report(
     now_unix = int(datetime.now().timestamp())
 
     def _ack() -> bool:
-        if not parses_db.path.exists():
-            return False
         conn = parses_db.init_db()
         try:
             return parses_db.acknowledge_tamper_report(
@@ -661,8 +655,6 @@ async def acknowledge_tamper_reports_batch(
     now_unix = int(datetime.now().timestamp())
 
     def _ack_batch() -> int:
-        if not parses_db.path.exists():
-            return 0
         conn = parses_db.init_db()
         try:
             return parses_db.acknowledge_tamper_reports(
@@ -701,8 +693,6 @@ async def acknowledge_all_tamper_reports(request: Request) -> AcknowledgeBatchRe
     now_unix = int(datetime.now().timestamp())
 
     def _ack_all() -> int:
-        if not parses_db.path.exists():
-            return 0
         conn = parses_db.init_db()
         try:
             return parses_db.acknowledge_all_pending_tamper_reports(
@@ -739,8 +729,6 @@ async def purge_acknowledged_tamper_reports(request: Request) -> PurgeResponse:
     world = current_world()
 
     def _purge() -> int:
-        if not parses_db.path.exists():
-            return 0
         conn = parses_db.init_db()
         try:
             return parses_db.delete_acknowledged_tamper_reports(conn, world)

@@ -11,9 +11,10 @@ import asyncio
 import hashlib
 import hmac
 import logging
-import sqlite3
 import time
+from typing import Any
 
+import psycopg
 from fastapi import BackgroundTasks, Depends, HTTPException, Request
 
 from backend.census.store import store as census_store
@@ -338,10 +339,10 @@ def _update_snapshots_sync(encounter_id: int, snapshots: dict[str, CombatantSnap
         # bucket-fill pool for a different unconfirmed contributor).
         rows = parses_db.get_combatants_for_encounter(conn, encounter_id)
         enc = conn.execute(
-            "SELECT zone FROM encounters WHERE id = ?",
+            "SELECT zone FROM encounters WHERE id = %s",
             (encounter_id,),
         ).fetchone()
-        zone = enc[0] if enc else None
+        zone = enc["zone"] if enc else None
         zone_category = _classify_zone(zone)
         classification = classify_combatants(rows, zone_category)
         parses_db.update_combatant_is_player(conn, classification)
@@ -630,7 +631,7 @@ def _collapse_duplicate_rows(
 
 
 def _check_idempotency_sync(
-    conn: sqlite3.Connection,
+    conn: Any,
     encid: str,
     world: str,
 ) -> tuple[str, int | None, int, int, int] | None:
@@ -666,7 +667,7 @@ def _check_idempotency_sync(
 
 
 def _insert_encounter_rows_sync(
-    conn: sqlite3.Connection,
+    conn: Any,
     enc: Encounter,
     *,
     combatants: list,
@@ -690,59 +691,64 @@ def _insert_encounter_rows_sync(
     column NULL — the resting state for non-tampered uploads.
     """
     ingested_at = int(time.time())
-    with conn:
-        encounter_id = parses_db.insert_encounter(
-            conn,
-            enc,
-            source_dsn=source_dsn,
-            ingested_at=ingested_at,
-            uploaded_by=uploaded_by,
-            guild_name=guild_name,
-            world=world,
-        )
-        # Persist client_warnings as JSON on the new row. Sanitise
-        # defensively: drop empty entries, truncate each at 64 chars
-        # (matches the plugin's own MaxEntryLength), dedupe. List-length
-        # is already capped at 32 by IngestRequest's Pydantic validator,
-        # so a hostile payload doesn't reach us.
-        cleaned: list[str] = []
-        seen: set[str] = set()
-        for raw in client_warnings or []:
-            if not isinstance(raw, str):
-                continue
-            w = raw.strip()
-            if not w:
-                continue
-            if len(w) > 64:
-                w = w[:64]
-            if w in seen:
-                continue
-            seen.add(w)
-            cleaned.append(w)
-        if cleaned:
-            import json
+    # One transaction: the statements below ride the connection's open
+    # transaction and the explicit commit at the end closes it (the old
+    # sqlite ``with conn:`` scope). On an exception mid-way the transaction
+    # is left uncommitted; the caller's conn.close() returns the connection
+    # to the pool, which rolls it back.
+    encounter_id = parses_db.insert_encounter(
+        conn,
+        enc,
+        source_dsn=source_dsn,
+        ingested_at=ingested_at,
+        uploaded_by=uploaded_by,
+        guild_name=guild_name,
+        world=world,
+    )
+    # Persist client_warnings as JSON on the new row. Sanitise
+    # defensively: drop empty entries, truncate each at 64 chars
+    # (matches the plugin's own MaxEntryLength), dedupe. List-length
+    # is already capped at 32 by IngestRequest's Pydantic validator,
+    # so a hostile payload doesn't reach us.
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in client_warnings or []:
+        if not isinstance(raw, str):
+            continue
+        w = raw.strip()
+        if not w:
+            continue
+        if len(w) > 64:
+            w = w[:64]
+        if w in seen:
+            continue
+        seen.add(w)
+        cleaned.append(w)
+    if cleaned:
+        import json
 
-            parses_db.set_encounter_client_warnings(conn, encounter_id, json.dumps(cleaned))
-        name_to_id = parses_db.insert_combatants_bulk(conn, encounter_id, combatants, snapshots)
-        n_dt = parses_db.insert_damage_types_bulk(conn, name_to_id, damage_types)
-        n_at = parses_db.insert_attack_types_bulk(conn, name_to_id, attack_types)
-        parses_db.mark_ingested(
-            conn,
-            enc.encid,
-            encounter_id,
-            source_dsn=source_dsn,
-            ingested_at=ingested_at,
-            world=world,
-        )
-        # Phase 3 (pet detection): classify ally combatants now that the
-        # cache-warm snapshot fast-path has populated cls for whatever was
-        # already in character_cache. Any cls that fills in later via the
-        # background snapshot resolution triggers a re-classify in
-        # _update_snapshots_sync.
-        rows = parses_db.get_combatants_for_encounter(conn, encounter_id)
-        zone_category = _classify_zone(enc.zone)
-        classification = classify_combatants(rows, zone_category)
-        parses_db.update_combatant_is_player(conn, classification)
+        parses_db.set_encounter_client_warnings(conn, encounter_id, json.dumps(cleaned))
+    name_to_id = parses_db.insert_combatants_bulk(conn, encounter_id, combatants, snapshots)
+    n_dt = parses_db.insert_damage_types_bulk(conn, name_to_id, damage_types)
+    n_at = parses_db.insert_attack_types_bulk(conn, name_to_id, attack_types)
+    parses_db.mark_ingested(
+        conn,
+        enc.encid,
+        encounter_id,
+        source_dsn=source_dsn,
+        ingested_at=ingested_at,
+        world=world,
+    )
+    # Phase 3 (pet detection): classify ally combatants now that the
+    # cache-warm snapshot fast-path has populated cls for whatever was
+    # already in character_cache. Any cls that fills in later via the
+    # background snapshot resolution triggers a re-classify in
+    # _update_snapshots_sync.
+    rows = parses_db.get_combatants_for_encounter(conn, encounter_id)
+    zone_category = _classify_zone(enc.zone)
+    classification = classify_combatants(rows, zone_category)
+    parses_db.update_combatant_is_player(conn, classification)
+    conn.commit()
     return encounter_id, n_dt, n_at
 
 
@@ -1156,7 +1162,7 @@ async def ingest_parse(
             snapshots,
             parse_world,
         )
-    except (DuplicatePayloadRows, sqlite3.IntegrityError) as exc:
+    except (DuplicatePayloadRows, psycopg.errors.UniqueViolation) as exc:
         # A payload that breaks a uniqueness rule is the CLIENT's bug: say
         # so with a 422 (a 500 reads as "server broke, retry" and one client
         # did exactly that, every ~2 s, for nine hours on 2026-09-27). Log

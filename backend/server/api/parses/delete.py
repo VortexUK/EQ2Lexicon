@@ -15,8 +15,8 @@ each id is authorised on its own row.
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
+from typing import Any
 
 from fastapi import HTTPException, Request
 
@@ -77,18 +77,16 @@ def _fetch_encounter_auth_rows(ids: list[int], world: str) -> list[dict]:
     Runs in an executor."""
     conn = parses_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
-        placeholders = ",".join("?" * len(ids))
         rows = conn.execute(
-            f"SELECT id, guild_name, source_dsn, title, hidden_at FROM encounters WHERE id IN ({placeholders}) AND world = ?",
-            [*ids, world],
+            "SELECT id, guild_name, source_dsn, title, hidden_at FROM encounters WHERE id = ANY(%s) AND world = %s",
+            (list(ids), world),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def _apply_delete(conn: sqlite3.Connection, enc: dict, *, purge: bool, hidden_at: int, hidden_by: str) -> bool:
+def _apply_delete(conn: Any, enc: dict, *, purge: bool, hidden_at: int, hidden_by: str) -> bool:
     """Hard-purge wins; otherwise boss kills are soft-deleted (preserve any
     ranking) and trash is hard-deleted. Caller has already authorised + (for
     purge) checked admin. ``hidden_by`` stamps who hid the row for the

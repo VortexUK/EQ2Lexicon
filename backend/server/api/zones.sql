@@ -8,15 +8,16 @@
 
 -- :name most_recent_parsed_guild
 -- Most recent non-null guild_name this user has uploaded a parse for.
+-- Runs against the Postgres parses schema (%s placeholders).
 SELECT guild_name FROM encounters
-WHERE uploaded_by = ? AND guild_name IS NOT NULL AND hidden_at IS NULL
+WHERE uploaded_by = %s AND guild_name IS NOT NULL AND hidden_at IS NULL
 ORDER BY started_at DESC LIMIT 1;
 
 -- :name list_kills_for_guild
 -- Every winning row for a guild as (id, title, started_at). Caller filters
--- out NULL titles in Python.
+-- out NULL titles in Python. Postgres parses schema (%s placeholders).
 SELECT id, title, started_at FROM encounters
-WHERE guild_name = ? AND success_level = 1 AND hidden_at IS NULL;
+WHERE guild_name = %s AND success_level = 1 AND hidden_at IS NULL;
 
 -- :name match_encounter_mobs_by_titles_chunk
 -- For a chunk of mob_lower titles, resolve each to its (zone, encounter)

@@ -10,11 +10,11 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-import sqlite3
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
-from typing import Literal
+from typing import Any, Literal
 
+import psycopg
 from fastapi import HTTPException, Request
 
 from backend.eq2db.zones import catalogue as zones_db
@@ -93,7 +93,7 @@ _TOP_N_ALLY_SQL = _SQL["top_n_ally_names"]
 _ALL_ALLY_SQL = _SQL["all_ally_names"]
 
 
-def _ensure_classified(conn: sqlite3.Connection, encounter_id: int, zone: str | None) -> bool:
+def _ensure_classified(conn: Any, encounter_id: int, zone: str | None) -> bool:
     """Lazy backfill for pre-Phase-4 combatant rows.
 
     If any combatant for this encounter has ``is_player IS NULL`` (i.e.
@@ -115,24 +115,22 @@ def _ensure_classified(conn: sqlite3.Connection, encounter_id: int, zone: str | 
     return _classify_now(conn, encounter_id, zone)
 
 
-def encounters_needing_classification(conn: sqlite3.Connection, encounter_ids: list[int]) -> set[int]:
+def encounters_needing_classification(conn: Any, encounter_ids: list[int]) -> set[int]:
     """Batched probe: which of these encounters still have unclassified
-    ally rows? One chunked query instead of one probe per encounter — at
-    Wuoshi's backlog size the per-encounter probes alone cost the rankings
-    rebuild the better part of a minute."""
-    out: set[int] = set()
-    chunk_size = 500
-    for i in range(0, len(encounter_ids), chunk_size):
-        chunk = encounter_ids[i : i + chunk_size]
-        rows = conn.execute(
-            _SQL["encounters_with_unclassified_combatants"].format(placeholders=",".join("?" * len(chunk))),
-            chunk,
-        ).fetchall()
-        out.update(r[0] for r in rows)
-    return out
+    ally rows? ONE ``= ANY`` query (the SQLite 500-id chunking is gone)
+    instead of one probe per encounter — at Wuoshi's backlog size the
+    per-encounter probes alone cost the rankings rebuild the better part
+    of a minute."""
+    if not encounter_ids:
+        return set()
+    rows = conn.execute(
+        _SQL["encounters_with_unclassified_combatants"],
+        (list(encounter_ids),),
+    ).fetchall()
+    return {r["encounter_id"] for r in rows}
 
 
-def _classify_now(conn: sqlite3.Connection, encounter_id: int, zone: str | None) -> bool:
+def _classify_now(conn: Any, encounter_id: int, zone: str | None) -> bool:
     """The classify-and-persist half of _ensure_classified, probe already
     done — callers using the BATCHED probe skip the per-encounter one."""
     rows = parses_db.get_combatants_for_encounter(conn, encounter_id)
@@ -141,17 +139,18 @@ def _classify_now(conn: sqlite3.Connection, encounter_id: int, zone: str | None)
     try:
         parses_db.update_combatant_is_player(conn, classification)
         conn.commit()
-    except sqlite3.OperationalError as exc:
-        # Backfill is best-effort maintenance riding a READ path — a lock
-        # collision with concurrent ingest must degrade to "try again next
-        # read", never take the rankings/parses response down with it.
+    except psycopg.Error as exc:
+        # Backfill is best-effort maintenance riding a READ path — a write
+        # collision with concurrent ingest (deadlock/serialization failure)
+        # must degrade to "try again next read", never take the
+        # rankings/parses response down with it.
         _log.warning("[parses-list] lazy classify skipped for encounter %s: %s", encounter_id, exc)
         conn.rollback()
         return False
     return True
 
 
-def _top_n_ally_names(conn: sqlite3.Connection, encounter_id: int, n: int) -> set[str]:
+def _top_n_ally_names(conn: Any, encounter_id: int, n: int) -> set[str]:
     """Return the top-N player names in this encounter by encDPS descending.
 
     Tiebreaker on name ASC so two combatants with identical encDPS pick the
@@ -162,14 +161,14 @@ def _top_n_ally_names(conn: sqlite3.Connection, encounter_id: int, n: int) -> se
     allies than ``n``. Empty set when there are no qualifying allies at all
     (e.g. an empty-ally parse) — that case still merges trivially under the
     Phase 4 mutual-containment rule (``set() ⊆ X`` is always true)."""
-    return {row[0] for row in conn.execute(_TOP_N_ALLY_SQL, (encounter_id, n))}
+    return {row["name"] for row in conn.execute(_TOP_N_ALLY_SQL, (encounter_id, n))}
 
 
-def _all_ally_names(conn: sqlite3.Connection, encounter_id: int) -> set[str]:
+def _all_ally_names(conn: Any, encounter_id: int) -> set[str]:
     """Every qualifying player name in the encounter. Pairs with
     ``_top_n_ally_names`` to evaluate the merger's mutual-containment rule
     (``top_N(A) ⊆ allies(B)`` and vice versa)."""
-    return {row[0] for row in conn.execute(_ALL_ALLY_SQL, (encounter_id,))}
+    return {row["name"] for row in conn.execute(_ALL_ALLY_SQL, (encounter_id,))}
 
 
 # ── Zone classifier ──────────────────────────────────────────────────────
@@ -269,22 +268,20 @@ def _list_encounters_sync(
     ``world`` scopes results to the active server so a Varsoon viewer only
     sees Varsoon parses. ``before`` is the pagination cursor: only rows
     strictly older than that unix timestamp."""
-    if not parses_db.path.exists():
-        return []
-
     # Soft-deleted parses are hidden from the list (but still feed rankings).
-    # Note: the WHERE clause operates on the outer query's columns (no alias).
-    where_clauses: list[str] = ["hidden_at IS NULL", "world = ?"]
+    # Note: the WHERE clause operates on the derived table's columns (no
+    # `e.` prefix — the subquery is aliased `sub` in the .sql block).
+    where_clauses: list[str] = ["hidden_at IS NULL", "world = %s"]
     params: list = [world]
     if before is not None:
-        where_clauses.append("started_at < ?")
+        where_clauses.append("started_at < %s")
         params.append(before)
     if zone:
-        where_clauses.append("zone = ?")
+        where_clauses.append("zone = %s")
         params.append(zone)
     if size and size in SIZE_BUCKETS:
         lo, hi = SIZE_BUCKETS[size]
-        where_clauses.append("player_count BETWEEN ? AND ?")
+        where_clauses.append("player_count BETWEEN %s AND %s")
         params.extend([lo, hi])
     if search and search.strip():
         # Free-text filter over the user-visible fields, mirroring the admin
@@ -292,8 +289,8 @@ def _list_encounters_sync(
         # so a whole fight matches when any of its uploads does.
         like = f"%{search.strip().lower()}%"
         where_clauses.append(
-            "(LOWER(title) LIKE ? OR LOWER(IFNULL(zone, '')) LIKE ? "
-            "OR LOWER(IFNULL(uploaded_by, '')) LIKE ? OR LOWER(IFNULL(guild_name, '')) LIKE ?)"
+            "(LOWER(title) LIKE %s OR LOWER(COALESCE(zone, '')) LIKE %s "
+            "OR LOWER(COALESCE(uploaded_by, '')) LIKE %s OR LOWER(COALESCE(guild_name, '')) LIKE %s)"
         )
         params.extend([like, like, like, like])
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
@@ -302,13 +299,12 @@ def _list_encounters_sync(
 
     conn = parses_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
         return [dict(r) for r in conn.execute(list_sql, [*params, inner_cap]).fetchall()]
     finally:
         conn.close()
 
 
-def _group_into_fights(encounters: list[dict], conn: sqlite3.Connection) -> list[dict]:
+def _group_into_fights(encounters: list[dict], conn: Any) -> list[dict]:
     """Greedy mirror-grouping. Two uploads are the same fight when ALL of:
       - they come from *different* uploaders,
       - their guild + title match,
@@ -422,11 +418,8 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, wo
 
     ``world`` is used to scope the lookup so a viewer on one server can't
     read another server's encounter by guessing its integer id."""
-    if not parses_db.path.exists():
-        return None
     conn = parses_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
         enc_row = conn.execute(_SQL["select_encounter_by_id_and_world"], (encounter_id, world)).fetchone()
         if enc_row is None:
             return None
@@ -561,10 +554,10 @@ def _build_list_dataset(
         for r in rows:
             if _ensure_classified(conn, r["id"], r.get("zone")):
                 refreshed = conn.execute(
-                    "SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1",
+                    "SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1",
                     (r["id"],),
                 ).fetchone()
-                r["player_count"] = int(refreshed[0])
+                r["player_count"] = int(refreshed["n"])
         fights = _group_into_fights(rows, conn)
     finally:
         conn.close()

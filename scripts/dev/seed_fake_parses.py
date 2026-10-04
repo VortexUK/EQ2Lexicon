@@ -32,6 +32,7 @@ import sqlite3
 import sys
 import time
 import uuid
+from typing import Any
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
@@ -98,18 +99,18 @@ def _curated_bosses(limit: int) -> list[tuple[str, str]]:
     ][:limit]
 
 
-def wipe(conn: sqlite3.Connection) -> None:
+def wipe(conn: Any) -> None:
     n = conn.execute(
-        "DELETE FROM combatants WHERE encounter_id IN (SELECT id FROM encounters WHERE uploaded_by = ?)",
+        "DELETE FROM combatants WHERE encounter_id IN (SELECT id FROM encounters WHERE uploaded_by = %s)",
         (UPLOADER,),
     ).rowcount
-    m = conn.execute("DELETE FROM encounters WHERE uploaded_by = ?", (UPLOADER,)).rowcount
+    m = conn.execute("DELETE FROM encounters WHERE uploaded_by = %s", (UPLOADER,)).rowcount
     conn.commit()
     print(f"wiped {m} fake encounters ({n} combatant rows)")
 
 
 def _insert_kill(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     world: str,
     zone: str,
@@ -123,7 +124,7 @@ def _insert_kill(
         """INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at,
                duration_s, total_damage, encdps, kills, deaths, success_level,
                source_dsn, uploaded_by, guild_name, ingested_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, 0, 1, %s, %s, %s, %s) RETURNING id""",
         (
             world,
             f"fake-{uuid.uuid4().hex[:12]}",
@@ -140,13 +141,14 @@ def _insert_kill(
             int(time.time()),
         ),
     )
-    enc_id = cur.lastrowid
+    _row = cur.fetchone()
+    enc_id = _row["id"] if _row else 0
     for name, cls, dps, hps in combatants:
         conn.execute(
             """INSERT INTO combatants (encounter_id, name, ally, started_at, ended_at,
                    duration_s, damage, dps, encdps, enchps, level, guild_name, cls,
                    ilvl, is_player)
-               VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 70, ?, ?, ?, 1)""",
+               VALUES (%s, %s, 1, %s, %s, %s, %s, %s, %s, %s, 70, %s, %s, %s, 1)""",
             (
                 enc_id,
                 name,
@@ -164,7 +166,7 @@ def _insert_kill(
         )
 
 
-def seed(conn: sqlite3.Connection, *, character: str, cls: str, world: str) -> None:
+def seed(conn: Any, *, character: str, cls: str, world: str) -> None:
     rng = random.Random(42)
     bosses = _curated_bosses(len(BOSS_SHAPES))
     now = int(time.time())

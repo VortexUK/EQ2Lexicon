@@ -1,9 +1,9 @@
 """Account erasure — the right-to-be-forgotten mechanics behind the privacy
 policy (2026-09-28).
 
-One sync function over BOTH stores — the ``users`` Postgres schema and the
-parses SQLite file (Postgres in P2, when the halves unify into one
-transaction) — run from the routes through ``run_sync``:
+One sync function, ONE Postgres transaction spanning the ``users`` and
+``parses`` schemas (search_path switched mid-transaction) — run from the
+routes through ``run_sync``:
 
 - rows that ARE the person go: the ``users`` row and everything keyed to
   their Discord id (tokens, roles, role requests, claims, favourites,
@@ -27,16 +27,14 @@ supporters cache, the metrics last-seen map) is cleared by the route.
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from psycopg.types.json import Json
 
 from backend import pg
 from backend.server import db as _users_db  # SCHEMA read at call time (tests re-point it)
-from backend.server.parses.db import store as parses_store
+from backend.server.parses.db import SCHEMA as _PARSES_SCHEMA
 
 #: The placeholder users row every tombstoned reference points at.
 DELETED_USER_ID = "deleted"
@@ -100,10 +98,6 @@ class ErasureResult:
         }
 
 
-def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
-
-
 def _ensure_tombstone(conn, now: int) -> None:
     conn.execute(
         "INSERT INTO users (discord_id, discord_name, discord_username, avatar, first_seen, last_seen, "
@@ -117,15 +111,15 @@ def erase_user_sync(
     discord_id: str,
     *,
     users_schema: str | None = None,
-    parses_path: Path | None = None,
+    parses_schema: str | None = None,
     now: int | None = None,
 ) -> ErasureResult:
-    """Erase one Discord account from both stores. Idempotent: a second
+    """Erase one Discord account from both schemas. Idempotent: a second
     call finds nothing and reports ``found=False``. The tombstone id itself
-    can never be erased. The users half is ONE Postgres transaction with
-    constraints deferred (replacing SQLite's PRAGMA foreign_keys=OFF), so a
-    crash mid-way leaves nothing half-erased; migrations guarantee every
-    table exists, so the SQLite-era per-table existence probes are gone."""
+    can never be erased. The WHOLE erasure is one Postgres transaction with
+    users constraints deferred (replacing SQLite's PRAGMA foreign_keys=OFF),
+    so a crash mid-way leaves nothing half-erased; migrations guarantee
+    every table exists, so the per-table existence probes are gone."""
     if not discord_id or discord_id == DELETED_USER_ID:
         return ErasureResult(found=False)
     now = int(now if now is not None else time.time())
@@ -165,26 +159,20 @@ def erase_user_sync(
         cur = conn.execute("DELETE FROM users WHERE discord_id = %s", (discord_id,))
         if cur.rowcount:
             result.deleted["users"] = cur.rowcount
-        conn.commit()
 
-    parses_db = Path(parses_path) if parses_path is not None else parses_store.path
-    if parses_db.exists():
-        conn = parses_store.init_db() if parses_path is None else sqlite3.connect(parses_db)
-        try:
-            dsn = f"plugin:{discord_id}"
-            cur = conn.execute("UPDATE encounters SET source_dsn = ? WHERE source_dsn = ?", (DELETED_SOURCE_DSN, dsn))
-            result.parses_anonymised = cur.rowcount
-            if _table_exists(conn, "ingest_log"):
-                conn.execute("UPDATE ingest_log SET source_dsn = ? WHERE source_dsn = ?", (DELETED_SOURCE_DSN, dsn))
-            conn.execute("UPDATE encounters SET hidden_by = NULL WHERE hidden_by = ?", (discord_id,))
-            if _table_exists(conn, "tamper_reports"):
-                cur = conn.execute("DELETE FROM tamper_reports WHERE uploader_discord_id = ?", (discord_id,))
-                result.tamper_reports_deleted = cur.rowcount
-                conn.execute(
-                    "UPDATE tamper_reports SET acknowledged_by = NULL WHERE acknowledged_by = ?", (discord_id,)
-                )
-            conn.commit()
-        finally:
-            conn.close()
+        # ---- parses half: SAME transaction, schema switched in place.
+        # SET search_path is transactional, so the whole erasure commits or
+        # rolls back as one unit — the old users.db/parses.db split could
+        # crash between the halves and leave a half-erased account.
+        conn.execute(pg.search_path_sql(parses_schema if parses_schema is not None else _PARSES_SCHEMA))
+        dsn = f"plugin:{discord_id}"
+        cur = conn.execute("UPDATE encounters SET source_dsn = %s WHERE source_dsn = %s", (DELETED_SOURCE_DSN, dsn))
+        result.parses_anonymised = cur.rowcount
+        conn.execute("UPDATE ingest_log SET source_dsn = %s WHERE source_dsn = %s", (DELETED_SOURCE_DSN, dsn))
+        conn.execute("UPDATE encounters SET hidden_by = NULL WHERE hidden_by = %s", (discord_id,))
+        cur = conn.execute("DELETE FROM tamper_reports WHERE uploader_discord_id = %s", (discord_id,))
+        result.tamper_reports_deleted = cur.rowcount
+        conn.execute("UPDATE tamper_reports SET acknowledged_by = NULL WHERE acknowledged_by = %s", (discord_id,))
+        conn.commit()
 
     return result

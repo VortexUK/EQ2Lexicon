@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sqlite3
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -85,8 +84,6 @@ def collect_new_fights(
     upload of a fight that STARTED near a candidate, regardless of when it
     was uploaded — so a mirror that arrives hours or days after the fight was
     first posted regroups with it and is recognised as already posted."""
-    if not parses_db.path.exists():
-        return []
     # API-layer grouping helpers, imported locally like cleanup.py does —
     # a module-level import would invert the api→db layering.
     from backend.server.api.parses.list import (  # noqa: PLC0415
@@ -95,13 +92,14 @@ def collect_new_fights(
         _group_into_fights,
     )
 
+    # lower(e.guild_name) = lower(%s) rides idx_encounters_world_guild_lower —
+    # the Postgres replacement for SQLite's `COLLATE NOCASE` comparison.
     base = (
         f"SELECT e.*, ({_PLAYER_COUNT_SQL}) AS player_count FROM encounters e "
-        "WHERE e.world = ? AND e.guild_name = ? COLLATE NOCASE AND e.hidden_at IS NULL "
+        "WHERE e.world = %s AND lower(e.guild_name) = lower(%s) AND e.hidden_at IS NULL "
     )
     conn = parses_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
 
         def _kills(rows) -> list[dict]:
             # Kills only (success_level 1, the rankings rule) — a progression
@@ -110,7 +108,7 @@ def collect_new_fights(
 
         candidates = _kills(
             conn.execute(
-                base + "AND e.ingested_at > ? AND e.ingested_at <= ? AND e.started_at >= ?",
+                base + "AND e.ingested_at > %s AND e.ingested_at <= %s AND e.started_at >= %s",
                 (world, guild_name, posted_until, until, until - MAX_FIGHT_AGE_S),
             ).fetchall()
         )
@@ -120,16 +118,16 @@ def collect_new_fights(
         hi = max(c["started_at"] for c in candidates) + REGROUP_MARGIN_S
         rows = _kills(
             conn.execute(
-                base + "AND e.started_at BETWEEN ? AND ? AND e.ingested_at <= ?",
+                base + "AND e.started_at BETWEEN %s AND %s AND e.ingested_at <= %s",
                 (world, guild_name, lo, hi, until),
             ).fetchall()
         )
         for r in rows:
             if _ensure_classified(conn, r["id"], r.get("zone")):
                 refreshed = conn.execute(
-                    "SELECT COUNT(*) FROM combatants WHERE encounter_id = ? AND is_player = 1", (r["id"],)
+                    "SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1", (r["id"],)
                 ).fetchone()
-                r["player_count"] = int(refreshed[0])
+                r["player_count"] = int(refreshed["n"]) if refreshed else 0
 
         out: list[tuple[dict, list[dict]]] = []
         for g in _group_into_fights(rows, conn):

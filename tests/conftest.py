@@ -65,7 +65,6 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     BE-096: moved from module-level os.environ calls to avoid a race with
     pytest plugins (e.g. pytest-asyncio) that may import web.app during
     plugin discovery."""
-    os.environ["DB_PARSES_PATH"] = str(_TEST_DB_DIR / "backend.server.parses.db")
     os.environ["DB_CENSUS_PATH"] = str(_TEST_DB_DIR / "backend.census.db")
     os.environ["DB_ZONES_PATH"] = str(_TEST_DB_DIR / "zones.db")
     os.environ["DB_SPELLS_PATH"] = str(_TEST_DB_DIR / "spells.db")
@@ -121,10 +120,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     from backend.eq2db import recipes as recipes_db
     from backend.eq2db import spells as spells_db
     from backend.eq2db import zones as zones_db
-    from backend.server.parses import db as parses_db
 
-    parses_db.DB_PATH = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
-    parses_db.store.path = parses_db.DB_PATH
     census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
     census_store.store.path = census_store.DB_PATH
     # eq2db catalogue modules: re-point both the module constant AND the
@@ -140,11 +136,9 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
         mod.DB_PATH = resolve_db_path(env_var, subdir, filename)
         mod.catalogue.path = mod.DB_PATH
 
-    # Create the parses schema immediately. FastAPI's startup hooks don't
-    # fire under ASGITransport, so without this step parses tests would hit
-    # a missing-table OperationalError the first time they read from the DB.
-    # (The users family is provisioned by provision_for_session above.)
-    parses_db.store.init_db()
+    # (The users + parses schemas are provisioned by provision_for_session
+    # above — FastAPI's startup hooks don't fire under ASGITransport, but
+    # the migrations already ran against the test database.)
 
 
 from unittest.mock import AsyncMock, MagicMock  # noqa: E402

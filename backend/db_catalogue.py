@@ -402,6 +402,14 @@ class PgConnProxy:
     def close(self) -> None:
         conn, self._conn = self._conn, None
         if conn is not None:
+            # End any implicit read transaction before returning to the pool
+            # — otherwise psycopg_pool logs a rollback WARNING per checkout.
+            # Writers commit explicitly; close-without-commit rolls back,
+            # exactly like sqlite3.Connection.close() did.
+            try:
+                conn.rollback()
+            except Exception:  # pragma: no cover — broken conn; pool discards
+                pass
             self._pg.putconn(conn)
 
     def __enter__(self) -> PgConnProxy:

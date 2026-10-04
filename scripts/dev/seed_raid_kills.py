@@ -22,10 +22,10 @@ import asyncio
 import json
 import os
 import random
-import sqlite3
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 # Repo root on path so the script can import as a module.
 _REPO = Path(__file__).resolve().parent.parent.parent
@@ -37,11 +37,11 @@ from backend import pg  # noqa: E402
 from backend.census.client import CensusClient  # noqa: E402
 from backend.eq2db import zones as zones_db  # noqa: E402
 from backend.server.db import SCHEMA as USERS_SCHEMA  # noqa: E402
-from backend.server.parses.db import DB_PATH as PARSES_DB_PATH  # noqa: E402
+from backend.server.parses.db import store as parses_store  # noqa: E402
 
 load_dotenv(_REPO / ".env")
 
-_MANIFEST = PARSES_DB_PATH.parent / ".seed_raid_kills.json"
+_MANIFEST = _REPO / "data" / "parses" / ".seed_raid_kills.json"
 
 # ---------------------------------------------------------------------------
 # Seed plan — which encounters to kill in which zones.
@@ -182,7 +182,7 @@ def _generate_rows(guild_name: str, discord_id: str) -> list[dict]:
     return rows
 
 
-def _delete_previous(conn: sqlite3.Connection) -> int:
+def _delete_previous(conn: Any) -> int:
     """Remove rows from the previous seed run, if any."""
     if not _MANIFEST.exists():
         return 0
@@ -192,8 +192,7 @@ def _delete_previous(conn: sqlite3.Connection) -> int:
         ids = []
     if not ids:
         return 0
-    placeholders = ",".join("?" * len(ids))
-    cur = conn.execute(f"DELETE FROM encounters WHERE id IN ({placeholders})", ids)
+    cur = conn.execute("DELETE FROM encounters WHERE id = ANY(%s)", (list(ids),))
     conn.commit()
     deleted = cur.rowcount
     _MANIFEST.unlink(missing_ok=True)
@@ -216,13 +215,9 @@ async def main() -> int:
     parser.add_argument("--guild", help="Override the auto-detected guild name (e.g. for testing other guilds).")
     args = parser.parse_args()
 
-    if not PARSES_DB_PATH.exists():
-        print(f"parses.db not found at {PARSES_DB_PATH} — nothing to seed/unseed.")
-        return 1
-
     # ─── Unseed-only path ─────────────────────────────────────────────────────
     if args.unseed:
-        with sqlite3.connect(PARSES_DB_PATH) as conn:
+        with parses_store.init_db() as conn:
             n = _delete_previous(conn)
         print(f"Removed {n} previously-seeded rows.")
         return 0
@@ -259,7 +254,7 @@ async def main() -> int:
         print("Nothing to insert (seed plan resolved to zero rows).")
         return 1
 
-    with sqlite3.connect(PARSES_DB_PATH) as conn:
+    with parses_store.init_db() as conn:
         cleared = _delete_previous(conn)
         inserted_ids: list[int] = []
         for r in rows:
@@ -269,13 +264,15 @@ async def main() -> int:
                     (act_encid, title, zone, started_at, ended_at, duration_s,
                      success_level, source_dsn, uploaded_by, guild_name, ingested_at)
                 VALUES
-                    (:act_encid, :title, :zone, :started_at, :ended_at, :duration_s,
-                     :success_level, :source_dsn, :uploaded_by, :guild_name, :ingested_at)
+                    (%(act_encid)s, %(title)s, %(zone)s, %(started_at)s, %(ended_at)s, %(duration_s)s,
+                     %(success_level)s, %(source_dsn)s, %(uploaded_by)s, %(guild_name)s, %(ingested_at)s)
+                RETURNING id
                 """,
                 r,
             )
-            if cur.lastrowid is not None:
-                inserted_ids.append(int(cur.lastrowid))
+            _row = cur.fetchone()
+            if _row is not None:
+                inserted_ids.append(int(_row["id"]))
         conn.commit()
 
     _write_manifest(inserted_ids)
