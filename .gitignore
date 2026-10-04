@@ -346,3 +346,7 @@ data/census/census.db-shm
 backend/**/data/
 scripts/dev/*_class_refs*/
 scripts/dev/.epics_wikitext_cache.json
+
+# Local MCP server config (Claude Code) — carries the Supabase personal
+# access token. Machine-local only, never committed.
+.mcp.json

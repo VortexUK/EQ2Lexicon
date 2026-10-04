@@ -3,7 +3,8 @@
 -- :name add_watch
 INSERT INTO item_watch
     (world, guild_name, character_name, item_id, item_name, added_by, added_by_name)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id;
 
 -- :name find_by_id
 SELECT * FROM item_watch WHERE id = ?;

@@ -70,7 +70,8 @@ class TokensStore(AsyncStoreBase):
                 _SQL["mint_token"],
                 (user_id, name, h, prefix),
             )
-            new_id = cur.lastrowid
+            _row = await cur.fetchone()
+            new_id = _row[0] if _row else None
             await db.commit()
             async with db.execute(_SQL["find_by_id"], (new_id,)) as cur2:
                 row = await cur2.fetchone()

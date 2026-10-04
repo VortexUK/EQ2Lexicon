@@ -26,7 +26,8 @@ WHERE world = ? AND guild_name = ? AND session_day = ?;
 
 -- :name insert_session
 INSERT INTO attendance_sessions (world, guild_name, session_day, seq, started_at, ended_at, zones, scheduled, team_index, uploaders)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id;
 
 -- :name merge_session_window
 UPDATE attendance_sessions

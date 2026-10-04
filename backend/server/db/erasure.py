@@ -103,8 +103,9 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
 
 def _ensure_tombstone(conn: sqlite3.Connection, now: int) -> None:
     conn.execute(
-        "INSERT OR IGNORE INTO users (discord_id, discord_name, discord_username, avatar, first_seen, last_seen, "
-        "access_status) VALUES (?, 'Deleted user', 'deleted', NULL, ?, ?, 'denied')",
+        "INSERT INTO users (discord_id, discord_name, discord_username, avatar, first_seen, last_seen, "
+        "access_status) VALUES (?, 'Deleted user', 'deleted', NULL, ?, ?, 'denied') "
+        "ON CONFLICT(discord_id) DO NOTHING",
         (DELETED_USER_ID, now, now),
     )
 

@@ -124,13 +124,15 @@ SELECT data_json, last_resolved_at FROM guilds WHERE name_lower=? AND world=?;
 SELECT data_json, last_resolved_at FROM character_aas WHERE name_lower = ? AND world = ?;
 
 -- :name upsert_character_aas
-INSERT OR REPLACE INTO character_aas (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?);
+INSERT INTO character_aas (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(name_lower, world) DO UPDATE SET data_json = excluded.data_json, last_resolved_at = excluded.last_resolved_at;
 
 -- :name select_character_gear_sets
 SELECT data_json, last_resolved_at FROM character_gear_sets WHERE name_lower = ? AND world = ?;
 
 -- :name upsert_character_gear_sets
-INSERT OR REPLACE INTO character_gear_sets (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?);
+INSERT INTO character_gear_sets (name_lower, world, data_json, last_resolved_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(name_lower, world) DO UPDATE SET data_json = excluded.data_json, last_resolved_at = excluded.last_resolved_at;
 
 -- Name-prefix search over everything this server has ever seen — the
 -- store-first half of /characters/search and /guilds/search (the census

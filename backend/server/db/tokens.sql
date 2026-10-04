@@ -3,7 +3,8 @@
 
 -- :name mint_token
 INSERT INTO api_tokens (user_id, name, token_hash, token_prefix)
-VALUES (?, ?, ?, ?);
+VALUES (?, ?, ?, ?)
+RETURNING id;
 
 -- :name find_by_id
 SELECT * FROM api_tokens WHERE id = ?;

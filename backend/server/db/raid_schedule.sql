@@ -21,7 +21,8 @@ DELETE FROM raid_teams WHERE world = ? AND guild_name = ?;
 
 -- :name insert_team
 INSERT INTO raid_teams (world, guild_name, team_index, name, primary_tz, twitch_login, updated_by)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id;
 
 -- :name insert_slot
 INSERT INTO raid_slots (team_id, slot_index, days, start_min, end_min, label)

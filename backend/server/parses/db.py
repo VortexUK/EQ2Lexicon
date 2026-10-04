@@ -255,7 +255,8 @@ class ParsesStore(BaseCatalogue):
                 guild_name=guild_name,
             ),
         )
-        return int(cur.lastrowid or 0)
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     @staticmethod
     def insert_combatants_bulk(
@@ -274,7 +275,8 @@ class ParsesStore(BaseCatalogue):
                 _SQL["insert_combatant"],
                 c.as_db_params(encounter_id=encounter_id, snapshot=snap),
             )
-            name_to_id[c.name] = int(cur.lastrowid or 0)
+            row = cur.fetchone()
+            name_to_id[c.name] = int(row[0]) if row else 0
         return name_to_id
 
     @staticmethod
@@ -716,7 +718,8 @@ class ParsesStore(BaseCatalogue):
                 payload_json,
             ),
         )
-        return int(cur.lastrowid or 0)
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     @staticmethod
     def list_tamper_reports(

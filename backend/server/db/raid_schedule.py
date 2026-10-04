@@ -73,7 +73,8 @@ class RaidScheduleStore(AsyncStoreBase):
                             updated_by,
                         ),
                     )
-                    team_id = cur.lastrowid
+                    _row = await cur.fetchone()
+                    team_id = _row[0] if _row else None
                     for slot_index, raid in enumerate(team.get("raids", [])):
                         await db.execute(
                             _SQL["insert_slot"],

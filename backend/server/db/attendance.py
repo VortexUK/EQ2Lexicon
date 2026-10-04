@@ -144,7 +144,8 @@ class AttendanceStore(AsyncStoreBase):
                             json.dumps({discord_id: sent_at}),
                         ),
                     )
-                    session_id = cur.lastrowid
+                    _row = await cur.fetchone()
+                    session_id = _row[0] if _row else None
 
                 for kind, members in (("raid", raid_members), ("online", online_guildies)):
                     for m in members:

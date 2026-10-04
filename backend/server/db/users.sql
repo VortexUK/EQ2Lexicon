@@ -50,7 +50,8 @@ UPDATE users SET access_status = ? WHERE discord_id = ?;
 -- ---------------------------------------------------------------------------
 
 -- :name grant_role
-INSERT OR IGNORE INTO user_roles (discord_id, role, granted_by) VALUES (?, ?, ?);
+INSERT INTO user_roles (discord_id, role, granted_by) VALUES (?, ?, ?)
+ON CONFLICT DO NOTHING;
 
 -- :name revoke_role
 DELETE FROM user_roles WHERE discord_id = ? AND role = ?;
@@ -69,7 +70,8 @@ SELECT discord_id, role FROM user_roles ORDER BY discord_id, role;
 -- ---------------------------------------------------------------------------
 
 -- :name create_role_request
-INSERT INTO role_requests (discord_id, role, user_note) VALUES (?, ?, ?);
+INSERT INTO role_requests (discord_id, role, user_note) VALUES (?, ?, ?)
+RETURNING id;
 
 -- {where_sql} = "WHERE …" or "" composed by Python build_where helper.
 -- {order_sql} = "ORDER BY …" composed by Python (varies by status filter).

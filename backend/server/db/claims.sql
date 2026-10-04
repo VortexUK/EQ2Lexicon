@@ -16,7 +16,8 @@ WHERE discord_id = ? AND world = ? AND status = 'pending';
 
 -- :name submit_claim
 INSERT INTO character_claims (discord_id, character_name, status, world)
-VALUES (?, ?, 'pending', ?);
+VALUES (?, ?, 'pending', ?)
+RETURNING id;
 
 -- :name find_by_id
 SELECT * FROM character_claims WHERE id = ?;

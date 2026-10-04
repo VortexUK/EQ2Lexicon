@@ -194,8 +194,9 @@ class UsersStore(AsyncStoreBase):
                 _SQL["create_role_request"],
                 (discord_id, role, user_note),
             )
+            row = await cur.fetchone()
             await db.commit()
-        return int(cur.lastrowid or 0)
+        return int(row[0]) if row else 0
 
     async def list_role_requests(
         self,

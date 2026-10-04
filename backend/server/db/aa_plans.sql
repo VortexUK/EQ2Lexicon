@@ -22,7 +22,8 @@ SELECT id, discord_id, world, character_name, name, xpac, allocations, share_slu
 
 -- :name insert_plan
 INSERT INTO aa_plans (discord_id, world, character_name, name, xpac, allocations, share_slug)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id;
 
 -- :name update_plan
 UPDATE aa_plans

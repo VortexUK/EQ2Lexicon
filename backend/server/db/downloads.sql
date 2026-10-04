@@ -4,7 +4,8 @@
 -- user, so the public count is distinct-downloaders and can't be inflated by
 -- one person re-clicking. rowcount 0 ⇒ this user already recorded this slug.
 -- :name insert_download
-INSERT OR IGNORE INTO download_events (discord_id, slug) VALUES (?, ?);
+INSERT INTO download_events (discord_id, slug) VALUES (?, ?)
+ON CONFLICT DO NOTHING;
 
 -- :name count_for_slug
 SELECT COUNT(*) FROM download_events WHERE slug = ?;

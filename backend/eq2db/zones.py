@@ -431,7 +431,7 @@ class ZoneEncounterMob:
                         _SQL["insert_encounter_mob_primary"],
                         (encounter_id, mob_name, mob_name.lower()),
                     )
-                    new_id = cur.lastrowid
+                    new_id = (cur.fetchone() or (None,))[0]
                     conn.execute(_SQL["update_encounter_name"], (mob_name, encounter_id))
                 else:
                     next_pos = conn.execute(_SQL["max_mob_position_for_encounter"], (encounter_id,)).fetchone()[0]
@@ -439,7 +439,7 @@ class ZoneEncounterMob:
                         _SQL["insert_encounter_mob"],
                         (encounter_id, mob_name, mob_name.lower(), next_pos),
                     )
-                    new_id = cur.lastrowid
+                    new_id = (cur.fetchone() or (None,))[0]
             row = conn.execute(_SQL["select_mob_by_id"], (new_id,)).fetchone()
         if make_primary and old_primary_name is not None:
             _mirror_primary_rename_in_raids_db(_encounter_zone_id(encounter_id, path), old_primary_name, mob_name, path)
@@ -683,7 +683,8 @@ class ZoneEncounter:
                     enc.get("wiki_url"),
                 ),
             )
-            encounter_id = int(cur.lastrowid or 0)
+            _row = cur.fetchone()
+            encounter_id = int(_row[0]) if _row else 0
             mobs = enc.get("mobs") or []
             if not mobs:
                 # Defensive: an encounter with no listed mobs gets one mob
@@ -726,7 +727,7 @@ class ZoneEncounter:
                 row = conn.execute(_SQL["max_encounter_position_for_zone"], (zone_id,)).fetchone()
                 position = int(row["p"])
             cur = conn.execute(_SQL["insert_encounter"], (zone_id, primary_mob, position, stage, wiki_url))
-            enc_id = cur.lastrowid
+            enc_id = (cur.fetchone() or (None,))[0]
             conn.execute(_SQL["insert_encounter_mob_primary"], (enc_id, primary_mob, primary_mob.lower()))
             conn.commit()
             row = conn.execute(_SQL["select_encounter_by_id"], (enc_id,)).fetchone()

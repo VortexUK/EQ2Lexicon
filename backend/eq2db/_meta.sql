@@ -13,4 +13,5 @@ CREATE TABLE IF NOT EXISTS _meta (
 SELECT value FROM _meta WHERE key = ?
 
 -- :name upsert
-INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)
+INSERT INTO _meta (key, value) VALUES (?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value

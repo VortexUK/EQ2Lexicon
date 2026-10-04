@@ -317,7 +317,8 @@ class RaidCatalogue(BaseCatalogue):
                     actor if source != SOURCE_SCRAPE else None,
                 ),
             )
-            new_id = int(cur.lastrowid or 0)
+            _row = cur.fetchone()
+            new_id = int(_row[0]) if _row else 0
             # First-ever revision row: before is NULL, after is the seeded content.
             if strategy_md is not None:
                 conn.execute(
@@ -494,11 +495,13 @@ class RaidCatalogue(BaseCatalogue):
                     timer, timer_name, tabbed, cooldown_seconds,
                     last_edited_at, last_edited_by
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
                 """,
                 params,
             )
+            _row = cur.fetchone()
             conn.commit()
-            return int(cur.lastrowid or 0)
+            return int(_row[0]) if _row else 0
 
         conn.execute(
             """
@@ -595,11 +598,13 @@ class RaidCatalogue(BaseCatalogue):
                     damage_type, control_effect,
                     last_edited_at, last_edited_by
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
                 """,
                 params,
             )
+            _row = cur.fetchone()
             conn.commit()
-            return int(cur.lastrowid or 0)
+            return int(_row[0]) if _row else 0
 
         conn.execute(
             """

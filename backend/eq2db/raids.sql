@@ -240,7 +240,8 @@ INSERT INTO raid_encounters (
     raid_zone_id, mob_name, mob_name_lower, position,
     strategy_md, wiki_url, source,
     last_synced_at, last_edited_at, last_edited_by
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id;
 
 -- Refresh sync timestamp + URL + position on a manually-edited row, leaving
 -- strategy_md alone — re-scrape doesn't overwrite curator edits.

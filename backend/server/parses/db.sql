@@ -328,7 +328,8 @@ INSERT INTO encounters (
     :started_at, :ended_at, :duration_s,
     :total_damage, :encdps, :kills, :deaths, :success_level,
     :source_dsn, :uploaded_by, :guild_name, :ingested_at
-);
+)
+RETURNING id;
 
 -- Named :param placeholders matched against Combatant.as_db_params().
 -- :name insert_combatant
@@ -356,7 +357,8 @@ INSERT INTO combatants (
     :to_hit, :crit_dam_perc, :crit_heal_perc, :crit_types,
     :threat_str, :threat_delta,
     :level, :guild_name, :cls, :ilvl
-);
+)
+RETURNING id;
 
 -- :name update_combatant_snapshot
 UPDATE combatants SET level = ?, guild_name = ?, cls = ?, ilvl = ?
@@ -517,7 +519,8 @@ INSERT INTO tamper_reports (
     ?, ?,
     ?, ?, ?,
     ?, ?
-);
+)
+RETURNING id;
 
 -- :name list_tamper_reports
 -- {where} composed in Python (filters: world / reason / pending|ack|all)

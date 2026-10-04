@@ -144,10 +144,11 @@ UPDATE zone_encounters
 -- Insert the parenthesised " (Zone)" form as an alias before stripping it
 -- from the canonical name, so old references resolve.
 -- :name normalise_paren_zone_to_alias
-INSERT OR IGNORE INTO zone_aliases (alias, alias_lower, zone_id)
+INSERT INTO zone_aliases (alias, alias_lower, zone_id)
 SELECT name, name_lower, id
   FROM zones
- WHERE name LIKE '% (Zone)%';
+ WHERE name LIKE '% (Zone)%'
+ON CONFLICT DO NOTHING;
 
 -- Strip the " (Zone)" suffix from canonical zone names.
 -- :name normalise_strip_paren_zone
@@ -288,7 +289,8 @@ DELETE FROM zone_types WHERE zone_id = ?;
 INSERT INTO zone_types (zone_id, type) VALUES (?, ?);
 
 -- :name insert_zone_type_or_ignore
-INSERT OR IGNORE INTO zone_types (zone_id, type) VALUES (?, ?);
+INSERT INTO zone_types (zone_id, type) VALUES (?, ?)
+ON CONFLICT DO NOTHING;
 
 -- :name delete_zone_type
 DELETE FROM zone_types WHERE zone_id = ? AND type = ?;
@@ -320,7 +322,8 @@ SELECT alias FROM zone_aliases WHERE zone_id = ? ORDER BY alias;
 DELETE FROM zone_encounters WHERE zone_id = ?;
 
 -- :name insert_encounter
-INSERT INTO zone_encounters (zone_id, encounter_name, position, stage, wiki_url) VALUES (?, ?, ?, ?, ?);
+INSERT INTO zone_encounters (zone_id, encounter_name, position, stage, wiki_url) VALUES (?, ?, ?, ?, ?)
+RETURNING id;
 
 -- :name list_encounters_for_zone
 SELECT id, zone_id, encounter_name, position, stage, wiki_url
@@ -358,10 +361,12 @@ SELECT COALESCE(MAX(position), 0) + 1 AS p FROM zone_encounters WHERE zone_id = 
 -- ---------------------------------------------------------------------------
 
 -- :name insert_encounter_mob
-INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) VALUES (?, ?, ?, ?);
+INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) VALUES (?, ?, ?, ?)
+RETURNING id;
 
 -- :name insert_encounter_mob_primary
-INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) VALUES (?, ?, ?, 0);
+INSERT INTO zone_encounter_mobs (encounter_id, mob_name, mob_name_lower, position) VALUES (?, ?, ?, 0)
+RETURNING id;
 
 -- :name update_encounter_mob_primary_rename
 UPDATE zone_encounter_mobs SET mob_name = ?, mob_name_lower = ?
@@ -455,7 +460,8 @@ WHERE z.expansion_short IS NOT NULL
 ORDER BY z.expansion_year DESC, z.expansion_short;
 
 -- :name insert_featured_raid_expansion
-INSERT OR IGNORE INTO featured_raid_expansions (expansion_short) VALUES (?);
+INSERT INTO featured_raid_expansions (expansion_short) VALUES (?)
+ON CONFLICT DO NOTHING;
 
 -- :name remove_featured_raid_zones_in_expansion
 DELETE FROM featured_raid_zones
@@ -491,7 +497,8 @@ JOIN zones z2 ON z2.id = f.zone_id
 WHERE z2.expansion_short = ? AND f.category IS NULL;
 
 -- :name insert_featured_raid_zone_uncategorised
-INSERT OR IGNORE INTO featured_raid_zones (zone_id, position, category) VALUES (?, ?, NULL);
+INSERT INTO featured_raid_zones (zone_id, position, category) VALUES (?, ?, NULL)
+ON CONFLICT DO NOTHING;
 
 -- :name delete_featured_raid_zone_by_name
 DELETE FROM featured_raid_zones
@@ -506,7 +513,8 @@ WHERE z.name_lower = ? AND z.expansion_short = ?;
 SELECT COALESCE(MAX(position), -1) FROM featured_raid_categories WHERE expansion_short = ?;
 
 -- :name insert_featured_raid_category_or_ignore
-INSERT OR IGNORE INTO featured_raid_categories (expansion_short, name, position) VALUES (?, ?, ?);
+INSERT INTO featured_raid_categories (expansion_short, name, position) VALUES (?, ?, ?)
+ON CONFLICT DO NOTHING;
 
 -- :name insert_featured_raid_category
 INSERT INTO featured_raid_categories (expansion_short, name, position) VALUES (?, ?, ?);

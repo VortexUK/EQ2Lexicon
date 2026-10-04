@@ -66,8 +66,9 @@ class AAPlansStore(AsyncStoreBase):
                 _SQL["insert_plan"],
                 (discord_id, world, character_name, name, xpac, allocations_json, slug),
             )
+            row = await cur.fetchone()
             await db.commit()
-            plan_id = cur.lastrowid
+            plan_id = row[0] if row else 0
         plan = await self.get_plan(int(plan_id or 0))
         if plan is None:  # pragma: no cover — insert+select on one path
             raise RuntimeError("aa_plan insert did not persist")
