@@ -27,11 +27,10 @@ class _FakeResp:
 
 
 @pytest.fixture
-def store_db(tmp_path, monkeypatch):
-    """Temp census_store wired into the ingest path via DB_PATH."""
-    db = tmp_path / "census.db"
-    monkeypatch.setattr(census_store.store, "path", db)
-    conn = census_store.CensusStore(db).init_db()
+def store_db(census_schema):
+    """Leased census schema wired into the ingest path (the ``census_schema``
+    fixture re-points the shared store); yields a seeding/assertion conn."""
+    conn = census_store.CensusStore(census_schema).init_db()
     yield conn
     conn.close()
 

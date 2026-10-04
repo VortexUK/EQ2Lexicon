@@ -66,9 +66,7 @@ async def test_admin_parses_lists_including_hidden(app):
             "backend.server.api.admin.get_display_names_for_discord_ids",
             AsyncMock(return_value={"officer-7": "Vortex"}),
         ),
-        patch("backend.server.api.admin.parses_db.path") as mock_path,
     ):
-        mock_path.exists.return_value = True
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/admin/parses")
     assert r.status_code == 200
@@ -90,9 +88,7 @@ async def test_admin_parses_hidden_filter_reaches_the_store(app):
         patch("backend.server.api.admin._require_admin", _fake_admin),
         patch("backend.server.api.admin.parses_db.list_encounters_for_admin", list_mock),
         patch("backend.server.api.admin.parses_db.init_db", MagicMock(return_value=MagicMock())),
-        patch("backend.server.api.admin.parses_db.path") as mock_path,
     ):
-        mock_path.exists.return_value = True
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/admin/parses?hidden=true&search=exordium")
     assert r.status_code == 200 and r.json() == []

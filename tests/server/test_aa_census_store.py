@@ -5,22 +5,20 @@ Verifies:
   - Warm store: census_store is served without calling Census.
   - Stale store record: census_store is served immediately, background
     refresh is spawned.
-  - init_db on a pre-existing census_store DB (without character_aas table)
-    doesn't crash — simulates an upgrade scenario.
+  - The migration-owned census schema carries the character_aas table
+    (descendant of the SQLite "init_db adds the table" upgrade test).
 """
 
 from __future__ import annotations
 
-import sqlite3
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.census import store as cs
-from backend.server.core.cache_keys import aa_cache_key
+from tests.fixtures.pg import pg_conn
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -56,14 +54,12 @@ def _make_census_aas(name: str = "Testchar") -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_cold_cache_calls_census_and_persists(app, tmp_path):
+async def test_cold_cache_calls_census_and_persists(app, census_schema):
     """On first fetch (no cache, no store), Census is queried and the result
     is written to census_store."""
-    db_path = tmp_path / "backend.census.db"
     fake_aas = _make_census_aas("Coldchar")
 
     with (
-        patch("backend.server.api.aa.census_store.path", db_path),
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient") as MockCC,
     ):
@@ -80,7 +76,7 @@ async def test_cold_cache_calls_census_and_persists(app, tmp_path):
     assert data["total_spent"] == 5  # one node, tier=5
 
     # Verify persisted to the store.
-    conn = cs.CensusStore(db_path).init_db()
+    conn = cs.CensusStore(census_schema).init_db()
     try:
         rec = cs.CensusStore.get_character_aas(conn, "Coldchar", "Varsoon")
         assert rec is not None
@@ -95,11 +91,10 @@ async def test_cold_cache_calls_census_and_persists(app, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_warm_store_skips_census(app, tmp_path):
+async def test_warm_store_skips_census(app, census_schema):
     """When census_store has a fresh record, Census is NOT called."""
-    db_path = tmp_path / "backend.census.db"
     # Pre-seed the store with a recent timestamp.
-    conn = cs.CensusStore(db_path).init_db()
+    conn = cs.CensusStore(census_schema).init_db()
     stored_data = {
         "character_name": "Stored",
         "total_spent": 10,
@@ -110,7 +105,6 @@ async def test_warm_store_skips_census(app, tmp_path):
     conn.close()
 
     with (
-        patch("backend.server.api.aa.census_store.path", db_path),
         patch("backend.server.api.aa.aa_cache") as mock_cache,
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient") as MockCC,
@@ -139,14 +133,13 @@ async def test_warm_store_skips_census(app, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_stale_store_returns_data_and_spawns_refresh(app, tmp_path):
+async def test_stale_store_returns_data_and_spawns_refresh(app, census_schema):
     """A store record older than CHARACTER_STALE_S is served immediately but
     triggers a background refresh task."""
     from backend.server.constants import CHARACTER_STALE_S
 
-    db_path = tmp_path / "backend.census.db"
     old_ts = int(time.time()) - CHARACTER_STALE_S - 60  # definitely stale
-    conn = cs.CensusStore(db_path).init_db()
+    conn = cs.CensusStore(census_schema).init_db()
     stored_data = {
         "character_name": "Stalechar",
         "total_spent": 7,
@@ -160,11 +153,10 @@ async def test_stale_store_returns_data_and_spawns_refresh(app, tmp_path):
 
     def _fake_create_task(coro):
         tasks_created.append(coro)
-        # Don't actually run it.
+        coro.close()  # never run it — just silence the un-awaited warning
         return MagicMock()
 
     with (
-        patch("backend.server.api.aa.census_store.path", db_path),
         patch("backend.server.api.aa.aa_cache") as mock_cache,
         patch("backend.server.api.aa.asyncio.create_task", side_effect=_fake_create_task),
         patch("backend.server.core.census_lifecycle._clients", {}),
@@ -183,28 +175,18 @@ async def test_stale_store_returns_data_and_spawns_refresh(app, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Migration safety: init_db on a pre-existing DB without character_aas table.
+# Schema invariant: the migrations own the census DDL — the character_aas
+# table must exist in any freshly-built census schema. Descendant of the
+# SQLite "init_db on an old DB adds character_aas" upgrade test (no PG
+# analog: store.init_db() creates nothing; db/migrations/0003_census.sql is
+# the single source of schema truth).
 # ---------------------------------------------------------------------------
 
 
-def test_init_db_on_old_schema_adds_character_aas_table(tmp_path):
-    """init_db on an existing census.db without character_aas should not crash
-    and should create the new table (simulates an upgrade scenario).
-
-    Memory [test-migrations-against-old-db-shape].
-    """
-    db_path = tmp_path / "backend.census.db"
-    # Create the DB with only the original tables (no character_aas).
-    conn = sqlite3.connect(db_path)
-    conn.execute(cs._SQL["schema_characters"])
-    conn.execute(cs._SQL["schema_guilds"])
-    conn.commit()
-    conn.close()
-
-    # Now run init_db — should add character_aas without raising.
-    conn = cs.CensusStore(db_path).init_db()
-    try:
-        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert "character_aas" in tables
-    finally:
-        conn.close()
+def test_census_schema_has_character_aas_table(census_schema):
+    with pg_conn(census_schema) as conn:
+        rows = conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
+            (census_schema,),
+        ).fetchall()
+    assert "character_aas" in {r["table_name"] for r in rows}

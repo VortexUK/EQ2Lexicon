@@ -8,7 +8,7 @@ ally list) for the merger to treat them as the same fight.
 
 from __future__ import annotations
 
-import sqlite3
+from typing import Any
 
 import pytest
 
@@ -16,12 +16,12 @@ from backend.server.api.parses.list import _all_ally_names, _top_n_ally_names
 
 
 @pytest.fixture
-def conn() -> sqlite3.Connection:
-    """In-memory sqlite with just the columns the helpers read.
+def conn(parses_db_conn: Any) -> Any:
+    """Scratch parses-schema connection (dict rows, ``%s`` params).
 
-    Schema is deliberately minimal — we don't want the helpers' behaviour
-    to depend on any column we don't actually query, and the parses DB
-    schema itself is tested elsewhere.
+    Postgres enforces the combatants → encounters FK, so ``_insert``
+    lazily creates a stub encounter row per encounter_id — the helpers
+    under test still only read the combatant columns.
 
     Phase 4 (2026-05-30) switched the top-N helpers from the legacy
     multi-word/Unknown predicate to ``is_player = 1``. The test
@@ -30,32 +30,26 @@ def conn() -> sqlite3.Connection:
     so the test semantics ("regex/multi-word names don't count") are
     preserved without changing every test body.
     """
-    c = sqlite3.connect(":memory:")
-    c.execute(
-        """
-        CREATE TABLE combatants (
-            id           INTEGER PRIMARY KEY,
-            encounter_id INTEGER NOT NULL,
-            name         TEXT NOT NULL,
-            ally         INTEGER NOT NULL,
-            encdps       REAL NOT NULL DEFAULT 0,
-            is_player    INTEGER
-        )
-        """
-    )
-    return c
+    return parses_db_conn
 
 
-def _insert(conn: sqlite3.Connection, **kwargs) -> None:
+def _insert(conn: Any, **kwargs) -> None:
     # Derive is_player from the legacy predicate so existing test
     # bodies that exercised the multi-word/Unknown filter still pass
     # under the new is_player-based SQL helpers.
     name = kwargs["name"]
     ally = kwargs["ally"]
+    encounter_id = kwargs["encounter_id"]
     is_player = 1 if (ally == 1 and name and name != "Unknown" and " " not in name) else 0
     conn.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, encdps, is_player) VALUES (?, ?, ?, ?, ?)",
-        (kwargs["encounter_id"], name, ally, kwargs["encdps"], is_player),
+        "INSERT INTO encounters (id, act_encid, title, started_at, ended_at, duration_s, source_dsn, ingested_at) "
+        "OVERRIDING SYSTEM VALUE VALUES (%s, %s, 'Fight', 0, 0, 0, 'test', 0) "
+        "ON CONFLICT (id) DO NOTHING",
+        (encounter_id, f"enc-{encounter_id}"),
+    )
+    conn.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, encdps, is_player) VALUES (%s, %s, %s, %s, %s)",
+        (encounter_id, name, ally, kwargs["encdps"], is_player),
     )
 
 

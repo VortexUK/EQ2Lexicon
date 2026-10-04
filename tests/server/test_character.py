@@ -262,7 +262,7 @@ async def test_heal_equipment_placeholders_fills_empty_adorn_names(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_serve_path_self_heals_stored_placeholder(app, tmp_path, monkeypatch):
+async def test_serve_path_self_heals_stored_placeholder(app, census_schema, monkeypatch):
     """End-to-end: stored character with 'Item #<id>' in equipment →
     response carries the resolved name + tier + icon from items.db."""
     import backend.server.api.character.views as charmodule
@@ -281,8 +281,7 @@ async def test_serve_path_self_heals_stored_placeholder(app, tmp_path, monkeypat
             "adorn_slots": [],
         }
     ]
-    db_path = tmp_path / "backend.census.db"
-    conn = census_store.CensusStore(db_path).init_db()
+    conn = census_store.CensusStore(census_schema).init_db()
     try:
         census_store.CensusStore.upsert_character(
             conn,
@@ -294,7 +293,6 @@ async def test_serve_path_self_heals_stored_placeholder(app, tmp_path, monkeypat
         )
     finally:
         conn.close()
-    monkeypatch.setattr(census_store.store, "path", db_path)
     character_cache.delete(f"healme:{_WORLD.lower()}")
 
     async def _fake_find(item_id, *args, **kwargs):
@@ -317,16 +315,15 @@ async def test_serve_path_self_heals_stored_placeholder(app, tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_stored_data_served_without_census(app, tmp_path, monkeypatch):
+async def test_stored_data_served_without_census(app, census_schema):
     """census_store hit + Census unreachable → 200 with stale=True, CensusClient never called."""
-    import backend.server.api.character.views as charmodule
     from backend.census import store as census_store
     from backend.server.cache import character_cache
     from backend.server.config import WORLD as _WORLD
 
-    # Seed the census_store at an isolated tmp DB.
-    db_path = tmp_path / "backend.census.db"
-    conn = census_store.CensusStore(db_path).init_db()
+    # Seed the census_store in the isolated leased schema (census_schema has
+    # already re-pointed the shared store the endpoint reads through).
+    conn = census_store.CensusStore(census_schema).init_db()
     try:
         census_store.CensusStore.upsert_character(
             conn,
@@ -338,9 +335,6 @@ async def test_stored_data_served_without_census(app, tmp_path, monkeypatch):
         )
     finally:
         conn.close()
-
-    # Point the module at the tmp DB so the endpoint reads from it.
-    monkeypatch.setattr(census_store.store, "path", db_path)
 
     # Ensure the in-memory cache is cold for this key.
     cache_key = f"stored:{_WORLD.lower()}"
@@ -359,7 +353,7 @@ async def test_stored_data_served_without_census(app, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_partial_roster_record_served_without_500(app, tmp_path, monkeypatch):
+async def test_partial_roster_record_served_without_500(app, census_schema):
     """A partial store record (roster-sync: no id/world) must serve, not 500.
 
     Regression for the ValidationError seen in prod: CharacterResponse requires
@@ -374,13 +368,11 @@ async def test_partial_roster_record_served_without_500(app, tmp_path, monkeypat
     # Roster-shaped partial blob: name/level/guild only — no id, no world.
     partial = {"name": "Verarec", "level": 90, "cls": "Wizard", "guild_name": "Test"}
 
-    db_path = tmp_path / "backend.census.db"
-    conn = census_store.CensusStore(db_path).init_db()
+    conn = census_store.CensusStore(census_schema).init_db()
     try:
         census_store.CensusStore.upsert_character(conn, "Verarec", _WORLD, partial, resolved=True, now=1000)
     finally:
         conn.close()
-    monkeypatch.setattr(census_store.store, "path", db_path)
     character_cache.delete(f"verarec:{_WORLD.lower()}")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

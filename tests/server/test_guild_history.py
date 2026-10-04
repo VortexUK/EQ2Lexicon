@@ -18,15 +18,15 @@ _DAY = 86400
 
 
 @pytest.fixture
-def history_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "backend.census.db"
-    monkeypatch.setattr(census_store.store, "path", db_path)
+def history_db(census_schema):
+    """Leased scratch census schema (the shared store is already re-pointed
+    by ``census_schema``) with a cold guild-history cache key."""
     guild_cache.delete(guild_history_key("Exordium", _WORLD))
-    return db_path
+    return census_schema
 
 
-def _seed(db_path, name: str, now: int, days_ago: list[int]) -> None:
-    conn = census_store.CensusStore(db_path).init_db()
+def _seed(schema, name: str, now: int, days_ago: list[int]) -> None:
+    conn = census_store.CensusStore(schema).init_db()
     try:
         for d in days_ago:
             census_store.CensusStore.upsert_guild_history(

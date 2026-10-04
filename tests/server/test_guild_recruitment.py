@@ -464,19 +464,20 @@ async def test_recruiting_list_is_world_scoped_with_tags_and_no_counts_without_c
     assert r.status_code == 200
     body = r.json()
     assert [g["guild_name"] for g in body["guilds"]] == ["Alpha"]
-    assert body["guilds"][0]["member_count"] is None  # no census.db in tests
+    assert body["guilds"][0]["member_count"] is None  # no guild_history rows seeded
     assert body["available_tags"] == list(RECRUITMENT_TAGS)
 
 
-async def test_recruiting_list_joins_member_counts_from_guild_history(app, tmp_path, monkeypatch):
+async def test_recruiting_list_joins_member_counts_from_guild_history(app, census_schema):
     from backend.census.store import CensusStore
 
-    cs = CensusStore(tmp_path / "census.db")
+    # census_schema re-points the shared store (the instance recruitment_api
+    # imported) at the leased schema; seed it through a scoped conn.
+    cs = CensusStore(census_schema)
     conn = cs.init_db()
     cs.upsert_guild_history(conn, "Alpha", _WORLD, {"members": 55}, now=1_800_000_000, retention_days=400)
     cs.upsert_guild_history(conn, "Alpha", _WORLD, {"members": 61}, now=1_800_100_000, retention_days=400)
     conn.close()
-    monkeypatch.setattr(recruitment_api, "census_store", cs)
     await _save_profile(gid=1, name="Alpha")
     await _save_profile(gid=2, name="NoHistory")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
