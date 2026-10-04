@@ -65,10 +65,8 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     BE-096: moved from module-level os.environ calls to avoid a race with
     pytest plugins (e.g. pytest-asyncio) that may import web.app during
     plugin discovery."""
-    os.environ["DB_ZONES_PATH"] = str(_TEST_DB_DIR / "zones.db")
     os.environ["DB_SPELLS_PATH"] = str(_TEST_DB_DIR / "spells.db")
     os.environ["DB_RECIPES_PATH"] = str(_TEST_DB_DIR / "recipes.db")
-    os.environ["DB_RAIDS_PATH"] = str(_TEST_DB_DIR / "raids.db")
     # DB_CLASSES_PATH intentionally NOT overridden — classes.db is the
     # committed source-of-truth (data/classes/classes.db) and is read-only
     # at runtime. Tests read it directly; nothing writes to it. Pointing
@@ -114,18 +112,16 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     from backend.db_helpers import resolve_db_path  # noqa: PLC0415
     from backend.eq2db import classes as classes_db
     from backend.eq2db import items as items_db
-    from backend.eq2db import raids as raids_db
     from backend.eq2db import recipes as recipes_db
     from backend.eq2db import spells as spells_db
-    from backend.eq2db import zones as zones_db
 
     # eq2db catalogue modules: re-point both the module constant AND the
     # shared catalogue instance (its path was captured at import time).
+    # (zones moved to Postgres — its tests lease scratch schemas via
+    # tests/fixtures/pg instead of a tmp file.)
     for mod, env_var, subdir, filename in (
-        (zones_db, "DB_ZONES_PATH", "zones", "zones.db"),
         (spells_db, "DB_SPELLS_PATH", "spells", "spells.db"),
         (recipes_db, "DB_RECIPES_PATH", "recipes", "recipes.db"),
-        (raids_db, "DB_RAIDS_PATH", "raids", "raids.db"),
         (items_db, "DB_ITEMS_PATH", "items", "items.db"),
         (classes_db, "DB_CLASSES_PATH", "classes", "classes.db"),
     ):

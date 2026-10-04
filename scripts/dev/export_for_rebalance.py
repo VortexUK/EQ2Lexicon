@@ -56,7 +56,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -80,8 +79,7 @@ def _zone_payload_size(z: dict) -> int:
 def _load_zones() -> list[dict]:
     """Every zone that has at least one encounter with strategy content OR a
     non-empty overview — anything with no content has nothing to rebalance."""
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         zone_rows = conn.execute(
             """
             SELECT z.id, z.zone_name, z.expansion_short, z.overview_md AS current_overview_md
@@ -103,7 +101,7 @@ def _load_zones() -> list[dict]:
                 """
                 SELECT mob_name, position, wiki_url, strategy_md AS current_strategy_md
                 FROM raid_encounters
-                WHERE raid_zone_id = ?
+                WHERE raid_zone_id = %s
                   AND strategy_md IS NOT NULL
                   AND TRIM(strategy_md) != ''
                 ORDER BY position, mob_name

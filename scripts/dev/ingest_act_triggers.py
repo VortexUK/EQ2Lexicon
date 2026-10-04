@@ -141,8 +141,6 @@ def resolve_encounter(zone_name: str, position: int) -> tuple[int, str] | None:
 
     ``zone_name`` must match canonical zones_db naming; lookups go through
     ``find_by_name`` which respects aliases."""
-    import sqlite3
-
     z = zones_db.catalogue.find_by_name(zone_name)
     if z is None:
         return None
@@ -157,11 +155,9 @@ def resolve_encounter(zone_name: str, position: int) -> tuple[int, str] | None:
     if mob_name is None:
         return None
 
-    raids_db.init_db().close()
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         zrow = conn.execute(
-            "SELECT id FROM raid_zones WHERE zone_name_lower = ?",
+            "SELECT id FROM raid_zones WHERE zone_name_lower = %s",
             (canonical_zone.lower(),),
         ).fetchone()
         if zrow is None:
@@ -175,7 +171,7 @@ def resolve_encounter(zone_name: str, position: int) -> tuple[int, str] | None:
             zone_id = zrow["id"]
 
         erow = conn.execute(
-            "SELECT id FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+            "SELECT id FROM raid_encounters WHERE raid_zone_id = %s AND mob_name_lower = %s",
             (zone_id, mob_name.lower()),
         ).fetchone()
         if erow is None:
@@ -202,13 +198,9 @@ def _trigger_exists(encounter_id: int, regex: str, sound_data: str) -> bool:
     """Idempotency check — (encounter_id, regex, sound_data) is treated as
     identity. There's no UNIQUE constraint at the DB level (regexes can
     legitimately overlap with different sounds), so we check before insert."""
-    import sqlite3
-
-    if not raids_db.path.exists():
-        return False
-    with sqlite3.connect(raids_db.path) as conn:
+    with raids_db.init_db() as conn:
         row = conn.execute(
-            "SELECT id FROM act_triggers WHERE raid_encounter_id = ? AND regex = ? AND sound_data = ?",
+            "SELECT id FROM act_triggers WHERE raid_encounter_id = %s AND regex = %s AND sound_data = %s",
             (encounter_id, regex, sound_data),
         ).fetchone()
     return row is not None
@@ -304,14 +296,11 @@ def apply_ingest(*, xml_path: Path, dry_run: bool) -> dict:
         try:
             # Find existing by (encounter_id, name_lower) so re-runs update,
             # don't 409.
-            import sqlite3 as _sq
-
-            with _sq.connect(raids_db.path) as q:
-                row = q.execute(
-                    "SELECT id FROM act_spell_timers WHERE raid_encounter_id = ? AND name_lower = ?",
-                    (encounter_id, spell["name"].lower()),
-                ).fetchone()
-            timer_id = row[0] if row else None
+            row = conn.execute(
+                "SELECT id FROM act_spell_timers WHERE raid_encounter_id = %s AND name_lower = %s",
+                (encounter_id, spell["name"].lower()),
+            ).fetchone()
+            timer_id = row["id"] if row else None
             raids_db.upsert_act_spell_timer(
                 conn,
                 timer_id=timer_id,
@@ -377,7 +366,7 @@ def main() -> None:
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(f"=== ingest_act_triggers ({mode}) ===")
     print(f"  source: {args.xml}")
-    print(f"  raids.db: {raids_db.path}")
+    print(f"  raids schema: {raids_db.schema}")
     print()
 
     summary = apply_ingest(xml_path=args.xml, dry_run=not args.apply)

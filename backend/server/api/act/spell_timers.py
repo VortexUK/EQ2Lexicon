@@ -10,8 +10,7 @@ Surface:
 
 from __future__ import annotations
 
-import sqlite3
-
+import psycopg.errors
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator
 
@@ -158,7 +157,7 @@ async def create_spell_timer(
 
     try:
         new_id = await run_sync(_write)
-    except sqlite3.IntegrityError as exc:
+    except psycopg.errors.UniqueViolation as exc:
         raise HTTPException(
             status_code=409,
             detail=f"A spell timer named {body.name!r} already exists for this encounter",
@@ -222,7 +221,7 @@ async def update_spell_timer(
 
     try:
         await run_sync(_write)
-    except sqlite3.IntegrityError as exc:
+    except psycopg.errors.UniqueViolation as exc:
         raise HTTPException(
             status_code=409,
             detail=f"Renaming to {body.name!r} would clash with another timer for this encounter",

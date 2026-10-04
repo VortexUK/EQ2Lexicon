@@ -28,7 +28,6 @@ from __future__ import annotations
 import argparse
 import os
 import random
-import sqlite3
 import sys
 import time
 import uuid
@@ -73,24 +72,28 @@ BOSS_SHAPES = [
 
 
 def _curated_bosses(limit: int) -> list[tuple[str, str]]:
-    """(zone, mob_title) tuples from zones.db curated encounters. Falls back
-    to heuristic-friendly capitalised fakes if the local db has no curation."""
-    conn = sqlite3.connect(f"file:{zones_db.path}?mode=ro", uri=True)
+    """(zone, mob_title) tuples from the zones schema's curated encounters.
+    Falls back to heuristic-friendly capitalised fakes if there is no
+    curation. One mob per encounter (DISTINCT ON e.id — the old SQLite
+    version's loose GROUP BY picked an arbitrary mob the same way)."""
+    conn = zones_db.init_db()
     try:
         rows = conn.execute(
-            """SELECT z.name, m.mob_name_lower
-               FROM zone_encounter_mobs m
-               JOIN zone_encounters e ON e.id = m.encounter_id
-               JOIN zones z ON z.id = e.zone_id
-               WHERE length(m.mob_name_lower) >= 6
-               GROUP BY e.id ORDER BY z.name, e.id LIMIT ?""",
+            """SELECT name, mob_name_lower FROM (
+                   SELECT DISTINCT ON (e.id) e.id AS eid, z.name AS name, m.mob_name_lower AS mob_name_lower
+                   FROM zone_encounter_mobs m
+                   JOIN zone_encounters e ON e.id = m.encounter_id
+                   JOIN zones z ON z.id = e.zone_id
+                   WHERE length(m.mob_name_lower) >= 6
+                   ORDER BY e.id, m.position
+               ) sub ORDER BY name, eid LIMIT %s""",
             (limit,),
         ).fetchall()
     finally:
         conn.close()
     if rows:
-        return [(zone, mob[0].upper() + mob[1:]) for zone, mob in rows]
-    print("! zones.db has no curated encounters — using heuristic boss names")
+        return [(r["name"], r["mob_name_lower"][0].upper() + r["mob_name_lower"][1:]) for r in rows]
+    print("! zones schema has no curated encounters — using heuristic boss names")
     return [
         ("Deathtoll", "Tarinax the Destroyer"),
         ("Deathtoll", "Xerkizh The Creator"),

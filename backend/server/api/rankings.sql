@@ -7,7 +7,7 @@
 -- can compose the two via load_sql at module-load.
 
 -- ---------------------------------------------------------------------------
--- zones.db — boss-tree builders for the leaderboard sidebar
+-- zones schema — boss-tree builders for the leaderboard sidebar
 -- ---------------------------------------------------------------------------
 
 -- :name list_all_zone_encounter_mobs
@@ -31,17 +31,22 @@ WHERE t.type IN ('raid_x4', 'raid_x2');
 
 -- :name list_zones_by_type_with_encounters
 -- Zones tagged with a given zone-type token that have at least one
--- encounter. Ordered newest-expansion-first within type.
+-- encounter. Ordered newest-expansion-first within type (NULLS LAST keeps
+-- SQLite's DESC ordering for unknown-year rows).
 SELECT z.id, z.name, z.expansion_short, z.expansion_name
 FROM zones z
 JOIN zone_types t ON t.zone_id = z.id
-WHERE t.type = ?
+WHERE t.type = %s
   AND z.id IN (SELECT DISTINCT zone_id FROM zone_encounters)
-ORDER BY z.expansion_year DESC, z.name;
+ORDER BY z.expansion_year DESC NULLS LAST, z.name;
 
 -- :name list_encounter_names_for_zone
 SELECT encounter_name FROM zone_encounters
-WHERE zone_id = ? ORDER BY position;
+WHERE zone_id = %s ORDER BY position;
+
+-- :name map_zone_expansions
+-- Era-lock map: every canonical zone's expansion short, keyed lowercased.
+SELECT name_lower, expansion_short FROM zones WHERE expansion_short IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- parses schema (Postgres) — winning-encounters scan + player_count refresh

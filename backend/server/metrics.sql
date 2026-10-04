@@ -13,10 +13,10 @@ SELECT COUNT(*) AS n FROM encounters WHERE hidden_at IS NULL;
 SELECT COUNT(*) AS n FROM encounters WHERE hidden_at IS NOT NULL;
 
 -- :name count_raid_encounters
-SELECT COUNT(*) FROM raid_encounters;
+SELECT COUNT(*) AS n FROM raid_encounters;
 
 -- :name count_act_triggers
-SELECT COUNT(*) FROM act_triggers;
+SELECT COUNT(*) AS n FROM act_triggers;
 
 -- :name count_act_spell_timers
-SELECT COUNT(*) FROM act_spell_timers;
+SELECT COUNT(*) AS n FROM act_spell_timers;

@@ -4,8 +4,6 @@ endpoint modules (each imports from here, not from each other)."""
 
 from __future__ import annotations
 
-import sqlite3
-
 from fastapi import HTTPException
 from pydantic import BaseModel
 
@@ -82,41 +80,23 @@ class SpellTimerEntry(BaseModel):
 # Sync helpers — encounter resolution + DB shapes
 # ---------------------------------------------------------------------------
 
-_RAIDS_DB_INIT_DONE = False
-
-
-def _ensure_raids_db_inited() -> None:
-    """Call raids_db.init_db() at most once per process.
-
-    raids_db.init_db() is idempotent (CREATE TABLE IF NOT EXISTS), but
-    calling it on every trigger read is wasteful. The module-level flag
-    short-circuits after the first invocation.
-    """
-    global _RAIDS_DB_INIT_DONE
-    if not _RAIDS_DB_INIT_DONE:
-        raids_db.init_db().close()
-        _RAIDS_DB_INIT_DONE = True
-
-
 # The synthetic zone that holds contributor-defined trigger CATEGORIES
 # ("Death Saves", …) — encounters under it are categories, not bosses.
-# It exists only in raids.db (verified absent from zones.db), so it rides
-# every existing per-encounter route, the XML import/export, and the app
-# pack with zero special-casing beyond the resolution branch below.
+# It exists only in the raids schema (verified absent from zones.db), so it
+# rides every existing per-encounter route, the XML import/export, and the
+# app pack with zero special-casing beyond the resolution branch below.
 GENERAL_ZONE = "General"
 
 
 def _resolve_general_sync(position: int) -> tuple[str, str, int] | None:
-    """Resolve a General-zone category purely against raids.db — there is
-    no zones_db backing, and no lazy-create (categories are created
-    explicitly via the categories API)."""
-    _ensure_raids_db_inited()
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    """Resolve a General-zone category purely against the raids schema —
+    there is no zones_db backing, and no lazy-create (categories are
+    created explicitly via the categories API)."""
+    with raids_db.init_db() as conn:
         row = conn.execute(
             """SELECT e.id, e.mob_name FROM raid_encounters e
                JOIN raid_zones z ON z.id = e.raid_zone_id
-               WHERE z.zone_name_lower = ? AND e.position = ?""",
+               WHERE z.zone_name_lower = %s AND e.position = %s""",
             (GENERAL_ZONE.lower(), position),
         ).fetchone()
         if row is None:
@@ -149,20 +129,10 @@ def _resolve_encounter_sync(zone_name: str, position: int) -> tuple[str, str, in
     if mob_name is None:
         return None
 
-    # Find or lazy-create the raids_db rows.
-    #
-    # _ensure_raids_db_inited() is idempotent (CREATE TABLE IF NOT EXISTS)
-    # and is the only thing that ensures the act_triggers / act_spell_timers
-    # tables exist on an older raids.db that was seeded before they were
-    # added to the schema. Without this, a viewer hitting the GET endpoint
-    # against a stale DB sees "no such table: act_triggers" → 500.
-    # After the first call per process it is a no-op (module-level flag).
-    _ensure_raids_db_inited()
-
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    # Find or lazy-create the raids rows.
+    with raids_db.init_db() as conn:
         zrow = conn.execute(
-            "SELECT id FROM raid_zones WHERE zone_name_lower = ?",
+            "SELECT id FROM raid_zones WHERE zone_name_lower = %s",
             (canonical_zone.lower(),),
         ).fetchone()
         zone_id: int
@@ -179,7 +149,7 @@ def _resolve_encounter_sync(zone_name: str, position: int) -> tuple[str, str, in
             zone_id = zrow["id"]
 
         erow = conn.execute(
-            "SELECT id FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+            "SELECT id FROM raid_encounters WHERE raid_zone_id = %s AND mob_name_lower = %s",
             (zone_id, mob_name.lower()),
         ).fetchone()
         if erow is None:

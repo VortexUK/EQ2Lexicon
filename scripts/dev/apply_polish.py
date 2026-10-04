@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -63,23 +62,22 @@ def apply_entries(entries: list[dict], *, dry_run: bool = False) -> dict:
 
     conn = raids_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
         for entry in entries:
             polished = (entry.get("polished_md") or "").strip()
             zone_name = entry["zone_name"]
             mob_name = entry["mob_name"]
 
             zrow = conn.execute(
-                "SELECT id FROM raid_zones WHERE zone_name_lower = ?",
+                "SELECT id FROM raid_zones WHERE zone_name_lower = %s",
                 (zone_name.lower(),),
             ).fetchone()
             if zrow is None:
-                print(f"  [warn] zone not in raids.db: {zone_name!r}")
+                print(f"  [warn] zone not in the raids schema: {zone_name!r}")
                 n_zones_unknown += 1
                 continue
 
             erow = conn.execute(
-                "SELECT id, mob_name FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+                "SELECT id, mob_name FROM raid_encounters WHERE raid_zone_id = %s AND mob_name_lower = %s",
                 (zrow["id"], mob_name.lower()),
             ).fetchone()
             if erow is None:
@@ -101,10 +99,10 @@ def apply_entries(entries: list[dict], *, dry_run: bool = False) -> dict:
                     """
                     UPDATE raid_encounters SET
                         strategy_md    = NULL,
-                        source         = ?,
-                        last_edited_at = ?,
-                        last_edited_by = ?
-                    WHERE id = ?
+                        source         = %s,
+                        last_edited_at = %s,
+                        last_edited_by = %s
+                    WHERE id = %s
                     """,
                     (raids_db.SOURCE_MANUAL, now, "ai-polish", erow["id"]),
                 )

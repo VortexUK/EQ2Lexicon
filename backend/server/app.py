@@ -499,15 +499,13 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         # upload's request pays that cost on the request thread.
         from backend.server.parses.db import store as parses_db
 
-        parses_db.init_db()
-        # Initialise zones.db on startup too so admin-curation tables
-        # (featured_raid_expansions / featured_raid_zones) exist on
-        # pre-migration DBs without requiring a rebuild via the seed
-        # script. init_db is CREATE TABLE IF NOT EXISTS throughout, so
-        # this is safe on populated zones.db files.
-        from backend.eq2db import zones as zones_db
-
-        zones_db.catalogue.init_db().close()
+        # Warm one parses checkout + release it (init_db returns a pooled
+        # proxy now — holding it would leak a sync-pool slot for the
+        # process lifetime).
+        parses_db.init_db().close()
+        # (zones moved to Postgres — its schema is owned by db/migrations/
+        # 0004_zones.sql, applied by the pg_migrate.run above; no per-start
+        # init needed.)
         # Initialise recipes.db synchronously so the out_level column (and any
         # future migrations) exist BEFORE the first recipe read. The search and
         # eq2db find_* paths SELECT out_level directly and do not run init_db

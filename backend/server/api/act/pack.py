@@ -15,7 +15,6 @@ strategy pages themselves.
 
 from __future__ import annotations
 
-import sqlite3
 import time
 
 from fastapi import APIRouter
@@ -26,7 +25,6 @@ from backend.eq2db.raids import catalogue as raids_db
 from backend.server.api.act._shared import (
     SpellTimerEntry,
     TriggerEntry,
-    _ensure_raids_db_inited,
     _spell_row_to_entry,
     _trigger_row_to_entry,
 )
@@ -57,9 +55,7 @@ class ActPack(BaseModel):
 
 
 def _build_pack_sync() -> ActPack:
-    _ensure_raids_db_inited()
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         encounters = conn.execute(
             """
             SELECT e.id AS encounter_id, e.mob_name, e.position,

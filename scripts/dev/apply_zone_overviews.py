@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -48,17 +47,16 @@ def apply_entries(entries: list[dict], *, dry_run: bool = False) -> dict:
 
     conn = raids_db.init_db()
     try:
-        conn.row_factory = sqlite3.Row
         for entry in entries:
             zone_name = entry["zone_name"]
             cleaned = (entry.get("cleaned_md") or "").strip()
 
             zrow = conn.execute(
-                "SELECT id, overview_md FROM raid_zones WHERE zone_name_lower = ?",
+                "SELECT id, overview_md FROM raid_zones WHERE zone_name_lower = %s",
                 (zone_name.lower(),),
             ).fetchone()
             if zrow is None:
-                print(f"  [warn] zone not in raids.db: {zone_name!r}")
+                print(f"  [warn] zone not in the raids schema: {zone_name!r}")
                 n_zones_unknown += 1
                 continue
 
@@ -76,11 +74,11 @@ def apply_entries(entries: list[dict], *, dry_run: bool = False) -> dict:
             conn.execute(
                 """
                 UPDATE raid_zones SET
-                    overview_md     = ?,
-                    source          = ?,
-                    last_edited_at  = ?,
-                    last_edited_by  = ?
-                WHERE id = ?
+                    overview_md     = %s,
+                    source          = %s,
+                    last_edited_at  = %s,
+                    last_edited_by  = %s
+                WHERE id = %s
                 """,
                 (new_value, raids_db.SOURCE_MANUAL, now, "ai-audit", zrow["id"]),
             )

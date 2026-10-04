@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -49,25 +48,22 @@ def _balanced_chunks(entries: list[dict], n: int) -> list[list[dict]]:
 
 def _load_entries() -> list[dict]:
     """Every raid_zones row with non-empty overview_md."""
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
+    with raids_db.init_db() as conn:
+        return conn.execute(
             """
             SELECT zone_name, expansion_short, source,
                    overview_md AS current_md,
                    -- Bosses list joined-in so the agent can see which mobs
                    -- belong to the zone and recognise per-boss content to
                    -- strip out.
-                   (SELECT GROUP_CONCAT(e.mob_name, ', ')
+                   (SELECT string_agg(e.mob_name, ', ' ORDER BY e.position)
                       FROM raid_encounters e
-                      WHERE e.raid_zone_id = raid_zones.id
-                      ORDER BY e.position) AS encounters
+                      WHERE e.raid_zone_id = raid_zones.id) AS encounters
             FROM raid_zones
             WHERE overview_md IS NOT NULL AND TRIM(overview_md) != ''
             ORDER BY zone_name
             """
         ).fetchall()
-    return [dict(r) for r in rows]
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -13,16 +13,12 @@ router only manages the category rows themselves."""
 from __future__ import annotations
 
 import logging
-import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.eq2db.raids import catalogue as raids_db
-from backend.server.api.act._shared import (
-    GENERAL_ZONE,
-    _ensure_raids_db_inited,
-)
+from backend.server.api.act._shared import GENERAL_ZONE
 from backend.server.auth_deps import require_editor
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
@@ -45,30 +41,25 @@ class CategoryUpsertRequest(BaseModel):
 
 
 def _list_categories_sync() -> list[dict]:
-    _ensure_raids_db_inited()
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
+    with raids_db.init_db() as conn:
+        return conn.execute(
             """SELECT e.mob_name AS name, e.position,
                       (SELECT COUNT(*) FROM act_triggers t WHERE t.raid_encounter_id = e.id) AS trigger_count,
                       (SELECT COUNT(*) FROM act_spell_timers s WHERE s.raid_encounter_id = e.id) AS spell_timer_count
                FROM raid_encounters e
                JOIN raid_zones z ON z.id = e.raid_zone_id
-               WHERE z.zone_name_lower = ?
+               WHERE z.zone_name_lower = %s
                ORDER BY e.position, e.mob_name""",
             (GENERAL_ZONE.lower(),),
         ).fetchall()
-        return [dict(r) for r in rows]
 
 
 def _create_category_sync(name: str) -> tuple[int, str] | None:
     """Create the category (and the General zone row on first use).
     Returns (position, name) or None when the name already exists."""
-    _ensure_raids_db_inited()
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         zrow = conn.execute(
-            "SELECT id FROM raid_zones WHERE zone_name_lower = ?",
+            "SELECT id FROM raid_zones WHERE zone_name_lower = %s",
             (GENERAL_ZONE.lower(),),
         ).fetchone()
         zone_id = (
@@ -82,15 +73,17 @@ def _create_category_sync(name: str) -> tuple[int, str] | None:
             )
         )
         exists = conn.execute(
-            "SELECT 1 FROM raid_encounters WHERE raid_zone_id = ? AND mob_name_lower = ?",
+            "SELECT 1 FROM raid_encounters WHERE raid_zone_id = %s AND mob_name_lower = %s",
             (zone_id, name.lower()),
         ).fetchone()
         if exists is not None:
             return None
-        position = conn.execute(
-            "SELECT COALESCE(MAX(position) + 1, 0) FROM raid_encounters WHERE raid_zone_id = ?",
-            (zone_id,),
-        ).fetchone()[0]
+        position = raids_db.fetchval(
+            conn.execute(
+                "SELECT COALESCE(MAX(position) + 1, 0) AS next_pos FROM raid_encounters WHERE raid_zone_id = %s",
+                (zone_id,),
+            )
+        )
         raids_db.upsert_raid_encounter(
             conn,
             raid_zone_id=zone_id,
@@ -105,13 +98,11 @@ def _create_category_sync(name: str) -> tuple[int, str] | None:
 def _rename_category_sync(position: int, new_name: str) -> bool | None:
     """Rename by position. True = renamed, False = position unknown,
     None = the new name collides with an existing category."""
-    _ensure_raids_db_inited()
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         row = conn.execute(
             """SELECT e.mob_name FROM raid_encounters e
                JOIN raid_zones z ON z.id = e.raid_zone_id
-               WHERE z.zone_name_lower = ? AND e.position = ?""",
+               WHERE z.zone_name_lower = %s AND e.position = %s""",
             (GENERAL_ZONE.lower(), position),
         ).fetchone()
         if row is None:
@@ -119,7 +110,7 @@ def _rename_category_sync(position: int, new_name: str) -> bool | None:
         collision = conn.execute(
             """SELECT 1 FROM raid_encounters e
                JOIN raid_zones z ON z.id = e.raid_zone_id
-               WHERE z.zone_name_lower = ? AND e.mob_name_lower = ? AND e.position != ?""",
+               WHERE z.zone_name_lower = %s AND e.mob_name_lower = %s AND e.position != %s""",
             (GENERAL_ZONE.lower(), new_name.lower(), position),
         ).fetchone()
         if collision is not None:
@@ -133,14 +124,11 @@ def _rename_category_sync(position: int, new_name: str) -> bool | None:
 
 
 def _delete_category_sync(position: int) -> bool:
-    _ensure_raids_db_inited()
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         row = conn.execute(
             """SELECT e.mob_name FROM raid_encounters e
                JOIN raid_zones z ON z.id = e.raid_zone_id
-               WHERE z.zone_name_lower = ? AND e.position = ?""",
+               WHERE z.zone_name_lower = %s AND e.position = %s""",
             (GENERAL_ZONE.lower(), position),
         ).fetchone()
         if row is None:

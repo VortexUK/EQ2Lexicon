@@ -15,7 +15,6 @@ import hmac as _hmac
 import logging
 import os
 import re
-import sqlite3
 import time
 
 from prometheus_client import (
@@ -186,65 +185,12 @@ APP_ERRORS = Counter(
 
 class _DBCollector(Collector):
     """
-    Custom collector that runs fast COUNT queries against the local SQLite DBs
-    each time Prometheus scrapes /metrics. SQLite COUNTs on indexed tables in
-    the few-thousand-row range are sub-millisecond, so blocking the collector
-    is fine.
-
-    A 30-second scrape interval × ~12 queries × <1 ms each is ~12 ms/scrape
-    of total DB work — well under any threshold worth caching for.
-
-    BE-229: connections are kept open between scrapes (ro URI mode) to avoid
-    the open/close overhead every 30 s.  A failed connection is retried on the
-    next scrape (the dict slot is cleared on exception).
+    Custom collector that runs fast COUNT queries against the migrated
+    Postgres family schemas each time Prometheus scrapes /metrics. Tiny
+    COUNTs per scrape; a short-lived pooled checkout per family keeps the
+    collector simple. (The P2 metrics split replaces this with 60s-cached
+    counts.)
     """
-
-    def __init__(self) -> None:
-        self._conns: dict[str, sqlite3.Connection] = {}
-
-    def _get_conn(self, name: str, path: object) -> sqlite3.Connection | None:
-        """Return a cached read-only connection, opening it lazily.
-
-        ``check_same_thread=False`` is required because Prometheus scrapes can
-        arrive on different threads (uvicorn worker vs the request thread the
-        first scrape happened on). Safe for our use because:
-          1. Connections are opened in read-only (``?mode=ro``) URI mode — no
-             writes ever happen on these connections, so SQLite's serialised
-             write mode isn't entered.
-          2. SQLite itself supports concurrent reads from multiple threads;
-             ``check_same_thread`` is Python's conservative default safety
-             guard, not a SQLite-level constraint.
-
-        Without this flag, scrape #2 from a different thread than scrape #1
-        crashes with ``sqlite3.ProgrammingError: SQLite objects created in a
-        thread can only be used in that same thread``.
-        """
-        from pathlib import Path as _Path
-
-        if not isinstance(path, _Path) or not path.exists():
-            return None
-        conn = self._conns.get(name)
-        if conn is None:
-            try:
-                conn = sqlite3.connect(
-                    f"file:{path}?mode=ro",
-                    uri=True,
-                    check_same_thread=False,
-                )
-                self._conns[name] = conn
-            except Exception as exc:
-                _log.warning("[metrics] failed to open %s: %s", name, exc)
-                return None
-        return conn
-
-    def _close_conn(self, name: str) -> None:
-        """Close and evict a connection (called on error to force re-open next scrape)."""
-        conn = self._conns.pop(name, None)
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
     def collect(self):  # type: ignore[override]
         # Lazy imports — keep metrics.py importable from tests without the
@@ -263,7 +209,7 @@ class _DBCollector(Collector):
         )
         g_raids = GaugeMetricFamily(
             "raid_encounters_total",
-            "Curated raid-encounter strategy rows in raids.db",
+            "Curated raid-encounter strategy rows in the raids schema",
         )
         g_triggers = GaugeMetricFamily(
             "act_triggers_total",
@@ -303,19 +249,18 @@ class _DBCollector(Collector):
         except Exception:
             _log.exception("[metrics] parses-schema collector error")
 
-        # raids.db — strategies + the ACT trigger pack.
-        conn = self._get_conn("raids", raids_db.DB_PATH)
-        if conn is not None:
-            try:
+        # raids schema (Postgres) — strategies + the ACT trigger pack.
+        try:
+            with pg.connection() as conn:
+                conn.execute(pg.search_path_sql(raids_db.SCHEMA))
                 row = conn.execute(_SQL["count_raid_encounters"]).fetchone()
-                g_raids.add_metric([], row[0] if row else 0)
+                g_raids.add_metric([], row["n"] if row else 0)
                 row = conn.execute(_SQL["count_act_triggers"]).fetchone()
-                g_triggers.add_metric([], row[0] if row else 0)
+                g_triggers.add_metric([], row["n"] if row else 0)
                 row = conn.execute(_SQL["count_act_spell_timers"]).fetchone()
-                g_spell_timers.add_metric([], row[0] if row else 0)
-            except Exception:
-                _log.exception("[metrics] raids.db collector error")
-                self._close_conn("raids")
+                g_spell_timers.add_metric([], row["n"] if row else 0)
+        except Exception:
+            _log.exception("[metrics] raids-schema collector error")
 
         yield g_users
         yield g_claims
@@ -338,17 +283,13 @@ class _DBFileSizeCollector(Collector):
     def collect(self):  # type: ignore[override]
         from backend.eq2db import classes as classes_db
         from backend.eq2db import items as items_db
-        from backend.eq2db import raids as raids_db
         from backend.eq2db import recipes as recipes_db
         from backend.eq2db import spells as spells_db
-        from backend.eq2db import zones as zones_db
 
         # Map label → Path. Centralised so adding a new DB is one tuple.
-        # (users + parses moved to Postgres — covered by the schema-size
-        # gauge below instead of a file stat.)
+        # (users + parses + census + zones + raids moved to Postgres —
+        # covered by the schema-size gauge below instead of a file stat.)
         candidates = [
-            ("raids", raids_db.DB_PATH),
-            ("zones", zones_db.DB_PATH),
             ("items", items_db.DB_PATH),
             ("spells", spells_db.DB_PATH),
             ("recipes", recipes_db.DB_PATH),

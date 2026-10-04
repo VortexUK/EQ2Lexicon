@@ -7,8 +7,8 @@ PUT  /api/zones/{zone}/overview                                   (editor-gated)
 GET  /api/zones/{zone}/overview/revisions                         (history)
 
 Read-write surface for raid strategy markdown — per-encounter strategies and
-zone-level overview. Bodies live in ``census/raids_db.py`` (separate SQLite
-file from the zones DB). Write gate is ``require_editor`` from
+zone-level overview. Bodies live in ``backend/eq2db/raids.py`` (the raids
+Postgres schema). Write gate is ``require_editor`` from
 ``web/auth_deps.py`` (admin / contributor — see that module's
 docstring for the role model).
 
@@ -33,8 +33,8 @@ Lazy zone creation: a PUT for a zone not yet known to raids_db creates the
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -176,10 +176,7 @@ def _read_revisions_sync(zone_name: str, encounter_name: str) -> list[dict]:
     Returns ``[]`` if the encounter doesn't exist in raids_db yet (never had a
     strategy written) — the route surfaces that as a 200 with an empty list,
     matching the "show history" disclosure's no-op state."""
-    if not raids_db.path.exists():
-        return []
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         zrow = conn.execute(_SQL["select_raid_zone_id_by_name"], (zone_name.lower(),)).fetchone()
         if zrow is None:
             return []
@@ -200,10 +197,7 @@ def _read_overview_sync(zone_name: str) -> dict | None:
     None when no row exists yet OR when overview_md is empty — same semantics
     as the encounter helpers, lets the route 404 cleanly and the UI fall back
     to the empty state."""
-    if not raids_db.path.exists():
-        return None
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         row = conn.execute(
             _SQL["select_raid_zone_overview"],
             (zone_name.lower(),),
@@ -214,7 +208,7 @@ def _read_overview_sync(zone_name: str) -> dict | None:
 
 
 def _create_overview_sync(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     zone_name: str,
     markdown: str,
@@ -243,12 +237,12 @@ def _create_overview_sync(
     ).fetchone()
     conn.execute(
         _SQL["insert_raid_zone_revision_first"],
-        (zone_id_row[0], now, editor_discord_id, markdown, edit_note),
+        (zone_id_row["id"], now, editor_discord_id, markdown, edit_note),
     )
 
 
 def _update_overview_sync(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     zone_id: int,
     zone_name: str,
@@ -312,16 +306,15 @@ def _write_overview_sync(
         else:
             _update_overview_sync(
                 conn,
-                zone_id=int(existing[0]),
+                zone_id=int(existing["id"]),
                 zone_name=zone_name,
-                prev_md=existing[1],
+                prev_md=existing["overview_md"],
                 markdown=markdown,
                 editor_discord_id=editor_discord_id,
                 edit_note=edit_note,
                 now=now,
             )
         conn.commit()
-        conn.row_factory = sqlite3.Row
         row = conn.execute(
             _SQL["select_raid_zone_overview"],
             (zone_name.lower(),),
@@ -333,11 +326,8 @@ def _write_overview_sync(
 
 def _read_strategy_sync(zone_name: str, encounter_name: str) -> dict | None:
     """Look up an existing strategy row. Returns None if none exists yet."""
-    if not raids_db.path.exists():
-        return None
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
-        # Find the raid_zones id (loose name match — the strategy DB stores
+    with raids_db.init_db() as conn:
+        # Find the raid_zones id (loose name match — the strategy store keeps
         # the canonical zone_name verbatim, so a case-insensitive lower-match
         # is robust against any alias canonicalisation drift).
         zrow = conn.execute(_SQL["select_raid_zone_id_by_name"], (zone_name.lower(),)).fetchone()
@@ -365,8 +355,7 @@ def _write_strategy_sync(
     """Upsert a strategy row. Auto-creates the raid_zones parent on first write.
 
     Returns the fresh row as a dict (same shape as ``_read_strategy_sync``)."""
-    # init_db is idempotent — safe to call every time. Also creates the parent
-    # data/raids/ directory.
+    # init_db returns a pooled connection scoped to the raids schema.
     conn = raids_db.init_db()
     try:
         zone_id = raids_db.upsert_raid_zone(
@@ -387,7 +376,6 @@ def _write_strategy_sync(
         )
         # Re-read so we return the freshly-merged row (last_edited_at, source,
         # etc. — easier than reconstructing it client-side).
-        conn.row_factory = sqlite3.Row
         row = conn.execute(
             _SQL["select_encounter_strategy"],
             (zone_id, encounter_name.lower()),
@@ -561,10 +549,7 @@ def _read_zone_revisions_sync(zone_name: str) -> list[dict]:
     """All revision rows for a zone's overview, newest first.
 
     Returns [] if the zone has no raid_zones row OR no revisions yet."""
-    if not raids_db.path.exists():
-        return []
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
+    with raids_db.init_db() as conn:
         zrow = conn.execute(
             _SQL["select_raid_zone_id_by_name"],
             (zone_name.lower(),),

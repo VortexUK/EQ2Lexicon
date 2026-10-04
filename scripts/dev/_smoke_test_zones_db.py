@@ -1,9 +1,9 @@
-"""Smoke tests for data/zones/zones.db — driven via the public
-census.zones_db API + raw SQL for integrity checks."""
+"""Smoke tests for the Postgres `zones` schema — driven via the public
+zones_db catalogue API + raw SQL for integrity checks. Needs DATABASE_URL
+(or SUPABASE_DB_URL) in the environment."""
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -14,7 +14,6 @@ sys.path.insert(0, str(ROOT))
 
 from backend.eq2db import zones as zones_db  # noqa: E402
 
-DB = zones_db.DB_PATH
 failed: list[str] = []
 
 
@@ -25,14 +24,19 @@ def check(label: str, cond: bool, detail: str = "") -> None:
         failed.append(label)
 
 
-print("=" * 70)
-print(f"DB SMOKE: {DB}")
-print("=" * 70)
-check("DB file exists", DB.exists(), str(DB))
+def _val(conn, sql: str):
+    """First column of the first row — positional-fetch shim for the raw
+    integrity queries (psycopg rows are dicts)."""
+    row = conn.execute(sql).fetchone()
+    return next(iter(row.values())) if row else None
 
-with sqlite3.connect(DB) as conn:
-    conn.row_factory = sqlite3.Row
 
+print("=" * 70)
+print(f"DB SMOKE: zones schema {zones_db.catalogue.schema!r}")
+print("=" * 70)
+
+conn = zones_db.catalogue.init_db()
+try:
     # ── _meta provenance keys ─────────────────────────────────────────
     print("\n--- META ---")
     for key in ("built_at", "built_from", "source_count"):
@@ -41,21 +45,21 @@ with sqlite3.connect(DB) as conn:
 
     # ── Counts ────────────────────────────────────────────────────────
     print("\n--- COUNTS ---")
-    n_zones = conn.execute("SELECT COUNT(*) FROM zones").fetchone()[0]
-    n_types = conn.execute("SELECT COUNT(*) FROM zone_types").fetchone()[0]
-    n_aliases = conn.execute("SELECT COUNT(*) FROM zone_aliases").fetchone()[0]
-    check(f"zones table has 1124 rows (matches cleaned JSON)", n_zones == 1124, f"got {n_zones}")
-    check(f"zone_types non-empty", n_types > 1000, f"got {n_types}")
-    check(f"zone_aliases populated from merge file", n_aliases >= 2, f"got {n_aliases}")
+    n_zones = _val(conn, "SELECT COUNT(*) FROM zones")
+    n_types = _val(conn, "SELECT COUNT(*) FROM zone_types")
+    n_aliases = _val(conn, "SELECT COUNT(*) FROM zone_aliases")
+    check("zones table has 1124 rows (matches cleaned JSON)", n_zones == 1124, f"got {n_zones}")
+    check("zone_types non-empty", n_types > 1000, f"got {n_types}")
+    check("zone_aliases populated from merge file", n_aliases >= 2, f"got {n_aliases}")
 
     # ── FK integrity ──────────────────────────────────────────────────
     print("\n--- FK INTEGRITY ---")
-    orphan_types = conn.execute(
-        "SELECT COUNT(*) FROM zone_types t WHERE NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = t.zone_id)"
-    ).fetchone()[0]
-    orphan_aliases = conn.execute(
-        "SELECT COUNT(*) FROM zone_aliases a WHERE NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = a.zone_id)"
-    ).fetchone()[0]
+    orphan_types = _val(
+        conn, "SELECT COUNT(*) FROM zone_types t WHERE NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = t.zone_id)"
+    )
+    orphan_aliases = _val(
+        conn, "SELECT COUNT(*) FROM zone_aliases a WHERE NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = a.zone_id)"
+    )
     check("zone_types has no orphan zone_ids", orphan_types == 0, f"{orphan_types} orphans")
     check("zone_aliases has no orphan zone_ids", orphan_aliases == 0, f"{orphan_aliases} orphans")
 
@@ -72,10 +76,16 @@ with sqlite3.connect(DB) as conn:
         "idx_zone_aliases_zone",
     }
     actual = {
-        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+        r["indexname"]
+        for r in conn.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = %s",
+            (zones_db.catalogue.schema,),
+        ).fetchall()
     }
     missing = expected_indexes - actual
     check("All expected indexes exist", not missing, f"missing: {missing}" if missing else "")
+finally:
+    conn.close()
 
 
 # ── find_by_name: canonical match ─────────────────────────────────────
@@ -187,21 +197,29 @@ check("city type has 13 zones", len(cities) == 13, f"got {len(cities)}")
 # Curated from scripts/dev/eq2_raid_bosses.review.txt — EoF + RoK only
 # in current scope. 14 zones, 55 encounters as of the curator pass.
 print("\n--- zone_encounters / zone_encounter_mobs ---")
-with sqlite3.connect(DB) as conn:
-    n_enc = conn.execute("SELECT COUNT(*) FROM zone_encounters").fetchone()[0]
-    n_mobs = conn.execute("SELECT COUNT(*) FROM zone_encounter_mobs").fetchone()[0]
+conn = zones_db.catalogue.init_db()
+try:
+    n_enc = _val(conn, "SELECT COUNT(*) FROM zone_encounters")
+    n_mobs = _val(conn, "SELECT COUNT(*) FROM zone_encounter_mobs")
+finally:
+    conn.close()
 print(f"  zone_encounters rows: {n_enc}   zone_encounter_mobs rows: {n_mobs}")
 
 if n_enc > 0:
     # FK integrity
-    with sqlite3.connect(DB) as conn:
-        orphan_enc = conn.execute(
-            "SELECT COUNT(*) FROM zone_encounters e WHERE NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = e.zone_id)"
-        ).fetchone()[0]
-        orphan_mobs = conn.execute(
+    conn = zones_db.catalogue.init_db()
+    try:
+        orphan_enc = _val(
+            conn,
+            "SELECT COUNT(*) FROM zone_encounters e WHERE NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = e.zone_id)",
+        )
+        orphan_mobs = _val(
+            conn,
             "SELECT COUNT(*) FROM zone_encounter_mobs m "
-            "WHERE NOT EXISTS (SELECT 1 FROM zone_encounters e WHERE e.id = m.encounter_id)"
-        ).fetchone()[0]
+            "WHERE NOT EXISTS (SELECT 1 FROM zone_encounters e WHERE e.id = m.encounter_id)",
+        )
+    finally:
+        conn.close()
     check("zone_encounters has no orphan zone_ids", orphan_enc == 0, f"{orphan_enc} orphans")
     check("zone_encounter_mobs has no orphan encounter_ids", orphan_mobs == 0, f"{orphan_mobs} orphans")
     check("every encounter has at least one mob", n_mobs >= n_enc, f"{n_enc} enc, {n_mobs} mobs")
@@ -289,9 +307,12 @@ if n_enc > 0:
     )
 
     # _meta bookkeeping
-    with sqlite3.connect(DB) as conn:
+    conn = zones_db.catalogue.init_db()
+    try:
         bz = zones_db.get_meta(conn, "bosses_zones")
         bt = zones_db.get_meta(conn, "bosses_total")
+    finally:
+        conn.close()
     check("bosses_zones meta populated", bz is not None and int(bz) > 0, f"got {bz}")
     check(
         "bosses_total meta matches actual encounter count",

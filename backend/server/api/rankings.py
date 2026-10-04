@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import sqlite3
 import unicodedata
 from collections import defaultdict
 from functools import lru_cache
@@ -326,14 +325,13 @@ def _raid_boss_names() -> tuple[str, ...]:
     """Sorted, normalised (``_normalise_boss_key``) mob names of every
     curated raid-zone encounter — what ``GET /api/zones/raid-bosses`` ships
     to the desktop parser so it can decide client-side whether a fight is a
-    raid boss. Empty when zones.db is absent. Cleared by
+    raid boss. Empty when no rosters are curated yet. Cleared by
     invalidate_zones_cache() on curator edits."""
-    path = zones_db.path
-    if not path.exists():
-        return ()
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = zones_db.init_db()
     try:
-        names = {_normalise_boss_key(r[0]) for r in conn.execute(_SQL["list_raid_boss_mob_names"])}
+        names = {
+            _normalise_boss_key(r["mob_name_lower"]) for r in conn.execute(_SQL["list_raid_boss_mob_names"]).fetchall()
+        }
     finally:
         conn.close()
     return tuple(sorted(n for n in names if n))
@@ -350,7 +348,7 @@ def raid_boss_pack() -> dict:
 
 @lru_cache(maxsize=1)
 def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], list[dict], set[str]]:
-    """Authoritative zone/boss data from zones.db, built once per process.
+    """Authoritative zone/boss data from the zones schema, built once per process.
 
     Returns (boss_index, raid_tree, dungeon_tree, curated_zone_names):
       * boss_index: ``mob_name_lower -> [(canonical_zone, encounter_name), ...]``
@@ -366,36 +364,42 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
     that happens to have bosses (which they all do, post-PR #36) would show
     under the "Raids" dropdown alongside the actual raids.
 
-    Empty when zones.db is absent (dev/pre-upload), so everything falls back
-    to the is_boss heuristic and parse-derived dropdowns.
+    Empty when no rosters are curated yet (dev/pre-seed), so everything falls
+    back to the is_boss heuristic and parse-derived dropdowns.
 
     PROCESS-LOCAL: this LRU lives in one Python process. invalidate_zones_cache()
     only clears it on the worker that handled the mutation; sibling workers
     serve stale data until they happen to evict. A startup assertion in
     web/app.py:_startup pins WEB_CONCURRENCY=1 so this is safe — if that
-    assertion is ever loosened, swap this for an mtime-based reload (compare
-    ``zones.db.stat().st_mtime`` against the cached value on each call) or
-    move invalidation to a Redis-backed fan-out."""
-    path = zones_db.path
-    if not path.exists():
-        return {}, [], [], set()
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    assertion is ever loosened, move invalidation to a Redis-backed fan-out
+    (or re-read on a short TTL)."""
+    conn = zones_db.init_db()
     try:
         boss_index: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for mob_lower, zname, ename in conn.execute(_SQL["list_all_zone_encounter_mobs"]):
-            boss_index[_normalise_boss_key(mob_lower)].append((zname, ename))
+        for r in conn.execute(_SQL["list_all_zone_encounter_mobs"]).fetchall():
+            boss_index[_normalise_boss_key(r["mob_name_lower"])].append((r["name"], r["encounter_name"]))
 
         def _tree_for_type(type_token: str) -> list[dict]:
             """Materialise the (zone, expansion, bosses) ordered list for one
             zone-type token. Joins zones → zone_types so the same query
             powers both the raid and dungeon trees with no duplication."""
             out: list[dict] = []
-            for zid, zname, exp, exp_name in conn.execute(
+            for zr in conn.execute(
                 _SQL["list_zones_by_type_with_encounters"],
                 (type_token,),
-            ):
-                bosses = [r[0] for r in conn.execute(_SQL["list_encounter_names_for_zone"], (zid,))]
-                out.append({"zone": zname, "expansion": exp, "expansion_name": exp_name, "bosses": bosses})
+            ).fetchall():
+                bosses = [
+                    r["encounter_name"]
+                    for r in conn.execute(_SQL["list_encounter_names_for_zone"], (zr["id"],)).fetchall()
+                ]
+                out.append(
+                    {
+                        "zone": zr["name"],
+                        "expansion": zr["expansion_short"],
+                        "expansion_name": zr["expansion_name"],
+                        "bosses": bosses,
+                    }
+                )
             return out
 
         raid_tree = _tree_for_type("raid_x4")
@@ -413,16 +417,14 @@ def _encounter_required_mobs() -> dict[tuple[str, str], frozenset[str]]:
     """(canonical zone, encounter name) → normalised mob keys, for curated
     encounters with MULTIPLE mobs — the anti-cut-parse gate's requirement
     lists. Single-mob encounters carry no requirement: the fight ends when
-    the mob dies, so there is nothing to cut. Empty when zones.db is absent
-    (dev/tests). Cleared by invalidate_zones_cache() on curator edits."""
-    path = zones_db.path
-    if not path.exists():
-        return {}
+    the mob dies, so there is nothing to cut. Empty when no rosters are
+    curated yet (dev/tests). Cleared by invalidate_zones_cache() on curator
+    edits."""
     by_enc: dict[tuple[str, str], set[str]] = defaultdict(set)
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = zones_db.init_db()
     try:
-        for mob_lower, zname, ename in conn.execute(_SQL["list_all_zone_encounter_mobs"]):
-            by_enc[(zname, ename)].add(_normalise_boss_key(mob_lower))
+        for r in conn.execute(_SQL["list_all_zone_encounter_mobs"]).fetchall():
+            by_enc[(r["name"], r["encounter_name"])].add(_normalise_boss_key(r["mob_name_lower"]))
     finally:
         conn.close()
     return {k: frozenset(v) for k, v in by_enc.items() if len(v) > 1}
@@ -594,20 +596,22 @@ _zone_xpac_cache: dict[str, str] | None = None
 
 
 def _zone_expansion_map() -> dict[str, str]:
-    """{canonical zone name lower: expansion short} from zones.db. Cached —
-    cleared by invalidate_zones_cache alongside the boss trees."""
+    """{canonical zone name lower: expansion short} from the zones schema.
+    Cached — cleared by invalidate_zones_cache alongside the boss trees.
+
+    The old SQLite version swallowed sqlite3.Error because a dev checkout
+    might simply not have the zones.db file; on Postgres the schema is
+    guaranteed by migrations, so a failure here is a real fault and
+    propagates."""
     global _zone_xpac_cache
     if _zone_xpac_cache is None:
-        mapping: dict[str, str] = {}
+        conn = zones_db.init_db()
         try:
-            with sqlite3.connect(zones_db.path) as conn:
-                for name_lower, short in conn.execute(
-                    "SELECT name_lower, expansion_short FROM zones WHERE expansion_short IS NOT NULL"
-                ):
-                    mapping[name_lower] = short
-        except sqlite3.Error:  # zones.db missing locally — no lock possible
-            pass
-        _zone_xpac_cache = mapping
+            _zone_xpac_cache = {
+                r["name_lower"]: r["expansion_short"] for r in conn.execute(_SQL["map_zone_expansions"]).fetchall()
+            }
+        finally:
+            conn.close()
     return _zone_xpac_cache
 
 

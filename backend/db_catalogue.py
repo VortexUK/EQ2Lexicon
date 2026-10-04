@@ -344,6 +344,11 @@ class SchemaBound:
     def __hash__(self) -> int:
         return hash((type(self), self.schema))
 
+    def clear_caches(self) -> None:
+        """Reset per-instance caches — the uniform catalogue surface
+        (mirrors :meth:`PathBound.clear_caches`). Default: no caches;
+        subclasses holding caches override."""
+
 
 class PgStoreBase(SchemaBound):
     """Base for the async (formerly aiosqlite) users-family domain stores.

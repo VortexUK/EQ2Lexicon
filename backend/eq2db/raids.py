@@ -1,8 +1,8 @@
 """
-Local SQLite catalogue of EverQuest 2 raid strategies.
+Postgres catalogue of EverQuest 2 raid strategies (the ``raids`` schema).
 
-Companion to ``backend/eq2db/zones.py`` — zones.db is read-only reference
-data rebuilt from JSON; this DB accumulates strategy content sourced
+Companion to ``backend/eq2db/zones.py`` — zones is read-only reference
+data rebuilt from JSON; this family accumulates strategy content sourced
 initially from the EQ2 wiki (EQ2i / Fandom) and then progressively
 hand-edited by guild officers.
 
@@ -10,12 +10,12 @@ Scope (deliberate): Vanilla through Rise of Kunark only. Picked to
 align with the TLE-server content cycle. Live-expansion strategies are
 out of scope for the moment.
 
-Schema (six tables):
+Tables (schema DDL in db/migrations/0005_raids.sql):
 
   * **raid_zones**            — one row per raid zone with zone-level
                                 metadata (access, level range, etc.).
-                                Loose FK by ``zone_name`` to zones.db
-                                (different DB file — no enforced FK).
+                                Loose FK by ``zone_name`` to the zones
+                                family (different schema — no enforced FK).
   * **raid_encounters**       — one row per named boss within a raid
                                 zone. ``strategy_md`` is a single
                                 markdown blob (PoC simplicity; can
@@ -25,47 +25,45 @@ Schema (six tables):
                                    raid_encounters.strategy_md writes
                                    a row here with before/after +
                                    editor identity + timestamp.
+  * **raid_zone_revisions**   — the zone-overview counterpart.
   * **act_triggers** / **act_spell_timers** — per-encounter ACT trigger
                                 and spell-timer rows (the /act editor).
-  * **_meta**                  — provenance: built_at, scraper_source,
-                                 source_count, etc.
 
 The `source` column on raid_zones / raid_encounters tracks where the
 content came from:
   * 'eq2i_scrape' — auto-extracted from the wiki, untouched
-  * 'manual'      — added or edited by a human via the future editor
+  * 'manual'      — added or edited by a human via the editor
   * 'parse_data'  — derived from encounter parses (e.g. mechanic timing
                     confirmed from log analysis; future feature)
 
 A row can transition: 'eq2i_scrape' → 'manual' on first hand-edit.
 The revision history preserves the original scrape for audit.
 
-All behaviour lives on :class:`RaidCatalogue` (the eq2db data-interface
-convention — see AACatalogue / SpellCatalogue): path-based reads are
-instance methods; the conn-taking write helpers (upserts, mirrors, ACT
-trigger/timer writes) are staticmethods on the same class so consumers
-import ONE name — the shared ``catalogue`` instance. The former
-``raids_act`` re-export layer is folded into the class.
+All behaviour lives on :class:`RaidCatalogue` (the catalogue convention —
+see backend/db_catalogue.py): the shared module-level ``catalogue``
+instance is the runtime entry point (consumers alias it ``raids_db``);
+``init_db()`` returns a pooled schema-scoped connection proxy. The
+conn-taking write helpers (upserts, mirrors, ACT trigger/timer writes)
+are staticmethods — callers batch several writes per connection; the
+per-call read helpers open (and release) their own pooled checkout.
 """
 
 from __future__ import annotations
 
-import sqlite3
+import logging
 import time
-from pathlib import Path
+from collections.abc import Sequence
+from typing import Any
 
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import resolve_db_path
+from backend.db_catalogue import PgCatalogue
 from backend.sql_loader import load_sql
+
+_log = logging.getLogger(__name__)
 
 _SQL = load_sql(__file__)
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-
-DB_PATH: Path = resolve_db_path("DB_RAIDS_PATH", "raids", "raids.db")
+#: Postgres schema the raids family lives in (db/migrations/0005_raids.sql).
+SCHEMA = "raids"
 
 
 # Source provenance tokens for the `source` columns. Centralised so
@@ -76,11 +74,6 @@ SOURCE_PARSE = "parse_data"
 
 VALID_SOURCES: frozenset[str] = frozenset({SOURCE_SCRAPE, SOURCE_MANUAL, SOURCE_PARSE})
 
-
-# Schema (CREATE TABLE / INDEX) lives in raids.sql; init_db runs each block.
-
-# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
-from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 
 # ---------------------------------------------------------------------------
 # Column lists
@@ -104,24 +97,16 @@ _ACT_SPELL_TIMER_COLS = (
     "last_edited_at, last_edited_by, created_at"
 )
 
-# EQ2Parser-enrichment columns added 2026-08 — ALTERs bring a pre-existing
-# raids.db up to the CREATE TABLE shape above (idempotent via
-# _apply_migrations' duplicate-column skip).
-_ACT_ENRICHMENT_MIGRATIONS = (
-    "ALTER TABLE act_triggers ADD COLUMN cooldown_seconds REAL NOT NULL DEFAULT 1.0",
-    "ALTER TABLE act_spell_timers ADD COLUMN damage_type TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE act_spell_timers ADD COLUMN control_effect TEXT NOT NULL DEFAULT ''",
-)
 
+class RaidCatalogue(PgCatalogue):
+    """Read/write access to the raids schema.
 
-class RaidCatalogue(BaseCatalogue):
-    """Read (and build) access to one raids.db file.
-
-    The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
-    the DB path lives on the instance; the shared module-level ``catalogue``
-    is the runtime entry point, and tests construct ``RaidCatalogue(tmp_db)``.
-    Path-based reads are instance methods; write helpers take an open conn
-    (callers batch several writes per transaction) and are staticmethods.
+    The catalogue convention (see AACatalogue / SpellCatalogue / the other
+    Postgres families): the shared module-level ``catalogue`` is the runtime
+    entry point, and tests construct ``RaidCatalogue(scratch_schema)``.
+    Write helpers take an open conn (callers batch several writes per
+    transaction) and are staticmethods; the read helpers open a pooled
+    checkout per call (mirroring the old per-call sqlite connections).
 
     The provenance tokens are mirrored as class attributes so consumers
     holding the catalogue can write ``raids_db.SOURCE_MANUAL``.
@@ -132,47 +117,26 @@ class RaidCatalogue(BaseCatalogue):
     SOURCE_PARSE = SOURCE_PARSE
     VALID_SOURCES = VALID_SOURCES
 
-    # ON DELETE CASCADE on revisions/encounters only fires with the
-    # per-connection FK pragma.
-    FOREIGN_KEYS = True
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    # ── Per-call read plumbing ───────────────────────────────────────────────
 
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_raid_zones"])
-        conn.execute(_SQL["schema_raid_zone_revisions"])
-        conn.execute(_SQL["schema_raid_encounters"])
-        conn.execute(_SQL["schema_raid_encounter_revisions"])
-        conn.execute(_SQL["schema_act_triggers"])
-        conn.execute(_SQL["schema_act_spell_timers"])
-        self._apply_migrations(conn, _ACT_ENRICHMENT_MIGRATIONS)
-        conn.executescript(_SQL["indexes_all"])
+    def _fetchall(self, sql: str, params: Sequence = ()) -> list[dict]:
+        """Run one read query on its own pooled checkout. Rows are dicts."""
+        with self.init_db() as conn:
+            return conn.execute(sql, params).fetchall()
 
-    def _post_init(self, conn: sqlite3.Connection) -> None:
-        # One-time backfill (2026-08): the web ACT editor historically
-        # omitted modable / checked / the sound fields, so every save wrote
-        # the request-model defaults (0 / 0 / '') regardless of curator
-        # intent — synced EQ2Parser timers came out non-modable and silent.
-        # Flip the damage once; the meta guard means a curator's LATER
-        # deliberate zero/blank (now expressible in the editor) survives
-        # every re-init.
-        if get_meta(conn, "act_editor_parity_backfill"):
-            return
-        conn.execute("UPDATE act_spell_timers SET modable = 1")
-        conn.execute("UPDATE act_spell_timers SET checked = 1")
-        conn.execute(
-            "UPDATE act_spell_timers SET start_wav = 'tts', warning_wav = 'tts' "
-            "WHERE start_wav = '' AND warning_wav = ''"
-        )
-        conn.commit()
-        set_meta(conn, "act_editor_parity_backfill", "1")
+    def _fetchone(self, sql: str, params: Sequence = ()) -> dict | None:
+        """Single-row variant of :meth:`_fetchall`."""
+        with self.init_db() as conn:
+            return conn.execute(sql, params).fetchone()
 
     # ── Write helpers (take an open conn — callers own the transaction) ──────
 
     @staticmethod
     def upsert_raid_zone(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         zone_name: str,
         expansion_short: str,
@@ -216,7 +180,7 @@ class RaidCatalogue(BaseCatalogue):
 
         existing = conn.execute(_SQL["select_zone_by_name"], (zone_name,)).fetchone()
 
-        if existing and source == SOURCE_SCRAPE and existing[1] == SOURCE_MANUAL:
+        if existing and source == SOURCE_SCRAPE and existing["source"] == SOURCE_MANUAL:
             # Re-scrape against a human-edited row: refresh the wiki-owned
             # metadata but leave the markdown blobs + source flag alone. The
             # revision history (encounters only) doesn't apply at the zone
@@ -232,11 +196,11 @@ class RaidCatalogue(BaseCatalogue):
                     lockout_min,
                     lockout_max,
                     now,
-                    existing[0],
+                    existing["id"],
                 ),
             )
             conn.commit()
-            return int(existing[0])
+            return int(existing["id"])
 
         # COALESCE on every nullable column so a caller that passes a column as
         # None means "don't touch", not "clobber to NULL". The historical default
@@ -269,11 +233,11 @@ class RaidCatalogue(BaseCatalogue):
         )
         conn.commit()
         row = conn.execute(_SQL["select_zone_id_by_name"], (zone_name,)).fetchone()
-        return int(row[0])
+        return int(row["id"])
 
     @staticmethod
     def upsert_raid_encounter(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         raid_zone_id: int,
         mob_name: str,
@@ -318,7 +282,7 @@ class RaidCatalogue(BaseCatalogue):
                 ),
             )
             _row = cur.fetchone()
-            new_id = int(_row[0]) if _row else 0
+            new_id = int(_row["id"]) if _row else 0
             # First-ever revision row: before is NULL, after is the seeded content.
             if strategy_md is not None:
                 conn.execute(
@@ -328,14 +292,14 @@ class RaidCatalogue(BaseCatalogue):
             conn.commit()
             return new_id
 
-        enc_id, prev_md = int(existing[0]), existing[1]
+        enc_id, prev_md = int(existing["id"]), existing["strategy_md"]
         # On re-scrape: only update fields that the scraper authoritatively
         # owns (wiki_url, position, last_synced_at). Don't clobber a
         # human-edited strategy_md with a fresh scrape — that's what
         # SOURCE_MANUAL exists to protect.
         if source == SOURCE_SCRAPE:
-            current_source = conn.execute(_SQL["select_encounter_source"], (enc_id,)).fetchone()[0]
-            if current_source == SOURCE_MANUAL:
+            src_row = conn.execute(_SQL["select_encounter_source"], (enc_id,)).fetchone()
+            if src_row is not None and src_row["source"] == SOURCE_MANUAL:
                 # Refresh sync timestamp + url/position only, leave strategy alone.
                 conn.execute(
                     _SQL["update_encounter_url_position_synced"],
@@ -374,11 +338,11 @@ class RaidCatalogue(BaseCatalogue):
         conn.commit()
         return enc_id
 
-    # ── zones_db mirror helpers (no self-commit — callers commit) ────────────
+    # ── zones mirror helpers (no self-commit — callers commit) ───────────────
 
     @staticmethod
     def rename_raid_encounter_if_exists(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         zone_name: str,
         old_mob_name: str,
@@ -395,7 +359,7 @@ class RaidCatalogue(BaseCatalogue):
 
     @staticmethod
     def update_raid_encounter_if_exists(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         zone_name: str,
         mob_name: str,
@@ -414,7 +378,7 @@ class RaidCatalogue(BaseCatalogue):
         return cur.rowcount > 0
 
     @staticmethod
-    def delete_raid_encounter_by_zone_mob(conn: sqlite3.Connection, *, zone_name: str, mob_name: str) -> bool:
+    def delete_raid_encounter_by_zone_mob(conn: Any, *, zone_name: str, mob_name: str) -> bool:
         """Delete a raid_encounters row by its (zone_name, mob_name) lookup.
         CASCADEs to triggers, spell timers, strategy revisions via the FK.
         Returns True if a row was deleted."""
@@ -424,34 +388,32 @@ class RaidCatalogue(BaseCatalogue):
         )
         return cur.rowcount > 0
 
-    # ── Read helpers (path-based) ────────────────────────────────────────────
+    # ── Read helpers (own pooled checkout per call) ──────────────────────────
 
     def encounter_revisions(self, encounter_id: int) -> list[dict]:
         """Full revision history for an encounter, newest first."""
-        return [dict(r) for r in self._fetchall(_SQL["list_encounter_revisions"], (encounter_id,))]
+        return self._fetchall(_SQL["list_encounter_revisions"], (encounter_id,))
 
     def list_zone_revisions(self, zone_id: int) -> list[dict]:
         """All revision rows for a zone's overview, newest first.
         Each row: {id, edited_at, edited_by, before_md, after_md, edit_note}."""
-        return [dict(r) for r in self._fetchall(_SQL["list_zone_revisions"], (zone_id,))]
+        return self._fetchall(_SQL["list_zone_revisions"], (zone_id,))
 
     # ── ACT trigger helpers (formerly backend/eq2db/raids_act.py) ────────────
 
     def list_act_triggers_for_encounter(self, encounter_id: int) -> list[dict]:
         """Every ACT trigger row for an encounter, ordered by position then id."""
-        rows = self._fetchall(
-            f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE raid_encounter_id = ? ORDER BY position, id",
+        return self._fetchall(
+            f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE raid_encounter_id = %s ORDER BY position, id",
             (encounter_id,),
         )
-        return [dict(r) for r in rows]
 
     def get_act_trigger(self, trigger_id: int) -> dict | None:
-        row = self._fetchone(f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE id = ?", (trigger_id,))
-        return dict(row) if row else None
+        return self._fetchone(f"SELECT {_ACT_TRIGGER_COLS} FROM act_triggers WHERE id = %s", (trigger_id,))
 
     @staticmethod
     def upsert_act_trigger(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         trigger_id: int | None = None,
         raid_encounter_id: int,
@@ -494,24 +456,24 @@ class RaidCatalogue(BaseCatalogue):
                     category_restrict, category,
                     timer, timer_name, tabbed, cooldown_seconds,
                     last_edited_at, last_edited_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 params,
             )
             _row = cur.fetchone()
             conn.commit()
-            return int(_row[0]) if _row else 0
+            return int(_row["id"]) if _row else 0
 
         conn.execute(
             """
             UPDATE act_triggers SET
-                raid_encounter_id = ?, position = ?, label = ?, notes = ?,
-                active = ?, regex = ?, sound_data = ?, sound_type = ?,
-                category_restrict = ?, category = ?,
-                timer = ?, timer_name = ?, tabbed = ?, cooldown_seconds = ?,
-                last_edited_at = ?, last_edited_by = ?
-            WHERE id = ?
+                raid_encounter_id = %s, position = %s, label = %s, notes = %s,
+                active = %s, regex = %s, sound_data = %s, sound_type = %s,
+                category_restrict = %s, category = %s,
+                timer = %s, timer_name = %s, tabbed = %s, cooldown_seconds = %s,
+                last_edited_at = %s, last_edited_by = %s
+            WHERE id = %s
             """,
             params + (trigger_id,),
         )
@@ -519,9 +481,9 @@ class RaidCatalogue(BaseCatalogue):
         return trigger_id
 
     @staticmethod
-    def delete_act_trigger(conn: sqlite3.Connection, trigger_id: int) -> bool:
+    def delete_act_trigger(conn: Any, trigger_id: int) -> bool:
         """Delete a trigger by id. Returns True if a row was removed."""
-        cur = conn.execute("DELETE FROM act_triggers WHERE id = ?", (trigger_id,))
+        cur = conn.execute("DELETE FROM act_triggers WHERE id = %s", (trigger_id,))
         conn.commit()
         return cur.rowcount > 0
 
@@ -529,19 +491,17 @@ class RaidCatalogue(BaseCatalogue):
 
     def list_act_spell_timers_for_encounter(self, encounter_id: int) -> list[dict]:
         """Every spell-timer row for an encounter, alphabetical by name."""
-        rows = self._fetchall(
-            f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE raid_encounter_id = ? ORDER BY name",
+        return self._fetchall(
+            f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE raid_encounter_id = %s ORDER BY name",
             (encounter_id,),
         )
-        return [dict(r) for r in rows]
 
     def get_act_spell_timer(self, timer_id: int) -> dict | None:
-        row = self._fetchone(f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE id = ?", (timer_id,))
-        return dict(row) if row else None
+        return self._fetchone(f"SELECT {_ACT_SPELL_TIMER_COLS} FROM act_spell_timers WHERE id = %s", (timer_id,))
 
     @staticmethod
     def upsert_act_spell_timer(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         timer_id: int | None = None,
         raid_encounter_id: int,
@@ -597,28 +557,29 @@ class RaidCatalogue(BaseCatalogue):
                     category, restrict_category,
                     damage_type, control_effect,
                     last_edited_at, last_edited_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 params,
             )
             _row = cur.fetchone()
             conn.commit()
-            return int(_row[0]) if _row else 0
+            return int(_row["id"]) if _row else 0
 
         conn.execute(
             """
             UPDATE act_spell_timers SET
-                raid_encounter_id = ?, name = ?, name_lower = ?,
-                checked = ?, timer_duration_s = ?,
-                only_master_ticks = ?, restrict = ?, absolute_ = ?,
-                start_wav = ?, warning_wav = ?, warning_value = ?,
-                radial_display = ?, modable = ?, tooltip = ?, fill_color = ?,
-                panel1 = ?, panel2 = ?, remove_value = ?,
-                category = ?, restrict_category = ?,
-                damage_type = ?, control_effect = ?,
-                last_edited_at = ?, last_edited_by = ?
-            WHERE id = ?
+                raid_encounter_id = %s, name = %s, name_lower = %s,
+                checked = %s, timer_duration_s = %s,
+                only_master_ticks = %s, restrict = %s, absolute_ = %s,
+                start_wav = %s, warning_wav = %s, warning_value = %s,
+                radial_display = %s, modable = %s, tooltip = %s, fill_color = %s,
+                panel1 = %s, panel2 = %s, remove_value = %s,
+                category = %s, restrict_category = %s,
+                damage_type = %s, control_effect = %s,
+                last_edited_at = %s, last_edited_by = %s
+            WHERE id = %s
             """,
             params + (timer_id,),
         )
@@ -626,9 +587,9 @@ class RaidCatalogue(BaseCatalogue):
         return timer_id
 
     @staticmethod
-    def delete_act_spell_timer(conn: sqlite3.Connection, timer_id: int) -> bool:
+    def delete_act_spell_timer(conn: Any, timer_id: int) -> bool:
         """Delete a spell-timer by id. Returns True if a row was removed."""
-        cur = conn.execute("DELETE FROM act_spell_timers WHERE id = ?", (timer_id,))
+        cur = conn.execute("DELETE FROM act_spell_timers WHERE id = %s", (timer_id,))
         conn.commit()
         return cur.rowcount > 0
 

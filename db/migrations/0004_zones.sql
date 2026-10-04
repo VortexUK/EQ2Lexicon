@@ -85,9 +85,14 @@ CREATE TABLE featured_raid_expansions (
     added_at bigint NOT NULL DEFAULT floor(extract(epoch from now()))
 );
 
+-- position + category were post-launch SQLite ALTERs (drag-reorder lanes on
+-- /raids) — folded into the base table here. category NULL = the implicit
+-- Uncategorised lane (listing sorts it first via NULLS FIRST).
 CREATE TABLE featured_raid_zones (
-    zone_id bigint PRIMARY KEY REFERENCES zones(id) ON DELETE CASCADE,
-    added_at bigint NOT NULL DEFAULT floor(extract(epoch from now()))
+    zone_id  bigint  PRIMARY KEY REFERENCES zones(id) ON DELETE CASCADE,
+    added_at bigint  NOT NULL DEFAULT floor(extract(epoch from now())),
+    position integer NOT NULL DEFAULT 0,
+    category text
 );
 
 CREATE TABLE featured_raid_categories (

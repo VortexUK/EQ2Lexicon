@@ -9,14 +9,12 @@ the curated wiki dump at ``scripts/dev/eq2_zones.cleaned.json`` +
 ``scripts/dev/eq2_raid_bosses.review.txt`` and rebuilt with
 ``scripts/build_zones_db.py``.
 
-Sync sqlite calls (``zones_db.list_by_expansion`` / ``find_by_name``) are
+Sync DB calls (``zones_db.list_by_expansion`` / ``find_by_name``) are
 offloaded with ``run_in_executor`` so they don't block the event loop — same
 pattern as ``recipes.py`` and ``classes.py``.
 """
 
 from __future__ import annotations
-
-import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
@@ -24,7 +22,6 @@ from pydantic import BaseModel
 from backend.eq2db.zones import catalogue as zones_db
 from backend.server.api.rankings import raid_boss_pack
 from backend.server.auth_deps import require_user_session
-from backend.server.constants import SQLITE_VAR_CHUNK_SAFE
 from backend.server.core.executor import run_sync
 from backend.server.core.primary_guild import cached_primary_guild
 from backend.server.core.session_user import SessionUser
@@ -285,12 +282,9 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
     ``zone_encounter_mobs.mob_name_lower`` — solo bosses match directly, group
     encounters collapse (any one mob ACT logs counts the whole encounter as
     cleared). Aggregation happens in Python rather than SQL because the parses
-    data lives in Postgres while the zones data is a local SQLite file — a
-    Python stitch beats any cross-database join contraption.
+    and zones data live in separate Postgres schemas on separate connections —
+    a Python stitch keeps the two reads independent.
     """
-    if not zones_db.path.exists():
-        return {}
-
     # Pull every winning row for the guild as (id, title_lower, started_at).
     # We need the timestamp + id to surface "last kill" — a DISTINCT title pass
     # wouldn't be enough.
@@ -307,23 +301,17 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
     if not kills:
         return {}
 
-    # Build a mob_lower → (zone, encounter) map for every mob we actually need.
-    # SQLite's variable limit is 999 by default; chunk to stay well clear.
+    # Build a mob_lower → (zone, encounter) map for every mob we actually
+    # need — one = ANY(array) query (no SQLite variable-limit chunking).
     title_set = {t for _, t, _ in kills}
     mob_to_enc: dict[str, tuple[str, str]] = {}
-    with sqlite3.connect(zones_db.path) as zconn:
-        zconn.execute("PRAGMA query_only = ON")
-        zconn.row_factory = sqlite3.Row
-        titles_list = list(title_set)
-        for i in range(0, len(titles_list), SQLITE_VAR_CHUNK_SAFE):
-            chunk = titles_list[i : i + SQLITE_VAR_CHUNK_SAFE]
-            placeholders = ",".join("?" * len(chunk))
-            rows = zconn.execute(
-                _SQL["match_encounter_mobs_by_titles_chunk"].format(placeholders=placeholders),
-                chunk,
-            ).fetchall()
-            for r in rows:
-                mob_to_enc[r["mob_lower"]] = (r["zone_name"], r["encounter_name"])
+    zconn = zones_db.init_db()
+    try:
+        rows = zconn.execute(_SQL["match_encounter_mobs_by_titles"], (list(title_set),)).fetchall()
+    finally:
+        zconn.close()
+    for r in rows:
+        mob_to_enc[r["mob_lower"]] = (r["zone_name"], r["encounter_name"])
 
     # Per-encounter aggregate: kill count + most-recent kill (id + timestamp).
     agg: dict[tuple[str, str], dict] = {}

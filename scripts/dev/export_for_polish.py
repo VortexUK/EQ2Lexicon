@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -43,10 +42,9 @@ _INBOX = _REPO / "data" / "raids" / "polish_inbox"
 
 def _load_entries() -> list[dict]:
     """Pull every (zone, mob, current_md) with non-empty strategy from
-    raids.db, sorted by zone then position for stable ordering."""
-    with sqlite3.connect(raids_db.path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
+    the raids schema, sorted by zone then position for stable ordering."""
+    with raids_db.init_db() as conn:
+        return conn.execute(
             """
             SELECT z.zone_name, e.mob_name, e.position, e.wiki_url, e.strategy_md, e.source
             FROM raid_encounters e
@@ -55,7 +53,6 @@ def _load_entries() -> list[dict]:
             ORDER BY z.zone_name, e.position, e.mob_name
             """
         ).fetchall()
-    return [dict(r) for r in rows]
 
 
 def _balanced_chunks(entries: list[dict], n: int, body_key: str = "current_md") -> list[list[dict]]:

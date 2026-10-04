@@ -1,19 +1,25 @@
 """
-Build ``data/zones/zones.db`` from ``scripts/dev/eq2_zones.cleaned.json``.
+Load zone metadata from ``scripts/dev/eq2_zones.cleaned.json`` into the
+Postgres ``zones`` schema (zones / zone_types / zone_aliases).
 
 Idempotent — re-run after editing the source file. Each upsert replaces the
-zone row + its types + its aliases atomically.
+zone row + its types + its aliases; zone ids are preserved across rebuilds
+(builder-assigned: existing name → existing id, new name → max+1), which is
+what keeps the curator-managed boss rosters attached. Zones that vanished
+from the source JSON are pruned (and their curator data cascades) — the
+prune count is printed so an unexpected removal is visible.
 
-Stamps these ``_meta`` keys on every build so the DB is self-describing:
+Stamps these ``_meta`` keys on every build so the schema is self-describing:
 
   * ``built_at``           — ISO-8601 UTC timestamp
   * ``built_from``         — path of the cleaned JSON consumed
 
-Boss rosters (``zone_encounters`` / ``zone_encounter_mobs``) are **not**
-written by this script — they are web-editable by admins and contributors
-via the per-zone editor in the raids UI.
+Boss rosters (``zone_encounters`` / ``zone_encounter_mobs``) and the
+``featured_*`` curation tables are **not** written by this script — they are
+web-editable by admins and contributors via the per-zone editor in the
+raids UI, and a metadata rebuild never touches them.
 
-Usage:
+Usage (needs DATABASE_URL / SUPABASE_DB_URL in the environment):
 
     .venv/Scripts/python scripts/build_zones_db.py
     .venv/Scripts/python scripts/build_zones_db.py --source path/to/other.json
@@ -63,18 +69,18 @@ def _load_dungeons_into_db(path: Path, conn) -> tuple[int, list[str]]:
     for _expansion, names in by_expansion.items():
         for name in names:
             row = conn.execute(
-                "SELECT id FROM zones WHERE name = ?",
+                "SELECT id FROM zones WHERE name = %s",
                 (name,),
             ).fetchone()
             if row is None:
                 unmatched.append(name)
                 continue
-            zone_id = row[0]
-            # INSERT OR IGNORE so re-running the builder is idempotent —
+            zone_id = row["id"]
+            # ON CONFLICT DO NOTHING so re-running the builder is idempotent —
             # PRIMARY KEY (zone_id, type) prevents duplicates anyway, but
             # being explicit keeps the intent clear.
             conn.execute(
-                "INSERT OR IGNORE INTO zone_types (zone_id, type) VALUES (?, ?)",
+                "INSERT INTO zone_types (zone_id, type) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (zone_id, "dungeon"),
             )
             rows_added += 1
@@ -96,10 +102,9 @@ def main() -> int:
         help=f"Cleaned-JSON zones file to load (default: {DEFAULT_SOURCE})",
     )
     parser.add_argument(
-        "--db",
-        type=Path,
-        default=zones_db.DB_PATH,
-        help=f"SQLite output path (default: {zones_db.DB_PATH})",
+        "--schema",
+        default=zones_db.SCHEMA,
+        help=f"Target Postgres schema (default: {zones_db.SCHEMA!r}; override for scratch loads).",
     )
     parser.add_argument(
         "--dungeons",
@@ -126,12 +131,17 @@ def main() -> int:
         return 1
 
     print(f"Loading {len(zones)} zones from {args.source.name}")
-    print(f"Target DB:  {args.db}")
+    print(f"Target schema:  {args.schema}")
 
-    cat = zones_db.ZoneCatalogue(args.db)
+    cat = zones_db.ZoneCatalogue(args.schema)
     conn = cat.init_db()
     try:
         n = cat.upsert_zones(zones, conn)
+        # Prune zones that no longer exist in the source. This CASCADEs the
+        # pruned zones' types/aliases AND any curator boss rosters attached
+        # to them — correct for a genuinely-removed zone, but always report
+        # the count so an unexpected prune is caught at the console.
+        removed = cat.delete_zones_not_named(conn, [z["name"] for z in zones])
         zones_db.set_meta(conn, "built_at", dt.datetime.now(dt.timezone.utc).isoformat())
         zones_db.set_meta(conn, "built_from", str(args.source))
         zones_db.set_meta(conn, "source_count", str(len(zones)))
@@ -149,10 +159,12 @@ def main() -> int:
         conn.close()
 
     print(f"Upserted {n} zones.")
+    if removed:
+        print(f"PRUNED {removed} zone(s) no longer present in the source JSON (curator rosters on them cascaded).")
     if dungeons_added:
         print(f"Tagged {dungeons_added} zones as 'dungeon' from {args.dungeons.name}")
         if dungeons_unmatched:
-            print(f"WARN: {len(dungeons_unmatched)} dungeon names not found in zones.db (typos?):")
+            print(f"WARN: {len(dungeons_unmatched)} dungeon names not found in the zones schema (typos?):")
             for name in dungeons_unmatched[:5]:
                 print(f"  - {name}")
             if len(dungeons_unmatched) > 5:
