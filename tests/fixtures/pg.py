@@ -30,6 +30,7 @@ from typing import Any
 import psycopg
 import pytest
 from psycopg import conninfo
+from psycopg import sql as pgsql
 from psycopg.rows import dict_row
 
 from backend import pg, pg_migrate
@@ -37,6 +38,15 @@ from backend import pg, pg_migrate
 #: Local-only default (the winget PG17 unattended install); override with
 #: TEST_DATABASE_URL in the environment or .env.
 _DEFAULT_TEST_DSN = "postgresql://postgres:postgres@localhost:5432/eq2lexicon_test"
+
+#: Advisory lock serialising pytest SESSIONS on one test database (distinct
+#: from pg_migrate's lock). provision_for_session drops + rebuilds the
+#: session and scratch schemas, which would clobber another in-flight run —
+#: the old per-PID tmpdir layout made parallel invocations safe (TEST-039),
+#: so queue them instead of racing. Held by a dedicated connection for the
+#: LIFETIME of the process (released when the process exits).
+_SESSION_LOCK_ID = 0x_E92_7E57  # spells-ish "eq2TEST"
+_session_lock_conn: Any = None
 
 _INSTALL_HINT = (
     "The test suite needs a local PostgreSQL 17 server:\n"
@@ -72,7 +82,7 @@ def provision_for_session() -> None:
             # via the maintenance DB (CREATE DATABASE can't run in a txn).
             admin = conninfo.make_conninfo(**{**params, "dbname": "postgres"})
             with psycopg.connect(admin, autocommit=True, connect_timeout=3) as conn:
-                conn.execute(psycopg.sql.SQL("CREATE DATABASE {}").format(psycopg.sql.Identifier(dbname)))
+                conn.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(dbname)))
     except psycopg.OperationalError as exc:
         pytest.exit(
             f"Cannot reach the test PostgreSQL database {dbname!r}: {exc}\n{_INSTALL_HINT}",
@@ -81,6 +91,16 @@ def provision_for_session() -> None:
 
     if os.environ.get("PYTEST_XDIST_WORKER"):
         return
+
+    # Queue behind any other pytest session on this database (see
+    # _SESSION_LOCK_ID). xdist workers never reach here, so the
+    # controller's lock covers its whole worker tree.
+    global _session_lock_conn
+    _session_lock_conn = psycopg.connect(test_dsn, autocommit=True)
+    got = _session_lock_conn.execute("SELECT pg_try_advisory_lock(%s)", (_SESSION_LOCK_ID,)).fetchone()
+    if not (got and got[0]):
+        print("[pg-fixtures] another pytest session holds the test database — waiting for it to finish...")
+        _session_lock_conn.execute("SELECT pg_advisory_lock(%s)", (_SESSION_LOCK_ID,))
 
     with pg.connection() as conn:
         # Drop the ledger so pg_migrate re-applies everything, then the
