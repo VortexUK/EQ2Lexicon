@@ -48,6 +48,7 @@ from backend.server.constants import (
 )
 from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
+from backend.server.metrics import PARSE_DETAIL_VIEWS, parse_age_bucket
 from backend.server.parses.db import store as parses_db
 from backend.server.parses.pet_detection import classify_combatants
 from backend.server.server_context import current_world
@@ -760,6 +761,12 @@ async def get_parse(
     enc = await run_sync(_encounter_detail_sync, encounter_id, top_attacks, current_world())
     if enc is None:
         raise HTTPException(status_code=404, detail="Parse not found")
+
+    # Access analytics: how old is the parse people actually open? Feeds
+    # the future attack/damage-type retention decision (see metrics.py).
+    import time as _time  # noqa: PLC0415
+
+    PARSE_DETAIL_VIEWS.labels(parse_age_bucket(enc.get("started_at"), int(_time.time()))).inc()
 
     # encDPS percentile colouring: rank each combatant's encDPS against their
     # class's best for this boss (class leader = 100%), and flag the all-class

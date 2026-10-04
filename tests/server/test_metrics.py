@@ -75,3 +75,19 @@ def test_record_user_seen_prunes_stale_entries(monkeypatch):
         metrics._user_last_seen[str(i)] = now - 100_000  # all stale
     metrics.record_user_seen("fresh")
     assert metrics._user_last_seen == {"fresh": now}
+
+
+def test_parse_age_bucket_boundaries():
+    """Bucket labels for the parse-detail access analytics — the data that
+    will decide whether old attack/damage-type detail can be pruned."""
+    now = 1_800_000_000
+    day = 86_400
+    assert metrics.parse_age_bucket(None, now) == "unknown"
+    assert metrics.parse_age_bucket(0, now) == "unknown"  # missing timestamp
+    assert metrics.parse_age_bucket(now, now) == "<7d"
+    assert metrics.parse_age_bucket(now - 6 * day, now) == "<7d"
+    assert metrics.parse_age_bucket(now - 7 * day, now) == "7-30d"
+    assert metrics.parse_age_bucket(now - 29 * day, now) == "7-30d"
+    assert metrics.parse_age_bucket(now - 30 * day, now) == "30-90d"
+    assert metrics.parse_age_bucket(now - 90 * day, now) == ">90d"
+    assert metrics.parse_age_bucket(now + 500, now) == "<7d"  # clock skew clamps

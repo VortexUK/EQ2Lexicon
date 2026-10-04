@@ -109,6 +109,33 @@ class _ActiveUsersCollector(Collector):
 # ── Cache metrics ─────────────────────────────────────────────────────────────
 # Labels: cache = character | guild | claim
 
+# How often parse DETAIL pages are opened, bucketed by the encounter's
+# age at view time. Gathered to decide whether the per-ability breakdown
+# tables (attack_types/damage_types) can take a rolling retention window
+# once parses live on Postgres — if the >90d bucket stays ~0, old detail
+# can be pruned and the DB fits a smaller tier. Buckets: <7d, 7-30d,
+# 30-90d, >90d.
+PARSE_DETAIL_VIEWS = Counter(
+    "parse_detail_views_total",
+    "Parse detail page loads by encounter age at view time",
+    ["age_bucket"],
+)
+
+
+def parse_age_bucket(started_at: int | None, now: int) -> str:
+    """Age bucket label for PARSE_DETAIL_VIEWS."""
+    if not started_at:
+        return "unknown"
+    days = max(0, now - int(started_at)) / 86400
+    if days < 7:
+        return "<7d"
+    if days < 30:
+        return "7-30d"
+    if days < 90:
+        return "30-90d"
+    return ">90d"
+
+
 CACHE_HITS = Counter("cache_hits_total", "Fresh cache hits", ["cache"])
 CACHE_MISSES = Counter("cache_misses_total", "Cache misses (not found or expired)", ["cache"])
 CACHE_STALE = Counter("cache_stale_total", "Stale hits that fired bg refresh", ["cache"])

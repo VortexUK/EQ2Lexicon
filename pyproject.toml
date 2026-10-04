@@ -35,6 +35,8 @@ dependencies = [
     # so we don't hand-curate a slur list in the repo. See
     # backend/server/core/text_moderation.py.
     "better-profanity>=0.7.0",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
 ]
 
 [dependency-groups]
