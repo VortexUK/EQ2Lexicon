@@ -1,14 +1,12 @@
 """
-Normalized SQLite store for ingested ACT parses.
+Normalized Postgres store (``parses`` schema) for ingested ACT parses.
 
 All behaviour lives on :class:`ParsesStore` (the catalogue convention —
-see backend/db_catalogue.py): ``store.init_db()`` returns a connection
-with WAL/foreign-keys enabled (schema + idempotent ``_MIGRATIONS`` applied
-via the base template method); the conn-taking insert/lookup helpers are
-staticmethods — callers batch several operations per connection.
-
-Lives at `data/parses/parses.db` by default. Override with the
-`DB_PARSES_PATH` env var.
+see backend/db_catalogue.py): ``store.init_db()`` returns a pooled
+connection scoped to the family schema (PgConnProxy — ``close()`` returns
+it to the pool); the conn-taking insert/lookup helpers are staticmethods —
+callers batch several operations per connection. Schema DDL is owned by
+db/migrations/0002_parses.sql.
 
 Schema reflects the real columns ACT exports at AttackType depth — the
 plugin's PayloadBuilder (in the EQ2LexiconACTPlugin repo) is the upstream
@@ -17,12 +15,10 @@ source-of-truth for column-name mappings on the wire.
 
 from __future__ import annotations
 
-import sqlite3
 from enum import IntEnum
-from pathlib import Path
+from typing import Any
 
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import resolve_db_path
+from backend.db_catalogue import PgCatalogue
 from backend.server.parses.models import AttackType, Combatant, CombatantSnapshot, DamageType, Encounter
 from backend.sql_loader import load_sql
 
@@ -31,44 +27,8 @@ _SQL = load_sql(__file__)
 # Reused for combatants with no resolved identity snapshot — stores NULLs.
 _EMPTY_SNAPSHOT = CombatantSnapshot()
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-
-DB_PATH: Path = resolve_db_path("DB_PARSES_PATH", "parses", "parses.db")
-
-
-# Schema (CREATE TABLE / INDEX) lives in db.sql; init_db runs each block.
-# Back-compat aliases — keep tests + any external callers that imported
-# _CREATE_* directly off this module working without an import-shape change.
-_CREATE_ENCOUNTERS = _SQL["schema_encounters"]
-_CREATE_COMBATANTS = _SQL["schema_combatants"]
-_CREATE_DAMAGE_TYPES = _SQL["schema_damage_types"]
-_CREATE_ATTACK_TYPES = _SQL["schema_attack_types"]
-_CREATE_INGEST_LOG = _SQL["schema_ingest_log"]
-_CREATE_TAMPER_REPORTS = _SQL["schema_tamper_reports"]
-# `indexes_all` is one multi-statement block; split on semicolons to keep the
-# legacy list shape that test fixtures iterate.
-_CREATE_INDEXES = [s.strip() + ";" for s in _SQL["indexes_all"].split(";") if s.strip()]
-
-# Idempotent ALTER migrations — each statement loaded from db.sql. init_db
-# loops the list, swallowing OperationalError so re-runs on an up-to-date DB
-# are no-ops. Order is significant: column-dependent migrations (e.g. an
-# index on a new column) MUST come after the ADD COLUMN they depend on.
-_MIGRATIONS: list[str] = [
-    _SQL["alter_encounters_add_uploaded_by"],
-    _SQL["alter_encounters_add_guild_name"],
-    _SQL["alter_encounters_add_success_level"],
-    _SQL["alter_combatants_add_level"],
-    _SQL["alter_combatants_add_guild_name"],
-    _SQL["alter_combatants_add_cls"],
-    _SQL["alter_combatants_add_ilvl"],
-    _SQL["alter_encounters_add_hidden_at"],
-    _SQL["alter_combatants_add_is_player"],
-    _SQL["alter_encounters_add_client_warnings"],
-    _SQL["alter_encounters_add_hidden_by"],
-]
+#: Postgres schema the parses family lives in (db/migrations/0002_parses.sql).
+SCHEMA = "parses"
 
 
 # ACT swing_type semantics confirmed against real EQ2 data:
@@ -96,135 +56,24 @@ class SwingType(IntEnum):
     PROC = 100
 
 
-_DAMAGE_SWING_TYPES = (SwingType.MELEE, SwingType.NONMELEE)
-_HEAL_SWING_TYPES = (SwingType.HEAL,)
-_CURE_SWING_TYPES = (SwingType.CURE,)
-_THREAT_SWING_TYPES = (SwingType.PROC,)  # callers should additionally filter type != 'All'
+_DAMAGE_SWING_TYPES = [int(SwingType.MELEE), int(SwingType.NONMELEE)]
+_HEAL_SWING_TYPES = [int(SwingType.HEAL)]
+_CURE_SWING_TYPES = [int(SwingType.CURE)]
+_THREAT_SWING_TYPES = [int(SwingType.PROC)]  # callers should additionally filter type != 'All'
 
 
-class ParsesStore(BaseCatalogue):
-    """Read/write access to one parses.db file (uploaded ACT encounters).
+class ParsesStore(PgCatalogue):
+    """Read/write access to the parses schema (uploaded ACT encounters).
 
     The catalogue convention (see backend/db_catalogue.py): the shared
     module-level ``store`` instance is the runtime entry point (consumers
     alias it ``parses_db``); the conn-taking helpers are staticmethods —
     callers batch several operations per connection/transaction. Tests
-    construct ``ParsesStore(tmp_db)``.
+    construct ``ParsesStore(scratch_schema)`` or re-point ``store.schema``.
     """
 
-    FOREIGN_KEYS = True
-
-    # parses.db predates the shared _meta table; rows carry their own
-    # timestamps and litestream owns backup provenance.
-    CREATE_META = False
-
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
-
-    # ---------------------------------------------------------------------------
-    # DB management
-    # ---------------------------------------------------------------------------
-
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_encounters"])
-        conn.execute(_SQL["schema_combatants"])
-        conn.execute(_SQL["schema_damage_types"])
-        conn.execute(_SQL["schema_attack_types"])
-        conn.execute(_SQL["schema_ingest_log"])
-        conn.execute(_SQL["schema_tamper_reports"])
-        self._apply_migrations(conn, _MIGRATIONS)
-        self._migrate_attack_types_unique(conn)
-        self._migrate_encounters_add_world(conn)
-        self._migrate_ingest_log_add_world(conn)
-        conn.executescript(_SQL["indexes_all"])
-
-    @staticmethod
-    def _migrate_attack_types_unique(conn: sqlite3.Connection) -> None:
-        """Recreate attack_types if the legacy UNIQUE(combatant_id, attack_name)
-        constraint is still in place. The natural key needs swing_type too —
-        spells like Cleanse legitimately appear under both damage and heal."""
-        rows = conn.execute(_SQL["migrate_check_attack_types_indexes"]).fetchall()
-        target = ["combatant_id", "swing_type", "attack_name"]
-        for (idx_name,) in rows:
-            cols = [r[2] for r in conn.execute(_SQL["pragma_index_info"].format(idx_name=idx_name)).fetchall()]
-            if cols == target:
-                return  # already migrated
-        # Commit any pending implicit transaction so `with conn:` can scope a
-        # fresh atomic one around the table swap.
-        conn.commit()
-        with conn:
-            conn.execute(
-                _SQL["schema_attack_types"].replace(
-                    "CREATE TABLE IF NOT EXISTS attack_types",
-                    "CREATE TABLE attack_types_new",
-                )
-            )
-            conn.execute(_SQL["migrate_attack_types_insert_into_new"])
-            conn.execute(_SQL["migrate_attack_types_drop_old"])
-            conn.execute(_SQL["migrate_attack_types_rename"])
-
-    @staticmethod
-    def _migrate_encounters_add_world(conn: sqlite3.Connection) -> None:
-        """Add the `world` column to encounters and change the uniqueness key from
-        the single-column UNIQUE on act_encid to UNIQUE(world, act_encid).
-
-        SQLite can't ALTER a uniqueness constraint in place, so we use the standard
-        table-rebuild pattern:  rename old → create new → INSERT … SELECT → drop old.
-
-        Guard: skip if the `world` column already exists (idempotent).
-        FK safety: combatants.encounter_id references encounters(id). The rebuild
-        preserves all `id` values via an explicit column list (including the
-        original INTEGER PRIMARY KEY AUTOINCREMENT sequence), so child rows remain
-        valid after the swap. PRAGMA foreign_keys is turned OFF for the duration of
-        the rebuild so SQLite does not object while encounters_old is the target;
-        it is re-enabled immediately after."""
-        cols = [r[1] for r in conn.execute(_SQL["pragma_table_info_encounters"]).fetchall()]
-        if "world" in cols:
-            return  # already migrated
-
-        conn.commit()
-        conn.execute(_SQL["pragma_foreign_keys_off"])
-        conn.execute(_SQL["pragma_legacy_alter_table_on"])
-        try:
-            with conn:
-                conn.execute(_SQL["migrate_encounters_rename_old"])
-                conn.execute(
-                    _SQL["schema_encounters"].replace(
-                        "CREATE TABLE IF NOT EXISTS encounters", "CREATE TABLE encounters"
-                    )
-                )
-                # Copy all existing rows, backfilling world = 'Varsoon'.
-                conn.execute(_SQL["migrate_encounters_copy_from_old"])
-                conn.execute(_SQL["migrate_encounters_drop_old"])
-        finally:
-            conn.execute(_SQL["pragma_legacy_alter_table_off"])
-            conn.execute(_SQL["pragma_foreign_keys_on"])
-
-    @staticmethod
-    def _migrate_ingest_log_add_world(conn: sqlite3.Connection) -> None:
-        """Add `world` to ingest_log and change PK from act_encid alone to
-        (world, act_encid).  Same rebuild pattern as encounters; guard on 'world'
-        column presence."""
-        cols = [r[1] for r in conn.execute(_SQL["pragma_table_info_ingest_log"]).fetchall()]
-        if "world" in cols:
-            return  # already migrated
-
-        conn.commit()
-        conn.execute(_SQL["pragma_foreign_keys_off"])
-        conn.execute(_SQL["pragma_legacy_alter_table_on"])
-        try:
-            with conn:
-                conn.execute(_SQL["migrate_ingest_log_rename_old"])
-                conn.execute(
-                    _SQL["schema_ingest_log"].replace(
-                        "CREATE TABLE IF NOT EXISTS ingest_log", "CREATE TABLE ingest_log"
-                    )
-                )
-                conn.execute(_SQL["migrate_ingest_log_copy_from_old"])
-                conn.execute(_SQL["migrate_ingest_log_drop_old"])
-        finally:
-            conn.execute(_SQL["pragma_legacy_alter_table_off"])
-            conn.execute(_SQL["pragma_foreign_keys_on"])
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     # ---------------------------------------------------------------------------
     # Insert helpers
@@ -232,7 +81,7 @@ class ParsesStore(BaseCatalogue):
 
     @staticmethod
     def insert_encounter(
-        conn: sqlite3.Connection,
+        conn: Any,
         enc: Encounter,
         *,
         source_dsn: str,
@@ -256,11 +105,11 @@ class ParsesStore(BaseCatalogue):
             ),
         )
         row = cur.fetchone()
-        return int(row[0]) if row else 0
+        return int(row["id"]) if row else 0
 
     @staticmethod
     def insert_combatants_bulk(
-        conn: sqlite3.Connection,
+        conn: Any,
         encounter_id: int,
         combatants: list[Combatant],
         snapshots: dict[str, CombatantSnapshot] | None = None,
@@ -276,12 +125,12 @@ class ParsesStore(BaseCatalogue):
                 c.as_db_params(encounter_id=encounter_id, snapshot=snap),
             )
             row = cur.fetchone()
-            name_to_id[c.name] = int(row[0]) if row else 0
+            name_to_id[c.name] = int(row["id"]) if row else 0
         return name_to_id
 
     @staticmethod
     def update_combatant_snapshots(
-        conn: sqlite3.Connection,
+        conn: Any,
         encounter_id: int,
         snapshots: dict[str, CombatantSnapshot],
     ) -> int:
@@ -291,17 +140,17 @@ class ParsesStore(BaseCatalogue):
         if not snapshots:
             return 0
         n = 0
-        with conn:
-            for name, snap in snapshots.items():
-                cur = conn.execute(
-                    _SQL["update_combatant_snapshot"],
-                    (snap.level, snap.guild_name, snap.cls, snap.ilvl, encounter_id, name),
-                )
-                n += cur.rowcount
+        for name, snap in snapshots.items():
+            cur = conn.execute(
+                _SQL["update_combatant_snapshot"],
+                (snap.level, snap.guild_name, snap.cls, snap.ilvl, encounter_id, name),
+            )
+            n += cur.rowcount
+        conn.commit()
         return n
 
     @staticmethod
-    def update_combatant_is_player(conn: sqlite3.Connection, classification: dict[int, bool]) -> None:
+    def update_combatant_is_player(conn: Any, classification: dict[int, bool]) -> None:
         """Bulk UPDATE the per-combatant is_player flag.
 
         Called from:
@@ -313,37 +162,37 @@ class ParsesStore(BaseCatalogue):
         and transaction scope."""
         if not classification:
             return
-        conn.executemany(
+        cur = conn.cursor()
+        cur.executemany(
             _SQL["update_combatant_is_player"],
             [(1 if v else 0, k) for k, v in classification.items()],
         )
 
     @staticmethod
-    def invalidate_is_player_cache_with_conn(conn: sqlite3.Connection) -> None:
+    def invalidate_is_player_cache_with_conn(conn: Any) -> None:
         """Mark every combatant row for lazy re-classification on next read.
         Variant that accepts an existing connection (used by tests + by the
-        rankings cache-invalidation hook to share the parses.db connection)."""
+        rankings cache-invalidation hook to share the parses connection)."""
         conn.execute(_SQL["invalidate_is_player_cache"])
 
     def invalidate_is_player_cache(self) -> None:
         """Mark every combatant row for lazy re-classification on next read.
-        Production caller (opens its own connection).
+        Production caller (checks out its own connection).
 
         Called by web/routes/rankings.py:invalidate_zones_cache so that a
         curator zone-edit propagates to the existing parses without a
         separate backfill — the next read of each encounter re-classifies
-        against the updated zone trees.
-
-        Brute-force table-wide invalidation is fine at current data size
-        (test parses only as of 2026-05-30). If the parses corpus grows past
-        ~10k encounters and this becomes painful, swap for a per-zone-targeted
-        invalidation using an is_player_computed_at timestamp."""
-        with sqlite3.connect(self.path) as conn:
+        against the updated zone trees."""
+        conn = self.init_db()
+        try:
             self.invalidate_is_player_cache_with_conn(conn)
+            conn.commit()
+        finally:
+            conn.close()
 
     @staticmethod
     def insert_damage_types_bulk(
-        conn: sqlite3.Connection,
+        conn: Any,
         combatant_name_to_id: dict[str, int],
         damage_types: list[DamageType],
     ) -> int:
@@ -355,12 +204,13 @@ class ParsesStore(BaseCatalogue):
             for dt in damage_types
             if dt.combatant_name in combatant_name_to_id
         ]
-        conn.executemany(_SQL["insert_damage_type"], rows)
+        cur = conn.cursor()
+        cur.executemany(_SQL["insert_damage_type"], rows)
         return len(rows)
 
     @staticmethod
     def insert_attack_types_bulk(
-        conn: sqlite3.Connection,
+        conn: Any,
         combatant_name_to_id: dict[str, int],
         attack_types: list[AttackType],
     ) -> int:
@@ -372,12 +222,13 @@ class ParsesStore(BaseCatalogue):
             for at in attack_types
             if at.combatant_name in combatant_name_to_id
         ]
-        conn.executemany(_SQL["insert_attack_type"], rows)
+        cur = conn.cursor()
+        cur.executemany(_SQL["insert_attack_type"], rows)
         return len(rows)
 
     @staticmethod
     def mark_ingested(
-        conn: sqlite3.Connection,
+        conn: Any,
         act_encid: str,
         encounter_id: int,
         *,
@@ -395,7 +246,7 @@ class ParsesStore(BaseCatalogue):
     # ---------------------------------------------------------------------------
 
     @staticmethod
-    def is_ingested(conn: sqlite3.Connection, act_encid: str, world: str = "Varsoon") -> bool:
+    def is_ingested(conn: Any, act_encid: str, world: str = "Varsoon") -> bool:
         row = conn.execute(
             _SQL["check_is_ingested"],
             (world, act_encid),
@@ -403,8 +254,7 @@ class ParsesStore(BaseCatalogue):
         return row is not None
 
     @staticmethod
-    def find_encounter_by_act_encid(conn: sqlite3.Connection, act_encid: str, world: str = "Varsoon") -> dict | None:
-        conn.row_factory = sqlite3.Row
+    def find_encounter_by_act_encid(conn: Any, act_encid: str, world: str = "Varsoon") -> dict | None:
         row = conn.execute(
             _SQL["find_encounter_by_act_encid"],
             (world, act_encid),
@@ -413,12 +263,11 @@ class ParsesStore(BaseCatalogue):
 
     @staticmethod
     def recent_encounters(
-        conn: sqlite3.Connection,
+        conn: Any,
         limit: int = 20,
         zone: str | None = None,
         world: str = "Varsoon",
     ) -> list[dict]:
-        conn.row_factory = sqlite3.Row
         if zone:
             rows = conn.execute(
                 _SQL["recent_encounters_by_zone"],
@@ -433,7 +282,7 @@ class ParsesStore(BaseCatalogue):
 
     @staticmethod
     def list_encounters_for_admin(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         search: str | None = None,
         limit: int = 200,
@@ -453,16 +302,15 @@ class ParsesStore(BaseCatalogue):
         unix timestamp (pass the previous page's last started_at).
         ``hidden_only`` narrows to soft-deleted rows — the restore workflow
         after a mistaken guild-wide delete."""
-        conn.row_factory = sqlite3.Row
         clauses: list[str] = []
         params: list = []
         if world is not None:
-            clauses.append("e.world = ?")
+            clauses.append("e.world = %s")
             params.append(world)
         if hidden_only:
             clauses.append("e.hidden_at IS NOT NULL")
         if before is not None:
-            clauses.append("e.started_at < ?")
+            clauses.append("e.started_at < %s")
             params.append(before)
         if search:
             like = f"%{search.lower()}%"
@@ -472,13 +320,14 @@ class ParsesStore(BaseCatalogue):
             id_term = search.strip().lstrip("#")
             if id_term.isdigit():
                 clauses.append(
-                    "(e.id = ? OR LOWER(title) LIKE ? OR LOWER(IFNULL(uploaded_by, '')) LIKE ?"
-                    " OR LOWER(IFNULL(guild_name, '')) LIKE ?)"
+                    "(e.id = %s OR LOWER(title) LIKE %s OR LOWER(COALESCE(uploaded_by, '')) LIKE %s"
+                    " OR LOWER(COALESCE(guild_name, '')) LIKE %s)"
                 )
                 params += [int(id_term), like, like, like]
             else:
                 clauses.append(
-                    "(LOWER(title) LIKE ? OR LOWER(IFNULL(uploaded_by, '')) LIKE ? OR LOWER(IFNULL(guild_name, '')) LIKE ?)"
+                    "(LOWER(title) LIKE %s OR LOWER(COALESCE(uploaded_by, '')) LIKE %s"
+                    " OR LOWER(COALESCE(guild_name, '')) LIKE %s)"
                 )
                 params += [like, like, like]
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -486,54 +335,51 @@ class ParsesStore(BaseCatalogue):
         return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
 
     @staticmethod
-    def delete_encounter(conn: sqlite3.Connection, encounter_id: int) -> bool:
+    def delete_encounter(conn: Any, encounter_id: int) -> bool:
         """Delete one encounter. Returns True if a row was removed, False if not
         found. ON DELETE CASCADE handles combatants / damage_types / attack_types
         / ingest_log."""
-        with conn:
-            cur = conn.execute(_SQL["delete_encounter"], (encounter_id,))
+        cur = conn.execute(_SQL["delete_encounter"], (encounter_id,))
+        conn.commit()
         return cur.rowcount > 0
 
     @staticmethod
-    def soft_delete_encounter(
-        conn: sqlite3.Connection, encounter_id: int, hidden_at: int, hidden_by: str | None = None
-    ) -> bool:
+    def soft_delete_encounter(conn: Any, encounter_id: int, hidden_at: int, hidden_by: str | None = None) -> bool:
         """Hide an encounter from the parses list without removing it, so any
         leaderboard entry sourced from it survives and its link still opens.
         ``hidden_by`` records the actor's discord id for the admin view.
         Only acts on a currently-visible row; returns True if it flipped one."""
-        with conn:
-            cur = conn.execute(
-                _SQL["soft_delete_encounter"],
-                (hidden_at, hidden_by, encounter_id),
-            )
+        cur = conn.execute(
+            _SQL["soft_delete_encounter"],
+            (hidden_at, hidden_by, encounter_id),
+        )
+        conn.commit()
         return cur.rowcount > 0
 
     @staticmethod
-    def unhide_encounter(conn: sqlite3.Connection, encounter_id: int) -> bool:
+    def unhide_encounter(conn: Any, encounter_id: int) -> bool:
         """Clear a soft-delete marker so a previously-hidden parse becomes visible
         again (used when its encounter is re-uploaded). Returns True if a hidden
         row was un-hidden."""
-        with conn:
-            cur = conn.execute(
-                _SQL["unhide_encounter"],
-                (encounter_id,),
-            )
+        cur = conn.execute(
+            _SQL["unhide_encounter"],
+            (encounter_id,),
+        )
+        conn.commit()
         return cur.rowcount > 0
 
     @staticmethod
-    def set_encounter_guild_name(conn: sqlite3.Connection, encounter_id: int, guild_name: str | None) -> bool:
+    def set_encounter_guild_name(conn: Any, encounter_id: int, guild_name: str | None) -> bool:
         """Set (or clear) the guild_name on an encounter row. Returns True if the row was updated."""
-        with conn:
-            cur = conn.execute(
-                _SQL["set_encounter_guild_name"],
-                (guild_name, encounter_id),
-            )
+        cur = conn.execute(
+            _SQL["set_encounter_guild_name"],
+            (guild_name, encounter_id),
+        )
+        conn.commit()
         return cur.rowcount > 0
 
     @staticmethod
-    def get_combatants_for_encounter(conn: sqlite3.Connection, encounter_id: int) -> list[dict]:
-        conn.row_factory = sqlite3.Row
+    def get_combatants_for_encounter(conn: Any, encounter_id: int) -> list[dict]:
         rows = conn.execute(
             _SQL["get_combatants_for_encounter"],
             (encounter_id,),
@@ -541,96 +387,81 @@ class ParsesStore(BaseCatalogue):
         return [dict(r) for r in rows]
 
     @staticmethod
-    def get_combatants_for_encounters(conn: sqlite3.Connection, encounter_ids: list[int]) -> dict[int, list[dict]]:
-        """Batched :meth:`get_combatants_for_encounter` — one query per 500
-        encounters instead of one per encounter (the rankings rebuild used
-        to N+1 this over the whole leaderboard). Rows keep the per-encounter
-        damage-DESC order."""
-        conn.row_factory = sqlite3.Row
+    def get_combatants_for_encounters(conn: Any, encounter_ids: list[int]) -> dict[int, list[dict]]:
+        """Batched :meth:`get_combatants_for_encounter` — ONE ``= ANY`` query
+        (the SQLite 500-id IN-list chunking is gone). Rows keep the
+        per-encounter damage-DESC order."""
         out: dict[int, list[dict]] = {eid: [] for eid in encounter_ids}
-        chunk_size = 500
-        for i in range(0, len(encounter_ids), chunk_size):
-            chunk = encounter_ids[i : i + chunk_size]
-            rows = conn.execute(
-                _SQL["get_combatants_for_encounters"].format(placeholders=",".join("?" * len(chunk))),
-                chunk,
-            ).fetchall()
-            for r in rows:
-                out[r["encounter_id"]].append(dict(r))
+        if not encounter_ids:
+            return out
+        rows = conn.execute(_SQL["get_combatants_for_encounters"], (list(encounter_ids),)).fetchall()
+        for r in rows:
+            out[r["encounter_id"]].append(dict(r))
         return out
 
     @staticmethod
     def get_top_attacks_for_combatant(
-        conn: sqlite3.Connection,
+        conn: Any,
         combatant_id: int,
         limit: int = 10,
     ) -> list[dict]:
         """Top damage abilities (excludes heals and the swing_type=100 rollup)."""
-        conn.row_factory = sqlite3.Row
-        placeholders = ",".join("?" * len(_DAMAGE_SWING_TYPES))
         rows = conn.execute(
-            _SQL["get_top_attacks_by_swing_type"].format(placeholders=placeholders),
-            (combatant_id, *_DAMAGE_SWING_TYPES, limit),
+            _SQL["get_top_attacks_by_swing_type"],
+            (combatant_id, _DAMAGE_SWING_TYPES, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 
     @staticmethod
     def get_top_heals_for_combatant(
-        conn: sqlite3.Connection,
+        conn: Any,
         combatant_id: int,
         limit: int = 10,
     ) -> list[dict]:
         """Top heal abilities (swing_type=3). `damage` column = amount healed;
         `resist` column distinguishes regular 'Hitpoints' heals from
         'Absorption' wards."""
-        conn.row_factory = sqlite3.Row
-        placeholders = ",".join("?" * len(_HEAL_SWING_TYPES))
         rows = conn.execute(
-            _SQL["get_top_attacks_by_swing_type"].format(placeholders=placeholders),
-            (combatant_id, *_HEAL_SWING_TYPES, limit),
+            _SQL["get_top_attacks_by_swing_type"],
+            (combatant_id, _HEAL_SWING_TYPES, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 
     @staticmethod
     def get_top_cures_for_combatant(
-        conn: sqlite3.Connection,
+        conn: Any,
         combatant_id: int,
         limit: int = 10,
     ) -> list[dict]:
         """Cure events (swing_type=20). The `damage` column is the count of
         detrimental effects removed; `hits` is how many times the cure was cast."""
-        conn.row_factory = sqlite3.Row
-        placeholders = ",".join("?" * len(_CURE_SWING_TYPES))
         rows = conn.execute(
-            _SQL["get_top_cures"].format(placeholders=placeholders),
-            (combatant_id, *_CURE_SWING_TYPES, limit),
+            _SQL["get_top_cures"],
+            (combatant_id, _CURE_SWING_TYPES, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 
     @staticmethod
     def get_top_threats_for_combatant(
-        conn: sqlite3.Connection,
+        conn: Any,
         combatant_id: int,
         limit: int = 10,
     ) -> list[dict]:
         """Threat / buff-proc rows (swing_type=100, type != 'All'). For threat
         procs the `damage` column is the threat-increase value; `hits` is
         proc count."""
-        conn.row_factory = sqlite3.Row
-        placeholders = ",".join("?" * len(_THREAT_SWING_TYPES))
         rows = conn.execute(
-            _SQL["get_top_threats"].format(placeholders=placeholders),
-            (combatant_id, *_THREAT_SWING_TYPES, limit),
+            _SQL["get_top_threats"],
+            (combatant_id, _THREAT_SWING_TYPES, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 
     @staticmethod
     def get_damage_types_for_combatant(
-        conn: sqlite3.Connection,
+        conn: Any,
         combatant_id: int,
     ) -> list[dict]:
         """All damage_types rows for a combatant, sorted by damage DESC."""
-        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             _SQL["get_damage_types_for_combatant"],
             (combatant_id,),
@@ -638,12 +469,36 @@ class ParsesStore(BaseCatalogue):
         return [dict(r) for r in rows]
 
     # ---------------------------------------------------------------------------
+    # Tiered detail retention (cleanup sweep)
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def select_detail_prune_candidates(conn: Any, *, older_than: int, limit: int = 500) -> list[dict]:
+        """Encounters older than ``older_than`` whose breakdown rows are still
+        present (detail_pruned_at IS NULL), oldest first. The sweep classifies
+        each row's zone into its retention tier and prunes the overdue subset."""
+        rows = conn.execute(_SQL["select_detail_prune_candidates"], (older_than, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def prune_encounter_detail(conn: Any, encounter_ids: list[int], *, pruned_at: int) -> None:
+        """Drop attack_types + damage_types for the given encounters and stamp
+        detail_pruned_at (encounters + combatants stay forever). One
+        transaction; caller commits."""
+        if not encounter_ids:
+            return
+        ids = list(encounter_ids)
+        conn.execute(_SQL["prune_detail_attack_types"], (ids,))
+        conn.execute(_SQL["prune_detail_damage_types"], (ids,))
+        conn.execute(_SQL["mark_detail_pruned"], (pruned_at, ids))
+
+    # ---------------------------------------------------------------------------
     # client_warnings (soft warnings on otherwise-successful uploads)
     # ---------------------------------------------------------------------------
 
     @staticmethod
     def set_encounter_client_warnings(
-        conn: sqlite3.Connection,
+        conn: Any,
         encounter_id: int,
         warnings_json: str | None,
     ) -> None:
@@ -670,7 +525,7 @@ class ParsesStore(BaseCatalogue):
 
     @staticmethod
     def insert_tamper_report(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         world: str,
         act_encid: str,
@@ -719,11 +574,11 @@ class ParsesStore(BaseCatalogue):
             ),
         )
         row = cur.fetchone()
-        return int(row[0]) if row else 0
+        return int(row["id"]) if row else 0
 
     @staticmethod
     def list_tamper_reports(
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         world: str | None = None,
         reason: str | None = None,
@@ -745,10 +600,10 @@ class ParsesStore(BaseCatalogue):
         clauses: list[str] = []
         params: list = []
         if world is not None:
-            clauses.append("world = ?")
+            clauses.append("world = %s")
             params.append(world)
         if reason is not None:
-            clauses.append("reason = ?")
+            clauses.append("reason = %s")
             params.append(reason)
         if status == "pending":
             clauses.append("acknowledged_at IS NULL")
@@ -759,13 +614,12 @@ class ParsesStore(BaseCatalogue):
         else:
             raise ValueError(f"unknown status {status!r}")
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        conn.row_factory = sqlite3.Row
         sql = _SQL["list_tamper_reports"].format(where=where)
         return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
 
     @staticmethod
     def acknowledge_tamper_report(
-        conn: sqlite3.Connection,
+        conn: Any,
         report_id: int,
         *,
         acknowledged_at: int,
@@ -778,16 +632,16 @@ class ParsesStore(BaseCatalogue):
         wants to revisit, they can read the row via the ``status="ack"`` or
         ``status="all"`` listing.
         """
-        with conn:
-            cur = conn.execute(
-                _SQL["acknowledge_tamper_report"],
-                (acknowledged_at, acknowledged_by, report_id),
-            )
+        cur = conn.execute(
+            _SQL["acknowledge_tamper_report"],
+            (acknowledged_at, acknowledged_by, report_id),
+        )
+        conn.commit()
         return cur.rowcount > 0
 
     @staticmethod
     def acknowledge_tamper_reports(
-        conn: sqlite3.Connection,
+        conn: Any,
         report_ids: list[int],
         *,
         acknowledged_at: int,
@@ -797,17 +651,16 @@ class ParsesStore(BaseCatalogue):
         and unknown ids are silently skipped); returns the flipped count."""
         if not report_ids:
             return 0
-        placeholders = ",".join("?" * len(report_ids))
-        with conn:
-            cur = conn.execute(
-                _SQL["acknowledge_tamper_reports_bulk"].format(placeholders=placeholders),
-                [acknowledged_at, acknowledged_by, *report_ids],
-            )
+        cur = conn.execute(
+            _SQL["acknowledge_tamper_reports_bulk"],
+            (acknowledged_at, acknowledged_by, list(report_ids)),
+        )
+        conn.commit()
         return cur.rowcount
 
     @staticmethod
     def acknowledge_all_pending_tamper_reports(
-        conn: sqlite3.Connection,
+        conn: Any,
         world: str,
         *,
         acknowledged_at: int,
@@ -816,25 +669,25 @@ class ParsesStore(BaseCatalogue):
         """Ack every pending report for a world in one statement — the spam
         cleanup path (a single hammering uploader can create far more rows
         than the 500-id batch endpoint can clear). Returns the flipped count."""
-        with conn:
-            cur = conn.execute(
-                _SQL["acknowledge_all_pending_tamper_reports"],
-                (acknowledged_at, acknowledged_by, world),
-            )
+        cur = conn.execute(
+            _SQL["acknowledge_all_pending_tamper_reports"],
+            (acknowledged_at, acknowledged_by, world),
+        )
+        conn.commit()
         return cur.rowcount
 
     @staticmethod
-    def delete_acknowledged_tamper_reports(conn: sqlite3.Connection, world: str) -> int:
+    def delete_acknowledged_tamper_reports(conn: Any, world: str) -> int:
         """Hard-delete already-acknowledged reports for a world to reclaim
         space after a spam flood. Reviewed rows only — pending ones are never
         touched. Returns the deleted count."""
-        with conn:
-            cur = conn.execute(_SQL["delete_acknowledged_tamper_reports"], (world,))
+        cur = conn.execute(_SQL["delete_acknowledged_tamper_reports"], (world,))
+        conn.commit()
         return cur.rowcount
 
     @staticmethod
     def count_pending_tamper_reports(
-        conn: sqlite3.Connection,
+        conn: Any,
         world: str | None = None,
     ) -> int:
         """Cheap count of unack'd reports — used by the admin panel badge so
@@ -846,7 +699,7 @@ class ParsesStore(BaseCatalogue):
                 _SQL["count_pending_tamper_reports_for_world"],
                 (world,),
             ).fetchone()
-        return int(row[0]) if row else 0
+        return int(row["n"]) if row else 0
 
 
 # The shared default instance — every runtime consumer goes through this.
