@@ -695,11 +695,17 @@ def _build_abilities_sync(
         # are damage abilities). Proc-carrying permanents (the Mythical's
         # Divine Light → Shock of Light damage shield) become PASSIVES —
         # their stats part is in the sheet but the proc stream is not.
-        if (
-            beneficial
-            and not components
-            and not (duration_s and TEMP_BUFF_MIN_DURATION_S <= duration_s <= TEMP_BUFF_MAX_DURATION_S)
-        ):
+        # "Rotated temp" needs recast > duration, same rule as the raid
+        # buff-tiers path: a recast at or under the duration is 100%
+        # maintainable — functionally until-cancelled (Inquisitor
+        # Fanaticism reads 36s but recasts in 3s, Act of War 36s/2s; both
+        # are concentration toggles, not rotation casts).
+        rotated_temp = bool(
+            duration_s
+            and TEMP_BUFF_MIN_DURATION_S <= duration_s <= TEMP_BUFF_MAX_DURATION_S
+            and float(r.get("recast_secs") or 0.0) > duration_s
+        )
+        if beneficial and not components and not rotated_temp:
             if procs:
                 spell_passives.append(
                     RotationAbilityResponse(

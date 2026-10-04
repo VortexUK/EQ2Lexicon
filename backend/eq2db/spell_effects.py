@@ -781,6 +781,29 @@ def parse_ability_adjustments(lines: list[str], subject: str | None = None) -> l
 #: gear swap moved it by exactly delta-AM/3), modeled as a
 #: trigger_count=1 proc so the proc damage rule applies.
 STATIC_AA_BASES: dict[str, dict] = {
+    # Acceleration Strike (berserker AA): the damage line is unscaled junk
+    # at every TLE band — the lv-70 rows read 167-279 at ALL ten ranks and
+    # the lv-100 rows 259-433 (only the Accelerated haste/duration scale
+    # with rank, so the level-80 interpolation 198-330 can't reproduce the
+    # tooltip at any single gear bonus). Base reversed from Badbang's
+    # in-game examine at rank 10 (1,196-1,599 melee; chain+1/2 = 3.7967 —
+    # STR 1365 → PSB 0.7161, potency 92.1%, G 0 — minus AM 714 on the
+    # single-target hit). Damage is rank-invariant in census, so one base
+    # serves every rank. The Accelerated self-buff/counter package is left
+    # to the effect lines.
+    "acceleration strike": {
+        "components": [
+            {
+                "kind": "hit",
+                "min_dmg": 127.0,
+                "max_dmg": 233.1,
+                "school": "melee",
+                "target_scope": "single",
+                "condition": None,
+            },
+        ],
+        "procs": [],
+    },
     # Glacial Strike (mystic AA): the HIT line is genuine census data
     # (61-67 melee at rank 5 reproduces the in-game 1,305-1,322 with the
     # live ability mod), but the DOT line is unscaled at EVERY band

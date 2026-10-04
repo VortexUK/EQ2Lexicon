@@ -179,7 +179,7 @@ async def test_partial_unscaled_component_flagged_relative(app):
 async def test_rotation_beneficial_gate(app):
     rows = {
         1: _row(1, "Permanent Buff", beneficial=1, effects=[]),  # no duration → dropped
-        2: _row(2, "Temp Burst", beneficial=1, effects=[]),  # 30s duration → kept
+        2: _row(2, "Temp Burst", beneficial=1, recast=90.0, effects=[]),  # 30s dur / 90s recast → kept
         3: _row(3, "Hour Buff", beneficial=1, effects=[]),  # 3600s → dropped (permanent-shaped)
     }
     meta = {
@@ -191,6 +191,51 @@ async def test_rotation_beneficial_gate(app):
         r = await _get(app, _fake_char(spell_ids=[1, 2, 3]))
     names = [a["name"] for a in r.json()["abilities"]]
     assert names == ["Temp Burst"]
+
+
+@pytest.mark.asyncio
+async def test_rotation_maintained_buff_never_a_rotated_temp(app):
+    """A recast at or under the duration means 100% maintainable —
+    functionally until-cancelled, NOT a rotation cast, even when the
+    census duration sits inside the temp-buff band. The Inquisitor pair
+    that exposed it: Fanaticism (36s dur / 3s recast, pure stats →
+    dropped) and Act of War (36s / 2s, carries a damage proc → joins the
+    passives as an always-on proc stream). Recast == duration counts as
+    maintainable too (stances)."""
+    rows = {
+        1: _row(1, "Fanaticism II", beneficial=1, recast=3.0, effects=[]),
+        2: _row(
+            2,
+            "Act of War IV",
+            beneficial=1,
+            recast=2.0,
+            effects=[
+                {
+                    "description": (
+                        "On any combat or spell hit this spell may cast Strike of Faith on target of attack.  "
+                        "Triggers about 1.0 times per minute."
+                    ),
+                    "indentation": 0,
+                },
+                {"description": "Inflicts 366 divine damage on target.", "indentation": 1},
+            ],
+        ),
+        3: _row(3, "Stancey Stance", beneficial=1, recast=30.0, effects=[]),  # recast == duration
+    }
+    meta = {
+        "Fanaticism II (Master)": {"spell_duration": 3600.0, "spell_power_cost": None},  # 36s
+        "Act of War IV (Master)": {"spell_duration": 3600.0, "spell_power_cost": None},
+        "Stancey Stance (Master)": {"spell_duration": 3000.0, "spell_power_cost": None},  # 30s
+    }
+    p1, p2, p3 = _catalogue_patches(rows, meta)
+    with p1, p2, p3:
+        r = await _get(app, _fake_char(spell_ids=[1, 2, 3]))
+    body = r.json()
+    assert body["abilities"] == []
+    (p,) = body["passives"]
+    assert p["name"] == "Act of War IV"
+    (proc,) = p["procs"]
+    assert proc["name"] == "Strike of Faith" and proc["per_minute"] == 1.0
 
 
 @pytest.mark.asyncio
@@ -483,6 +528,44 @@ async def test_rotation_aa_static_bases_replace_unscaled_census(app):
     (proc,) = a["procs"]
     assert proc["trigger"] == "termination" and proc["trigger_count"] == 1.0
     assert proc["components"][0]["min_dmg"] == 5.1
+
+
+@pytest.mark.asyncio
+async def test_rotation_acceleration_strike_static_base(app):
+    """Acceleration Strike (berserker AA): census damage reads the same
+    167-279 at every rank while only the Accelerated buff scales — junk
+    next to the live tooltip. The curated base (reversed from Badbang's
+    rank-10 examine, 1,196-1,599) replaces it at any rank."""
+    from backend.server.api.character import rotation as mod
+
+    row = _row(903, "Acceleration Strike", spell_type="arts", level=70, crc=890)
+    row["tier"] = 4
+    row["effects"] = json.dumps(
+        [
+            {"description": "Applies Accelerated.  Lasts for 22.0 seconds.", "indentation": 0},
+            {"description": "Increases Haste of caster by 27.5.", "indentation": 1},
+            {"description": "Inflicts 167 - 279 melee damage on target", "indentation": 0},
+        ]
+    )
+    tree = {
+        "name": "T",
+        "tree_type": "subclass",
+        "nodes": [{"node_id": 100, "name": "Acceleration Strike", "spellcrc": 890}],
+    }
+    p1, p2, p3 = _catalogue_patches({})
+    with (
+        p1,
+        p2,
+        p3,
+        patch.object(mod._aas, "get_tree", lambda tid: tree),
+        patch.object(mod._spells, "find_by_crc_bands", lambda crc, tier: [row] if crc == 890 else []),
+    ):
+        r = await _get(app, _fake_char(spell_ids=[]), aa_trees=[(49, {"100": 4})])
+    (a,) = r.json()["abilities"]
+    (comp,) = a["components"]
+    assert (comp["kind"], comp["min_dmg"], comp["max_dmg"], comp["school"]) == ("hit", 127.0, 233.1, "melee")
+    assert not comp["suspect_low_value"]
+    assert a["has_unparsed_damage"] is False
 
 
 @pytest.mark.asyncio
