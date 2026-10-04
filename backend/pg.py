@@ -105,6 +105,30 @@ def connection() -> Iterator[Any]:
             yield conn
 
 
+def getconn() -> Any:
+    """Caller-owned sync checkout — ALWAYS pair with :func:`putconn`.
+    Pooled when the lifespan opened pools, else a direct connection.
+    For scoped work prefer the :func:`connection` contextmanager; this
+    exists for the catalogue families' caller-owns-connection pattern
+    (PgCatalogue.init_db in backend/db_catalogue.py)."""
+    if _sync_pool is not None:
+        return _sync_pool.getconn()
+    return psycopg.connect(dsn(), row_factory=dict_row)  # type: ignore[arg-type]
+
+
+def putconn(conn: Any) -> None:
+    """Return a :func:`getconn` connection. Pool-origin connections go back
+    to the pool (psycopg_pool resets them); direct ones just close. The
+    pool-closed-since race degrades to close()."""
+    if _sync_pool is not None:
+        try:
+            _sync_pool.putconn(conn)
+        except ValueError:
+            conn.close()
+        return
+    conn.close()
+
+
 def search_path_sql(schema: str) -> pgsql.Composed:
     """The one statement stores run at checkout — composed so a schema
     name can never inject (test scratch schemas are generated names)."""

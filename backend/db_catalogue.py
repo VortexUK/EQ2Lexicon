@@ -362,3 +362,79 @@ class PgStoreBase(SchemaBound):
         async with pg.aconnection() as conn:
             await conn.execute(pg.search_path_sql(self.schema))
             yield conn
+
+
+class PgConnProxy:
+    """A caller-owned Postgres connection scoped to one family schema.
+
+    Mimics the sqlite3.Connection surface the catalogue callers actually
+    use — ``execute``/``executemany``/``commit``/``rollback``/``close``,
+    plus the sqlite transaction-scope ``with`` shape (commit on clean
+    exit, rollback on exception, THEN return to the pool — sqlite's
+    ``with`` kept the handle open, but no converted caller reuses it).
+    ``close()`` returns the connection to the pool rather than killing a
+    pooled connection. Rows are dicts (dict_row)."""
+
+    def __init__(self, schema: str) -> None:
+        from backend import pg
+
+        self._pg = pg
+        self._conn: Any = pg.getconn()
+        self._conn.execute(pg.search_path_sql(schema))
+
+    def execute(self, sql: str, params: Any = None) -> Any:
+        return self._conn.execute(sql, params)
+
+    def executemany(self, sql: str, params_seq: Any) -> Any:
+        cur = self._conn.cursor()
+        cur.executemany(sql, params_seq)
+        return cur
+
+    def cursor(self) -> Any:
+        return self._conn.cursor()
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        conn, self._conn = self._conn, None
+        if conn is not None:
+            self._pg.putconn(conn)
+
+    def __enter__(self) -> PgConnProxy:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        try:
+            if self._conn is not None:
+                if exc_type is None:
+                    self._conn.commit()
+                else:
+                    self._conn.rollback()
+        finally:
+            self.close()
+
+
+class PgCatalogue(SchemaBound):
+    """Sync Postgres analogue of :class:`BaseCatalogue` for the
+    caller-owns-connection families (parses, census, zones, raids).
+
+    ``init_db()`` KEEPS ITS NAME but creates nothing — schema DDL is owned
+    by db/migrations/. It returns an open :class:`PgConnProxy` scoped to
+    ``self.schema``, preserving the ``conn = store.init_db(); …;
+    conn.close()`` caller shape across ~60 sites."""
+
+    def init_db(self) -> PgConnProxy:
+        return PgConnProxy(self.schema)
+
+    @staticmethod
+    def fetchval(cur: Any) -> Any:
+        """First column of the first row (or None) — the dict-row
+        replacement for sqlite's positional ``fetchone()[0]``."""
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return next(iter(row.values()))
