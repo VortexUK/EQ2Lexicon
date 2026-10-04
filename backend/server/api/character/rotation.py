@@ -35,6 +35,7 @@ from backend.eq2db.spell_effects import (
     ParsedEffects,
     ProcTriggerInfo,
     aa_subject_of,
+    apply_interval_overrides,
     apply_mod_key_overrides,
     apply_text_overrides,
     extract_damage_pairs,
@@ -376,6 +377,10 @@ def _build_aa_entries_sync(
             if static is not None:
                 parsed["components"], parsed["procs"] = static
                 parsed["unparsed_damage"] = []
+            # Measured pulse-cadence corrections (Exorcise 7.1s vs census 6s).
+            apply_interval_overrides(
+                _spells.strip_roman(row.get("name") or node.get("name") or ""), parsed["components"]
+            )
             level = row.get("level") or 0
             lasts = parsed["lasts_for_s"]
             components, procs = _build_component_models(parsed, lasts, level)
@@ -681,6 +686,8 @@ def _build_abilities_sync(
         if class_static is not None:
             parsed["components"] = class_static
             parsed["unparsed_damage"] = []
+        # Measured pulse-cadence corrections (name-keyed; Exorcise 7.1s).
+        apply_interval_overrides(_spells.strip_roman(r.get("name") or ""), parsed["components"])
 
         raw_duration = m.get("spell_duration")
         duration_s = (raw_duration / SPELL_DURATION_DIVISOR) if raw_duration else None

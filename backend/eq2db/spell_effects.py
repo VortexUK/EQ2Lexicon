@@ -607,6 +607,28 @@ STATIC_AA_BASE_DAMAGE: dict[str, float] = {
     "smite wrath": 5.0,
 }
 
+#: Measured pulse-cadence corrections (lowercased base name -> seconds).
+#: Exorcise's maintained stream ticks every 7.1s in game where the census
+#: text says 6s (Menludiir log, an ~18% slowdown no speed stat explains —
+#: suspiciously close to the Perks +20% beneficial-duration stretch, which
+#: would give 7.2s; a precise re-measure could reattribute this to the
+#: perk). Keyed by spell name, so every class sharing the AA gets it —
+#: Exorcise is in the CLERIC class tree: Templar AND Inquisitor.
+STATIC_PULSE_INTERVALS: dict[str, float] = {
+    "exorcise": 7.1,
+}
+
+
+def apply_interval_overrides(base_name: str, components: list[DamageComponent]) -> None:
+    """Replace pulse-wrapper tick cadence IN PLACE with the measured value."""
+    secs = STATIC_PULSE_INTERVALS.get(base_name.strip().lower())
+    if secs is None:
+        return
+    for c in components:
+        if c.get("kind") == "dot" and c.get("from_pulse") and c.get("interval_s"):
+            c["interval_s"] = secs
+
+
 #: Era mod-KEY corrections (lowercased base name -> {census key: era key}):
 #: census text names the modern stat but the TLE effect is another one.
 #: Velocity reads "Increases Multi Attack" on live; on TLE it is a DPS
