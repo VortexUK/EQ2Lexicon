@@ -368,10 +368,11 @@ async def test_delete_batch_caps_at_max_ids(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.delete("/api/parses/batch?ids=" + ",".join(map(str, ids)))
     assert r.status_code == 200
-    # First execute() is the auth SELECT: [*ids, world] — exactly the cap + world.
-    select_params = conn.execute.call_args_list[0].args[1]
-    assert len(select_params) == PARSE_BATCH_MAX_IDS + 1
-    assert select_params[:PARSE_BATCH_MAX_IDS] == ids[:PARSE_BATCH_MAX_IDS]
+    # First execute() is the auth SELECT: (ids via = ANY, world) — exactly the cap.
+    ids_param, world_param = conn.execute.call_args_list[0].args[1]
+    assert len(ids_param) == PARSE_BATCH_MAX_IDS
+    assert ids_param == ids[:PARSE_BATCH_MAX_IDS]
+    assert world_param == "Varsoon"
 
 
 @pytest.mark.asyncio
@@ -430,16 +431,14 @@ async def test_delete_batch_audit_names_the_guilds(app):
 
 
 @pytest.mark.asyncio
-async def test_list_excludes_hidden_rows(app, tmp_path, monkeypatch):
-    # Real temp DB: one visible boss kill, one soft-deleted.
+async def test_list_excludes_hidden_rows(app, parses_db_path):
+    # Real leased parses schema: one visible boss kill, one soft-deleted.
     import time as _t
 
     from backend.server.parses import db as pdb
     from backend.server.parses.models import Encounter
 
-    db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb.store, "path", db_file)
-    conn = pdb.ParsesStore(db_file).init_db()
+    conn = pdb.store.init_db()
     for encid, title in [("AAA", "Tarinax"), ("BBB", "Venekor")]:
         enc = Encounter(
             encid=encid,

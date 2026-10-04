@@ -1466,7 +1466,7 @@ async def test_window_route_put_fixes_session(app):
 
 
 def _seed_parse_fight(
-    db_path,
+    schema,
     *,
     title="Trakanon",
     started_at,
@@ -1476,13 +1476,11 @@ def _seed_parse_fight(
     world=_WORLD,
     hidden=False,
 ):
-    import sqlite3 as _sq
-
-    with _sq.connect(db_path) as conn:
+    with pg_conn(schema) as conn:
         cur = conn.execute(
             "INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at, duration_s, "
             "success_level, source_dsn, uploaded_by, guild_name, ingested_at, hidden_at) "
-            "VALUES (?, ?, ?, 'Veeshan''s Peak', ?, ?, ?, 1, 'eq2act', 'Up', ?, ?, ?)",
+            "VALUES (%s, %s, %s, 'Veeshan''s Peak', %s, %s, %s, 1, 'eq2act', 'Up', %s, %s, %s) RETURNING id",
             (
                 world,
                 f"enc-{started_at}-{title}",
@@ -1495,13 +1493,12 @@ def _seed_parse_fight(
                 started_at if hidden else None,
             ),
         )
-        eid = int(cur.lastrowid or 0)
+        eid = int(cur.fetchone()["id"])
         for name in players:
             conn.execute(
-                "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, 1, 1)",
+                "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (%s, %s, 1, 1)",
                 (eid, name),
             )
-        conn.commit()
     return eid
 
 

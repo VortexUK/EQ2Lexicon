@@ -263,57 +263,46 @@ async def test_delete_mob_no_invalidation_on_404(app, editor_override) -> None:
 # Phase 5 — invalidate_zones_cache also nukes combatant is_player
 # ---------------------------------------------------------------------------
 
-import sqlite3
-from pathlib import Path
-
 from backend.server.parses import db as parses_db
 
 
 @pytest.fixture
-def parses_db_in_memory(monkeypatch, tmp_path):
-    """Shared in-memory parses DB for the duration of the test.
-
-    Patches invalidate_is_player_cache so it operates on the in-memory
-    connection rather than opening a new connection to DB_PATH."""
-    db_file = tmp_path / "parses.db"
-    conn = parses_db.ParsesStore(db_file).init_db()
-    monkeypatch.setattr(parses_db.store, "path", db_file)
-    monkeypatch.setattr(parses_db.store, "init_db", lambda *a, **k: conn)
-    monkeypatch.setattr(
-        parses_db.store,
-        "invalidate_is_player_cache",
-        lambda *a, **k: parses_db.store.invalidate_is_player_cache_with_conn(conn),
-    )
+def parses_db_leased(parses_db_path):
+    """Open store connection to a leased scratch parses schema (the shared
+    store is already re-pointed, so invalidate_is_player_cache's own
+    connection lands in the same schema)."""
+    conn = parses_db.store.init_db()
     try:
         yield conn
     finally:
         conn.close()
 
 
-def test_invalidate_zones_cache_nukes_combatant_is_player(parses_db_in_memory):
+def test_invalidate_zones_cache_nukes_combatant_is_player(parses_db_leased):
     from backend.server.api.rankings import invalidate_zones_cache
 
-    cur = parses_db_in_memory.execute(
+    cur = parses_db_leased.execute(
         """
         INSERT INTO encounters (
             act_encid, title, zone, started_at, ended_at, duration_s,
             total_damage, encdps, kills, deaths, source_dsn, ingested_at, world
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
         ("invZ", "Test", "Z", 1, 2, 1, 100, 100.0, 0, 0, "test", 1, "Varsoon"),
     )
-    enc_id = int(cur.lastrowid or 0)
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+    enc_id = int(cur.fetchone()["id"])
+    parses_db_leased.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (%s, %s, %s, %s)",
         (enc_id, "Alpha", 1, 1),
     )
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+    parses_db_leased.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (%s, %s, %s, %s)",
         (enc_id, "Bravo", 1, 0),
     )
-    parses_db_in_memory.commit()
+    parses_db_leased.commit()
 
     invalidate_zones_cache()
 
-    rows = parses_db_in_memory.execute("SELECT is_player FROM combatants").fetchall()
-    assert all(r[0] is None for r in rows), "every is_player must be NULL after invalidate_zones_cache"
+    rows = parses_db_leased.execute("SELECT is_player FROM combatants").fetchall()
+    assert all(r["is_player"] is None for r in rows), "every is_player must be NULL after invalidate_zones_cache"

@@ -1,18 +1,18 @@
 """Duplicate-key payloads on /api/parses/ingest.
 
 Before 2026-09-27 a payload with two attack_types rows for one
-(attacker, swingtype, type) key reached SQLite as a UNIQUE violation and
+(attacker, swingtype, type) key reached the DB as a UNIQUE violation and
 came back as a 500 + traceback. One third-party client retried that every
 ~2 s for nine hours. Now: identical repeats collapse, conflicting repeats
-are a 422 naming the keys, and any other IntegrityError is a 422 too.
+are a 422 naming the keys, and any other UniqueViolation is a 422 too.
 """
 
 from __future__ import annotations
 
 import copy
-import sqlite3
 from unittest.mock import AsyncMock, patch
 
+import psycopg
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -24,7 +24,7 @@ from backend.server.api.parses.ingest import (
     _damage_types_from_payload,
     _ingest_payload_sync,
 )
-from backend.server.parses import db as pdb
+from tests.fixtures.pg import pg_conn
 from tests.server._parses_ingest_fixtures import (
     _fake_require_user,
     _minimal_payload,
@@ -92,27 +92,16 @@ def test_message_caps_the_listed_keys_at_five():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def parses_tmp_db(tmp_path, monkeypatch):
-    db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb.store, "path", db_file)
-    pdb.ParsesStore(db_file).init_db().close()
-    return db_file
+def _encounter_count(schema: str) -> int:
+    with pg_conn(schema) as conn:
+        return conn.execute("SELECT COUNT(*) AS n FROM encounters").fetchone()["n"]
 
 
-def _encounter_count(db_file) -> int:
-    conn = sqlite3.connect(db_file)
-    try:
-        return conn.execute("SELECT COUNT(*) FROM encounters").fetchone()[0]
-    finally:
-        conn.close()
-
-
-def test_sync_ingest_rejects_conflicting_duplicates_and_writes_nothing(parses_tmp_db):
+def test_sync_ingest_rejects_conflicting_duplicates_and_writes_nothing(parses_db_path):
     payload = IngestRequest(**_payload_with_duplicate_attack(conflicting=True))
     with pytest.raises(DuplicatePayloadRows):
         _ingest_payload_sync(payload, "Menludiir", "Exordium", "plugin:123", {})
-    assert _encounter_count(parses_tmp_db) == 0
+    assert _encounter_count(parses_db_path) == 0
     # The encid was never marked ingested either, so a corrected re-upload works.
     fixed = IngestRequest(**_minimal_payload(encid="DUPL0001"))
     status, eid, _n_c, _n_dt, n_at = _ingest_payload_sync(fixed, "Menludiir", "Exordium", "plugin:123", {})
@@ -120,7 +109,7 @@ def test_sync_ingest_rejects_conflicting_duplicates_and_writes_nothing(parses_tm
     assert n_at == 2
 
 
-def test_sync_ingest_collapses_identical_duplicates(parses_tmp_db):
+def test_sync_ingest_collapses_identical_duplicates(parses_db_path):
     payload = IngestRequest(**_payload_with_duplicate_attack(conflicting=False))
     status, eid, _n_c, _n_dt, n_at = _ingest_payload_sync(payload, "Menludiir", "Exordium", "plugin:123", {})
     assert status == "inserted" and eid is not None
@@ -133,7 +122,7 @@ def test_sync_ingest_collapses_identical_duplicates(parses_tmp_db):
 
 
 @pytest.mark.asyncio
-async def test_route_returns_422_for_conflicting_duplicates(app, parses_tmp_db, caplog):
+async def test_route_returns_422_for_conflicting_duplicates(app, parses_db_path, caplog):
     with (
         patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user),
         patch("backend.server.api.parses.ingest._resolve_uploader_guild_async", new=AsyncMock(return_value="Exordium")),
@@ -148,7 +137,7 @@ async def test_route_returns_422_for_conflicting_duplicates(app, parses_tmp_db, 
     detail = r.json()["detail"]
     assert "attack_types" in detail and "Menludiir/2/Smite" in detail
     assert "retrying" in detail
-    assert _encounter_count(parses_tmp_db) == 0
+    assert _encounter_count(parses_db_path) == 0
     rejected = [m for m in caplog.messages if "rejected malformed payload" in m]
     assert len(rejected) == 1
     assert "EQ2AdvancedDesktop/1.25.77" in rejected[0] and "discord-123" in rejected[0]
@@ -162,7 +151,9 @@ async def test_route_maps_any_other_integrity_error_to_422(app):
         patch("backend.server.api.parses.ingest._resolve_combatant_snapshots", new=AsyncMock(return_value={})),
         patch(
             "backend.server.api.parses.ingest._ingest_payload_sync",
-            side_effect=sqlite3.IntegrityError("UNIQUE constraint failed: something.else"),
+            side_effect=psycopg.errors.UniqueViolation(
+                'duplicate key value violates unique constraint "something.else"'
+            ),
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

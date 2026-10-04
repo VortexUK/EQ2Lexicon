@@ -33,13 +33,21 @@ def _fake_admin(request=None):  # noqa: ARG001
     return _fake_admin_user
 
 
+@pytest.fixture(autouse=True)
+def _parses_schema(parses_db_path: str) -> str:
+    """Isolated leased parses schema per test — the fixture re-points the
+    shared store, so the admin route's argless ``store.init_db()`` and the
+    helpers below hit the same scratch schema."""
+    return parses_db_path
+
+
 def _seed_tamper_reports(now: int = 1700000000) -> list[int]:
     """Drop a fixed set of reports into the test DB and return their ids,
     newest-first so tests can refer to them by index."""
     _wipe_tamper_reports()
-    # The shared store's `path` is re-pointed by conftest, and init_db()
-    # reads it at call time — so this argless call and the admin route's
-    # argless call hit the same (redirected) DB.
+    # The shared store's schema is re-pointed by the autouse fixture above,
+    # and init_db() reads it at call time — so this argless call and the
+    # admin route's argless call hit the same leased scratch schema.
     conn = parses_db.store.init_db()
     ids: list[int] = []
     try:
@@ -222,14 +230,14 @@ async def test_acknowledge_flips_pending_row(app):
     conn = parses_db.store.init_db()
     try:
         row = conn.execute(
-            "SELECT acknowledged_at, acknowledged_by FROM tamper_reports WHERE id = ?",
+            "SELECT acknowledged_at, acknowledged_by FROM tamper_reports WHERE id = %s",
             (target,),
         ).fetchone()
     finally:
         conn.close()
 
-    assert row[0] is not None  # acknowledged_at populated
-    assert row[1] == "admin-1"  # actor
+    assert row["acknowledged_at"] is not None  # acknowledged_at populated
+    assert row["acknowledged_by"] == "admin-1"  # actor
 
 
 @pytest.mark.asyncio
@@ -251,12 +259,12 @@ async def test_acknowledge_idempotent_on_already_ack(app):
     conn = parses_db.store.init_db()
     try:
         row = conn.execute(
-            "SELECT acknowledged_by FROM tamper_reports WHERE id = ?",
+            "SELECT acknowledged_by FROM tamper_reports WHERE id = %s",
             (target,),
         ).fetchone()
     finally:
         conn.close()
-    assert row[0] == "someone-else"
+    assert row["acknowledged_by"] == "someone-else"
 
 
 @pytest.mark.asyncio
@@ -297,8 +305,10 @@ async def test_acknowledge_all_flips_every_pending(app):
 
     conn = parses_db.store.init_db()
     try:
-        pending = conn.execute("SELECT COUNT(*) FROM tamper_reports WHERE acknowledged_at IS NULL").fetchone()[0]
-        actor = conn.execute("SELECT acknowledged_by FROM tamper_reports WHERE id = ?", (ids[0],)).fetchone()[0]
+        pending = conn.execute("SELECT COUNT(*) AS n FROM tamper_reports WHERE acknowledged_at IS NULL").fetchone()["n"]
+        actor = conn.execute("SELECT acknowledged_by FROM tamper_reports WHERE id = %s", (ids[0],)).fetchone()[
+            "acknowledged_by"
+        ]
     finally:
         conn.close()
     assert pending == 0  # working set is clear
@@ -327,7 +337,7 @@ async def test_purge_deletes_only_acknowledged(app):
 
     conn = parses_db.store.init_db()
     try:
-        remaining = {row[0] for row in conn.execute("SELECT id FROM tamper_reports").fetchall()}
+        remaining = {row["id"] for row in conn.execute("SELECT id FROM tamper_reports").fetchall()}
     finally:
         conn.close()
     assert remaining == {ids[1], ids[3]}  # only the pending rows survive

@@ -80,6 +80,9 @@ interface ParseDetail {
   uploaded_by: string
   uploader_discord_id: string | null
   uploader_display_name: string | null
+  // Set when the retention sweep dropped the per-ability breakdown rows
+  // (summary numbers above are kept forever) — see parses/cleanup.py.
+  detail_pruned_at?: number | null
   combatants: CombatantSummary[]
 }
 
@@ -195,6 +198,12 @@ export default function ParsePage() {
       {data.hidden && (
         <p className="text-text-muted text-[0.8rem] mb-3 border border-border rounded-md px-3 py-2">
           This parse has been removed from the parses list, but is preserved here because it holds a ranking.
+        </p>
+      )}
+      {data.detail_pruned_at != null && (
+        <p className="text-text-muted text-[0.8rem] mb-3 border border-border rounded-md px-3 py-2">
+          The per-ability breakdown for this fight has been pruned by the retention policy — summary numbers,
+          rankings and the combatant list are kept forever.
         </p>
       )}
       {allies.length > 0 && (

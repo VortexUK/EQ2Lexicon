@@ -15,7 +15,6 @@ never send it, and the column stays NULL for those rows. We pin:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -26,40 +25,34 @@ from tests.server._parses_ingest_fixtures import _minimal_payload
 def _read_client_warnings(conn, encounter_id: int) -> str | None:
     """Return the raw client_warnings column for a row."""
     row = conn.execute(
-        "SELECT client_warnings FROM encounters WHERE id = ?",
+        "SELECT client_warnings FROM encounters WHERE id = %s",
         (encounter_id,),
     ).fetchone()
-    return None if row is None else row[0]
+    return None if row is None else row["client_warnings"]
 
 
-def _ingest_and_get(payload: dict, *, tmp_path, monkeypatch) -> tuple[int, Path]:
-    """Drive ``_ingest_payload_sync`` against a fresh tmp DB and return
-    (encounter_id, db_file). The shared store's ``path`` is monkeypatched
-    to db_file below, so both the ingest write and the read-back go
-    through the same redirected DB; reads construct ``ParsesStore(db_file)``
-    where they want to be explicit.
-    """
+def _ingest_and_get(payload: dict) -> int:
+    """Drive ``_ingest_payload_sync`` against the leased scratch schema (the
+    ``parses_db_path`` fixture has already re-pointed the shared store) and
+    return the new encounter id. Reads go through ``parses_db.store.init_db()``
+    which targets the same schema."""
     from backend.server.api.parses import IngestRequest
     from backend.server.api.parses.ingest import _ingest_payload_sync
-
-    db_file: Path = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(parses_db.store, "path", db_file)
-    parses_db.ParsesStore(db_file).init_db().close()
 
     req = IngestRequest(**payload)
     status, eid, *_ = _ingest_payload_sync(req, "Menludiir", "Exordium", "plugin:123", {})
     assert status == "inserted"
     assert eid is not None
-    return eid, db_file
+    return eid
 
 
-def test_client_warnings_persisted_as_json(tmp_path, monkeypatch):
+def test_client_warnings_persisted_as_json(parses_db_path):
     payload = _minimal_payload()
     payload["client_warnings"] = ["folder_hint_mismatch"]
 
-    eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
+    eid = _ingest_and_get(payload)
 
-    conn = parses_db.ParsesStore(db_file).init_db()
+    conn = parses_db.store.init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:
@@ -70,7 +63,7 @@ def test_client_warnings_persisted_as_json(tmp_path, monkeypatch):
     assert decoded == ["folder_hint_mismatch"]
 
 
-def test_client_warnings_absent_leaves_column_null(tmp_path, monkeypatch):
+def test_client_warnings_absent_leaves_column_null(parses_db_path):
     """The plugin omits the key entirely when there's nothing to flag.
     That's the resting state for non-tampered uploads — column stays
     NULL so the admin UI can use a single `warnings?.length` check to
@@ -78,9 +71,9 @@ def test_client_warnings_absent_leaves_column_null(tmp_path, monkeypatch):
     payload = _minimal_payload()
     assert "client_warnings" not in payload  # baseline
 
-    eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
+    eid = _ingest_and_get(payload)
 
-    conn = parses_db.ParsesStore(db_file).init_db()
+    conn = parses_db.store.init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:
@@ -89,16 +82,16 @@ def test_client_warnings_absent_leaves_column_null(tmp_path, monkeypatch):
     assert raw is None
 
 
-def test_client_warnings_empty_list_stored_as_null(tmp_path, monkeypatch):
+def test_client_warnings_empty_list_stored_as_null(parses_db_path):
     """An empty array round-trips to NULL, NOT to "[]". Either form means
     "no warnings" semantically, but NULL is the canonical resting state
     and lets the admin column-filter just check IS NULL / IS NOT NULL."""
     payload = _minimal_payload()
     payload["client_warnings"] = []
 
-    eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
+    eid = _ingest_and_get(payload)
 
-    conn = parses_db.ParsesStore(db_file).init_db()
+    conn = parses_db.store.init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:
@@ -107,7 +100,7 @@ def test_client_warnings_empty_list_stored_as_null(tmp_path, monkeypatch):
     assert raw is None
 
 
-def test_client_warnings_sanitises_entries(tmp_path, monkeypatch):
+def test_client_warnings_sanitises_entries(parses_db_path):
     """Defence-in-depth sanitisation at storage time. The plugin already
     enforces these caps client-side; we re-enforce on ingest so a
     tampered build of the plugin can't blow them past:
@@ -125,9 +118,9 @@ def test_client_warnings_sanitises_entries(tmp_path, monkeypatch):
         "x" * 100,  # over-long
     ]
 
-    eid, db_file = _ingest_and_get(payload, tmp_path=tmp_path, monkeypatch=monkeypatch)
+    eid = _ingest_and_get(payload)
 
-    conn = parses_db.ParsesStore(db_file).init_db()
+    conn = parses_db.store.init_db()
     try:
         raw = _read_client_warnings(conn, eid)
     finally:
@@ -140,7 +133,7 @@ def test_client_warnings_sanitises_entries(tmp_path, monkeypatch):
     assert decoded == ["folder_hint_mismatch", "x" * 64]
 
 
-def test_client_warnings_pydantic_rejects_oversized_list(tmp_path, monkeypatch):
+def test_client_warnings_pydantic_rejects_oversized_list():
     """The Pydantic validator on IngestRequest caps the list at 32 entries
     — a malformed/hostile payload doesn't reach the storage layer at all.
     Pin that ValidationError raises so the cap survives future refactors."""

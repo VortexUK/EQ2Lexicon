@@ -65,7 +65,6 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     BE-096: moved from module-level os.environ calls to avoid a race with
     pytest plugins (e.g. pytest-asyncio) that may import web.app during
     plugin discovery."""
-    os.environ["DB_CENSUS_PATH"] = str(_TEST_DB_DIR / "backend.census.db")
     os.environ["DB_ZONES_PATH"] = str(_TEST_DB_DIR / "zones.db")
     os.environ["DB_SPELLS_PATH"] = str(_TEST_DB_DIR / "spells.db")
     os.environ["DB_RECIPES_PATH"] = str(_TEST_DB_DIR / "recipes.db")
@@ -103,7 +102,6 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
 
     # Imports below this line read the env vars above when they evaluate their
     # module-level constants (DB_PATH, SESSION_SECRET, ...).
-    from backend.census import store as census_store
 
     # Force module-level DB_PATH constants to pick up the env vars set above.
     # The constants are evaluated at module import time; if a pytest plugin
@@ -121,8 +119,6 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     from backend.eq2db import spells as spells_db
     from backend.eq2db import zones as zones_db
 
-    census_store.DB_PATH = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
-    census_store.store.path = census_store.DB_PATH
     # eq2db catalogue modules: re-point both the module constant AND the
     # shared catalogue instance (its path was captured at import time).
     for mod, env_var, subdir, filename in (
@@ -226,6 +222,7 @@ def mock_character_cache():
 
 # Re-export per-domain fixtures so they can be requested from any test
 # directory (the fixtures' module location is implementation detail).
+from tests.fixtures.census_db import census_schema  # noqa: F401,E402
 from tests.fixtures.logging_state import _logging_state_isolation  # noqa: F401,E402
 from tests.fixtures.parses_db import parses_db_conn, parses_db_path  # noqa: F401,E402
 from tests.fixtures.pg import users_schema  # noqa: F401,E402

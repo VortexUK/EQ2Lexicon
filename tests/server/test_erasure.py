@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import base64
 import json
-import sqlite3
-from pathlib import Path
 from unittest.mock import patch
 
 import itsdangerous
@@ -17,8 +15,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from psycopg.types.json import Json
 
+from backend.server.db import erasure as erasure_mod
 from backend.server.db.erasure import DELETED_SOURCE_DSN, DELETED_USER_ID, erase_user_sync
-from backend.server.parses import db as pdb
 from tests.fixtures.pg import pg_conn
 from tests.fixtures.users import make_fake_admin
 
@@ -36,11 +34,10 @@ def users_db(users_schema: str) -> str:
 
 
 @pytest.fixture
-def parses_db(tmp_path, monkeypatch) -> Path:
-    db = tmp_path / "parses.db"
-    monkeypatch.setattr(pdb.store, "path", db)
-    pdb.ParsesStore(db).init_db().close()
-    return db
+def parses_db(parses_db_path: str) -> str:
+    """Leased parses schema — erasure reads ``parses.db.SCHEMA`` at call
+    time, and the ``parses_db_path`` fixture already re-points it."""
+    return parses_db_path
 
 
 def _seed_users(schema: str) -> None:
@@ -116,39 +113,39 @@ def _seed_users(schema: str) -> None:
         )
 
 
-def _seed_parses(db: Path) -> None:
-    with sqlite3.connect(db) as c:
+def _seed_parses(schema: str) -> None:
+    with pg_conn(schema) as c:
         for i, (dsn, hidden_by) in enumerate(
             ((f"plugin:{VICTIM}", None), (f"plugin:{OTHER}", VICTIM), (f"plugin:{OTHER}", OTHER)), start=1
         ):
             c.execute(
                 "INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at, duration_s, success_level, "
                 "source_dsn, uploaded_by, guild_name, ingested_at, hidden_at, hidden_by) "
-                "VALUES ('Varsoon', ?, 'Tarinax', 'Deathtoll', ?, ?, 60, 1, ?, 'Sihtric', 'Exordium', ?, ?, ?)",
+                "VALUES ('Varsoon', %s, 'Tarinax', 'Deathtoll', %s, %s, 60, 1, %s, 'Sihtric', 'Exordium', %s, %s, %s)",
                 (f"enc{i}", NOW, NOW + 60, dsn, NOW, NOW if hidden_by else None, hidden_by),
             )
         c.execute(
-            "INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn) VALUES ('Varsoon', 'enc1', 1, ?, ?)",
+            "INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn) VALUES ('Varsoon', 'enc1', 1, %s, %s)",
             (NOW, f"plugin:{VICTIM}"),
         )
         c.execute(
             "INSERT INTO tamper_reports (world, act_encid, title, started_at, ended_at, duration_s, uploader_logger_name, uploader_discord_id, uploader_discord_name, "
-            "guild_name, reason, reported_at, payload_json) VALUES ('Varsoon', 'enc1', 'Tarinax', 1800000000, 1800000060, 60, 'Sihtric', ?, 'Victim', 'Exordium', "
-            "'stale_encounter', ?, '{}')",
+            "guild_name, reason, reported_at, payload_json) VALUES ('Varsoon', 'enc1', 'Tarinax', 1800000000, 1800000060, 60, 'Sihtric', %s, 'Victim', 'Exordium', "
+            "'stale_encounter', %s, '{}')",
             (VICTIM, NOW),
         )
         c.execute(
             "INSERT INTO tamper_reports (world, act_encid, title, started_at, ended_at, duration_s, uploader_logger_name, uploader_discord_id, uploader_discord_name, "
-            "guild_name, reason, reported_at, payload_json) VALUES ('Varsoon', 'enc2', 'Tarinax', 1800000000, 1800000060, 60, 'Alt', ?, 'Other', 'Exordium', "
-            "'stale_encounter', ?, '{}')",
+            "guild_name, reason, reported_at, payload_json) VALUES ('Varsoon', 'enc2', 'Tarinax', 1800000000, 1800000060, 60, 'Alt', %s, 'Other', 'Exordium', "
+            "'stale_encounter', %s, '{}')",
             (OTHER, NOW),
         )
 
 
-def _count(db: Path, sql: str, *params) -> int:
-    """parses.db (still SQLite) — ``?`` placeholders."""
-    with sqlite3.connect(db) as c:
-        return c.execute(sql, params).fetchone()[0]
+def _count(schema: str, sql: str, *params) -> int:
+    """parses schema (Postgres) — ``%s`` placeholders, COUNT aliased AS n."""
+    with pg_conn(schema) as c:
+        return c.execute(sql, params).fetchone()["n"]
 
 
 def _count_u(schema: str, sql: str, *params) -> int:
@@ -166,7 +163,7 @@ def test_erase_removes_owned_rows_tombstones_authorship_and_strips_uploads(users
     _seed_users(users_db)
     _seed_parses(parses_db)
 
-    result = erase_user_sync(VICTIM, users_schema=users_db, parses_path=parses_db, now=NOW)
+    result = erase_user_sync(VICTIM, users_schema=users_db, parses_schema=parses_db, now=NOW)
 
     assert result.found is True
     # Owned rows gone; the other user's rows intact.
@@ -209,25 +206,25 @@ def test_erase_removes_owned_rows_tombstones_authorship_and_strips_uploads(users
         uploaders = c.execute("SELECT uploaders FROM attendance_sessions").fetchone()["uploaders"]
     assert uploaders == {OTHER: NOW}
     assert result.sessions_scrubbed == 1
-    # parses.db: uploads stay, identity stripped; hidden_by cleared; reports gone.
-    assert _count(parses_db, "SELECT COUNT(*) FROM encounters") == 3
-    assert _count(parses_db, "SELECT COUNT(*) FROM encounters WHERE source_dsn = ?", DELETED_SOURCE_DSN) == 1
-    assert _count(parses_db, "SELECT COUNT(*) FROM encounters WHERE source_dsn = ?", f"plugin:{OTHER}") == 2
-    assert _count(parses_db, "SELECT COUNT(*) FROM encounters WHERE hidden_by = ?", VICTIM) == 0
-    assert _count(parses_db, "SELECT COUNT(*) FROM encounters WHERE hidden_by = ?", OTHER) == 1
-    assert _count(parses_db, "SELECT COUNT(*) FROM ingest_log WHERE source_dsn = ?", DELETED_SOURCE_DSN) == 1
-    assert _count(parses_db, "SELECT COUNT(*) FROM tamper_reports WHERE uploader_discord_id = ?", VICTIM) == 0
-    assert _count(parses_db, "SELECT COUNT(*) FROM tamper_reports WHERE uploader_discord_id = ?", OTHER) == 1
+    # parses schema: uploads stay, identity stripped; hidden_by cleared; reports gone.
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM encounters") == 3
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM encounters WHERE source_dsn = %s", DELETED_SOURCE_DSN) == 1
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM encounters WHERE source_dsn = %s", f"plugin:{OTHER}") == 2
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM encounters WHERE hidden_by = %s", VICTIM) == 0
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM encounters WHERE hidden_by = %s", OTHER) == 1
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM ingest_log WHERE source_dsn = %s", DELETED_SOURCE_DSN) == 1
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM tamper_reports WHERE uploader_discord_id = %s", VICTIM) == 0
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM tamper_reports WHERE uploader_discord_id = %s", OTHER) == 1
     assert result.parses_anonymised == 1
     assert result.tamper_reports_deleted == 1
 
 
 def test_erase_is_idempotent_and_never_touches_the_tombstone(users_db, parses_db):
     _seed_users(users_db)
-    assert erase_user_sync(VICTIM, users_schema=users_db, parses_path=parses_db, now=NOW).found is True
-    again = erase_user_sync(VICTIM, users_schema=users_db, parses_path=parses_db, now=NOW)
+    assert erase_user_sync(VICTIM, users_schema=users_db, parses_schema=parses_db, now=NOW).found is True
+    again = erase_user_sync(VICTIM, users_schema=users_db, parses_schema=parses_db, now=NOW)
     assert again.found is False
-    assert erase_user_sync(DELETED_USER_ID, users_schema=users_db, parses_path=parses_db).found is False
+    assert erase_user_sync(DELETED_USER_ID, users_schema=users_db, parses_schema=parses_db).found is False
     assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", DELETED_USER_ID) == 1
 
 
@@ -290,7 +287,7 @@ async def test_self_service_erase_requires_typed_username_and_clears_session(app
     assert audit.call_args.args[0] == "user_erased"
     assert audit.call_args.kwargs["self_service"] is True
     assert _count_u(users_db, "SELECT COUNT(*) AS n FROM users WHERE discord_id = %s", VICTIM) == 0
-    assert _count(parses_db, "SELECT COUNT(*) FROM encounters WHERE source_dsn = ?", DELETED_SOURCE_DSN) == 1
+    assert _count(parses_db, "SELECT COUNT(*) AS n FROM encounters WHERE source_dsn = %s", DELETED_SOURCE_DSN) == 1
 
 
 async def test_self_service_erase_requires_login(app):

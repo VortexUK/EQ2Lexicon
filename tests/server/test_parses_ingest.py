@@ -139,7 +139,7 @@ async def test_ingest_revived_status_schedules_background(app):
 
 
 @pytest.mark.asyncio
-async def test_reupload_of_soft_deleted_parse_does_not_revive_it(tmp_path, monkeypatch):
+async def test_reupload_of_soft_deleted_parse_does_not_revive_it(parses_db_path):
     """Security: re-uploading a moderator-hidden parse must NOT un-hide it.
 
     Soft-delete is the moderation action; auto-reviving on re-upload let a
@@ -151,19 +151,15 @@ async def test_reupload_of_soft_deleted_parse_does_not_revive_it(tmp_path, monke
     from backend.server.api.parses.ingest import _ingest_payload_sync
     from backend.server.parses import db as pdb
 
-    db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb.store, "path", db_file)
-    # init the schema
-    pdb.ParsesStore(db_file).init_db().close()
-
     payload = IngestRequest(**_minimal_payload())
 
-    # First ingest → inserted.
+    # First ingest → inserted (the fixture re-pointed the shared store at a
+    # leased scratch schema).
     status, eid, *_ = _ingest_payload_sync(payload, "Menludiir", "Exordium", "plugin:123", {})
     assert status == "inserted" and eid is not None
 
     # Soft-delete it (as the delete route does for a boss kill).
-    conn = pdb.ParsesStore(db_file).init_db()
+    conn = pdb.store.init_db()
     try:
         pdb.store.soft_delete_encounter(conn, eid, hidden_at=1700000000)
         assert pdb.store.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is not None
@@ -175,7 +171,7 @@ async def test_reupload_of_soft_deleted_parse_does_not_revive_it(tmp_path, monke
     assert status2 == "skipped"
     assert eid2 is None
     # Still hidden — moderation preserved.
-    conn = pdb.ParsesStore(db_file).init_db()
+    conn = pdb.store.init_db()
     try:
         assert pdb.store.find_encounter_by_act_encid(conn, payload.encounter.encid)["hidden_at"] is not None
     finally:

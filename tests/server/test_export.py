@@ -7,7 +7,6 @@ through the REAL ingest path into the shared test parses DB.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -29,17 +28,13 @@ def users_db(users_schema: str) -> str:
 
 
 @pytest.fixture
-def isolated_parses_db(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A private parses DB for the ingest-backed e2e test. Writing to the
-    session-shared parses DB shifts encounter ids for every later test —
-    the parses-list tests' lazy is_player backfill resolves mocked ids
-    against the real DB, so a stray extra row breaks them at a distance."""
-    from backend.server.parses import db as parses_db
-
-    p = tmp_path / "parses.db"
-    monkeypatch.setattr(parses_db, "DB_PATH", p)
-    monkeypatch.setattr(parses_db.store, "path", p)
-    return p
+def isolated_parses_db(parses_db_path: str) -> str:
+    """A private leased parses schema for the ingest-backed e2e test.
+    Writing to the session-shared parses schema shifts encounter ids for
+    every later test — the parses-list tests' lazy is_player backfill
+    resolves mocked ids against the real DB, so a stray extra row breaks
+    them at a distance."""
+    return parses_db_path
 
 
 def _grant_api(users_db: str, discord_id: str = "discord-123") -> None:

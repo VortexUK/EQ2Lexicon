@@ -1,36 +1,36 @@
 """Persistent, deploy-surviving store of the last-known character + guild
-lookups. The web request path serves from here (via the in-memory cache) and
-never blocks on Census; background refreshes merge in fresh data "keep best
-known" — a sparse Census response never nulls out good data.
+lookups (the ``census`` Postgres schema). The web request path serves from
+here (via the in-memory cache) and never blocks on Census; background
+refreshes merge in fresh data "keep best known" — a sparse Census response
+never nulls out good data.
 
 All behaviour lives on :class:`CensusStore` (the catalogue convention — see
 backend/db_catalogue.py): the shared module-level ``store`` instance is the
 runtime entry point (consumers alias it ``census_store``); the get/upsert
 helpers take an open conn (callers batch reads/writes per connection) and are
-staticmethods. Tests construct ``CensusStore(tmp_db)``. SQL lives in the sibling
-store.sql (schema_* + DML blocks).
+staticmethods. ``init_db()`` returns a pooled schema-scoped connection proxy;
+schema DDL lives in db/migrations/0003_census.sql. ``data_json`` is jsonb —
+psycopg hands back parsed dicts and writes go through ``Json()``.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import sqlite3
 import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, TypedDict
 
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import resolve_db_path
+from psycopg.types.json import Json
+
+from backend.db_catalogue import PgCatalogue
 from backend.sql_loader import load_sql
 
 
 class StoreRecord(TypedDict):
     """Envelope returned by ``get_character`` / ``get_guild`` / ``get_character_aas``.
 
-    ``data`` is the original model_dump() dict stored as JSON; the caller
+    ``data`` is the original model_dump() dict stored as jsonb; the caller
     deserialises field-by-field as needed. ``last_resolved_at`` is a Unix
     timestamp of when Census last responded successfully for this entity.
     """
@@ -60,41 +60,23 @@ class GuildHistoryPoint(GuildHistorySnapshot):
 
 _log = logging.getLogger(__name__)
 
-
-DB_PATH: Path = resolve_db_path("DB_CENSUS_PATH", "census", "census.db")
-
 _SQL = load_sql(__file__)
 
-_MIGRATIONS: list[str] = []  # future schema bumps appended here
+#: Postgres schema the census family lives in (db/migrations/0003_census.sql).
+SCHEMA = "census"
 
 
-class CensusStore(BaseCatalogue):
-    """Read/write access to one census.db file (last-known Census lookups)."""
+class CensusStore(PgCatalogue):
+    """Read/write access to the census schema (last-known Census lookups)."""
 
-    # The three tables declare no foreign keys — the old init set the pragma
-    # as boilerplate, not because anything relied on cascade.
-    FOREIGN_KEYS = False
-
-    # census.db predates the shared _meta table and has no build provenance
-    # to track — rows carry their own timestamps.
-    CREATE_META = False
-
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
-
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_characters"])
-        conn.execute(_SQL["schema_guilds"])
-        conn.execute(_SQL["schema_character_aas"])
-        conn.execute(_SQL["schema_character_gear_sets"])
-        conn.execute(_SQL["schema_guild_history"])
-        self._apply_migrations(conn, _MIGRATIONS)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     # ── Characters ───────────────────────────────────────────────────────────
 
     @staticmethod
     def upsert_character(
-        conn: sqlite3.Connection,
+        conn: Any,
         name: str,
         world: str,
         data: dict,
@@ -135,7 +117,7 @@ class CensusStore(BaseCatalogue):
                 name,
                 data.get("level"),
                 data.get("guild_name"),
-                json.dumps(data),
+                Json(data),
                 resolved_ts,
                 write_ts,
             ),
@@ -143,12 +125,12 @@ class CensusStore(BaseCatalogue):
         conn.commit()
 
     @staticmethod
-    def get_character(conn: sqlite3.Connection, name: str, world: str) -> StoreRecord | None:
+    def get_character(conn: Any, name: str, world: str) -> StoreRecord | None:
         """Return {data, last_resolved_at} or None."""
         row = conn.execute(_SQL["select_character"], (name.lower(), world)).fetchone()
         if row is None:
             return None
-        return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
+        return {"data": row["data_json"], "last_resolved_at": row["last_resolved_at"]}
 
     @staticmethod
     def _like_prefix(prefix: str) -> str:
@@ -156,49 +138,43 @@ class CensusStore(BaseCatalogue):
         return prefix.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
     @staticmethod
-    def search_characters(conn: sqlite3.Connection, prefix: str, world: str, limit: int = 20) -> list[dict]:
+    def search_characters(conn: Any, prefix: str, world: str, limit: int = 20) -> list[dict]:
         """Name-prefix search over every character this server has seen
         (guild-roster merges pull whole guilds in) — the instant half of
-        /characters/search. Returns [{name, level, guild_name, cls}]."""
+        /characters/search. Returns [{name, level, guild_name, cls}].
+        ``cls`` comes straight from the jsonb blob in SQL."""
         rows = conn.execute(
             _SQL["search_characters_by_prefix"], (world, CensusStore._like_prefix(prefix), limit)
         ).fetchall()
-        out = []
-        for name, level, guild_name, data_json in rows:
-            try:
-                cls = (json.loads(data_json) or {}).get("cls")
-            except (TypeError, ValueError):
-                cls = None
-            out.append({"name": name, "level": level, "guild_name": guild_name, "cls": cls})
-        return out
+        return [{"name": r["name"], "level": r["level"], "guild_name": r["guild_name"], "cls": r["cls"]} for r in rows]
 
     @staticmethod
-    def search_guilds(conn: sqlite3.Connection, prefix: str, world: str, limit: int = 20) -> list[str]:
+    def search_guilds(conn: Any, prefix: str, world: str, limit: int = 20) -> list[str]:
         """Name-prefix search over every guild this server has seen."""
         rows = conn.execute(
             _SQL["search_guilds_by_prefix"], (world, CensusStore._like_prefix(prefix), limit)
         ).fetchall()
-        return [r[0] for r in rows]
+        return [r["name"] for r in rows]
 
     # ── Guilds ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def upsert_guild(conn: sqlite3.Connection, name: str, world: str, data: dict, *, now: int | None = None) -> None:
+    def upsert_guild(conn: Any, name: str, world: str, data: dict, *, now: int | None = None) -> None:
         """Store the guild roster blob (member names+ranks + info). Always replaces —
         the roster list is reliable from Census regardless of member login recency."""
         ts = int(time.time()) if now is None else now
         conn.execute(
             _SQL["upsert_guild"],
-            (name.lower(), world, name, json.dumps(data), ts, ts),
+            (name.lower(), world, name, Json(data), ts, ts),
         )
         conn.commit()
 
     @staticmethod
-    def get_guild(conn: sqlite3.Connection, name: str, world: str) -> StoreRecord | None:
+    def get_guild(conn: Any, name: str, world: str) -> StoreRecord | None:
         row = conn.execute(_SQL["select_guild"], (name.lower(), world)).fetchone()
         if row is None:
             return None
-        return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
+        return {"data": row["data_json"], "last_resolved_at": row["last_resolved_at"]}
 
     # ── Guild history ────────────────────────────────────────────────────────
 
@@ -209,7 +185,7 @@ class CensusStore(BaseCatalogue):
 
     @staticmethod
     def upsert_guild_history(
-        conn: sqlite3.Connection,
+        conn: Any,
         name: str,
         world: str,
         snapshot: GuildHistorySnapshot,
@@ -241,7 +217,7 @@ class CensusStore(BaseCatalogue):
 
     @staticmethod
     def get_guild_history(
-        conn: sqlite3.Connection, name: str, world: str, days: int, *, now: int | None = None
+        conn: Any, name: str, world: str, days: int, *, now: int | None = None
     ) -> list[GuildHistoryPoint]:
         """The guild's daily rows from ``days`` days ago (UTC) to today, oldest
         first. Empty list for a guild with no history."""
@@ -250,37 +226,37 @@ class CensusStore(BaseCatalogue):
         rows = conn.execute(_SQL["select_guild_history"], (world, name.lower(), since)).fetchall()
         return [
             {
-                "day": r[0],
-                "captured_at": r[1],
-                "level": r[2],
-                "members": r[3],
-                "accounts": r[4],
-                "achievement_count": r[5],
-                "max_level_members": r[6],
-                "distinct_classes": r[7],
+                "day": r["day"],
+                "captured_at": r["captured_at"],
+                "level": r["level"],
+                "members": r["members"],
+                "accounts": r["accounts"],
+                "achievement_count": r["achievement_count"],
+                "max_level_members": r["max_level_members"],
+                "distinct_classes": r["distinct_classes"],
             }
             for r in rows
         ]
 
     @staticmethod
-    def latest_guild_member_counts(conn: sqlite3.Connection, world: str, names_lower: Iterable[str]) -> dict[str, int]:
+    def latest_guild_member_counts(conn: Any, world: str, names_lower: Iterable[str]) -> dict[str, int]:
         """Latest-known member count for each requested guild, keyed by
         name_lower; guilds with no history rows are simply absent. One
-        grouped pass over guild_history (bare ``members`` rides the
-        MAX(day) row). Feeds the recruiting browse cards."""
+        DISTINCT ON pass over guild_history. Feeds the recruiting browse
+        cards."""
         wanted = set(names_lower)
         if not wanted:
             return {}
         out: dict[str, int] = {}
-        for name_lower, members, _day in conn.execute(_SQL["select_latest_member_counts"], (world,)):
-            if name_lower in wanted and members is not None:
-                out[name_lower] = int(members)
+        for r in conn.execute(_SQL["select_latest_member_counts"], (world,)).fetchall():
+            if r["name_lower"] in wanted and r["members"] is not None:
+                out[r["name_lower"]] = int(r["members"])
         return out
 
     # ── Character AAs ────────────────────────────────────────────────────────
 
     @staticmethod
-    def get_character_aas(conn: sqlite3.Connection, name: str, world: str) -> StoreRecord | None:
+    def get_character_aas(conn: Any, name: str, world: str) -> StoreRecord | None:
         """Return the persisted CharAAsResponse dict (or None) for (name, world).
 
         The record carries the model_dump() of the response plus a
@@ -288,14 +264,11 @@ class CensusStore(BaseCatalogue):
         row = conn.execute(_SQL["select_character_aas"], (name.lower(), world)).fetchone()
         if row is None:
             return None
-        return {
-            "data": json.loads(row[0]),
-            "last_resolved_at": row[1],
-        }
+        return {"data": row["data_json"], "last_resolved_at": row["last_resolved_at"]}
 
     @staticmethod
     def upsert_character_aas(
-        conn: sqlite3.Connection,
+        conn: Any,
         name: str,
         world: str,
         data: dict,
@@ -307,22 +280,22 @@ class CensusStore(BaseCatalogue):
         authoritative."""
         if now is None:
             now = int(time.time())
-        conn.execute(_SQL["upsert_character_aas"], (name.lower(), world, json.dumps(data), now))
+        conn.execute(_SQL["upsert_character_aas"], (name.lower(), world, Json(data), now))
         conn.commit()
 
     # ── Character gear sets ──────────────────────────────────────────────────
 
     @staticmethod
-    def get_character_gear_sets(conn: sqlite3.Connection, name: str, world: str) -> StoreRecord | None:
+    def get_character_gear_sets(conn: Any, name: str, world: str) -> StoreRecord | None:
         """The persisted gear-sets response dict (or None) for (name, world)."""
         row = conn.execute(_SQL["select_character_gear_sets"], (name.lower(), world)).fetchone()
         if row is None:
             return None
-        return {"data": json.loads(row[0]), "last_resolved_at": row[1]}
+        return {"data": row["data_json"], "last_resolved_at": row["last_resolved_at"]}
 
     @staticmethod
     def upsert_character_gear_sets(
-        conn: sqlite3.Connection,
+        conn: Any,
         name: str,
         world: str,
         data: dict,
@@ -336,7 +309,7 @@ class CensusStore(BaseCatalogue):
             now = int(time.time())
         conn.execute(
             _SQL["upsert_character_gear_sets"],
-            (name.lower(), world, json.dumps(data), now),
+            (name.lower(), world, Json(data), now),
         )
         conn.commit()
 

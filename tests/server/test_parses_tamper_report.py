@@ -28,6 +28,14 @@ from tests.server._parses_ingest_fixtures import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _parses_schema(parses_db_path: str) -> str:
+    """Isolated leased parses schema per test — the fixture re-points the
+    shared store, so the route's argless ``store.init_db()`` and the helpers
+    below hit the same scratch schema."""
+    return parses_db_path
+
+
 def _signed_with_reason(
     payload: dict,
     *,
@@ -58,16 +66,16 @@ def _read_encounter_count() -> int:
     the whole reason this endpoint exists separately."""
     conn = parses_db.store.init_db()
     try:
-        row = conn.execute("SELECT COUNT(*) FROM encounters").fetchone()
-        return int(row[0]) if row else 0
+        row = conn.execute("SELECT COUNT(*) AS n FROM encounters").fetchone()
+        return int(row["n"]) if row else 0
     finally:
         conn.close()
 
 
 def _wipe_tamper_reports() -> None:
-    """Per-test isolation. The session-scoped tmp DB is shared across
-    tests, but each tamper-report test starts with an empty table so
-    assertion counts don't drift across runs."""
+    """Belt-and-braces isolation: the leased scratch schema already starts
+    empty per test, but an explicit wipe keeps assertion counts honest even
+    if a future fixture change shares state again."""
     conn = parses_db.store.init_db()
     try:
         conn.execute("DELETE FROM tamper_reports")

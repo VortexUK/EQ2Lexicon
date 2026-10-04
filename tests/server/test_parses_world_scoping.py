@@ -12,8 +12,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from dataclasses import replace
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,8 +19,7 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.server.api.parses import IngestRequest
 from backend.server.api.parses.ingest import _ingest_payload_sync
-from backend.server.parses import db as parses_db
-from backend.server.parses.models import Encounter
+from tests.fixtures.pg import pg_conn
 from tests.fixtures.users import make_fake_admin
 
 _fake_admin_user = make_fake_admin(id="admin1")
@@ -89,49 +86,31 @@ def _minimal_payload(encid: str = "ABCD1234") -> dict:
 
 
 class TestIngestPayloadSyncWorldAttribution:
-    def test_logger_server_wuoshi_stores_under_wuoshi(self, tmp_path, monkeypatch):
+    def test_logger_server_wuoshi_stores_under_wuoshi(self, parses_db_path):
         """When ingest is called with world='Wuoshi', the encounter row has
         world='Wuoshi'."""
-        db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db.store, "path", db_file)
-        parses_db.ParsesStore(db_file).init_db().close()
-
         payload = IngestRequest(**_minimal_payload())
         status, eid, *_ = _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Wuoshi")
         assert status == "inserted"
 
-        conn = parses_db.ParsesStore(db_file).init_db()
-        try:
-            row = conn.execute("SELECT world FROM encounters WHERE id = ?", (eid,)).fetchone()
-            assert row[0] == "Wuoshi"
-        finally:
-            conn.close()
+        with pg_conn(parses_db_path) as conn:
+            row = conn.execute("SELECT world FROM encounters WHERE id = %s", (eid,)).fetchone()
+        assert row["world"] == "Wuoshi"
 
-    def test_ingest_log_world_matches_encounter(self, tmp_path, monkeypatch):
+    def test_ingest_log_world_matches_encounter(self, parses_db_path):
         """ingest_log.world must match the encounter's world."""
-        db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db.store, "path", db_file)
-        parses_db.ParsesStore(db_file).init_db().close()
-
         payload = IngestRequest(**_minimal_payload())
         _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Kaladim")
 
-        conn = parses_db.ParsesStore(db_file).init_db()
-        try:
+        with pg_conn(parses_db_path) as conn:
             row = conn.execute(
-                "SELECT world FROM ingest_log WHERE act_encid = ?", (payload.encounter.encid,)
+                "SELECT world FROM ingest_log WHERE act_encid = %s", (payload.encounter.encid,)
             ).fetchone()
-            assert row[0] == "Kaladim"
-        finally:
-            conn.close()
+        assert row["world"] == "Kaladim"
 
-    def test_same_encid_different_world_both_inserted(self, tmp_path, monkeypatch):
+    def test_same_encid_different_world_both_inserted(self, parses_db_path):
         """Two ingest calls with the same act_encid but different worlds must
         both succeed (no UNIQUE collision)."""
-        db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db.store, "path", db_file)
-        parses_db.ParsesStore(db_file).init_db().close()
-
         payload = IngestRequest(**_minimal_payload())
         status_v, eid_v, *_ = _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Varsoon")
         status_w, eid_w, *_ = _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Wuoshi")
@@ -139,22 +118,15 @@ class TestIngestPayloadSyncWorldAttribution:
         assert status_w == "inserted"
         assert eid_v != eid_w
 
-        conn = parses_db.ParsesStore(db_file).init_db()
-        try:
+        with pg_conn(parses_db_path) as conn:
             count = conn.execute(
-                "SELECT COUNT(*) FROM encounters WHERE act_encid = ?", (payload.encounter.encid,)
-            ).fetchone()[0]
-            assert count == 2
-        finally:
-            conn.close()
+                "SELECT COUNT(*) AS n FROM encounters WHERE act_encid = %s", (payload.encounter.encid,)
+            ).fetchone()["n"]
+        assert count == 2
 
-    def test_idempotency_is_world_scoped(self, tmp_path, monkeypatch):
+    def test_idempotency_is_world_scoped(self, parses_db_path):
         """Re-uploading the same (world, act_encid) returns 'skipped'; uploading
         the same act_encid under a DIFFERENT world is NOT skipped."""
-        db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db.store, "path", db_file)
-        parses_db.ParsesStore(db_file).init_db().close()
-
         payload = IngestRequest(**_minimal_payload())
         _ingest_payload_sync(payload, "Menludiir", None, "plugin:123", {}, world="Varsoon")
 
@@ -173,13 +145,9 @@ class TestIngestPayloadSyncWorldAttribution:
 
 
 class TestListEncountersSyncWorldScoping:
-    def test_varsoon_list_excludes_wuoshi_encounters(self, tmp_path, monkeypatch):
+    def test_varsoon_list_excludes_wuoshi_encounters(self, parses_db_path):
         """_list_encounters_sync(world='Varsoon') must not return encounters
         stored under 'Wuoshi'."""
-        db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db.store, "path", db_file)
-        parses_db.ParsesStore(db_file).init_db().close()
-
         payload_v = IngestRequest(**_minimal_payload("VARSOON1"))
         payload_w = IngestRequest(**_minimal_payload("WUOSHI01"))
 
@@ -213,14 +181,10 @@ class TestDeleteCrossServerIsolation:
         return _fake_admin_user
 
     @pytest.mark.asyncio
-    async def test_cross_server_delete_by_id_blocked(self, tmp_path, monkeypatch, app):
+    async def test_cross_server_delete_by_id_blocked(self, parses_db_path, app):
         """Seeded: id A=Varsoon, id B=Wuoshi.
         DELETE /api/parses/{B} under Varsoon context → 404, B still in DB.
         DELETE /api/parses/{A} under Varsoon context → 200, A gone."""
-        db_file = tmp_path / "backend.server.parses.db"
-        monkeypatch.setattr(parses_db.store, "path", db_file)
-        parses_db.ParsesStore(db_file).init_db().close()
-
         # Seed two encounters in different worlds.
         payload_a = IngestRequest(**_minimal_payload("AAAAAA"))
         payload_b = IngestRequest(**_minimal_payload("BBBBBB"))
@@ -243,12 +207,9 @@ class TestDeleteCrossServerIsolation:
         assert r_same.json() == {"deleted": 1}
 
         # Verify B still exists in the DB; A is gone.
-        conn = parses_db.ParsesStore(db_file).init_db()
-        try:
-            b_row = conn.execute("SELECT id FROM encounters WHERE id = ?", (id_b,)).fetchone()
-            a_row = conn.execute("SELECT id FROM encounters WHERE id = ?", (id_a,)).fetchone()
-        finally:
-            conn.close()
+        with pg_conn(parses_db_path) as conn:
+            b_row = conn.execute("SELECT id FROM encounters WHERE id = %s", (id_b,)).fetchone()
+            a_row = conn.execute("SELECT id FROM encounters WHERE id = %s", (id_a,)).fetchone()
 
         assert b_row is not None, "Wuoshi encounter B must still exist after cross-server delete attempt"
         assert a_row is None, "Varsoon encounter A must be gone after same-server delete"
@@ -328,7 +289,7 @@ def _http_payload(logger_server: str = "Wuoshi", encid: str = "E2E00001") -> dic
 
 
 @pytest.mark.asyncio
-async def test_http_ingest_attributes_encounter_world_from_logger_server(tmp_path, monkeypatch, app):
+async def test_http_ingest_attributes_encounter_world_from_logger_server(parses_db_path, app):
     """End-to-end: an HTTP POST to /api/parses/ingest with
     logger_server='Wuoshi' must result in encounters.world == 'Wuoshi'.
 
@@ -337,10 +298,6 @@ async def test_http_ingest_attributes_encounter_world_from_logger_server(tmp_pat
     parse_world = sanitized_server wiring in ingest_parse that was
     introduced in the merge of feature/per-server-urls (replacing the
     old _resolve_parse_world + current_world() fallback)."""
-    db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(parses_db.store, "path", db_file)
-    parses_db.ParsesStore(db_file).init_db().close()
-
     token = "eq2c_e2e_test_token"
 
     async def _fake_user(request):
@@ -379,14 +336,11 @@ async def test_http_ingest_attributes_encounter_world_from_logger_server(tmp_pat
     encounter_id = r.json()["encounter_id"]
     assert encounter_id is not None
 
-    conn = parses_db.ParsesStore(db_file).init_db()
-    try:
-        row = conn.execute("SELECT world FROM encounters WHERE id = ?", (encounter_id,)).fetchone()
-    finally:
-        conn.close()
+    with pg_conn(parses_db_path) as conn:
+        row = conn.execute("SELECT world FROM encounters WHERE id = %s", (encounter_id,)).fetchone()
 
     assert row is not None, "encounter row not found in DB"
-    assert row[0] == "Wuoshi", (
-        f"expected encounters.world='Wuoshi' but got {row[0]!r} — "
+    assert row["world"] == "Wuoshi", (
+        f"expected encounters.world='Wuoshi' but got {row['world']!r} — "
         "the parse_world=sanitized_server wiring in ingest_parse is broken"
     )

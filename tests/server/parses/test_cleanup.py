@@ -7,7 +7,7 @@ mirror-grouping path is exercised without building full combatant rows.
 
 from __future__ import annotations
 
-import sqlite3
+from typing import Any
 
 import pytest
 
@@ -20,18 +20,17 @@ DAY = 86_400
 
 
 @pytest.fixture
-def seeded_db(tmp_path, monkeypatch):
-    """Temp parses DB wired into both the seeding conn and the sweep (via
-    DB_PATH). Returns the seed connection."""
-    db_path = tmp_path / "parses.db"
-    monkeypatch.setattr(parses_db.store, "path", db_path)
-    conn = parses_db.ParsesStore(db_path).init_db()
+def seeded_db(parses_db_path: str):
+    """Leased scratch parses schema wired into both the seeding conn and the
+    sweep (the fixture re-points the shared store). Returns the seed
+    connection."""
+    conn = parses_db.ParsesStore(parses_db_path).init_db()
     yield conn
     conn.close()
 
 
 def _insert(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     title: str,
     started_at: int,
@@ -43,10 +42,10 @@ def _insert(
     guild_name: str | None = "Exordium",
     zone: str = "Castle Mistmoore",
 ) -> int:
-    cur = conn.execute(
+    row = conn.execute(
         "INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at, "
         "duration_s, success_level, source_dsn, uploaded_by, guild_name, ingested_at, hidden_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'eq2act', ?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'eq2act', %s, %s, %s, %s) RETURNING id",
         (
             world,
             f"enc-{world}-{started_at}-{uploaded_by}",
@@ -61,13 +60,13 @@ def _insert(
             started_at,
             hidden_at,
         ),
-    )
+    ).fetchone()
     conn.commit()
-    return int(cur.lastrowid)
+    return int(row["id"])
 
 
-def _ids(conn: sqlite3.Connection) -> set[int]:
-    return {r[0] for r in conn.execute("SELECT id FROM encounters").fetchall()}
+def _ids(conn: Any) -> set[int]:
+    return {r["id"] for r in conn.execute("SELECT id FROM encounters").fetchall()}
 
 
 def test_trash_deleted_after_cutoff_recent_survives(seeded_db):
@@ -184,5 +183,5 @@ def test_nothing_deleted_inside_retention_window(seeded_db):
 
     result = parse_cleanup.run_parse_cleanup(now=NOW, retention_days=3)
 
-    assert result == {"trash_deleted": 0, "dup_uploads_deleted": 0}
+    assert result == {"trash_deleted": 0, "dup_uploads_deleted": 0, "detail_pruned": 0}
     assert len(_ids(seeded_db)) == 3

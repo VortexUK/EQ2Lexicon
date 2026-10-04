@@ -511,15 +511,13 @@ def _ins(conn, encid, title, *, success, players, guild, duration):
     # the DB layer). Stamp every ally as a player directly so the test
     # data lands at the pre-classifier intent (all 8 are players, not
     # 6 after the 'other' zone bucket-fill cap).
-    conn.execute("UPDATE combatants SET is_player = 1 WHERE encounter_id = ? AND ally = 1", (eid,))
+    conn.execute("UPDATE combatants SET is_player = 1 WHERE encounter_id = %s AND ally = 1", (eid,))
     conn.commit()
 
 
 @pytest.fixture()
-def rankings_db(tmp_path, monkeypatch):
-    db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb.store, "path", db_file)
-    conn = pdb.ParsesStore(db_file).init_db()
+def rankings_db(parses_db_path):
+    conn = pdb.store.init_db()
     _ins(conn, "WIN", "Tarinax", success=1, players=8, guild="Exordium", duration=60)  # boss, raid
     _ins(conn, "TRASH", "a krait", success=1, players=8, guild="Exordium", duration=30)  # not boss
     _ins(conn, "LOSS", "Cazel", success=2, players=8, guild="Exordium", duration=90)  # not a win
@@ -533,7 +531,7 @@ def rankings_db(tmp_path, monkeypatch):
     rk.rankings_cache.delete(f"{rk._KILLS_KEY}:{world}")
     # Also clear the legacy bare key in case it was left behind by an older run.
     rk.rankings_cache.delete(rk._KILLS_KEY)
-    return db_file
+    return parses_db_path
 
 
 def test_loader_keeps_only_winning_boss_kills(rankings_db):
@@ -667,7 +665,7 @@ async def test_rankings_default_xpac_per_server(app, users_schema):
 
 
 @pytest.mark.asyncio
-async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path, users_schema):
+async def test_rankings_leaderboard_is_world_scoped(app, users_schema, parses_db_path):
     """The /rankings leaderboard endpoint must return per-world data via the
     executor call path.
 
@@ -688,10 +686,9 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path, 
     db.upsert_server_settings_sync("Wuoshi", max_level=70, current_xpac=None, launch_dt=None)
     server_context.load_registry()
 
-    # Seed a Varsoon boss kill and a distinct Wuoshi boss kill.
-    db_file = tmp_path / "backend.server.parses.db"
-    monkeypatch.setattr(pdb.store, "path", db_file)
-    conn = pdb.ParsesStore(db_file).init_db()
+    # Seed a Varsoon boss kill and a distinct Wuoshi boss kill (leased
+    # parses schema; the store is already re-pointed by parses_db_path).
+    conn = pdb.store.init_db()
     _ins(conn, "V-WIN", "Tarinax", success=1, players=8, guild="Exordium", duration=60)  # defaults to Varsoon
     # Wuoshi kill uses a different boss title so results are unambiguous.
     enc_w = Encounter(
@@ -763,7 +760,7 @@ async def test_rankings_leaderboard_is_world_scoped(app, monkeypatch, tmp_path, 
     # rankings loader's is_player=1 player_count subquery yields 8
     # (raid scope), not 6 after the 'other' zone bucket-fill cap.
     # Mirrors the same UPDATE in the _ins helper above.
-    conn.execute("UPDATE combatants SET is_player = 1 WHERE encounter_id = ? AND ally = 1", (weid,))
+    conn.execute("UPDATE combatants SET is_player = 1 WHERE encounter_id = %s AND ally = 1", (weid,))
     conn.commit()
     conn.close()
 
@@ -895,16 +892,15 @@ def test_resolve_boss_curated_zone_rejects_unmatched_titles():
 # ---------------------------------------------------------------------------
 
 
-def _ins_enemy(db_file, title, name, deaths=1):
-    import sqlite3 as _sqlite3
+def _ins_enemy(schema, title, name, deaths=1):
+    from tests.fixtures.pg import pg_conn
 
-    with _sqlite3.connect(db_file) as conn:
-        eid = conn.execute("SELECT id FROM encounters WHERE title = ?", (title,)).fetchone()[0]
+    with pg_conn(schema) as conn:
+        eid = conn.execute("SELECT id FROM encounters WHERE title = %s", (title,)).fetchone()["id"]
         conn.execute(
-            "INSERT INTO combatants (encounter_id, name, ally, deaths) VALUES (?, ?, 0, ?)",
+            "INSERT INTO combatants (encounter_id, name, ally, deaths) VALUES (%s, %s, 0, %s)",
             (eid, name, deaths),
         )
-        conn.commit()
 
 
 def test_missing_required_mobs():

@@ -336,7 +336,6 @@ class _DBFileSizeCollector(Collector):
     spot the difference via the labelset gap."""
 
     def collect(self):  # type: ignore[override]
-        from backend.census import store as census_store
         from backend.eq2db import classes as classes_db
         from backend.eq2db import items as items_db
         from backend.eq2db import raids as raids_db
@@ -348,7 +347,6 @@ class _DBFileSizeCollector(Collector):
         # (users + parses moved to Postgres — covered by the schema-size
         # gauge below instead of a file stat.)
         candidates = [
-            ("census", census_store.DB_PATH),
             ("raids", raids_db.DB_PATH),
             ("zones", zones_db.DB_PATH),
             ("items", items_db.DB_PATH),

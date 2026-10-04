@@ -34,8 +34,6 @@ _REFUSAL_STATUS = {
 
 
 def _last_resolved_character(name: str, world: str) -> int | None:
-    if not census_store.path.exists():
-        return None
     conn = census_store.init_db()
     try:
         rec = census_store.get_character(conn, name, world)
@@ -45,8 +43,6 @@ def _last_resolved_character(name: str, world: str) -> int | None:
 
 
 def _last_resolved_guild(name: str, world: str) -> int | None:
-    if not census_store.path.exists():
-        return None
     conn = census_store.init_db()
     try:
         rec = census_store.get_guild(conn, name, world)

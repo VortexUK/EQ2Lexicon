@@ -1,123 +1,76 @@
-"""Tests for parses.db — schema, migrations, helpers."""
+"""Tests for parses.db — schema invariants (migrations-owned DDL) + helpers."""
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime
 
+import psycopg.errors
 import pytest
 
+from backend import pg_migrate
 from backend.server.parses import db as parses_db
 from backend.server.parses.models import AttackType, Combatant, DamageType, Encounter
+from tests.fixtures.pg import pg_conn
 
 
-class TestInitDb:
-    def test_creates_all_tables(self, parses_db_conn):
-        tables = {r[0] for r in parses_db_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+class TestSchema:
+    """The schema DDL is owned by db/migrations/0002_parses.sql — these pin
+    the invariants the old SQLite init_db/migration tests guarded."""
+
+    def test_creates_all_tables(self, parses_db_path):
+        with pg_conn(parses_db_path) as conn:
+            rows = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
+                (parses_db_path,),
+            ).fetchall()
+        tables = {r["table_name"] for r in rows}
         assert tables >= {"encounters", "combatants", "damage_types", "attack_types", "ingest_log"}
 
-    def test_creates_indexes(self, parses_db_conn):
-        indexes = {r[0] for r in parses_db_conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+    def test_creates_indexes(self, parses_db_path):
+        with pg_conn(parses_db_path) as conn:
+            rows = conn.execute(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = %s",
+                (parses_db_path,),
+            ).fetchall()
+        indexes = {r["indexname"] for r in rows}
         assert "idx_encounters_started_desc" in indexes
         assert "idx_attack_types_damage_desc" in indexes
         assert "idx_combatants_ally" in indexes
 
-    def test_migrations_idempotent(self, parses_db_conn):
-        # Re-running every CREATE / migration on the same connection should be safe.
-        for stmt in (
-            parses_db._CREATE_ENCOUNTERS,
-            parses_db._CREATE_COMBATANTS,
-            parses_db._CREATE_DAMAGE_TYPES,
-            parses_db._CREATE_ATTACK_TYPES,
-            parses_db._CREATE_INGEST_LOG,
-        ):
-            parses_db_conn.execute(stmt)
-        for idx in parses_db._CREATE_INDEXES:
-            parses_db_conn.execute(idx)
-        # Migration runner is also idempotent on an already-migrated DB.
-        parses_db.store._migrate_attack_types_unique(parses_db_conn)
+    def test_migrations_idempotent(self):
+        """Descendant of the SQLite "re-run every CREATE / ALTER" check:
+        re-running the migration runner on an already-migrated database is
+        a no-op (the ledger skips every applied file)."""
+        assert pg_migrate.run() == []
 
-    def test_encounters_has_hidden_at_column(self, parses_db_conn):
-        cols = [r[1] for r in parses_db_conn.execute("PRAGMA table_info(encounters)").fetchall()]
+    def test_encounters_has_hidden_at_column(self, parses_db_path):
+        with pg_conn(parses_db_path) as conn:
+            rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_schema = %s AND table_name = 'encounters'",
+                (parses_db_path,),
+            ).fetchall()
+        cols = {r["column_name"] for r in rows}
         assert "hidden_at" in cols
 
-    def test_migrates_legacy_attack_types_unique(self):
-        """A DB created with the old UNIQUE(combatant_id, attack_name)
-        constraint gets transparently recreated with the new tuple, and
-        existing rows are preserved."""
-        conn = sqlite3.connect(":memory:")
-        try:
-            conn.execute("PRAGMA foreign_keys = ON;")
-            # Hand-build the legacy schema (encounters + combatants minimal,
-            # attack_types with the OLD UNIQUE).
-            conn.execute(parses_db._CREATE_ENCOUNTERS)
-            conn.execute(parses_db._CREATE_COMBATANTS)
-            conn.execute("""
-                CREATE TABLE attack_types (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    combatant_id INTEGER NOT NULL,
-                    victim TEXT,
-                    swing_type INTEGER NOT NULL DEFAULT 0,
-                    attack_name TEXT NOT NULL,
-                    started_at INTEGER NOT NULL DEFAULT 0,
-                    ended_at INTEGER NOT NULL DEFAULT 0,
-                    duration_s INTEGER NOT NULL DEFAULT 0,
-                    damage INTEGER NOT NULL DEFAULT 0,
-                    encdps REAL NOT NULL DEFAULT 0,
-                    char_dps REAL NOT NULL DEFAULT 0,
-                    dps REAL NOT NULL DEFAULT 0,
-                    average REAL NOT NULL DEFAULT 0,
-                    median INTEGER NOT NULL DEFAULT 0,
-                    min_hit INTEGER NOT NULL DEFAULT 0,
-                    max_hit INTEGER NOT NULL DEFAULT 0,
-                    resist TEXT,
-                    hits INTEGER NOT NULL DEFAULT 0,
-                    crit_hits INTEGER NOT NULL DEFAULT 0,
-                    blocked INTEGER NOT NULL DEFAULT 0,
-                    misses INTEGER NOT NULL DEFAULT 0,
-                    swings INTEGER NOT NULL DEFAULT 0,
-                    to_hit REAL NOT NULL DEFAULT 0,
-                    average_delay REAL NOT NULL DEFAULT 0,
-                    crit_perc REAL NOT NULL DEFAULT 0,
-                    crit_types TEXT,
-                    FOREIGN KEY (combatant_id) REFERENCES combatants(id) ON DELETE CASCADE,
-                    UNIQUE (combatant_id, attack_name)
-                )
-            """)
-            # Seed an encounter + combatant + one attack_types row.
-            conn.execute(
-                "INSERT INTO encounters (act_encid, title, zone, started_at, ended_at, "
-                "duration_s, total_damage, encdps, kills, deaths, source_dsn, ingested_at) "
-                "VALUES ('legacy', 't', 'z', 0, 0, 0, 0, 0, 0, 0, 'eq2act', 0)"
-            )
-            eid = conn.execute("SELECT id FROM encounters").fetchone()[0]
-            conn.execute(
-                "INSERT INTO combatants (encounter_id, name, ally, started_at, ended_at, "
-                "duration_s, damage, damage_perc, kills, healed, healed_perc, crit_heals, "
-                "heals, cure_dispels, power_drain, power_replenish, dps, encdps, enchps, "
-                "hits, crit_hits, blocked, misses, swings, heals_taken, damage_taken, "
-                "deaths, to_hit, crit_dam_perc, crit_heal_perc, crit_types, threat_str, "
-                "threat_delta) VALUES (?, 'M', 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
-                "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', 0)",
-                (eid,),
-            )
-            cid = conn.execute("SELECT id FROM combatants").fetchone()[0]
-            conn.execute(
-                "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage) VALUES (?, 1, 'Smite', 500)",
-                (cid,),
-            )
-            # Run the migration.
-            parses_db.store._migrate_attack_types_unique(conn)
-            # Existing row survived.
-            assert conn.execute("SELECT damage FROM attack_types WHERE attack_name = 'Smite'").fetchone()[0] == 500
-            # New constraint now allows same-name across swing types.
-            conn.execute(
-                "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage) VALUES (?, 2, 'Smite', 999)",
-                (cid,),
-            )
-            assert conn.execute("SELECT COUNT(*) FROM attack_types WHERE attack_name = 'Smite'").fetchone()[0] == 2
-        finally:
-            conn.close()
+    def test_attack_types_unique_tuple_is_swing_scoped(self, parses_db_path):
+        """Descendant of the SQLite legacy UNIQUE(combatant_id, attack_name)
+        rebuild migration: on Postgres the (combatant_id, swing_type,
+        attack_name) tuple is part of the schema outright. The behavioural
+        halves (same name across swing types allowed / same tuple collides)
+        are pinned in TestUniqueConstraints."""
+        with pg_conn(parses_db_path) as conn:
+            rows = conn.execute(
+                "SELECT kcu.column_name FROM information_schema.table_constraints tc"
+                " JOIN information_schema.key_column_usage kcu"
+                "   ON kcu.constraint_name = tc.constraint_name"
+                "  AND kcu.constraint_schema = tc.constraint_schema"
+                " WHERE tc.table_schema = %s AND tc.table_name = 'attack_types'"
+                "   AND tc.constraint_type = 'UNIQUE'"
+                " ORDER BY kcu.ordinal_position",
+                (parses_db_path,),
+            ).fetchall()
+        assert [r["column_name"] for r in rows] == ["combatant_id", "swing_type", "attack_name"]
 
 
 def _sample_encounter() -> Encounter:
@@ -192,10 +145,10 @@ class TestInsertHelpers:
             uploaded_by="Menludiir",
         )
         row = parses_db_conn.execute(
-            "SELECT uploaded_by FROM encounters WHERE act_encid = ?",
+            "SELECT uploaded_by FROM encounters WHERE act_encid = %s",
             ("18cf3eb9",),
         ).fetchone()
-        assert row[0] == "Menludiir"
+        assert row["uploaded_by"] == "Menludiir"
 
     def test_insert_encounter_defaults_uploaded_by_to_local(self, parses_db_conn):
         parses_db.store.insert_encounter(
@@ -205,10 +158,10 @@ class TestInsertHelpers:
             ingested_at=1700000000,
         )
         row = parses_db_conn.execute(
-            "SELECT uploaded_by FROM encounters WHERE act_encid = ?",
+            "SELECT uploaded_by FROM encounters WHERE act_encid = %s",
             ("18cf3eb9",),
         ).fetchone()
-        assert row[0] == "local"
+        assert row["uploaded_by"] == "local"
 
     def test_insert_encounter_writes_guild_name(self, parses_db_conn):
         parses_db.store.insert_encounter(
@@ -220,10 +173,10 @@ class TestInsertHelpers:
             guild_name="Exordium",
         )
         row = parses_db_conn.execute(
-            "SELECT guild_name FROM encounters WHERE act_encid = ?",
+            "SELECT guild_name FROM encounters WHERE act_encid = %s",
             ("18cf3eb9",),
         ).fetchone()
-        assert row[0] == "Exordium"
+        assert row["guild_name"] == "Exordium"
 
     def test_insert_encounter_defaults_guild_to_null(self, parses_db_conn):
         parses_db.store.insert_encounter(
@@ -233,10 +186,10 @@ class TestInsertHelpers:
             ingested_at=1700000000,
         )
         row = parses_db_conn.execute(
-            "SELECT guild_name FROM encounters WHERE act_encid = ?",
+            "SELECT guild_name FROM encounters WHERE act_encid = %s",
             ("18cf3eb9",),
         ).fetchone()
-        assert row[0] is None
+        assert row["guild_name"] is None
 
     def test_insert_combatants_writes_snapshot(self, parses_db_conn):
         from backend.server.parses.models import CombatantSnapshot
@@ -296,24 +249,24 @@ class TestInsertHelpers:
             parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111, hidden_by="admin-1")
             is True
         )
-        row = parses_db_conn.execute("SELECT hidden_at, hidden_by FROM encounters WHERE id = ?", (eid,)).fetchone()
-        assert tuple(row) == (1700001111, "admin-1")
+        row = parses_db_conn.execute("SELECT hidden_at, hidden_by FROM encounters WHERE id = %s", (eid,)).fetchone()
+        assert (row["hidden_at"], row["hidden_by"]) == (1700001111, "admin-1")
         # Idempotent: re-soft-deleting an already-hidden row is a no-op (returns False)
         # and never overwrites the original actor.
         assert (
             parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700002222, hidden_by="admin-2")
             is False
         )
-        row = parses_db_conn.execute("SELECT hidden_by FROM encounters WHERE id = ?", (eid,)).fetchone()
-        assert row[0] == "admin-1"
+        row = parses_db_conn.execute("SELECT hidden_by FROM encounters WHERE id = %s", (eid,)).fetchone()
+        assert row["hidden_by"] == "admin-1"
 
     def test_unhide_encounter_clears_marker(self, parses_db_conn):
         enc = _sample_encounter()
         eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1700000000)
         parses_db.store.soft_delete_encounter(parses_db_conn, eid, hidden_at=1700001111, hidden_by="admin-1")
         assert parses_db.store.unhide_encounter(parses_db_conn, eid) is True
-        row = parses_db_conn.execute("SELECT hidden_at, hidden_by FROM encounters WHERE id = ?", (eid,)).fetchone()
-        assert tuple(row) == (None, None)
+        row = parses_db_conn.execute("SELECT hidden_at, hidden_by FROM encounters WHERE id = %s", (eid,)).fetchone()
+        assert (row["hidden_at"], row["hidden_by"]) == (None, None)
         # Already-visible row → no-op, returns False.
         assert parses_db.store.unhide_encounter(parses_db_conn, eid) is False
 
@@ -461,7 +414,7 @@ class TestUniqueConstraints:
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.UniqueViolation):
             parses_db.store.insert_encounter(
                 parses_db_conn,
                 _sample_encounter(),
@@ -479,7 +432,7 @@ class TestUniqueConstraints:
         )
         cs = [_sample_combatant("Menludiir", ally=True, damage=1)]
         parses_db.store.insert_combatants_bulk(parses_db_conn, eid, cs)
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.UniqueViolation):
             parses_db.store.insert_combatants_bulk(parses_db_conn, eid, cs)
 
     def test_same_attack_name_across_swing_types_allowed(self, parses_db_conn):
@@ -496,21 +449,21 @@ class TestUniqueConstraints:
             parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)]
         )
         cid = parses_db_conn.execute(
-            "SELECT id FROM combatants WHERE encounter_id = ? AND name = ?",
+            "SELECT id FROM combatants WHERE encounter_id = %s AND name = %s",
             (eid, "Menludiir"),
-        ).fetchone()[0]
+        ).fetchone()["id"]
         parses_db_conn.executemany(
             "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
             "damage, hits, swings, crit_hits, max_hit, resist) "
-            "VALUES (?, '', ?, 'Cleanse', ?, 1, 1, 0, 0, '')",
+            "VALUES (%s, '', %s, 'Cleanse', %s, 1, 1, 0, 0, '')",
             [(cid, 2, 1000), (cid, 3, 500)],
         )
         rows = parses_db_conn.execute(
             "SELECT swing_type, damage FROM attack_types "
-            "WHERE combatant_id = ? AND attack_name = 'Cleanse' ORDER BY swing_type",
+            "WHERE combatant_id = %s AND attack_name = 'Cleanse' ORDER BY swing_type",
             (cid,),
         ).fetchall()
-        assert [(r[0], r[1]) for r in rows] == [(2, 1000), (3, 500)]
+        assert [(r["swing_type"], r["damage"]) for r in rows] == [(2, 1000), (3, 500)]
 
     def test_duplicate_attack_within_same_swing_type_rejected(self, parses_db_conn):
         """The new tuple is (combatant_id, swing_type, attack_name) — same
@@ -525,20 +478,20 @@ class TestUniqueConstraints:
             parses_db_conn, eid, [_sample_combatant("Menludiir", ally=True, damage=1)]
         )
         cid = parses_db_conn.execute(
-            "SELECT id FROM combatants WHERE encounter_id = ? AND name = ?",
+            "SELECT id FROM combatants WHERE encounter_id = %s AND name = %s",
             (eid, "Menludiir"),
-        ).fetchone()[0]
+        ).fetchone()["id"]
         parses_db_conn.execute(
             "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
             "damage, hits, swings, crit_hits, max_hit, resist) "
-            "VALUES (?, '', 2, 'Cleanse', 1000, 1, 1, 0, 0, '')",
+            "VALUES (%s, '', 2, 'Cleanse', 1000, 1, 1, 0, 0, '')",
             (cid,),
         )
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.UniqueViolation):
             parses_db_conn.execute(
                 "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
                 "damage, hits, swings, crit_hits, max_hit, resist) "
-                "VALUES (?, '', 2, 'Cleanse', 2000, 1, 1, 0, 0, '')",
+                "VALUES (%s, '', 2, 'Cleanse', 2000, 1, 1, 0, 0, '')",
                 (cid,),
             )
 
@@ -622,7 +575,7 @@ class TestSwingTypeSplit:
             INSERT INTO attack_types (
                 combatant_id, victim, swing_type, attack_name,
                 damage, hits, swings, crit_hits, max_hit, resist
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 (cid, "", 1, "crush", 7000, 10, 10, 1, 1500, "crushing"),
@@ -668,7 +621,7 @@ class TestSwingTypeSplit:
         parses_db_conn.execute(
             "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
             "damage, hits, swings, crit_hits, max_hit, resist) "
-            "VALUES (?, '', 100, 'All', 999999, 999, 999, 0, 0, 'All')",
+            "VALUES (%s, '', 100, 'All', 999999, 999, 999, 0, 0, 'All')",
             (cid,),
         )
         threats = parses_db.store.get_top_threats_for_combatant(parses_db_conn, cid)
@@ -716,7 +669,7 @@ class TestDeleteHelpers:
     def test_delete_encounter_removes_row(self, parses_db_conn):
         eid = self._seed(parses_db_conn, encid="enc1", guild_name="Exordium")
         assert parses_db.store.delete_encounter(parses_db_conn, eid) is True
-        assert parses_db_conn.execute("SELECT COUNT(*) FROM encounters").fetchone()[0] == 0
+        assert parses_db_conn.execute("SELECT COUNT(*) AS n FROM encounters").fetchone()["n"] == 0
 
     def test_delete_encounter_returns_false_when_missing(self, parses_db_conn):
         assert parses_db.store.delete_encounter(parses_db_conn, 99999) is False
@@ -725,18 +678,30 @@ class TestDeleteHelpers:
         eid = self._seed(parses_db_conn, encid="enc2", guild_name="Exordium")
         # Sanity: rows exist before delete.
         assert (
-            parses_db_conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = ?", (eid,)).fetchone()[0] > 0
+            parses_db_conn.execute("SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s", (eid,)).fetchone()[
+                "n"
+            ]
+            > 0
         )
         assert (
-            parses_db_conn.execute("SELECT COUNT(*) FROM ingest_log WHERE encounter_id = ?", (eid,)).fetchone()[0] == 1
+            parses_db_conn.execute("SELECT COUNT(*) AS n FROM ingest_log WHERE encounter_id = %s", (eid,)).fetchone()[
+                "n"
+            ]
+            == 1
         )
         parses_db.store.delete_encounter(parses_db_conn, eid)
         # All children gone via FK cascade.
         assert (
-            parses_db_conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = ?", (eid,)).fetchone()[0] == 0
+            parses_db_conn.execute("SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s", (eid,)).fetchone()[
+                "n"
+            ]
+            == 0
         )
         assert (
-            parses_db_conn.execute("SELECT COUNT(*) FROM ingest_log WHERE encounter_id = ?", (eid,)).fetchone()[0] == 0
+            parses_db_conn.execute("SELECT COUNT(*) AS n FROM ingest_log WHERE encounter_id = %s", (eid,)).fetchone()[
+                "n"
+            ]
+            == 0
         )
 
 
@@ -749,13 +714,23 @@ class TestWorldScoping:
     """Verify that world is stored, uniqueness is per (world, act_encid),
     and all lookup helpers honour the world filter."""
 
-    def test_encounters_has_world_column(self, parses_db_conn):
-        cols = [r[1] for r in parses_db_conn.execute("PRAGMA table_info(encounters)").fetchall()]
-        assert "world" in cols
+    def test_encounters_has_world_column(self, parses_db_path):
+        with pg_conn(parses_db_path) as conn:
+            rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_schema = %s AND table_name = 'encounters'",
+                (parses_db_path,),
+            ).fetchall()
+        assert "world" in {r["column_name"] for r in rows}
 
-    def test_ingest_log_has_world_column(self, parses_db_conn):
-        cols = [r[1] for r in parses_db_conn.execute("PRAGMA table_info(ingest_log)").fetchall()]
-        assert "world" in cols
+    def test_ingest_log_has_world_column(self, parses_db_path):
+        with pg_conn(parses_db_path) as conn:
+            rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_schema = %s AND table_name = 'ingest_log'",
+                (parses_db_path,),
+            ).fetchall()
+        assert "world" in {r["column_name"] for r in rows}
 
     def test_world_stored_on_encounter(self, parses_db_conn):
         parses_db.store.insert_encounter(
@@ -765,8 +740,8 @@ class TestWorldScoping:
             ingested_at=1700000000,
             world="Wuoshi",
         )
-        row = parses_db_conn.execute("SELECT world FROM encounters WHERE act_encid = ?", ("18cf3eb9",)).fetchone()
-        assert row[0] == "Wuoshi"
+        row = parses_db_conn.execute("SELECT world FROM encounters WHERE act_encid = %s", ("18cf3eb9",)).fetchone()
+        assert row["world"] == "Wuoshi"
 
     def test_same_act_encid_different_world_both_insert(self, parses_db_conn):
         """The UNIQUE constraint is (world, act_encid), so the same encid
@@ -786,14 +761,14 @@ class TestWorldScoping:
             world="Wuoshi",
         )
         assert eid_v != eid_w
-        count = parses_db_conn.execute("SELECT COUNT(*) FROM encounters WHERE act_encid = ?", ("18cf3eb9",)).fetchone()[
-            0
-        ]
+        count = parses_db_conn.execute(
+            "SELECT COUNT(*) AS n FROM encounters WHERE act_encid = %s", ("18cf3eb9",)
+        ).fetchone()["n"]
         assert count == 2
 
     def test_same_world_same_encid_still_collides(self, parses_db_conn):
         """Duplicate (world, act_encid) within the same server must still
-        raise an IntegrityError."""
+        raise a UniqueViolation."""
         parses_db.store.insert_encounter(
             parses_db_conn,
             _sample_encounter(),
@@ -801,7 +776,7 @@ class TestWorldScoping:
             ingested_at=1700000000,
             world="Varsoon",
         )
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.UniqueViolation):
             parses_db.store.insert_encounter(
                 parses_db_conn,
                 _sample_encounter(),
@@ -844,8 +819,8 @@ class TestWorldScoping:
             ingested_at=1700000000,
             world="Kaladim",
         )
-        row = parses_db_conn.execute("SELECT world FROM ingest_log WHERE act_encid = ?", (enc.encid,)).fetchone()
-        assert row[0] == "Kaladim"
+        row = parses_db_conn.execute("SELECT world FROM ingest_log WHERE act_encid = %s", (enc.encid,)).fetchone()
+        assert row["world"] == "Kaladim"
 
     def test_find_encounter_by_act_encid_world_scoped(self, parses_db_conn):
         """find_encounter_by_act_encid must only return the row for the
@@ -902,140 +877,28 @@ class TestWorldScoping:
             source_dsn="eq2act",
             ingested_at=1700000000,
         )
-        row = parses_db_conn.execute("SELECT world FROM encounters WHERE act_encid = ?", ("18cf3eb9",)).fetchone()
-        assert row[0] == "Varsoon"
+        row = parses_db_conn.execute("SELECT world FROM encounters WHERE act_encid = %s", ("18cf3eb9",)).fetchone()
+        assert row["world"] == "Varsoon"
 
-    def test_legacy_db_rebuild_preserves_rows(self):
-        """Simulate an existing DB without a world column: after init_db,
-        existing encounters must be migrated with world='Varsoon', all ids
-        preserved, and combatant FK rows intact."""
-        conn = sqlite3.connect(":memory:")
-        try:
-            conn.execute("PRAGMA foreign_keys = ON;")
-            # Build the OLD schema (act_encid UNIQUE, no world column).
-            conn.execute("""
-                CREATE TABLE encounters (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    act_encid TEXT NOT NULL UNIQUE,
-                    title TEXT NOT NULL,
-                    zone TEXT,
-                    started_at INTEGER NOT NULL,
-                    ended_at INTEGER NOT NULL,
-                    duration_s INTEGER NOT NULL,
-                    total_damage INTEGER NOT NULL DEFAULT 0,
-                    encdps REAL NOT NULL DEFAULT 0,
-                    kills INTEGER NOT NULL DEFAULT 0,
-                    deaths INTEGER NOT NULL DEFAULT 0,
-                    success_level INTEGER NOT NULL DEFAULT 0,
-                    source_dsn TEXT NOT NULL,
-                    uploaded_by TEXT NOT NULL DEFAULT 'local',
-                    guild_name TEXT,
-                    ingested_at INTEGER NOT NULL,
-                    hidden_at INTEGER
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE combatants (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    encounter_id INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    ally INTEGER NOT NULL DEFAULT 0,
-                    started_at INTEGER NOT NULL DEFAULT 0,
-                    ended_at INTEGER NOT NULL DEFAULT 0,
-                    duration_s INTEGER NOT NULL DEFAULT 0,
-                    damage INTEGER NOT NULL DEFAULT 0,
-                    damage_perc REAL NOT NULL DEFAULT 0,
-                    kills INTEGER NOT NULL DEFAULT 0,
-                    healed INTEGER NOT NULL DEFAULT 0,
-                    healed_perc REAL NOT NULL DEFAULT 0,
-                    crit_heals INTEGER NOT NULL DEFAULT 0,
-                    heals INTEGER NOT NULL DEFAULT 0,
-                    cure_dispels INTEGER NOT NULL DEFAULT 0,
-                    power_drain INTEGER NOT NULL DEFAULT 0,
-                    power_replenish INTEGER NOT NULL DEFAULT 0,
-                    dps REAL NOT NULL DEFAULT 0,
-                    encdps REAL NOT NULL DEFAULT 0,
-                    enchps REAL NOT NULL DEFAULT 0,
-                    hits INTEGER NOT NULL DEFAULT 0,
-                    crit_hits INTEGER NOT NULL DEFAULT 0,
-                    blocked INTEGER NOT NULL DEFAULT 0,
-                    misses INTEGER NOT NULL DEFAULT 0,
-                    swings INTEGER NOT NULL DEFAULT 0,
-                    heals_taken INTEGER NOT NULL DEFAULT 0,
-                    damage_taken INTEGER NOT NULL DEFAULT 0,
-                    deaths INTEGER NOT NULL DEFAULT 0,
-                    to_hit REAL NOT NULL DEFAULT 0,
-                    crit_dam_perc REAL NOT NULL DEFAULT 0,
-                    crit_heal_perc REAL NOT NULL DEFAULT 0,
-                    crit_types TEXT,
-                    threat_str TEXT,
-                    threat_delta INTEGER NOT NULL DEFAULT 0,
-                    level INTEGER,
-                    guild_name TEXT,
-                    cls TEXT,
-                    ilvl REAL,
-                    FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE,
-                    UNIQUE (encounter_id, name)
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE ingest_log (
-                    act_encid TEXT PRIMARY KEY,
-                    encounter_id INTEGER NOT NULL,
-                    ingested_at INTEGER NOT NULL,
-                    source_dsn TEXT NOT NULL,
-                    FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE
-                )
-            """)
-            # Seed old-schema rows.
-            conn.execute(
-                "INSERT INTO encounters (id, act_encid, title, zone, started_at, ended_at, "
-                "duration_s, total_damage, encdps, kills, deaths, source_dsn, ingested_at) "
-                "VALUES (42, 'legacy01', 'OldBoss', 'OldZone', 0, 0, 30, 1000, 33.3, 1, 0, 'eq2act', 0)"
-            )
-            conn.execute(
-                "INSERT INTO combatants (encounter_id, name, ally, started_at, ended_at, "
-                "duration_s, damage, damage_perc, kills, healed, healed_perc, crit_heals, "
-                "heals, cure_dispels, power_drain, power_replenish, dps, encdps, enchps, "
-                "hits, crit_hits, blocked, misses, swings, heals_taken, damage_taken, "
-                "deaths, to_hit, crit_dam_perc, crit_heal_perc) VALUES "
-                "(42, 'OldPlayer', 1, 0, 0, 30, 1000, 100.0, 1, 0, 0.0, 0, 0, 0, 0, 0, "
-                "33.3, 33.3, 0.0, 10, 5, 0, 0, 10, 0, 100, 0, 100.0, 50.0, 0.0)"
-            )
-            conn.execute(
-                "INSERT INTO ingest_log (act_encid, encounter_id, ingested_at, source_dsn) "
-                "VALUES ('legacy01', 42, 0, 'eq2act')"
-            )
-            conn.commit()
-            # Run the migration (same logic init_db calls).
-            parses_db.store._migrate_encounters_add_world(conn)
-            parses_db.store._migrate_ingest_log_add_world(conn)
-            conn.commit()
-            # Encounter id preserved, world backfilled.
-            row = conn.execute("SELECT id, world FROM encounters WHERE act_encid = 'legacy01'").fetchone()
-            assert row[0] == 42, "id must be preserved after rebuild"
-            assert row[1] == "Varsoon", "world must be backfilled to Varsoon"
-            # Combatant FK still resolves.
-            comb_enc_id = conn.execute("SELECT encounter_id FROM combatants WHERE name = 'OldPlayer'").fetchone()[0]
-            assert comb_enc_id == 42, "combatant FK must still point at id=42"
-            # ingest_log world backfilled.
-            log_world = conn.execute("SELECT world FROM ingest_log WHERE act_encid = 'legacy01'").fetchone()[0]
-            assert log_world == "Varsoon"
-            # No dangling FK references — the rename must NOT have rewritten
-            # combatants' FK clause to point at encounters_old (which no longer
-            # exists). PRAGMA foreign_key_check returns a row for every violation;
-            # an empty result means the schema is clean.
-            fk_violations = list(conn.execute("PRAGMA foreign_key_check"))
-            assert fk_violations == [], f"dangling FK references after migration: {fk_violations}"
-            # ON DELETE CASCADE must still fire: deleting the encounter must
-            # remove its child combatant row.
-            conn.execute("PRAGMA foreign_keys = ON;")
-            conn.execute("DELETE FROM encounters WHERE id = 42")
-            conn.commit()
-            child_count = conn.execute("SELECT COUNT(*) FROM combatants WHERE encounter_id = 42").fetchone()[0]
-            assert child_count == 0, "cascade delete must remove child combatants"
-            # Migrations are idempotent (re-running is a no-op).
-            parses_db.store._migrate_encounters_add_world(conn)
-            parses_db.store._migrate_ingest_log_add_world(conn)
-        finally:
-            conn.close()
+    def test_world_defaults_to_varsoon_at_the_schema_level(self, parses_db_conn):
+        """Descendant of the SQLite add-world rebuild migration (which
+        backfilled legacy rows to 'Varsoon'): on Postgres the DEFAULT lives
+        in the migrations-owned DDL outright — a raw INSERT that omits the
+        world column must land as 'Varsoon' in both encounters and
+        ingest_log. (The FK-cascade half of the old legacy-rebuild test is
+        pinned in TestDeleteHelpers.test_delete_encounter_cascades_children.)
+        """
+        row = parses_db_conn.execute(
+            "INSERT INTO encounters (act_encid, title, zone, started_at, ended_at, "
+            "duration_s, total_damage, encdps, kills, deaths, source_dsn, ingested_at) "
+            "VALUES ('legacy01', 'OldBoss', 'OldZone', 0, 0, 30, 1000, 33.3, 1, 0, 'eq2act', 0) "
+            "RETURNING id, world"
+        ).fetchone()
+        assert row["world"] == "Varsoon"
+        parses_db_conn.execute(
+            "INSERT INTO ingest_log (act_encid, encounter_id, ingested_at, source_dsn) "
+            "VALUES ('legacy01', %s, 0, 'eq2act')",
+            (row["id"],),
+        )
+        log = parses_db_conn.execute("SELECT world FROM ingest_log WHERE act_encid = 'legacy01'").fetchone()
+        assert log["world"] == "Varsoon"

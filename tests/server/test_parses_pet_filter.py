@@ -9,8 +9,7 @@ backfill for any encounter whose combatants still have is_player=NULL
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,54 +22,46 @@ _fake_user = make_fake_require_user(make_fake_user(id="123456789"))
 
 
 @pytest.fixture
-def parses_db_in_memory(tmp_path, monkeypatch):
-    """Point parses_db.DB_PATH at a tmp-path-backed DB. The schema is
-    pre-initialised by opening + closing a connection; subsequent
-    ``parses_db.store.init_db()`` calls (from the route handler in another
-    thread) open a fresh connection against the same file, which is
-    safe with sqlite3 + WAL.
+def parses_conn(parses_db_path):
+    """Test-owned connection to the leased scratch parses schema.
 
-    We can't use ``:memory:`` here because the route handler's read
-    path early-returns when ``DB_PATH.exists()`` is False, and
-    ``Path(':memory:').exists()`` is always False."""
-    db_file = tmp_path / "backend.server.parses.db"
-    parses_db.ParsesStore(db_file).init_db().close()
-    monkeypatch.setattr(parses_db.store, "path", db_file)
-    # The test body needs an open connection to seed + assert against.
-    # The route handler opens its OWN connection via the unpatched
-    # init_db(path) — same file, separate handle, no thread issues.
-    conn = parses_db.ParsesStore(db_file).init_db()
+    ``parses_db_path`` has already re-pointed the shared store, so the route
+    handler (running in the executor thread) checks out its OWN connection
+    against the same schema — the test commits its seeds so the route sees
+    them (READ COMMITTED)."""
+    conn = parses_db.store.init_db()
     try:
         yield conn
     finally:
         conn.close()
 
 
-def _insert_encounter(conn: sqlite3.Connection, act_encid: str, zone: str = "Z") -> int:
-    cur = conn.execute(
+def _insert_encounter(conn: Any, act_encid: str, zone: str = "Z") -> int:
+    row = conn.execute(
         """
         INSERT INTO encounters (
             act_encid, title, zone, started_at, ended_at, duration_s,
             total_damage, encdps, kills, deaths, source_dsn, ingested_at, world
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
         (act_encid, "Test", zone, 1, 2, 1, 100, 100.0, 0, 0, "test", 1, "Varsoon"),
-    )
-    return int(cur.lastrowid or 0)
+    ).fetchone()
+    return int(row["id"])
 
 
 @pytest.mark.asyncio
-async def test_player_count_reads_is_player_flag(app, parses_db_in_memory):
+async def test_player_count_reads_is_player_flag(app, parses_conn):
     """A combatant whose is_player=0 must NOT count toward player_count
     even if its name is single-word + ally=1 (the old heuristic would
     have counted it)."""
-    enc_id = _insert_encounter(parses_db_in_memory, "encA")
+    enc_id = _insert_encounter(parses_conn, "encA")
     for name in ("Alpha", "Bravo", "Charlie"):
-        parses_db_in_memory.execute(
-            "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+        parses_conn.execute(
+            "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (%s, %s, %s, %s)",
             (enc_id, name, 1, 0),
         )
-    parses_db_in_memory.commit()
+    parses_conn.commit()
 
     with patch("backend.server.api.parses.list._require_user", _fake_user):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -82,59 +73,59 @@ async def test_player_count_reads_is_player_flag(app, parses_db_in_memory):
     assert data["results"][0]["player_count"] == 0, "single-word allies with is_player=0 must not count"
 
 
-def test_ensure_classified_backfills_null_rows(parses_db_in_memory):
+def test_ensure_classified_backfills_null_rows(parses_conn):
     """Inserting an encounter with combatant.is_player=NULL (mimicking a
     historic pre-migration row) then calling _ensure_classified on it
     must populate is_player on every row."""
     from backend.server.api.parses.list import _ensure_classified
 
-    enc_id = _insert_encounter(parses_db_in_memory, "encB", zone="Halls of Fate")
+    enc_id = _insert_encounter(parses_conn, "encB", zone="Halls of Fate")
     # Two confirmed (cls set) and one multi-word pet, all is_player=NULL.
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, cls, is_player) VALUES (?, ?, ?, ?, ?)",
+    parses_conn.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, cls, is_player) VALUES (%s, %s, %s, %s, %s)",
         (enc_id, "Alpha", 1, "Wizard", None),
     )
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, cls, is_player) VALUES (?, ?, ?, ?, ?)",
+    parses_conn.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, cls, is_player) VALUES (%s, %s, %s, %s, %s)",
         (enc_id, "Bravo", 1, "Wizard", None),
     )
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, cls, is_player) VALUES (?, ?, ?, ?, ?)",
+    parses_conn.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, cls, is_player) VALUES (%s, %s, %s, %s, %s)",
         (enc_id, "a krait warrior", 1, None, None),
     )
-    parses_db_in_memory.commit()
+    parses_conn.commit()
 
     # Sanity: every is_player is NULL.
-    nulls = parses_db_in_memory.execute("SELECT COUNT(*) FROM combatants WHERE is_player IS NULL").fetchone()[0]
+    nulls = parses_conn.execute("SELECT COUNT(*) AS n FROM combatants WHERE is_player IS NULL").fetchone()["n"]
     assert nulls == 3
 
     with patch("backend.server.api.parses.list._classify_zone", return_value="dungeon"):
-        _ensure_classified(parses_db_in_memory, enc_id, "Halls of Fate")
+        _ensure_classified(parses_conn, enc_id, "Halls of Fate")
 
-    rows = {r[0]: r[1] for r in parses_db_in_memory.execute("SELECT name, is_player FROM combatants")}
+    rows = {r["name"]: r["is_player"] for r in parses_conn.execute("SELECT name, is_player FROM combatants")}
     assert rows["Alpha"] == 1
     assert rows["Bravo"] == 1
     assert rows["a krait warrior"] == 0
 
 
-def test_ensure_classified_is_noop_when_already_classified(parses_db_in_memory):
+def test_ensure_classified_is_noop_when_already_classified(parses_conn):
     """Once every combatant has is_player populated, _ensure_classified
     must not re-run the classifier (no extra writes)."""
     from backend.server.api.parses.list import _ensure_classified
 
-    enc_id = _insert_encounter(parses_db_in_memory, "encC")
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+    enc_id = _insert_encounter(parses_conn, "encC")
+    parses_conn.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (%s, %s, %s, %s)",
         (enc_id, "Alpha", 1, 1),
     )
-    parses_db_in_memory.commit()
+    parses_conn.commit()
 
     with patch("backend.server.parses.pet_detection.classify_combatants") as fake:
-        _ensure_classified(parses_db_in_memory, enc_id, None)
+        _ensure_classified(parses_conn, enc_id, None)
         fake.assert_not_called()
 
 
-def test_ensure_classified_ignores_enemy_null_rows(parses_db_in_memory):
+def test_ensure_classified_ignores_enemy_null_rows(parses_conn):
     """Enemy rows keep is_player NULL FOREVER by design (classify_combatants
     omits ally != 1 from its result), so their NULLs must not trip the
     unclassified probe. Before the ally-scoped probe, every encounter with an
@@ -143,38 +134,38 @@ def test_ensure_classified_ignores_enemy_null_rows(parses_db_in_memory):
     the rankings load and collided with ingest ("database is locked")."""
     from backend.server.api.parses.list import _ensure_classified
 
-    enc_id = _insert_encounter(parses_db_in_memory, "encD")
+    enc_id = _insert_encounter(parses_conn, "encD")
     # Allies fully classified; the enemy row NULL (its permanent state).
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+    parses_conn.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (%s, %s, %s, %s)",
         (enc_id, "Alpha", 1, 1),
     )
-    parses_db_in_memory.execute(
-        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (?, ?, ?, ?)",
+    parses_conn.execute(
+        "INSERT INTO combatants (encounter_id, name, ally, is_player) VALUES (%s, %s, %s, %s)",
         (enc_id, "Zylphax the Shredder", 0, None),
     )
-    parses_db_in_memory.commit()
+    parses_conn.commit()
 
     with patch("backend.server.parses.pet_detection.classify_combatants") as fake:
-        assert _ensure_classified(parses_db_in_memory, enc_id, None) is False
+        assert _ensure_classified(parses_conn, enc_id, None) is False
         fake.assert_not_called()
 
     # And the enemy row's NULL is untouched.
-    row = parses_db_in_memory.execute("SELECT is_player FROM combatants WHERE name = 'Zylphax the Shredder'").fetchone()
-    assert row[0] is None
+    row = parses_conn.execute("SELECT is_player FROM combatants WHERE name = 'Zylphax the Shredder'").fetchone()
+    assert row["is_player"] is None
 
 
 @pytest.mark.asyncio
-async def test_phase4_merger_top_n_uses_is_player(app, parses_db_in_memory):
+async def test_phase4_merger_top_n_uses_is_player(app, parses_conn):
     """Phase-4-of-parse-grouping-redo merger's top-N gate must filter on
     is_player=1, so a bucket-promoted player CAN appear in top-N for
     merge decisions and a regex-matched pet CANNOT (even with high encdps).
     Two uploads of the same fight with identical top-N should merge."""
     for encid, uploader in (("encD1", "Alpha"), ("encD2", "Bravo")):
-        enc_id = _insert_encounter(parses_db_in_memory, encid)
+        enc_id = _insert_encounter(parses_conn, encid)
         # Override the guild/uploader on the freshly-inserted encounter row.
-        parses_db_in_memory.execute(
-            "UPDATE encounters SET uploaded_by = ?, guild_name = ?, title = ? WHERE id = ?",
+        parses_conn.execute(
+            "UPDATE encounters SET uploaded_by = %s, guild_name = %s, title = %s WHERE id = %s",
             (uploader, "Exordium", "Bossy", enc_id),
         )
         # Top-3 by encdps in both encounters are the same three players —
@@ -186,11 +177,11 @@ async def test_phase4_merger_top_n_uses_is_player(app, parses_db_in_memory):
             ("Charlie", 3000.0, 1),
             ("Gibab", 99999.0, 0),  # pet — must not show in top-N
         ):
-            parses_db_in_memory.execute(
-                "INSERT INTO combatants (encounter_id, name, ally, encdps, is_player) VALUES (?, ?, ?, ?, ?)",
+            parses_conn.execute(
+                "INSERT INTO combatants (encounter_id, name, ally, encdps, is_player) VALUES (%s, %s, %s, %s, %s)",
                 (enc_id, name, 1, encdps, is_player),
             )
-    parses_db_in_memory.commit()
+    parses_conn.commit()
 
     with patch("backend.server.api.parses.list._require_user", _fake_user):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

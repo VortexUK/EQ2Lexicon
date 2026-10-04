@@ -449,7 +449,7 @@ async def list_recruiting(request: Request) -> RecruitingListResponse:
     rows = await recruitment_db.list_recruiting(world)
 
     counts: dict[str, int] = {}
-    if rows and census_store.path.exists():
+    if rows:
 
         def _read_counts() -> dict[str, int]:
             conn = census_store.init_db()

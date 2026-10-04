@@ -54,8 +54,6 @@ _STORE_HIT_FLOOR = 3
 
 def _store_search_sync(q: str, world: str) -> list[CharNameResult]:
     """SYNC (executor): census-store name-prefix search."""
-    if not census_store.path.exists():
-        return []
     conn = census_store.init_db()
     try:
         rows = census_store.search_characters(conn, q, world)

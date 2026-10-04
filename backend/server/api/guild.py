@@ -501,8 +501,6 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
     world = current_world()
 
     def _store_guild_search() -> list[str]:
-        if not census_store.path.exists():
-            return []
         conn = census_store.init_db()
         try:
             return census_store.search_guilds(conn, q, world)

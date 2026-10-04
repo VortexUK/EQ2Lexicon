@@ -388,19 +388,17 @@ def _seed_search_db(conn, world="Varsoon"):
         conn.execute(
             "INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at, "
             "duration_s, success_level, source_dsn, uploaded_by, guild_name, ingested_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 60, 1, 'eq2act', ?, 'Exordium', ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, 60, 1, 'eq2act', %s, 'Exordium', %s)",
             (world, f"enc-{i}", title, zone, 1_900_000_000 + i, 1_900_000_060 + i, uploader, 1_900_000_000 + i),
         )
     conn.commit()
 
 
-def test_list_encounters_search_filters_title_zone_uploader(tmp_path, monkeypatch):
+def test_list_encounters_search_filters_title_zone_uploader(parses_db_path):
     from backend.server.api.parses.list import _list_encounters_sync
     from backend.server.parses import db as parses_db
 
-    db_path = tmp_path / "parses.db"
-    monkeypatch.setattr(parses_db.store, "path", db_path)
-    conn = parses_db.ParsesStore(db_path).init_db()
+    conn = parses_db.store.init_db()
     try:
         _seed_search_db(conn)
     finally:
@@ -435,17 +433,21 @@ def test_detail_ability_dps_uses_fight_duration(parses_db_path):
     try:
         conn.execute(
             "INSERT INTO encounters (id, world, act_encid, title, started_at, ended_at, duration_s, "
-            "source_dsn, ingested_at) VALUES (1, 'Varsoon', 'E1', 'Tarinax', 0, 434, 434, 'eq2act', 1)"
+            "source_dsn, ingested_at) OVERRIDING SYSTEM VALUE "
+            "VALUES (1, 'Varsoon', 'E1', 'Tarinax', 0, 434, 434, 'eq2act', 1)"
         )
-        conn.execute("INSERT INTO combatants (id, encounter_id, name, ally, is_player) VALUES (10, 1, 'Fiix', 1, 1)")
+        conn.execute(
+            "INSERT INTO combatants (id, encounter_id, name, ally, is_player) OVERRIDING SYSTEM VALUE "
+            "VALUES (10, 1, 'Fiix', 1, 1)"
+        )
         conn.execute(
             "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage, dps, hits, swings) "
-            "VALUES (10, ?, ?, 1040928, 3884.0, 701, 701)",
+            "VALUES (10, %s, %s, 1040928, 3884.0, 701, 701)",
             (int(SwingType.NONMELEE), "Larval Outbreak"),
         )
         conn.execute(
             "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage, dps, hits, swings) "
-            "VALUES (10, ?, ?, 86800, 999.0, 10, 10)",
+            "VALUES (10, %s, %s, 86800, 999.0, 10, 10)",
             (int(SwingType.HEAL), "Bria's Ballad"),
         )
         conn.execute(

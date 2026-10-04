@@ -34,7 +34,7 @@ from psycopg.types.json import Json
 
 from backend import pg
 from backend.server import db as _users_db  # SCHEMA read at call time (tests re-point it)
-from backend.server.parses.db import SCHEMA as _PARSES_SCHEMA
+from backend.server.parses import db as _parses_db  # SCHEMA read at call time (tests re-point it)
 
 #: The placeholder users row every tombstoned reference points at.
 DELETED_USER_ID = "deleted"
@@ -164,7 +164,7 @@ def erase_user_sync(
         # SET search_path is transactional, so the whole erasure commits or
         # rolls back as one unit — the old users.db/parses.db split could
         # crash between the halves and leave a half-erased account.
-        conn.execute(pg.search_path_sql(parses_schema if parses_schema is not None else _PARSES_SCHEMA))
+        conn.execute(pg.search_path_sql(parses_schema if parses_schema is not None else _parses_db.SCHEMA))
         dsn = f"plugin:{discord_id}"
         cur = conn.execute("UPDATE encounters SET source_dsn = %s WHERE source_dsn = %s", (DELETED_SOURCE_DSN, dsn))
         result.parses_anonymised = cur.rowcount

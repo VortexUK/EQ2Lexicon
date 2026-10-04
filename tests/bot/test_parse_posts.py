@@ -7,7 +7,7 @@ and the pure ``build_parse_post`` embed builder in render.py.
 
 from __future__ import annotations
 
-import sqlite3
+from typing import Any
 
 import pytest
 
@@ -19,17 +19,16 @@ NOW = 2_000_000_000
 
 
 @pytest.fixture
-def seeded_db(tmp_path, monkeypatch):
-    """Temp parses DB wired into the module store (what collect reads)."""
-    db_path = tmp_path / "parses.db"
-    monkeypatch.setattr(parses_db.store, "path", db_path)
-    conn = parses_db.ParsesStore(db_path).init_db()
+def seeded_db(parses_db_path):
+    """Open connection to a leased scratch parses schema wired into the
+    module store (what collect reads)."""
+    conn = parses_db.store.init_db()
     yield conn
     conn.close()
 
 
 def _insert_fight(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     title: str = "Trakanon",
     started_at: int = NOW,
@@ -44,7 +43,7 @@ def _insert_fight(
     cur = conn.execute(
         "INSERT INTO encounters (world, act_encid, title, zone, started_at, ended_at, duration_s, "
         "success_level, source_dsn, uploaded_by, guild_name, ingested_at) "
-        "VALUES (?, ?, ?, 'Trakanon''s Lair', ?, ?, ?, ?, 'eq2act', ?, ?, ?)",
+        "VALUES (%s, %s, %s, 'Trakanon''s Lair', %s, %s, %s, %s, 'eq2act', %s, %s, %s) RETURNING id",
         (
             world,
             f"enc-{started_at}-{uploaded_by}",
@@ -58,14 +57,14 @@ def _insert_fight(
             ingested_at if ingested_at is not None else started_at + duration_s,
         ),
     )
-    enc_id = int(cur.lastrowid or 0)
+    enc_id = int(cur.fetchone()["id"])
     # is_player set explicitly so classification never reruns in tests; the
     # same roster on every upload satisfies the mirror top-N gate.
     for i in range(players):
         healer = i % 2 == 1
         conn.execute(
             "INSERT INTO combatants (encounter_id, name, ally, is_player, cls, encdps, enchps) "
-            "VALUES (?, ?, 1, 1, ?, ?, ?)",
+            "VALUES (%s, %s, 1, 1, %s, %s, %s)",
             (enc_id, f"Player{i}", "Templar" if healer else "Wizard", 1_000_000 - i * 50_000, 300_000 if healer else 0),
         )
     conn.commit()
@@ -130,7 +129,7 @@ def test_collect_filters_trash_and_small_groups(seeded_db):
 def test_collect_other_guild_and_hidden_excluded(seeded_db):
     _insert_fight(seeded_db, guild="Other Guild")
     hidden = _insert_fight(seeded_db, started_at=NOW + 500, uploaded_by="RaiderB")
-    seeded_db.execute("UPDATE encounters SET hidden_at = ? WHERE id = ?", (NOW, hidden))
+    seeded_db.execute("UPDATE encounters SET hidden_at = %s WHERE id = %s", (NOW, hidden))
     seeded_db.commit()
     assert collect_new_fights("Varsoon", "Exordium", 0, NOW + 3600) == []
 

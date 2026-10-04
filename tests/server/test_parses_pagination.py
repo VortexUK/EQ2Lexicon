@@ -16,6 +16,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.parses import db as parses_db_mod
+from tests.fixtures.pg import pg_conn
 from tests.fixtures.users import make_fake_require_user, make_fake_user
 from tests.server._parses_fixtures import _FAKE_ENCOUNTER
 
@@ -103,21 +104,19 @@ async def test_before_param_reaches_the_row_query(app):
 def _seed_encounter(conn, enc_id: int, started_at: int, *, hidden_at: int | None = None) -> None:
     conn.execute(
         "INSERT INTO encounters (id, world, act_encid, title, started_at, ended_at, duration_s,"
-        " source_dsn, ingested_at, hidden_at) VALUES (?, 'Varsoon', ?, ?, ?, ?, 60, 'act://x', ?, ?)",
+        " source_dsn, ingested_at, hidden_at) OVERRIDING SYSTEM VALUE"
+        " VALUES (%s, 'Varsoon', %s, %s, %s, %s, 60, 'act://x', %s, %s)",
         (enc_id, f"enc{enc_id}", f"Boss {enc_id}", started_at, started_at + 60, started_at, hidden_at),
     )
 
 
 @pytest.fixture
-def seeded_parses_db(tmp_path, monkeypatch):
-    store = parses_db_mod.ParsesStore(tmp_path / "parses.db")
-    monkeypatch.setattr(parses_db_mod.store, "path", store.path)
-    conn = store.init_db()
-    for enc_id, ts in ((1, 3000), (2, 2000), (3, 1000)):
-        _seed_encounter(conn, enc_id, ts)
-    conn.commit()
-    conn.close()
-    return store
+def seeded_parses_db(parses_db_path: str) -> str:
+    """Leased parses schema (store already re-pointed) with three encounters."""
+    with pg_conn(parses_db_path) as conn:
+        for enc_id, ts in ((1, 3000), (2, 2000), (3, 1000)):
+            _seed_encounter(conn, enc_id, ts)
+    return parses_db_path
 
 
 def test_list_encounters_sync_before_filters_older_rows(seeded_parses_db):
@@ -131,7 +130,7 @@ def test_list_encounters_sync_before_filters_older_rows(seeded_parses_db):
 
 
 def test_admin_list_before_cursor(seeded_parses_db):
-    conn = seeded_parses_db.init_db()
+    conn = parses_db_mod.store.init_db()
     try:
         page1 = parses_db_mod.ParsesStore.list_encounters_for_admin(conn, world="Varsoon", limit=2)
         assert [r["id"] for r in page1] == [1, 2]
