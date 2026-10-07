@@ -2,8 +2,8 @@
 
 Covers:
   GET /api/character/{name}/upgrade-materials
-    — spells DB missing → 503
-    — recipes DB missing → 503
+    — spells catalogue not ready → 503
+    — recipes catalogue not ready → 503
     — character not found → 404
     — empty spell_ids → zero counts, no ingredients
     — no sub-expert spells → zero counts, no ingredients
@@ -11,7 +11,7 @@ Covers:
     — two recipes sharing an ingredient sum their quantities
     — sort order: primary first, then secondary, then fuel
   GET /api/character/{name}/upgrade-recipes
-    — spells DB missing → 503
+    — spells catalogue not ready → 503
     — character not found → 404
     — happy path returns RecipeResult list
     — character name too long → 400
@@ -19,23 +19,25 @@ Covers:
     — exact match on stripped "Raw X" (pass-1)
     — pass-1 miss triggers LIKE fuzzy search (pass-2)
     — non-"Raw" name uses exact match only
-    — items DB absent → returns empty dict
+    — items catalogue not ready (empty schema) → returns empty dict
 
-All Census + DB calls are mocked — no real network or disk IO.
+Postgres edition: the old ``_SPELLS_DB``/``_RECIPES_DB`` file-exists gates
+became ``catalogue.ready()`` probes, so the 503 paths patch ``ready`` on the
+shared catalogue instances. The _lookup_items_by_name tests seed the leased
+items schema via ``pg_conn`` (the ``items_schema`` fixture re-points the
+shared catalogue at the lease). All Census calls stay mocked.
 """
 
 from __future__ import annotations
 
-import sqlite3
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.pg import pg_conn
+
 # ---------------------------------------------------------------------------
-# Helpers: minimal character cache object
+# Helpers: minimal character cache object + catalogue ready() gates
 # ---------------------------------------------------------------------------
 
 
@@ -45,6 +47,18 @@ class _FakeCharCached:
         self.guild_name = guild_name
 
 
+def _spells_ready(value: bool):
+    """Patch the spells catalogue's ready() gate — the Postgres analog of
+    the old ``_SPELLS_DB`` path patch (exists ↔ ready)."""
+    return patch("backend.server.api.character.upgrades._spells.ready", return_value=value)
+
+
+def _recipes_ready(value: bool):
+    """Patch the recipes catalogue's ready() gate — the Postgres analog of
+    the old ``_RECIPES_DB`` path patch (exists ↔ ready)."""
+    return patch("backend.server.api.character.upgrades._recipes.ready", return_value=value)
+
+
 # ---------------------------------------------------------------------------
 # GET /api/character/{name}/upgrade-materials
 # ---------------------------------------------------------------------------
@@ -52,43 +66,26 @@ class _FakeCharCached:
 
 class TestGetUpgradeMaterials:
     async def test_spells_db_missing_returns_503(self, app):
-        """If the spells database file doesn't exist, returns 503."""
-        with (
-            patch(
-                "backend.server.api.character.upgrades._SPELLS_DB",
-                new=Path("/nonexistent/spells.db"),
-            ),
-        ):
+        """If the spells catalogue isn't loaded, returns 503."""
+        with _spells_ready(False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/character/Sihtric/upgrade-materials")
         assert r.status_code == 503
         assert "Spells" in r.json()["detail"]
 
-    async def test_recipes_db_missing_returns_503(self, app, tmp_path):
-        """If the spells DB exists but recipes DB doesn't, returns 503."""
-        fake_spells_db = tmp_path / "spells.db"
-        fake_spells_db.touch()
-        with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells_db),
-            patch(
-                "backend.server.api.character.upgrades._RECIPES_DB",
-                new=Path("/nonexistent/recipes.db"),
-            ),
-        ):
+    async def test_recipes_db_missing_returns_503(self, app):
+        """If the spells catalogue is loaded but recipes isn't, returns 503."""
+        with _spells_ready(True), _recipes_ready(False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/character/Sihtric/upgrade-materials")
         assert r.status_code == 503
         assert "Recipes" in r.json()["detail"]
 
-    async def test_character_not_found_returns_404(self, app, tmp_path):
+    async def test_character_not_found_returns_404(self, app):
         """Character doesn't exist on Census → 404."""
-        fake_spells = tmp_path / "s.db"
-        fake_spells.touch()
-        fake_recipes = tmp_path / "r.db"
-        fake_recipes.touch()
         with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells),
-            patch("backend.server.api.character.upgrades._RECIPES_DB", new=fake_recipes),
+            _spells_ready(True),
+            _recipes_ready(True),
             patch(
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(None, False),
@@ -105,16 +102,12 @@ class TestGetUpgradeMaterials:
         assert r.status_code == 404
         assert "not found" in r.json()["detail"]
 
-    async def test_empty_spell_ids_returns_zero_counts(self, app, tmp_path):
+    async def test_empty_spell_ids_returns_zero_counts(self, app):
         """Cached character with no spell_ids → all-zero response."""
-        fake_spells = tmp_path / "s.db"
-        fake_spells.touch()
-        fake_recipes = tmp_path / "r.db"
-        fake_recipes.touch()
         cached = _FakeCharCached(spell_ids=[])
         with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells),
-            patch("backend.server.api.character.upgrades._RECIPES_DB", new=fake_recipes),
+            _spells_ready(True),
+            _recipes_ready(True),
             patch(
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(cached, True),
@@ -128,12 +121,8 @@ class TestGetUpgradeMaterials:
         assert body["spells_with_recipe"] == 0
         assert body["ingredients"] == []
 
-    async def test_no_sub_expert_spells_returns_zero_counts(self, app, tmp_path):
+    async def test_no_sub_expert_spells_returns_zero_counts(self, app):
         """Character has only Expert spells — nothing to upgrade."""
-        fake_spells = tmp_path / "s.db"
-        fake_spells.touch()
-        fake_recipes = tmp_path / "r.db"
-        fake_recipes.touch()
         cached = _FakeCharCached(spell_ids=[101])
         # All spells are already Expert tier
         expert_row = {
@@ -144,8 +133,8 @@ class TestGetUpgradeMaterials:
             "level": 90,
         }
         with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells),
-            patch("backend.server.api.character.upgrades._RECIPES_DB", new=fake_recipes),
+            _spells_ready(True),
+            _recipes_ready(True),
             patch(
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(cached, True),
@@ -162,12 +151,8 @@ class TestGetUpgradeMaterials:
         assert body["spells_needing_upgrade"] == 0
         assert body["ingredients"] == []
 
-    async def test_happy_path_returns_sorted_ingredients(self, app, tmp_path):
+    async def test_happy_path_returns_sorted_ingredients(self, app):
         """Sub-Expert spells → ingredients returned, sorted primary first."""
-        fake_spells = tmp_path / "s.db"
-        fake_spells.touch()
-        fake_recipes = tmp_path / "r.db"
-        fake_recipes.touch()
         cached = _FakeCharCached(spell_ids=[101])
         adept_row = {
             "name": "Divine Favor",
@@ -184,8 +169,8 @@ class TestGetUpgradeMaterials:
             "fuel_qty": 1,
         }
         with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells),
-            patch("backend.server.api.character.upgrades._RECIPES_DB", new=fake_recipes),
+            _spells_ready(True),
+            _recipes_ready(True),
             patch(
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(cached, True),
@@ -213,12 +198,8 @@ class TestGetUpgradeMaterials:
         # Primary before fuel
         assert cats.index("primary") < cats.index("fuel")
 
-    async def test_two_recipes_sum_shared_ingredient(self, app, tmp_path):
+    async def test_two_recipes_sum_shared_ingredient(self, app):
         """Same ingredient across two recipes → quantities summed."""
-        fake_spells = tmp_path / "s.db"
-        fake_spells.touch()
-        fake_recipes = tmp_path / "r.db"
-        fake_recipes.touch()
         cached = _FakeCharCached(spell_ids=[101, 102])
         rows = {
             101: {"name": "Spell A", "tier_name": "Adept", "type": "spells", "given_by": "spellscroll", "level": 90},
@@ -247,8 +228,8 @@ class TestGetUpgradeMaterials:
             },
         }
         with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells),
-            patch("backend.server.api.character.upgrades._RECIPES_DB", new=fake_recipes),
+            _spells_ready(True),
+            _recipes_ready(True),
             patch(
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(cached, True),
@@ -283,24 +264,17 @@ class TestGetUpgradeRecipes:
         assert r.status_code == 400
 
     async def test_spells_db_missing_returns_503(self, app):
-        """Spells DB absent → 503."""
-        with patch(
-            "backend.server.api.character.upgrades._SPELLS_DB",
-            new=Path("/nonexistent/spells.db"),
-        ):
+        """Spells catalogue not loaded → 503."""
+        with _spells_ready(False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/character/Sihtric/upgrade-recipes")
         assert r.status_code == 503
 
-    async def test_character_not_found_returns_404(self, app, tmp_path):
+    async def test_character_not_found_returns_404(self, app):
         """Character missing from Census → 404."""
-        fake_spells = tmp_path / "s.db"
-        fake_spells.touch()
-        fake_recipes = tmp_path / "r.db"
-        fake_recipes.touch()
         with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells),
-            patch("backend.server.api.character.upgrades._RECIPES_DB", new=fake_recipes),
+            _spells_ready(True),
+            _recipes_ready(True),
             patch(
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(None, False),
@@ -316,12 +290,8 @@ class TestGetUpgradeRecipes:
                 r = await client.get("/api/character/Ghost/upgrade-recipes")
         assert r.status_code == 404
 
-    async def test_happy_path_returns_recipe_list(self, app, tmp_path):
+    async def test_happy_path_returns_recipe_list(self, app):
         """Sub-Expert spells with recipes → list of RecipeResult objects."""
-        fake_spells = tmp_path / "s.db"
-        fake_spells.touch()
-        fake_recipes = tmp_path / "r.db"
-        fake_recipes.touch()
         cached = _FakeCharCached(spell_ids=[101])
         adept_row = {
             "name": "Divine Favor",
@@ -344,8 +314,8 @@ class TestGetUpgradeRecipes:
             "out_formed_count": 1,
         }
         with (
-            patch("backend.server.api.character.upgrades._SPELLS_DB", new=fake_spells),
-            patch("backend.server.api.character.upgrades._RECIPES_DB", new=fake_recipes),
+            _spells_ready(True),
+            _recipes_ready(True),
             patch(
                 "backend.server.api.character.upgrades.character_cache.get_stale",
                 return_value=(cached, True),
@@ -375,78 +345,59 @@ class TestGetUpgradeRecipes:
 
 
 class TestLookupItemsByName:
-    def _create_items_db(self, tmp_path: Path) -> Path:
-        """Create a minimal items DB with a few test rows."""
-        db_path = tmp_path / "items.db"
-        with sqlite3.connect(str(db_path)) as conn:
-            conn.execute(
-                """CREATE TABLE items (
-                    id INTEGER PRIMARY KEY,
-                    displayname TEXT NOT NULL,
-                    displayname_lower TEXT NOT NULL,
-                    icon_id INTEGER,
-                    tier_display TEXT,
-                    description TEXT,
-                    item_level INTEGER DEFAULT 0,
-                    flag_no_value INTEGER DEFAULT 0,
-                    max_stack_size INTEGER DEFAULT 1
-                )"""
-            )
-            conn.executemany(
-                "INSERT INTO items VALUES (?,?,?,?,?,?,?,?,?)",
+    def _seed_items(self, schema: str) -> None:
+        """Seed a few item rows into the leased items schema."""
+        with pg_conn(schema) as conn:
+            conn.cursor().executemany(
+                "INSERT INTO items (id, displayname, displayname_lower, icon_id, tier_display, "
+                "description, item_level, flag_no_value, max_stack_size) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 [
                     (1, "Lead Cluster", "lead cluster", 100, "COMMON", None, 1, 1, 800),
                     (2, "Rough Opaline", "rough opaline", 101, "COMMON", None, 1, 1, 800),
                     (3, "Severed Root", "severed root", 102, "COMMON", None, 1, 1, 800),
                 ],
             )
-            conn.commit()
-        return db_path
 
-    def test_exact_match_after_stripping_raw_prefix(self, tmp_path):
+    def test_exact_match_after_stripping_raw_prefix(self, items_schema):
         """'Raw Lead Cluster' → stripped to 'Lead Cluster' → found (pass-1)."""
         from backend.server.api.character.upgrades import _lookup_items_by_name
 
-        db_path = self._create_items_db(tmp_path)
-        with patch("backend.server.api.character.upgrades._ITEMS_DB", new=db_path):
-            result = _lookup_items_by_name(["Raw Lead Cluster"])
+        self._seed_items(items_schema)
+        result = _lookup_items_by_name(["Raw Lead Cluster"])
         assert "raw lead cluster" in result
         assert result["raw lead cluster"]["display_name"] == "Lead Cluster"
 
-    def test_fuzzy_pass2_for_renamed_raw_material(self, tmp_path):
+    def test_fuzzy_pass2_for_renamed_raw_material(self, items_schema):
         """'Raw Opaline' doesn't exist; fuzzy LIKE finds 'Rough Opaline' (pass-2)."""
         from backend.server.api.character.upgrades import _lookup_items_by_name
 
-        db_path = self._create_items_db(tmp_path)
-        with patch("backend.server.api.character.upgrades._ITEMS_DB", new=db_path):
-            result = _lookup_items_by_name(["Raw Opaline"])
+        self._seed_items(items_schema)
+        result = _lookup_items_by_name(["Raw Opaline"])
         assert "raw opaline" in result
         assert result["raw opaline"]["display_name"] == "Rough Opaline"
 
-    def test_non_raw_uses_exact_match(self, tmp_path):
+    def test_non_raw_uses_exact_match(self, items_schema):
         """Non-'Raw' name: 'Severed Root' → exact match only, no fuzzy."""
         from backend.server.api.character.upgrades import _lookup_items_by_name
 
-        db_path = self._create_items_db(tmp_path)
-        with patch("backend.server.api.character.upgrades._ITEMS_DB", new=db_path):
-            result = _lookup_items_by_name(["Severed Root"])
+        self._seed_items(items_schema)
+        result = _lookup_items_by_name(["Severed Root"])
         assert "severed root" in result
         assert result["severed root"]["display_name"] == "Severed Root"
 
-    def test_missing_items_absent_from_result(self, tmp_path):
+    def test_missing_items_absent_from_result(self, items_schema):
         """Items not in the DB are simply missing from the returned dict."""
         from backend.server.api.character.upgrades import _lookup_items_by_name
 
-        db_path = self._create_items_db(tmp_path)
-        with patch("backend.server.api.character.upgrades._ITEMS_DB", new=db_path):
-            result = _lookup_items_by_name(["Nonexistent Material"])
+        self._seed_items(items_schema)
+        result = _lookup_items_by_name(["Nonexistent Material"])
         assert "nonexistent material" not in result
 
-    def test_returns_empty_when_items_db_absent(self, tmp_path):
-        """If the items DB file doesn't exist, returns an empty dict."""
+    def test_returns_empty_when_items_db_absent(self, items_schema):
+        """An EMPTY leased items schema reads as not-ready → empty dict (the
+        Postgres analog of the old missing items.db file)."""
         from backend.server.api.character.upgrades import _lookup_items_by_name
 
-        missing = tmp_path / "no_items.db"
-        with patch("backend.server.api.character.upgrades._ITEMS_DB", new=missing):
-            result = _lookup_items_by_name(["Lead Cluster"])
+        result = _lookup_items_by_name(["Lead Cluster"])
         assert result == {}

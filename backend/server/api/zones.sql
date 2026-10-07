@@ -4,14 +4,16 @@
 
 -- :name most_recent_parsed_guild
 -- Most recent non-null guild_name this user has uploaded a parse for.
--- Runs against the Postgres parses schema (%s placeholders).
+-- Runs against the Postgres parses schema. (No literal binding markers in
+-- comments: psycopg's binder counts them textually, comments included —
+-- this exact block 500'd /api/zones/progress until the mention was cut.)
 SELECT guild_name FROM encounters
 WHERE uploaded_by = %s AND guild_name IS NOT NULL AND hidden_at IS NULL
 ORDER BY started_at DESC LIMIT 1;
 
 -- :name list_kills_for_guild
 -- Every winning row for a guild as (id, title, started_at). Caller filters
--- out NULL titles in Python. Postgres parses schema (%s placeholders).
+-- out NULL titles in Python. Postgres parses schema.
 SELECT id, title, started_at FROM encounters
 WHERE guild_name = %s AND success_level = 1 AND hidden_at IS NULL;
 

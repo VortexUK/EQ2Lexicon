@@ -25,8 +25,10 @@ SELECT id, class_label FROM items.items WHERE id = ANY(%s);
 
 -- :name count_recipes_where
 -- Total result count for a recipe search. The where placeholder is composed
--- in Python ("name_lower LIKE %s AND bench = %s …") from whichever filters
--- the request actually carried.
+-- in Python (name_lower LIKE / bench = conditions) from whichever filters
+-- the request actually carried. No literal binding markers in this comment:
+-- psycopg's client-side binder counts them textually, comments included
+-- (see the header note — sqlite's parser ignored the old ?-style mentions).
 SELECT COUNT(DISTINCT id) AS n FROM recipes WHERE {where};
 
 -- :name select_recipes_where

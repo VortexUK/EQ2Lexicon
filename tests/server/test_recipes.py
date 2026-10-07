@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +15,7 @@ from backend.server.api.recipes import (
     _level_to_craft_tier,
     _resolve_bench_param,
 )
+from tests.fixtures.pg import pg_conn
 
 # ---------------------------------------------------------------------------
 # Pure helper unit tests (no HTTP needed)
@@ -128,10 +129,10 @@ async def test_get_recipe_filters(app):
 @pytest.mark.asyncio
 async def test_search_recipes_no_filters_returns_empty(app):
     """At least one filter must be provided; bare search returns empty."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
-    with patch("backend.server.api.recipes.RECIPES_DB_PATH", mock_db):
+    with (
+        patch("backend.server.api.recipes._recipes.ready", return_value=True),
+        patch("backend.server.api.recipes._items.ready", return_value=True),
+    ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/recipes/search")
 
@@ -143,11 +144,8 @@ async def test_search_recipes_no_filters_returns_empty(app):
 
 @pytest.mark.asyncio
 async def test_search_recipes_db_unavailable(app):
-    """503 when recipes DB doesn't exist."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = False
-
-    with patch("backend.server.api.recipes.RECIPES_DB_PATH", mock_db):
+    """503 when the recipes catalogue is not loaded (ready() False)."""
+    with patch("backend.server.api.recipes._recipes.ready", return_value=False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/recipes/search?q=fireball")
 
@@ -156,15 +154,10 @@ async def test_search_recipes_db_unavailable(app):
 
 @pytest.mark.asyncio
 async def test_search_recipes_class_filter_without_items_db(app):
-    """503 when class_name filter used but items DB is absent."""
-    mock_recipes_db = MagicMock()
-    mock_recipes_db.exists.return_value = True
-    mock_items_db = MagicMock()
-    mock_items_db.exists.return_value = False
-
+    """503 when class_name filter used but the items catalogue is not loaded."""
     with (
-        patch("backend.server.api.recipes.RECIPES_DB_PATH", mock_recipes_db),
-        patch("backend.server.api.recipes.ITEMS_DB_PATH", mock_items_db),
+        patch("backend.server.api.recipes._recipes.ready", return_value=True),
+        patch("backend.server.api.recipes._items.ready", return_value=False),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/recipes/search?class_name=wizard")
@@ -178,33 +171,25 @@ async def test_search_recipes_class_filter_without_items_db(app):
 
 
 @pytest.fixture
-def _recipes_db_with_level(tmp_path):
-    """A 1-row recipes.db where the recipe makes a level-75 item (→ T8)."""
-    import sqlite3
-
-    from backend.eq2db.recipes import RecipeCatalogue
-
-    db_path = tmp_path / "recipes.db"
-    RecipeCatalogue(db_path).init_db().close()  # creates schema incl. out_level column
-    with sqlite3.connect(db_path) as conn:
+def _recipes_db_with_level(recipes_schema, monkeypatch):
+    """A 1-row leased recipes schema where the recipe makes a level-75 item
+    (→ T8). The route's import-frozen search_path alias is re-pointed at the
+    lease; ``recipes_schema`` already re-points the shared catalogue, so
+    ``ready()`` probes the seeded lease."""
+    monkeypatch.setattr("backend.server.api.recipes._RECIPES_SCHEMA", recipes_schema)
+    with pg_conn(recipes_schema) as conn:
         conn.execute(
-            "INSERT INTO recipes (id, name, name_lower, secondary_comps, out_level) VALUES (?, ?, ?, '[]', ?)",
+            "INSERT INTO recipes (id, name, name_lower, secondary_comps, out_level) VALUES (%s, %s, %s, '[]', %s)",
             (1, "Abhorrent Seal III (Journeyman)", "abhorrent seal iii (journeyman)", 75),
         )
-        conn.commit()
-    return db_path
+    return recipes_schema
 
 
 @pytest.mark.asyncio
 async def test_search_craft_tier_from_level(app, _recipes_db_with_level):
     """A level-75 recipe surfaces as craft_tier T8 (not the old fuel-derived value)."""
-    no_items = MagicMock()
-    no_items.exists.return_value = False  # skip class enrichment; craft_tier comes from out_level
-
-    with (
-        patch("backend.server.api.recipes.RECIPES_DB_PATH", _recipes_db_with_level),
-        patch("backend.server.api.recipes.ITEMS_DB_PATH", no_items),
-    ):
+    # items catalogue not ready → skip class enrichment; craft_tier comes from out_level
+    with patch("backend.server.api.recipes._items.ready", return_value=False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/recipes/search?q=abhorrent%20seal")
 
@@ -217,13 +202,7 @@ async def test_search_craft_tier_from_level(app, _recipes_db_with_level):
 @pytest.mark.asyncio
 async def test_search_tier_filter_uses_level_range(app, _recipes_db_with_level):
     """?tier=T8 matches the level-75 recipe; ?tier=T3 (old wrong value) does not."""
-    no_items = MagicMock()
-    no_items.exists.return_value = False
-
-    with (
-        patch("backend.server.api.recipes.RECIPES_DB_PATH", _recipes_db_with_level),
-        patch("backend.server.api.recipes.ITEMS_DB_PATH", no_items),
-    ):
+    with patch("backend.server.api.recipes._items.ready", return_value=False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             hit = await client.get("/api/recipes/search?tier=T8")
             miss = await client.get("/api/recipes/search?tier=T3")

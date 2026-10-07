@@ -4,174 +4,152 @@ COV-004 scenarios: stat_filter parsing (gte/lte), tier exact vs LIKE, item_type
 routing (typeinfo_name vs classification_list), JOIN parameter ordering, non-numeric
 item ID → 400, Census fallback, craftable/non-craftable spell-scroll, and the filters
 endpoint. Each test encodes one named behaviour, not line-coverage.
+
+Postgres edition: seeded tests lease an isolated items schema via the
+``items_schema`` fixture (which re-points the shared catalogue, so
+``ready()`` probes the lease) and additionally re-point the route module's
+import-frozen ``_ITEMS_SCHEMA`` search_path alias. The old
+``DB_PATH.exists()`` 503 gate is now ``_items.ready()`` — patched directly
+for the unavailable-DB tests.
 """
 
 from __future__ import annotations
 
-import sqlite3
-import tempfile
-from collections.abc import Generator
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.fixtures.pg import pg_conn
+
 # ---------------------------------------------------------------------------
-# Shared DB setup — minimal items + item_stats tables
+# Shared DB setup — minimal items + item_stats rows in the leased schema
 # ---------------------------------------------------------------------------
 
-_ITEMS_DDL = """
-CREATE TABLE items (
-    id                   INTEGER PRIMARY KEY,
-    displayname          TEXT    NOT NULL,
-    displayname_lower    TEXT    NOT NULL,
-    tier_display         TEXT,
-    slot                 TEXT,
-    typeinfo_name        TEXT,
-    level_to_use         INTEGER DEFAULT 0,
-    class_label          TEXT,
-    icon_id              INTEGER,
-    classes_json         TEXT    DEFAULT '{}',
-    classification_list  TEXT,
-    visible              INTEGER DEFAULT 1,
-    flag_pvp             INTEGER DEFAULT 0,
-    tierid               INTEGER DEFAULT 0,
-    type                 TEXT    DEFAULT 'Item'
-);
-CREATE TABLE item_stats (
-    item_id  INTEGER NOT NULL,
-    stat     TEXT    NOT NULL,
-    value    REAL    NOT NULL,
-    PRIMARY KEY (item_id, stat)
-);
-"""
 
-
-def _seed_items_db(path: Path) -> None:
-    """Create and populate a minimal items DB for testing."""
-    conn = sqlite3.connect(str(path))
-    conn.executescript(_ITEMS_DDL)
-    conn.executemany(
-        "INSERT INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,1,0,?,?)",
-        [
-            # id, displayname, displayname_lower, tier_display, slot, typeinfo_name,
-            # level_to_use, class_label, icon_id, classes_json, classification_list,
-            # tierid, type
-            (
-                1,
-                "Legendary Shield",
-                "legendary shield",
-                "LEGENDARY",
-                "Secondary",
-                "shield",
-                90,
-                "All Fighters",
-                100,
-                "{}",
-                None,
-                4,
-                "Item",
-            ),
-            (
-                2,
-                "Fabled Ring",
-                "fabled ring",
-                "FABLED",
-                "Finger",
-                "ring",
-                95,
-                "All Classes",
-                101,
-                "{}",
-                None,
-                5,
-                "Item",
-            ),
-            (
-                3,
-                "Common Helm",
-                "common helm",
-                "COMMON",
-                "Head",
-                "armor",
-                80,
-                "All Fighters",
-                102,
-                "{}",
-                None,
-                0,
-                "Item",
-            ),
-            (
-                4,
-                "Material Ore",
-                "material ore",
-                "COMMON",
-                None,
-                "material",
-                1,
-                None,
-                103,
-                "{}",
-                '["materials"]',
-                0,
-                "Item",
-            ),
-            (5, "Storage Box", "storage box", "COMMON", None, "container", 1, None, 104, "{}", None, 0, "Container"),
-            (
-                6,
-                "Itemcontainer Bag",
-                "itemcontainer bag",
-                "COMMON",
-                None,
-                "itemcontainer",
-                1,
-                None,
-                105,
-                "{}",
-                None,
-                0,
-                "Container",
-            ),
-            (
-                7,
-                "Uncommonly Good",
-                "uncommonly good",
-                "UNCOMMON",
-                "Head",
-                "armor",
-                85,
-                "All Scouts",
-                106,
-                "{}",
-                None,
-                1,
-                "Item",
-            ),
-        ],
-    )
-    conn.executemany(
-        "INSERT INTO item_stats VALUES (?,?,?)",
-        [
-            (1, "Strength", 60.0),
-            (2, "Strength", 100.0),
-            (1, "Stamina", 40.0),
-            (7, "Strength", 30.0),
-        ],
-    )
-    conn.commit()
-    conn.close()
+def _seed_items_schema(schema: str) -> None:
+    """Populate the leased items schema for testing (visible defaults to 1
+    and flag_pvp to 0 in the migration DDL, matching the old seed)."""
+    with pg_conn(schema) as conn:
+        conn.cursor().executemany(
+            "INSERT INTO items (id, displayname, displayname_lower, tier_display, slot, typeinfo_name, "
+            "level_to_use, class_label, icon_id, classes_json, classification_list, tierid, type) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            [
+                # id, displayname, displayname_lower, tier_display, slot, typeinfo_name,
+                # level_to_use, class_label, icon_id, classes_json, classification_list,
+                # tierid, type
+                (
+                    1,
+                    "Legendary Shield",
+                    "legendary shield",
+                    "LEGENDARY",
+                    "Secondary",
+                    "shield",
+                    90,
+                    "All Fighters",
+                    100,
+                    "{}",
+                    None,
+                    4,
+                    "Item",
+                ),
+                (
+                    2,
+                    "Fabled Ring",
+                    "fabled ring",
+                    "FABLED",
+                    "Finger",
+                    "ring",
+                    95,
+                    "All Classes",
+                    101,
+                    "{}",
+                    None,
+                    5,
+                    "Item",
+                ),
+                (
+                    3,
+                    "Common Helm",
+                    "common helm",
+                    "COMMON",
+                    "Head",
+                    "armor",
+                    80,
+                    "All Fighters",
+                    102,
+                    "{}",
+                    None,
+                    0,
+                    "Item",
+                ),
+                (
+                    4,
+                    "Material Ore",
+                    "material ore",
+                    "COMMON",
+                    None,
+                    "material",
+                    1,
+                    None,
+                    103,
+                    "{}",
+                    '["materials"]',
+                    0,
+                    "Item",
+                ),
+                (5, "Storage Box", "storage box", "COMMON", None, "container", 1, None, 104, "{}", None, 0, "Container"),
+                (
+                    6,
+                    "Itemcontainer Bag",
+                    "itemcontainer bag",
+                    "COMMON",
+                    None,
+                    "itemcontainer",
+                    1,
+                    None,
+                    105,
+                    "{}",
+                    None,
+                    0,
+                    "Container",
+                ),
+                (
+                    7,
+                    "Uncommonly Good",
+                    "uncommonly good",
+                    "UNCOMMON",
+                    "Head",
+                    "armor",
+                    85,
+                    "All Scouts",
+                    106,
+                    "{}",
+                    None,
+                    1,
+                    "Item",
+                ),
+            ],
+        )
+        conn.cursor().executemany(
+            "INSERT INTO item_stats (item_id, stat, value) VALUES (%s, %s, %s)",
+            [
+                (1, "Strength", 60.0),
+                (2, "Strength", 100.0),
+                (1, "Stamina", 40.0),
+                (7, "Strength", 30.0),
+            ],
+        )
 
 
 @pytest.fixture
-def items_db_path(tmp_path: Path) -> Generator[Path]:
-    """Yield a path to a seeded items DB; patch census.db.DB_PATH for its lifetime."""
-    db_file = tmp_path / "items.db"
-    _seed_items_db(db_file)
-    with patch("backend.eq2db.items.DB_PATH", db_file):
-        with patch("backend.server.api.item.DB_PATH", db_file):
-            yield db_file
+def items_db(items_schema, monkeypatch):
+    """Seeded leased items schema; the route's import-frozen search_path
+    alias is re-pointed at the lease for its lifetime."""
+    _seed_items_schema(items_schema)
+    monkeypatch.setattr("backend.server.api.item._ITEMS_SCHEMA", items_schema)
+    return items_schema
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +157,7 @@ def items_db_path(tmp_path: Path) -> Generator[Path]:
 # ---------------------------------------------------------------------------
 
 
-async def test_search_with_stat_filter_gte_returns_qualifying_items(app, items_db_path):
+async def test_search_with_stat_filter_gte_returns_qualifying_items(app, items_db):
     """stat_filter=Strength:gte:50 returns only items with Strength >= 50."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/items/search?stat_filter=Strength:gte:50")
@@ -193,7 +171,7 @@ async def test_search_with_stat_filter_gte_returns_qualifying_items(app, items_d
     assert 7 not in ids
 
 
-async def test_search_with_stat_filter_lte_returns_qualifying_items(app, items_db_path):
+async def test_search_with_stat_filter_lte_returns_qualifying_items(app, items_db):
     """stat_filter=Strength:lte:50 returns only items with Strength <= 50."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/items/search?stat_filter=Strength:lte:50")
@@ -210,7 +188,7 @@ async def test_search_with_stat_filter_lte_returns_qualifying_items(app, items_d
 # ---------------------------------------------------------------------------
 
 
-async def test_search_tier_common_exact_match_excludes_uncommon(app, items_db_path):
+async def test_search_tier_common_exact_match_excludes_uncommon(app, items_db):
     """tier=Common uses exact match so UNCOMMON items are excluded."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/items/search?tier=Common")
@@ -220,7 +198,7 @@ async def test_search_tier_common_exact_match_excludes_uncommon(app, items_db_pa
         assert row["tier"] == "COMMON", f"Unexpected tier: {row['tier']}"
 
 
-async def test_search_tier_fabled_like_match_finds_fabled(app, items_db_path):
+async def test_search_tier_fabled_like_match_finds_fabled(app, items_db):
     """tier=Fabled uses LIKE matching to find items with FABLED in their tier."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/items/search?tier=Fabled")
@@ -237,7 +215,7 @@ async def test_search_tier_fabled_like_match_finds_fabled(app, items_db_path):
 # ---------------------------------------------------------------------------
 
 
-async def test_search_item_type_material_uses_classification_list(app, items_db_path):
+async def test_search_item_type_material_uses_classification_list(app, items_db):
     """item_type=Material filters via classification_list column, not typeinfo_name."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/items/search?item_type=Material")
@@ -249,7 +227,7 @@ async def test_search_item_type_material_uses_classification_list(app, items_db_
     assert 1 not in ids
 
 
-async def test_search_item_type_container_matches_both_container_and_itemcontainer(app, items_db_path):
+async def test_search_item_type_container_matches_both_container_and_itemcontainer(app, items_db):
     """item_type=Container returns rows with typeinfo_name in ('container', 'itemcontainer')."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/items/search?item_type=Container")
@@ -266,7 +244,7 @@ async def test_search_item_type_container_matches_both_container_and_itemcontain
 # ---------------------------------------------------------------------------
 
 
-async def test_search_no_filters_returns_empty_results(app, items_db_path):
+async def test_search_no_filters_returns_empty_results(app, items_db):
     """A search with zero filters returns an empty result set (not an error)."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/items/search")
@@ -282,8 +260,8 @@ async def test_search_no_filters_returns_empty_results(app, items_db_path):
 
 
 async def test_search_with_filter_when_db_missing_returns_503(app):
-    """If the items DB does not exist, the endpoint returns 503."""
-    with patch("backend.server.api.item.DB_PATH", Path("/nonexistent/items.db")):
+    """If the items catalogue is not loaded (ready() False), the endpoint returns 503."""
+    with patch("backend.server.api.item._items.ready", return_value=False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/items/search?name=sword")
     assert r.status_code == 503
@@ -366,8 +344,8 @@ async def test_item_detail_missing_from_census_returns_404(app):
 async def test_spell_scroll_apprentice_is_not_craftable(app):
     """Apprentice tier is not in CRAFTABLE_TIERS → craftable=False, recipe=None."""
     with (
-        patch("backend.server.api.item.DB_PATH", Path("/nonexistent/items.db")),
-        patch("backend.server.api.item.RECIPES_DB_PATH", Path("/nonexistent/recipes.db")),
+        patch("backend.server.api.item._items.ready", return_value=False),
+        patch("backend.server.api.item._recipes.ready", return_value=False),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/spell-scroll?name=Sanctuary&tier=Apprentice")
@@ -380,24 +358,20 @@ async def test_spell_scroll_apprentice_is_not_craftable(app):
 async def test_spell_scroll_expert_tier_is_craftable(app):
     """Expert tier is in CRAFTABLE_TIERS → craftable=True (recipe may be None if no DB)."""
     with (
-        patch("backend.server.api.item.DB_PATH", Path("/nonexistent/items.db")),
-        patch("backend.server.api.item.RECIPES_DB_PATH", Path("/nonexistent/recipes.db")),
+        patch("backend.server.api.item._items.ready", return_value=False),
+        patch("backend.server.api.item._recipes.ready", return_value=False),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/spell-scroll?name=Sanctuary&tier=Expert")
     assert r.status_code == 200
     body = r.json()
     assert body["craftable"] is True
-    # No recipe DB → recipe is None but craftable is still True
+    # No recipe catalogue → recipe is None but craftable is still True
     assert body["recipe"] is None
 
 
-async def test_spell_scroll_expert_returns_recipe_when_found(app, tmp_path):
-    """Expert tier returns a recipe when the recipes DB has a match."""
-    # Create a real but empty recipes DB file so RECIPES_DB_PATH.exists() is True.
-    fake_recipes_db = tmp_path / "recipes.db"
-    fake_recipes_db.touch()
-
+async def test_spell_scroll_expert_returns_recipe_when_found(app):
+    """Expert tier returns a recipe when the recipes catalogue has a match."""
     fake_recipe = {
         "primary_comp": "Coral",
         "primary_qty": 2,
@@ -407,9 +381,9 @@ async def test_spell_scroll_expert_returns_recipe_when_found(app, tmp_path):
     }
 
     with (
+        patch("backend.server.api.item._recipes.ready", return_value=True),
         patch("backend.server.api.item._recipes.find_by_spell", return_value=[fake_recipe]),
-        patch("backend.server.api.item.DB_PATH", Path("/nonexistent/items.db")),
-        patch("backend.server.api.item.RECIPES_DB_PATH", fake_recipes_db),
+        patch("backend.server.api.item._items.ready", return_value=False),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/spell-scroll?name=Sanctuary+III&tier=Expert")

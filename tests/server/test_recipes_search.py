@@ -2,13 +2,13 @@
 
 Covers:
   GET /recipes/filters  — returns craft tiers, benches, and adventure classes.
-  GET /recipes/search   — recipes DB missing → 503;
+  GET /recipes/search   — recipes catalogue not ready → 503;
                           no query params → empty results (no conditions);
                           name filter → paginates results;
                           tier filter → out_level range matching;
                           bench filter → bench key and display-label both accepted;
-                          class_name filter → items DB missing → 503;
-                          class_name + items DB → item-id subquery;
+                          class_name filter → items catalogue not ready → 503;
+                          class_name + items schema → item-id subquery;
                           craft_class filter → recipe_classes subquery;
                           page parameter → correct offset applied.
 
@@ -16,114 +16,107 @@ Covers:
   _level_to_craft_tier  — crafted-item level → tier label (T1 … T14 / None).
   _bench_label          — raw key → display label; unknown key → title-cased.
   _resolve_bench_param  — accepts raw key or display label.
-  _row_to_result        — builds RecipeResult; malformed secondary_comps → [].
+
+Postgres edition: seeded tests lease isolated recipes (and, for the
+class-name filter, items) schemas; the route's import-frozen
+``_RECIPES_SCHEMA`` search_path alias and the two SQL blocks that
+hard-qualify the production ``items.items`` schema are re-pointed at the
+leases via monkeypatch. The old file-exists 503 gates became
+``catalogue.ready()`` probes, patched directly for the unavailable paths.
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.api.recipes import (
-    BENCH_DISPLAY,
     _bench_label,
     _level_to_craft_tier,
     _resolve_bench_param,
 )
+from tests.fixtures.pg import pg_conn
 
 # ---------------------------------------------------------------------------
-# SQLite helpers — build minimal recipes / items DBs in tmp_path
+# Seeding helpers — minimal recipes / items rows in the leased schemas
 # ---------------------------------------------------------------------------
 
 
-def _make_recipes_db(path: Path, rows: list[dict] | None = None) -> Path:
-    """Create a minimal recipes.db with the schema expected by search_recipes."""
-    conn = sqlite3.connect(str(path))
-    conn.execute(
-        """CREATE TABLE recipes (
-            id INTEGER PRIMARY KEY,
-            name TEXT,
-            name_lower TEXT,
-            bench TEXT,
-            crafted_tier TEXT,
-            primary_comp TEXT,
-            primary_qty INTEGER,
-            secondary_comps TEXT,
-            fuel_comp TEXT,
-            fuel_qty INTEGER,
-            out_formed_id INTEGER,
-            out_formed_count INTEGER,
-            out_elaborate_id INTEGER,
-            out_level INTEGER
-        )"""
-    )
-    conn.execute(
-        """CREATE TABLE recipe_classes (
-            recipe_id INTEGER,
-            class TEXT
-        )"""
-    )
-    conn.commit()
-
-    for row in rows or []:
-        conn.execute(
-            """INSERT INTO recipes (id, name, name_lower, bench, crafted_tier,
-               primary_comp, primary_qty, secondary_comps,
-               fuel_comp, fuel_qty, out_formed_id, out_formed_count, out_elaborate_id, out_level)
-               VALUES (:id, :name, :name_lower, :bench, :crafted_tier,
-               :primary_comp, :primary_qty, :secondary_comps,
-               :fuel_comp, :fuel_qty, :out_formed_id, :out_formed_count, :out_elaborate_id, :out_level)""",
-            {
-                "id": row.get("id", 1),
-                "name": row.get("name", "Test Recipe"),
-                "name_lower": row.get("name", "test recipe").lower(),
-                "bench": row.get("bench"),
-                "crafted_tier": row.get("crafted_tier"),
-                "primary_comp": row.get("primary_comp"),
-                "primary_qty": row.get("primary_qty"),
-                "secondary_comps": row.get("secondary_comps", "[]"),
-                "fuel_comp": row.get("fuel_comp"),
-                "fuel_qty": row.get("fuel_qty"),
-                "out_formed_id": row.get("out_formed_id"),
-                "out_formed_count": row.get("out_formed_count"),
-                "out_elaborate_id": row.get("out_elaborate_id"),
-                "out_level": row.get("out_level"),
-            },
-        )
-        for cls in row.get("craft_classes", []):
+def _seed_recipes(schema: str, rows: list[dict] | None = None) -> None:
+    """Insert minimal recipe (+ recipe_classes) rows into the leased recipes
+    schema — the shape search_recipes expects."""
+    with pg_conn(schema) as conn:
+        for row in rows or []:
             conn.execute(
-                "INSERT INTO recipe_classes (recipe_id, class) VALUES (?, ?)",
-                (row.get("id", 1), cls),
+                """INSERT INTO recipes (id, name, name_lower, bench, crafted_tier,
+                   primary_comp, primary_qty, secondary_comps,
+                   fuel_comp, fuel_qty, out_formed_id, out_formed_count, out_elaborate_id, out_level)
+                   VALUES (%(id)s, %(name)s, %(name_lower)s, %(bench)s, %(crafted_tier)s,
+                   %(primary_comp)s, %(primary_qty)s, %(secondary_comps)s,
+                   %(fuel_comp)s, %(fuel_qty)s, %(out_formed_id)s, %(out_formed_count)s,
+                   %(out_elaborate_id)s, %(out_level)s)""",
+                {
+                    "id": row.get("id", 1),
+                    "name": row.get("name", "Test Recipe"),
+                    "name_lower": row.get("name", "test recipe").lower(),
+                    "bench": row.get("bench"),
+                    "crafted_tier": row.get("crafted_tier"),
+                    "primary_comp": row.get("primary_comp"),
+                    "primary_qty": row.get("primary_qty"),
+                    "secondary_comps": row.get("secondary_comps", "[]"),
+                    "fuel_comp": row.get("fuel_comp"),
+                    "fuel_qty": row.get("fuel_qty"),
+                    "out_formed_id": row.get("out_formed_id"),
+                    "out_formed_count": row.get("out_formed_count"),
+                    "out_elaborate_id": row.get("out_elaborate_id"),
+                    "out_level": row.get("out_level"),
+                },
+            )
+            for cls in row.get("craft_classes", []):
+                conn.execute(
+                    "INSERT INTO recipe_classes (recipe_id, class) VALUES (%s, %s)",
+                    (row.get("id", 1), cls),
+                )
+
+
+def _seed_items(schema: str, rows: list[dict] | None = None) -> None:
+    """Insert minimal item rows (id + class_label) into the leased items
+    schema (displayname columns are NOT NULL in the migration DDL)."""
+    with pg_conn(schema) as conn:
+        for row in rows or []:
+            conn.execute(
+                "INSERT INTO items (id, displayname, displayname_lower, class_label) VALUES (%s, %s, %s, %s)",
+                (row["id"], f"Item {row['id']}", f"item {row['id']}", row.get("class_label")),
             )
 
-    conn.commit()
-    conn.close()
-    return path
+
+@pytest.fixture
+def recipes_route_schema(recipes_schema, monkeypatch):
+    """Leased recipes schema with the route's import-frozen ``_RECIPES_SCHEMA``
+    search_path alias re-pointed at it (``recipes_schema`` already re-points
+    the shared catalogue, so ``ready()`` probes the lease)."""
+    monkeypatch.setattr("backend.server.api.recipes._RECIPES_SCHEMA", recipes_schema)
+    return recipes_schema
 
 
-def _make_items_db(path: Path, rows: list[dict] | None = None) -> Path:
-    """Create a minimal items.db with the columns expected by _query_items_db."""
-    conn = sqlite3.connect(str(path))
-    conn.execute(
-        """CREATE TABLE items (
-            id INTEGER PRIMARY KEY,
-            class_label TEXT
-        )"""
-    )
-    conn.commit()
-    for row in rows or []:
-        conn.execute(
-            "INSERT INTO items (id, class_label) VALUES (?, ?)",
-            (row["id"], row.get("class_label")),
+@pytest.fixture
+def items_for_class_filter(items_schema, monkeypatch):
+    """Leased items schema with the route's two cross-schema SQL blocks
+    re-targeted at it. The route's SQL hard-qualifies ``items.items`` (the
+    REAL session items schema), so without the rewrite the leased rows would
+    be invisible to the class filter / label enrichment."""
+    from backend.server.api import recipes as recipes_api
+
+    for key in ("class_filter_subquery", "items_class_labels_by_ids"):
+        monkeypatch.setitem(
+            recipes_api._SQL,
+            key,
+            recipes_api._SQL[key].replace("items.items", f'"{items_schema}".items'),
         )
-    conn.commit()
-    conn.close()
-    return path
+    return items_schema
 
 
 # ---------------------------------------------------------------------------
@@ -215,40 +208,32 @@ class TestGetRecipeFilters:
 
 
 class TestSearchRecipesErrors:
-    async def test_missing_recipes_db_returns_503(self, app, tmp_path) -> None:
-        """When recipes DB does not exist, a 503 is returned."""
-        nonexistent = tmp_path / "missing.db"
-        with patch("backend.server.api.recipes.RECIPES_DB_PATH", nonexistent):
+    async def test_missing_recipes_db_returns_503(self, app) -> None:
+        """When the recipes catalogue is not loaded (ready() False), a 503 is returned."""
+        with patch("backend.server.api.recipes._recipes.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?q=test")
 
         assert r.status_code == 503
         assert "not available" in r.json()["detail"].lower()
 
-    async def test_class_filter_missing_items_db_returns_503(self, app, tmp_path) -> None:
-        """When class_name filter is used but items DB is absent, a 503 is returned."""
-        recipes_db = _make_recipes_db(tmp_path / "recipes.db")
-        nonexistent_items = tmp_path / "missing_items.db"
-
+    async def test_class_filter_missing_items_db_returns_503(self, app) -> None:
+        """When class_name filter is used but the items catalogue is not loaded, a 503 is returned."""
         with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", nonexistent_items),
+            patch("backend.server.api.recipes._recipes.ready", return_value=True),
+            patch("backend.server.api.recipes._items.ready", return_value=False),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?class_name=Templar")
 
         assert r.status_code == 503
 
-    async def test_no_conditions_returns_empty(self, app, tmp_path) -> None:
+    async def test_no_conditions_returns_empty(self, app) -> None:
         """When no filters are given, empty results are returned (no full-scan)."""
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
-            rows=[
-                {"id": 1, "name": "Test Scroll"},
-            ],
-        )
-
-        with patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db):
+        with (
+            patch("backend.server.api.recipes._recipes.ready", return_value=True),
+            patch("backend.server.api.recipes._items.ready", return_value=True),
+        ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search")
 
@@ -264,10 +249,10 @@ class TestSearchRecipesErrors:
 
 
 class TestSearchRecipesHappyPath:
-    async def test_name_filter_returns_matching_recipes(self, app, tmp_path) -> None:
+    async def test_name_filter_returns_matching_recipes(self, app, recipes_route_schema) -> None:
         """q= filter matches on name_lower LIKE %q%."""
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Firestarter Scroll"},
                 {"id": 2, "name": "Iceblast Scroll"},
@@ -275,10 +260,7 @@ class TestSearchRecipesHappyPath:
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", tmp_path / "missing.db"),
-        ):
+        with patch("backend.server.api.recipes._items.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?q=scroll")
 
@@ -290,20 +272,17 @@ class TestSearchRecipesHappyPath:
         assert "Firestarter Scroll" in names
         assert "Iceblast Scroll" in names
 
-    async def test_tier_filter_matches_level_range(self, app, tmp_path) -> None:
+    async def test_tier_filter_matches_level_range(self, app, recipes_route_schema) -> None:
         """tier=T1 filters recipes whose out_level falls in the 1–9 bracket."""
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Low Recipe", "out_level": 5},  # T1
                 {"id": 2, "name": "Higher Recipe", "out_level": 15},  # T2
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", tmp_path / "missing.db"),
-        ):
+        with patch("backend.server.api.recipes._items.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?tier=T1")
 
@@ -313,20 +292,17 @@ class TestSearchRecipesHappyPath:
         assert body["results"][0]["name"] == "Low Recipe"
         assert body["results"][0]["craft_tier"] == "T1"
 
-    async def test_bench_filter_by_key(self, app, tmp_path) -> None:
+    async def test_bench_filter_by_key(self, app, recipes_route_schema) -> None:
         """bench=work_desk filters by raw bench key."""
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Sage Recipe", "bench": "work_desk"},
                 {"id": 2, "name": "Forge Recipe", "bench": "forge"},
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", tmp_path / "missing.db"),
-        ):
+        with patch("backend.server.api.recipes._items.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?bench=work_desk")
 
@@ -336,19 +312,16 @@ class TestSearchRecipesHappyPath:
         assert body["results"][0]["name"] == "Sage Recipe"
         assert body["results"][0]["bench_label"] == "Sage"
 
-    async def test_bench_filter_by_display_label(self, app, tmp_path) -> None:
+    async def test_bench_filter_by_display_label(self, app, recipes_route_schema) -> None:
         """bench=Sage (display label) resolves to work_desk and filters correctly."""
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Sage Recipe", "bench": "work_desk"},
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", tmp_path / "missing.db"),
-        ):
+        with patch("backend.server.api.recipes._items.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?bench=Sage")
 
@@ -356,20 +329,17 @@ class TestSearchRecipesHappyPath:
         body = r.json()
         assert body["total"] == 1
 
-    async def test_craft_class_filter_uses_recipe_classes_table(self, app, tmp_path) -> None:
+    async def test_craft_class_filter_uses_recipe_classes_table(self, app, recipes_route_schema) -> None:
         """craft_class= filter matches via the recipe_classes table."""
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Armorer Recipe", "craft_classes": ["Armorer"]},
                 {"id": 2, "name": "Sage Recipe", "craft_classes": ["Sage"]},
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", tmp_path / "missing.db"),
-        ):
+        with patch("backend.server.api.recipes._items.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?craft_class=Armorer")
 
@@ -379,73 +349,66 @@ class TestSearchRecipesHappyPath:
         assert body["results"][0]["name"] == "Armorer Recipe"
         assert "Armorer" in body["results"][0]["craft_classes"]
 
-    async def test_class_name_filter_returns_empty_when_no_item_ids_match(self, app, tmp_path) -> None:
+    async def test_class_name_filter_returns_empty_when_no_item_ids_match(
+        self, app, recipes_route_schema, items_for_class_filter
+    ) -> None:
         """class_name filter with no matching items → empty results."""
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Some Recipe"},
             ],
         )
-        items_db = _make_items_db(
-            tmp_path / "items.db",
+        _seed_items(
+            items_for_class_filter,
             rows=[
                 {"id": 999, "class_label": "Shadowknight"},
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", items_db),
-        ):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                r = await client.get("/api/recipes/search?class_name=Templar")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/recipes/search?class_name=Templar")
 
         assert r.status_code == 200
         body = r.json()
         assert body["total"] == 0
         assert body["results"] == []
 
-    async def test_class_name_filter_returns_matching_recipes(self, app, tmp_path) -> None:
-        """class_name filter narrows results via item-ID list from items DB."""
-        items_db = _make_items_db(
-            tmp_path / "items.db",
+    async def test_class_name_filter_returns_matching_recipes(
+        self, app, recipes_route_schema, items_for_class_filter
+    ) -> None:
+        """class_name filter narrows results via the items-schema subquery."""
+        _seed_items(
+            items_for_class_filter,
             rows=[
                 {"id": 555, "class_label": "Templar"},
             ],
         )
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Templar Scroll", "out_elaborate_id": 555},
                 {"id": 2, "name": "Shadowknight Scroll", "out_elaborate_id": 666},
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", items_db),
-        ):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                r = await client.get("/api/recipes/search?class_name=templar")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/recipes/search?class_name=templar")
 
         assert r.status_code == 200
         body = r.json()
         assert body["total"] == 1
         assert body["results"][0]["name"] == "Templar Scroll"
 
-    async def test_pagination_page_2_returns_offset_results(self, app, tmp_path) -> None:
+    async def test_pagination_page_2_returns_offset_results(self, app, recipes_route_schema) -> None:
         """page=2 returns the second page of results."""
         rows = [
             {"id": i, "name": f"Recipe {i:03d}", "out_level": 5}  # all T1
             for i in range(1, 30)  # 29 total
         ]
-        recipes_db = _make_recipes_db(tmp_path / "recipes.db", rows=rows)
+        _seed_recipes(recipes_route_schema, rows=rows)
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", tmp_path / "missing.db"),
-        ):
+        with patch("backend.server.api.recipes._items.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?tier=T1&page=2")
 
@@ -455,24 +418,21 @@ class TestSearchRecipesHappyPath:
         assert body["page"] == 2
         assert len(body["results"]) == 4  # 29 - 25 = 4 on page 2
 
-    async def test_secondary_comps_parsed_from_json(self, app, tmp_path) -> None:
+    async def test_secondary_comps_parsed_from_json(self, app, recipes_route_schema) -> None:
         """secondary_comps JSON is parsed into IngredientResponse list."""
         sec = json.dumps(
             [
                 {"description": "Noxious Coal", "quantity": 2},
             ]
         )
-        recipes_db = _make_recipes_db(
-            tmp_path / "recipes.db",
+        _seed_recipes(
+            recipes_route_schema,
             rows=[
                 {"id": 1, "name": "Complex Recipe", "secondary_comps": sec, "out_level": 5},
             ],
         )
 
-        with (
-            patch("backend.server.api.recipes.RECIPES_DB_PATH", recipes_db),
-            patch("backend.server.api.recipes.ITEMS_DB_PATH", tmp_path / "missing.db"),
-        ):
+        with patch("backend.server.api.recipes._items.ready", return_value=False):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/recipes/search?tier=T1")
 
