@@ -1,33 +1,38 @@
 """Tests for backend.eq2db.recipes — COV-011.
 
 Covers: _parse_spell_tier, recipe_to_row, find_by_id, find_by_name,
-find_by_spell, find_spells_by_tier, find_by_output_id, _backfill_spell_tiers,
-upsert_recipes — all via the RecipeCatalogue instance API.
+find_by_spell, find_spells_by_tier, find_by_output_id, upsert_recipes —
+all via the RecipeCatalogue instance API.
+
+Postgres edition: DB tests lease an isolated scratch schema via the
+``recipes_schema`` fixture (tests/fixtures/catalogues_db.py) and construct
+``RecipeCatalogue(recipes_schema)`` — the analog of the old
+``RecipeCatalogue(tmp_db)``. Raw seeding/assertions go through
+``pg_conn(schema)`` (dict rows, %s params). The former "missing DB file"
+cases now assert the EMPTY-schema behaviour; the ``_backfill_spell_tiers``
+startup backfill was deleted in the cutover (crafted_tier is computed by
+recipe_to_row at write time; out_level is loader-owned) — its tests pin
+the write-time equivalent.
 
 Target: ≥ 75% on backend.eq2db.recipes.
 """
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-
 import pytest
 
 from backend.eq2db.recipes import RecipeCatalogue
+from tests.fixtures.pg import pg_conn
 
 # Pure staticmethods under test — aliased for readable call sites.
 _parse_spell_tier = RecipeCatalogue._parse_spell_tier
 recipe_to_row = RecipeCatalogue.recipe_to_row
-_backfill_spell_tiers = RecipeCatalogue._backfill_spell_tiers
 
 
 @pytest.fixture
-def recipes_db(tmp_path: Path) -> RecipeCatalogue:
-    """Return a RecipeCatalogue over an initialised (empty) recipes.db."""
-    cat = RecipeCatalogue(tmp_path / "recipes.db")
-    cat.init_db().close()
-    return cat
+def recipes_db(recipes_schema: str) -> RecipeCatalogue:
+    """Return a RecipeCatalogue over an isolated leased (empty) scratch schema."""
+    return RecipeCatalogue(recipes_schema)
 
 
 def _make_recipe_dict(
@@ -154,8 +159,11 @@ class TestRecipeToRow:
 
 
 class TestFindById:
-    def test_returns_none_when_path_missing(self, tmp_path: Path):
-        assert RecipeCatalogue(tmp_path / "no.db").find_by_id(1) is None
+    def test_returns_none_when_schema_empty(self, recipes_db: RecipeCatalogue):
+        # (was test_returns_none_when_path_missing — a nonexistent DB file is
+        # no longer a concept; the equivalent is an EMPTY leased schema.)
+        assert recipes_db.find_by_id(1) is None
+        assert recipes_db.ready() is False
 
     def test_returns_none_for_unknown_id(self, recipes_db: RecipeCatalogue):
         assert recipes_db.find_by_id(9999) is None
@@ -175,8 +183,10 @@ class TestFindById:
 
 
 class TestFindByName:
-    def test_returns_empty_when_path_missing(self, tmp_path: Path):
-        assert RecipeCatalogue(tmp_path / "no.db").find_by_name("anything") == []
+    def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
+        # (was test_returns_empty_when_path_missing — see TestFindById.)
+        assert recipes_db.find_by_name("anything") == []
+        assert recipes_db.ready() is False
 
     def test_exact_match(self, recipes_db: RecipeCatalogue):
         with recipes_db.init_db() as conn:
@@ -213,8 +223,10 @@ class TestFindByName:
 
 
 class TestFindBySpell:
-    def test_returns_empty_when_path_missing(self, tmp_path: Path):
-        assert RecipeCatalogue(tmp_path / "no.db").find_by_spell("x", "Expert") == []
+    def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
+        # (was test_returns_empty_when_path_missing — see TestFindById.)
+        assert recipes_db.find_by_spell("x", "Expert") == []
+        assert recipes_db.ready() is False
 
     def test_returns_empty_for_no_match(self, recipes_db: RecipeCatalogue):
         assert recipes_db.find_by_spell("nonexistent spell", "Expert") == []
@@ -235,8 +247,10 @@ class TestFindBySpell:
 
 
 class TestFindSpellsByTier:
-    def test_returns_empty_when_path_missing(self, tmp_path: Path):
-        assert RecipeCatalogue(tmp_path / "no.db").find_spells_by_tier(["x"], "Expert") == {}
+    def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
+        # (was test_returns_empty_when_path_missing — see TestFindById.)
+        assert recipes_db.find_spells_by_tier(["x"], "Expert") == {}
+        assert recipes_db.ready() is False
 
     def test_returns_empty_for_empty_list(self, recipes_db: RecipeCatalogue):
         assert recipes_db.find_spells_by_tier([], "Expert") == {}
@@ -259,8 +273,10 @@ class TestFindSpellsByTier:
 
 
 class TestFindByOutputId:
-    def test_returns_empty_when_path_missing(self, tmp_path: Path):
-        assert RecipeCatalogue(tmp_path / "no.db").find_by_output_id(1) == []
+    def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
+        # (was test_returns_empty_when_path_missing — see TestFindById.)
+        assert recipes_db.find_by_output_id(1) == []
+        assert recipes_db.ready() is False
 
     def test_returns_empty_for_unknown_id(self, recipes_db: RecipeCatalogue):
         assert recipes_db.find_by_output_id(9999) == []
@@ -283,94 +299,88 @@ class TestFindByOutputId:
 
 
 # ---------------------------------------------------------------------------
-# _backfill_spell_tiers
+# spell-tier population at write time
+# (descendants of the deleted _backfill_spell_tiers startup backfill)
 # ---------------------------------------------------------------------------
 
 
-class TestBackfillSpellTiers:
-    def test_backfills_null_crafted_tier_rows(self, recipes_db: RecipeCatalogue):
-        # Insert a row with no spell-tier via raw SQL to simulate pre-migration data
-        with sqlite3.connect(recipes_db.path) as conn:
-            conn.execute(
-                "INSERT INTO recipes (id, name, name_lower, secondary_comps) "
-                "VALUES (50, 'Thunderbolt IV (Expert)', 'thunderbolt iv (expert)', '[]')"
-            )
-            conn.commit()
-        with sqlite3.connect(recipes_db.path) as conn:
-            updated = _backfill_spell_tiers(conn)
-        assert updated >= 1
+class TestSpellTierAtWriteTime:
+    """The SQLite-era ``_backfill_spell_tiers`` startup backfill is gone —
+    ``recipe_to_row`` (via ``_parse_spell_tier``) computes base_name_lower +
+    crafted_tier at WRITE time, so a row can no longer arrive without them.
+    Same intent as the old backfill tests: a tiered recipe name lands with
+    its spell-tier columns populated, and re-running the write is a no-op."""
+
+    def test_upsert_populates_crafted_tier(self, recipes_db: RecipeCatalogue):
+        # (was test_backfills_null_crafted_tier_rows)
+        with recipes_db.init_db() as conn:
+            recipes_db.upsert_recipes([_make_recipe_dict(recipe_id=50, name="Thunderbolt IV (Expert)")], conn)
         row = recipes_db.find_by_id(50)
+        assert row is not None
         assert row["crafted_tier"] == "Expert"
+        assert row["base_name_lower"] == "thunderbolt iv"
 
     def test_idempotent_on_already_filled_rows(self, recipes_db: RecipeCatalogue):
+        # The write-time analog of "a second backfill run finds 0 rows":
+        # re-upserting an already-tiered recipe keeps the columns stable.
         recipe = _make_recipe_dict(recipe_id=55, name="Fire Bolt (Expert)")
         with recipes_db.init_db() as conn:
             recipes_db.upsert_recipes([recipe], conn)
-        # Run backfill twice — second run should find 0 rows to update
-        with sqlite3.connect(recipes_db.path) as conn:
-            updated = _backfill_spell_tiers(conn)
-        assert updated == 0
+            recipes_db.upsert_recipes([recipe], conn)
+        rows = recipes_db.find_by_spell("fire bolt", "Expert")
+        assert len(rows) == 1  # still one row — upsert, not duplicate
+        assert rows[0]["crafted_tier"] == "Expert"
 
 
 # ---------------------------------------------------------------------------
-# out_level migration
+# out_level column (loader-owned; DDL in db/migrations/0009_recipes.sql)
 # ---------------------------------------------------------------------------
 
 
 class TestOutLevelColumn:
-    def _columns(self, db_path: Path) -> set[str]:
-        with sqlite3.connect(db_path) as conn:
-            return {r[1] for r in conn.execute("PRAGMA table_info(recipes)")}
+    def _columns(self, schema: str) -> set[str]:
+        with pg_conn(schema) as conn:
+            rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = 'recipes'",
+                (schema,),
+            ).fetchall()
+        return {r["column_name"] for r in rows}
 
-    def test_init_db_adds_out_level_column(self, recipes_db: RecipeCatalogue):
-        assert "out_level" in self._columns(recipes_db.path)
+    def test_fresh_schema_has_out_level_column(self, recipes_db: RecipeCatalogue):
+        # (was test_init_db_adds_out_level_column — the SQLite ALTER migration
+        # is retired; out_level is a real column in 0009_recipes.sql.)
+        assert "out_level" in self._columns(recipes_db.schema)
 
     def test_init_db_is_idempotent_on_out_level(self, recipes_db: RecipeCatalogue):
-        # A second init_db on an already-migrated DB must not raise or drop data.
+        # init_db is now a passive pooled handle — repeated calls must not
+        # raise, mutate the schema, or drop data.
         recipes_db.init_db().close()
-        assert "out_level" in self._columns(recipes_db.path)
+        recipes_db.init_db().close()
+        assert "out_level" in self._columns(recipes_db.schema)
 
     def test_out_level_round_trips(self, recipes_db: RecipeCatalogue):
-        with sqlite3.connect(recipes_db.path) as conn:
+        with pg_conn(recipes_db.schema) as conn:
             conn.execute(
                 "INSERT INTO recipes (id, name, name_lower, secondary_comps, out_level) "
                 "VALUES (70, 'Abhorrent Seal III (Journeyman)', 'abhorrent seal iii (journeyman)', '[]', 75)"
             )
-            conn.commit()
         row = recipes_db.find_by_id(70)
         assert row["out_level"] == 75
 
-    def test_migrates_pre_out_level_db_shape(self, tmp_path: Path):
-        """A recipes.db created BEFORE the out_level column must migrate cleanly.
-
-        Mirrors the prod failure: read paths SELECT out_level, so init_db must
-        add the column to an old-shape DB. A fresh-fixture DB already has the
-        column and would mask this — build the legacy schema explicitly.
-        """
-        from backend.eq2db import recipes as recipes_mod
-
-        db_path = tmp_path / "legacy_recipes.db"
-        with sqlite3.connect(db_path) as conn:
-            # Build the real pre-migration table: schema_recipes is the CREATE
-            # TABLE without out_level (it's added only by migrate_add_out_level),
-            # so this faithfully reproduces an old-version recipes.db.
-            conn.execute(recipes_mod._SQL["schema_recipes"])
-            cols_before = {r[1] for r in conn.execute("PRAGMA table_info(recipes)")}
-            assert "out_level" not in cols_before  # sanity: genuinely old shape
+    def test_row_without_out_level_reads_as_none(self, recipes_db: RecipeCatalogue):
+        """Descendant of test_migrates_pre_out_level_db_shape: the SQLite
+        legacy-shape ALTER-in migration is retired (DDL is owned by
+        db/migrations/0009_recipes.sql; out_level is loader-filled). What
+        survives of the prod failure it pinned: read paths SELECT out_level,
+        so a row written without it must read back cleanly as None — never
+        raise "no such column"."""
+        with pg_conn(recipes_db.schema) as conn:
             conn.execute(
                 "INSERT INTO recipes (id, name, name_lower, secondary_comps) "
                 "VALUES (1, 'Old Recipe', 'old recipe', '[]')"
             )
-            conn.commit()
-
-        legacy = RecipeCatalogue(db_path)
-        legacy.init_db().close()  # must ALTER in out_level without error
-
-        with sqlite3.connect(db_path) as conn:
-            cols = {r[1] for r in conn.execute("PRAGMA table_info(recipes)")}
-        assert "out_level" in cols
-        # find_by_id SELECTs out_level — must not raise "no such column".
-        row = legacy.find_by_id(1)
+        # find_by_id SELECTs out_level — must not raise.
+        row = recipes_db.find_by_id(1)
         assert row is not None
         assert row["out_level"] is None
 
@@ -399,10 +409,10 @@ class TestUpsertRecipes:
         assert count == 0
 
 
-def test_classes_for_recipe(tmp_path):
+def test_classes_for_recipe(recipes_schema):
     from backend.eq2db.recipes import RecipeCatalogue
 
-    cat = RecipeCatalogue(tmp_path / "recipes.db")
+    cat = RecipeCatalogue(recipes_schema)
     conn = cat.init_db()
     try:
         conn.execute("INSERT INTO recipe_classes (recipe_id, class) VALUES (42, 'Sage'), (42, 'Alchemist')")

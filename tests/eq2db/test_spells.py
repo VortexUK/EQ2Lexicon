@@ -1,10 +1,16 @@
-"""Tests for census.spells_db — pure-logic helpers and DB operations."""
+"""Tests for backend.eq2db.spells — pure-logic helpers and DB operations.
+
+Postgres edition: DB tests lease an isolated scratch schema via the
+``spells_schema`` fixture (tests/fixtures/catalogues_db.py) and construct
+``SpellCatalogue(spells_schema)`` — the analog of the old
+``SpellCatalogue(tmp_db)``. The former "missing DB file" cases now assert
+the EMPTY-schema behaviour (lookups degrade to None/empty and
+``ready()`` is False) — a nonexistent file is no longer a concept.
+"""
 
 from __future__ import annotations
 
 import json
-import sqlite3
-import time
 
 import pytest
 
@@ -286,10 +292,11 @@ class TestLoadBlocklist:
 
 
 @pytest.fixture
-def db(tmp_path):
-    cat = SpellCatalogue(tmp_path / "spells.db")
-    cat.init_db().close()
-    return cat
+def db(spells_schema):
+    """A SpellCatalogue over an isolated leased scratch schema — the analog
+    of the old ``SpellCatalogue(tmp_path / "spells.db")``. A fresh instance
+    per test, so the per-instance crc cache can't bleed between tests."""
+    return SpellCatalogue(spells_schema)
 
 
 def _make_spell(
@@ -316,23 +323,25 @@ def _make_spell(
 
 class TestUpgradeableCrcs:
     def test_multi_tier_crc_upgradeable_single_tier_not(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells(
-            [
-                # crc 200 — a real spell line with two tiers → upgradeable
-                {**_make_spell(1, name="Restoration VI", crc=200, tier=1), "tier_name": "Apprentice"},
-                {**_make_spell(2, name="Restoration VI", crc=200, tier=5), "tier_name": "Master"},
-                # crc 300 — a single-tier utility cast → NOT upgradeable
-                {**_make_spell(3, name="Cure", crc=300, tier=1), "tier_name": "Apprentice"},
-            ],
-            conn,
-        )
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells(
+                [
+                    # crc 200 — a real spell line with two tiers → upgradeable
+                    {**_make_spell(1, name="Restoration VI", crc=200, tier=1), "tier_name": "Apprentice"},
+                    {**_make_spell(2, name="Restoration VI", crc=200, tier=5), "tier_name": "Master"},
+                    # crc 300 — a single-tier utility cast → NOT upgradeable
+                    {**_make_spell(3, name="Cure", crc=300, tier=1), "tier_name": "Apprentice"},
+                ],
+                conn,
+            )
         assert db.upgradeable_crcs({200, 300}) == {200}
 
-    def test_empty_input_and_missing_db(self, tmp_path):
-        assert SpellCatalogue(tmp_path / "spells.db").upgradeable_crcs(set()) == set()
-        assert SpellCatalogue(tmp_path / "does_not_exist.db").upgradeable_crcs({1, 2}) == set()
+    def test_empty_input_and_empty_schema(self, db):
+        # (was test_empty_input_and_missing_db — a nonexistent DB file is no
+        # longer a concept; the equivalent is an EMPTY leased schema.)
+        assert db.upgradeable_crcs(set()) == set()
+        assert db.upgradeable_crcs({1, 2}) == set()
+        assert db.ready() is False  # empty schema reads as not-loaded
 
 
 class TestCharacterUpgradeableSpells:
@@ -341,36 +350,38 @@ class TestCharacterUpgradeableSpells:
     abilities, single-tier utility casts, and level-0 rows."""
 
     def test_keeps_all_acquisition_paths_drops_aa_and_utility(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells(
-            [
-                # Owned rows (in the character's spell_ids), one per line.
-                _make_spell(1, name="Scribed Line I", given_by="spellscroll", crc=201, level=30, tier=1),
-                _make_spell(2, name="Trained Line I", given_by="classtraining", crc=202, level=60, tier=1),
-                _make_spell(3, name="Base Line I", given_by="class", crc=203, level=40, tier=1),
-                _make_spell(4, name="AA Line I", given_by="alternateadvancement", crc=204, level=50, tier=1),
-                _make_spell(5, name="Utility Cure", given_by="class", crc=205, level=10, tier=1),
-                _make_spell(6, name="Zero Line I", given_by="spellscroll", crc=206, level=0, tier=1),
-                # Extra higher tiers (NOT owned) with a DISTINCT tier_name so crc
-                # 201-204 span >1 tier = upgradeable. 205 (utility) stays single-
-                # tier. 206 excluded by level before the upgradeable check.
-                {
-                    **_make_spell(11, name="Scribed Line I", given_by="spellscroll", crc=201, level=30),
-                    "tier_name": "Master",
-                },
-                {
-                    **_make_spell(12, name="Trained Line I", given_by="classtraining", crc=202, level=60),
-                    "tier_name": "Master",
-                },
-                {**_make_spell(13, name="Base Line I", given_by="class", crc=203, level=40), "tier_name": "Master"},
-                {
-                    **_make_spell(14, name="AA Line I", given_by="alternateadvancement", crc=204, level=50),
-                    "tier_name": "Master",
-                },
-            ],
-            conn,
-        )
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells(
+                [
+                    # Owned rows (in the character's spell_ids), one per line.
+                    _make_spell(1, name="Scribed Line I", given_by="spellscroll", crc=201, level=30, tier=1),
+                    _make_spell(2, name="Trained Line I", given_by="classtraining", crc=202, level=60, tier=1),
+                    _make_spell(3, name="Base Line I", given_by="class", crc=203, level=40, tier=1),
+                    _make_spell(4, name="AA Line I", given_by="alternateadvancement", crc=204, level=50, tier=1),
+                    _make_spell(5, name="Utility Cure", given_by="class", crc=205, level=10, tier=1),
+                    _make_spell(6, name="Zero Line I", given_by="spellscroll", crc=206, level=0, tier=1),
+                    # Extra higher tiers (NOT owned) with a DISTINCT tier_name so crc
+                    # 201-204 span >1 tier = upgradeable. 205 (utility) stays single-
+                    # tier. 206 excluded by level before the upgradeable check.
+                    {
+                        **_make_spell(11, name="Scribed Line I", given_by="spellscroll", crc=201, level=30),
+                        "tier_name": "Master",
+                    },
+                    {
+                        **_make_spell(12, name="Trained Line I", given_by="classtraining", crc=202, level=60),
+                        "tier_name": "Master",
+                    },
+                    {
+                        **_make_spell(13, name="Base Line I", given_by="class", crc=203, level=40),
+                        "tier_name": "Master",
+                    },
+                    {
+                        **_make_spell(14, name="AA Line I", given_by="alternateadvancement", crc=204, level=50),
+                        "tier_name": "Master",
+                    },
+                ],
+                conn,
+            )
 
         rows = db.character_upgradeable_spells([1, 2, 3, 4, 5, 6])
         names = {r["name"] for r in rows}
@@ -380,36 +391,39 @@ class TestCharacterUpgradeableSpells:
         assert "Zero Line I" not in names  # level 0
 
     def test_deduplicates_to_highest_owned_tier(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells(
-            [
-                {**_make_spell(1, name="Fireball I", crc=300, level=10), "tier_name": "Apprentice"},
-                {**_make_spell(2, name="Fireball II", crc=300, level=20), "tier_name": "Adept"},
-            ],
-            conn,
-        )
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells(
+                [
+                    {**_make_spell(1, name="Fireball I", crc=300, level=10), "tier_name": "Apprentice"},
+                    {**_make_spell(2, name="Fireball II", crc=300, level=20), "tier_name": "Adept"},
+                ],
+                conn,
+            )
         rows = db.character_upgradeable_spells([1, 2])
         assert len(rows) == 1
         assert rows[0]["level"] == 20  # highest owned rank kept
 
-    def test_empty_and_missing_db(self, tmp_path):
-        assert SpellCatalogue(tmp_path / "spells.db").character_upgradeable_spells([]) == []
-        assert SpellCatalogue(tmp_path / "missing.db").character_upgradeable_spells([1]) == []
+    def test_empty_and_empty_schema(self, spells_schema):
+        # (was test_empty_and_missing_db — the missing-file case became the
+        # empty-leased-schema case.)
+        assert SpellCatalogue(spells_schema).character_upgradeable_spells([]) == []
+        assert SpellCatalogue(spells_schema).character_upgradeable_spells([1]) == []
 
 
 class TestFindById:
-    def test_returns_none_when_db_missing(self, tmp_path):
-        missing = tmp_path / "does_not_exist.db"
-        assert SpellCatalogue(missing).find_by_id(9999) is None
+    def test_returns_none_when_schema_empty(self, spells_schema):
+        # (was test_returns_none_when_db_missing — empty leased schema is the
+        # new "nothing loaded" state; ready() carries the route-level guard.)
+        empty = SpellCatalogue(spells_schema)
+        assert empty.find_by_id(9999) is None
+        assert empty.ready() is False
 
     def test_returns_none_for_unknown_id(self, db):
         assert db.find_by_id(9999) is None
 
     def test_returns_row_when_present(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells([_make_spell(id=1001, name="Firebolt I")], conn)
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells([_make_spell(id=1001, name="Firebolt I")], conn)
 
         row = db.find_by_id(1001)
         assert row is not None
@@ -417,9 +431,8 @@ class TestFindById:
         assert row["name"] == "Firebolt I"
 
     def test_row_has_expected_keys(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells([_make_spell(id=2001)], conn)
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells([_make_spell(id=2001)], conn)
 
         row = db.find_by_id(2001)
         for key in ("id", "name", "level", "type", "given_by", "tier_name", "passes_spellcheck"):
@@ -427,23 +440,24 @@ class TestFindById:
 
 
 class TestFindByIds:
-    def test_returns_empty_dict_when_db_missing(self, tmp_path):
-        missing = tmp_path / "does_not_exist.db"
-        assert SpellCatalogue(missing).find_by_ids([1, 2, 3]) == {}
+    def test_returns_empty_dict_when_schema_empty(self, spells_schema):
+        # (was test_returns_empty_dict_when_db_missing — see TestFindById.)
+        empty = SpellCatalogue(spells_schema)
+        assert empty.find_by_ids([1, 2, 3]) == {}
+        assert empty.ready() is False
 
     def test_returns_empty_dict_for_empty_list(self, db):
         assert db.find_by_ids([]) == {}
 
     def test_returns_matched_ids_only(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells(
-            [
-                _make_spell(id=10, name="Spell A"),
-                _make_spell(id=20, name="Spell B"),
-            ],
-            conn,
-        )
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells(
+                [
+                    _make_spell(id=10, name="Spell A"),
+                    _make_spell(id=20, name="Spell B"),
+                ],
+                conn,
+            )
 
         result = db.find_by_ids([10, 20, 999])
         assert set(result.keys()) == {10, 20}
@@ -452,9 +466,8 @@ class TestFindByIds:
         assert 999 not in result
 
     def test_values_are_dicts(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells([_make_spell(id=50)], conn)
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells([_make_spell(id=50)], conn)
 
         result = db.find_by_ids([50])
         assert isinstance(result[50], dict)
@@ -462,57 +475,53 @@ class TestFindByIds:
 
 class TestUpsertSpellsAndCount:
     def test_inserts_rows(self, db):
-        conn = sqlite3.connect(db.path)
-        n = db.upsert_spells(
-            [
-                _make_spell(id=100, name="Spell One"),
-                _make_spell(id=101, name="Spell Two"),
-            ],
-            conn,
-        )
-        assert n == 2
-        assert db.spell_count(conn) == 2
-        conn.close()
+        with db.init_db() as conn:
+            n = db.upsert_spells(
+                [
+                    _make_spell(id=100, name="Spell One"),
+                    _make_spell(id=101, name="Spell Two"),
+                ],
+                conn,
+            )
+            assert n == 2
+            assert db.spell_count(conn) == 2
 
     def test_upsert_replaces_existing(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells([_make_spell(id=200, name="Original")], conn)
-        db.upsert_spells([_make_spell(id=200, name="Updated")], conn)
-        assert db.spell_count(conn) == 1
+        with db.init_db() as conn:
+            db.upsert_spells([_make_spell(id=200, name="Original")], conn)
+            db.upsert_spells([_make_spell(id=200, name="Updated")], conn)
+            assert db.spell_count(conn) == 1
 
         row = db.find_by_id(200)
         assert row["name"] == "Updated"
-        conn.close()
 
     def test_skips_rows_without_id(self, db):
-        conn = sqlite3.connect(db.path)
-        spell = _make_spell(id=300)
-        del spell["id"]
-        n = db.upsert_spells([spell], conn)
-        assert n == 0
-        assert db.spell_count(conn) == 0
-        conn.close()
+        with db.init_db() as conn:
+            spell = _make_spell(id=300)
+            del spell["id"]
+            n = db.upsert_spells([spell], conn)
+            assert n == 0
+            assert db.spell_count(conn) == 0
 
 
 class TestFindByCrc:
     # Each test gets its own SpellCatalogue instance (the `db` fixture), so the
     # per-instance crc cache can't bleed between tests — no cache_clear needed.
 
-    def test_returns_none_when_db_missing(self, tmp_path):
-        missing = tmp_path / "does_not_exist.db"
-        assert SpellCatalogue(missing).find_by_crc(crc=999, tier=3) is None
+    def test_returns_none_when_schema_empty(self, spells_schema):
+        # (was test_returns_none_when_db_missing — see TestFindById.)
+        assert SpellCatalogue(spells_schema).find_by_crc(crc=999, tier=3) is None
 
     def test_returns_exact_tier(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells(
-            [
-                _make_spell(id=1, name="Wound I", crc=555, tier=1),
-                _make_spell(id=2, name="Wound II", crc=555, tier=2),
-                _make_spell(id=3, name="Wound III", crc=555, tier=3),
-            ],
-            conn,
-        )
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells(
+                [
+                    _make_spell(id=1, name="Wound I", crc=555, tier=1),
+                    _make_spell(id=2, name="Wound II", crc=555, tier=2),
+                    _make_spell(id=3, name="Wound III", crc=555, tier=3),
+                ],
+                conn,
+            )
 
         row = db.find_by_crc(crc=555, tier=2)
         assert row is not None
@@ -524,19 +533,18 @@ class TestFindByCrc:
         and a level=0 row may exist too. The lookup must deterministically
         pick the lowest NON-ZERO level (the populated TLE-era row) — the
         'Increases Max Health by 0.0%' AA-tooltip regression."""
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells(
-            [
-                # Same crc + tier, three level variants (inserted worst-first
-                # so an ORDER BY-less LIMIT 1 would pick a placeholder).
-                _make_spell(id=901, name="Resolve", crc=888, tier=10, level=120),  # placeholder-era
-                _make_spell(id=902, name="Resolve", crc=888, tier=10, level=0),  # levelless row
-                _make_spell(id=903, name="Resolve", crc=888, tier=10, level=70),  # populated TLE row
-                _make_spell(id=904, name="Resolve", crc=888, tier=10, level=100),
-            ],
-            conn,
-        )
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells(
+                [
+                    # Same crc + tier, three level variants (inserted worst-first
+                    # so an ORDER BY-less LIMIT 1 would pick a placeholder).
+                    _make_spell(id=901, name="Resolve", crc=888, tier=10, level=120),  # placeholder-era
+                    _make_spell(id=902, name="Resolve", crc=888, tier=10, level=0),  # levelless row
+                    _make_spell(id=903, name="Resolve", crc=888, tier=10, level=70),  # populated TLE row
+                    _make_spell(id=904, name="Resolve", crc=888, tier=10, level=100),
+                ],
+                conn,
+            )
 
         exact = db.find_by_crc(crc=888, tier=10)
         assert exact is not None and exact["level"] == 70
@@ -545,15 +553,14 @@ class TestFindByCrc:
         assert fallback is not None and fallback["tier"] == 10 and fallback["level"] == 70
 
     def test_falls_back_to_highest_tier(self, db):
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells(
-            [
-                _make_spell(id=10, name="Bolt I", crc=777, tier=1),
-                _make_spell(id=11, name="Bolt III", crc=777, tier=3),
-            ],
-            conn,
-        )
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells(
+                [
+                    _make_spell(id=10, name="Bolt I", crc=777, tier=1),
+                    _make_spell(id=11, name="Bolt III", crc=777, tier=3),
+                ],
+                conn,
+            )
 
         # Request tier=2 which doesn't exist → should get tier=3 (highest)
         row = db.find_by_crc(crc=777, tier=2)
@@ -563,9 +570,8 @@ class TestFindByCrc:
     def test_lru_cache_returns_same_result(self, db):
         # Same instance across both lookups so the per-instance crc cache is
         # actually exercised (the upsert clears this instance's cache first).
-        conn = sqlite3.connect(db.path)
-        db.upsert_spells([_make_spell(id=20, name="Cached Spell", crc=888, tier=1)], conn)
-        conn.close()
+        with db.init_db() as conn:
+            db.upsert_spells([_make_spell(id=20, name="Cached Spell", crc=888, tier=1)], conn)
 
         result1 = db.find_by_crc(crc=888, tier=1)
         result2 = db.find_by_crc(crc=888, tier=1)
