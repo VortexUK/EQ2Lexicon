@@ -1,5 +1,5 @@
 """
-Local SQLite mirror of the Census /recipe/ collection.
+Mirror of the Census /recipe/ collection (Postgres `recipes` schema).
 
 ~70 k rows; download once with scripts/download_recipes.py.
 
@@ -23,7 +23,8 @@ convention — see AACatalogue / SpellCatalogue): DB lookups are instance
 methods; the pure recipe-domain helpers (_parse_spell_tier, recipe_to_row)
 are staticmethods on the same class so consumers import ONE name — the
 shared ``catalogue`` instance. Module level holds only types (RecipeRow),
-constants (SPELL_TIERS, DB_PATH), and the instance.
+constants (SPELL_TIERS, SCHEMA), and the instance. Schema DDL is owned by
+db/migrations/0009_recipes.sql.
 """
 
 from __future__ import annotations
@@ -31,15 +32,14 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
-from pathlib import Path
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from backend.census._coerce import coerce_int as _int
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import resolve_db_path
+from backend.db_catalogue import PgCatalogue
 from backend.sql_loader import load_sql
 
+# SQL queries live in recipes.sql (PG dialect; DDL is in db/migrations/);
+# loaded once at import.
 _SQL = load_sql(__file__)
 
 
@@ -79,7 +79,7 @@ class RecipeRow(_RecipeRowRequired, total=False):
     out_formed_count: int | None
     base_name_lower: str | None
     crafted_tier: str | None
-    out_level: int | None  # crafted-output level (backfilled from items.db); drives craft tier
+    out_level: int | None  # crafted-output level (loader-filled from the items schema); drives craft tier
     last_update: int
 
 
@@ -109,25 +109,14 @@ _TIER_RE = re.compile(r"^(.+?)\s*\(([^)]+)\)\s*$")
 # ---------------------------------------------------------------------------
 
 
-DB_PATH: Path = resolve_db_path("DB_RECIPES_PATH", "recipes", "recipes.db")
-
-# Schema (CREATE TABLE / INDEX) lives in recipes.sql; init_db runs each block.
+SCHEMA = "recipes"
 
 # The column list lives in recipes.sql under the `select_cols` block — fragment
 # spliced into every find_* query at format-time.
 _SELECT_COLS = _SQL["select_cols"]
 
-_MIGRATIONS = [
-    _SQL["migrate_add_base_name_lower"],
-    _SQL["migrate_add_crafted_tier"],
-    _SQL["migrate_add_out_level"],
-]
 
-# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
-from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
-
-
-def _row_to_dict(row: sqlite3.Row) -> RecipeRow:
+def _row_to_dict(row: dict) -> RecipeRow:
     d = dict(row)
     # Deserialise secondary_comps back to a list
     try:
@@ -138,30 +127,21 @@ def _row_to_dict(row: sqlite3.Row) -> RecipeRow:
     return cast(RecipeRow, d)
 
 
-class RecipeCatalogue(BaseCatalogue):
-    """Read (and build) access to one recipes.db file.
+class RecipeCatalogue(PgCatalogue):
+    """Read (and build) access to the recipes schema.
 
     The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
-    the DB path lives on the instance; the shared module-level ``catalogue``
-    is the runtime entry point, and tests construct ``RecipeCatalogue(tmp_db)``.
-    The pure recipe-domain helpers are staticmethods here so the class is the
-    one interface for everything recipe-shaped.
+    the schema name lives on the instance; the shared module-level
+    ``catalogue`` is the runtime entry point, and tests lease a scratch
+    schema and re-point ``catalogue.schema``. The pure recipe-domain
+    helpers are staticmethods here so the class is the one interface for
+    everything recipe-shaped.
     """
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    READY_TABLE = "recipes"
 
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_recipes"])
-        conn.execute(_SQL["schema_recipe_classes"])
-        # Migrate existing DBs that predate the spell-tier columns
-        self._apply_migrations(conn, _MIGRATIONS)
-        conn.executescript(_SQL["indexes_recipes"])
-
-    def _post_init(self, conn: sqlite3.Connection) -> None:
-        # Backfill spell-tier columns for any rows that have NULL (covers both
-        # freshly-migrated DBs and rows upserted before this version).
-        self._backfill_spell_tiers(conn)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     # ── Pure helpers (no DB access — statics so the class is the ONE interface) ──
 
@@ -248,28 +228,7 @@ class RecipeCatalogue(BaseCatalogue):
 
     # ── Build (scripts/download_recipes.py) ──────────────────────────────────
 
-    @staticmethod
-    def _backfill_spell_tiers(conn: sqlite3.Connection) -> int:
-        """Populate base_name_lower / crafted_tier for rows that predate the columns.
-
-        Only touches rows where crafted_tier IS NULL so it is safe to call on every
-        startup — it's a no-op once all rows are filled.  Returns the number of rows
-        updated.
-        """
-        rows = conn.execute(_SQL["select_unbackfilled_tiers"]).fetchall()
-        if not rows:
-            return 0
-        updates = []
-        for rid, name in rows:
-            base, tier = RecipeCatalogue._parse_spell_tier(name)
-            if tier is not None:
-                updates.append((base, tier, rid))
-        if updates:
-            conn.executemany(_SQL["backfill_tier"], updates)
-            conn.commit()
-        return len(updates)
-
-    def upsert_recipes(self, recipes: list[dict], conn: sqlite3.Connection) -> int:
+    def upsert_recipes(self, recipes: list[dict], conn: Any) -> int:
         """Upsert a batch of raw Census recipe dicts. Returns rows inserted/replaced."""
         rows = [self.recipe_to_row(r) for r in recipes]
         rows = [r for r in rows if r is not None]
@@ -277,8 +236,8 @@ class RecipeCatalogue(BaseCatalogue):
         conn.commit()
         return len(rows)
 
-    def recipe_count(self, conn: sqlite3.Connection) -> int:
-        return conn.execute(_SQL["count"]).fetchone()[0]
+    def recipe_count(self, conn: Any) -> int:
+        return self.fetchval(conn.execute(_SQL["count"]))
 
     # ── Lookups (async-friendly via asyncio.to_thread) ───────────────────────
 
@@ -319,11 +278,10 @@ class RecipeCatalogue(BaseCatalogue):
         """
         if not spell_names:
             return {}
-        placeholders = ",".join("?" * len(spell_names))
-        params = [n.lower() for n in spell_names] + [tier]
+        # One `= ANY` query — no call-time placeholder sizing in PG.
         rows = self._fetchall(
-            _SQL["find_spells_by_tier"].format(cols=_SELECT_COLS, placeholders=placeholders),
-            params,
+            _SQL["find_spells_by_tier"].format(cols=_SELECT_COLS),
+            ([n.lower() for n in spell_names], tier),
         )
         return {r["base_name_lower"]: _row_to_dict(r) for r in rows}
 
@@ -343,3 +301,8 @@ class RecipeCatalogue(BaseCatalogue):
 
 # The shared default instance — every runtime consumer goes through this.
 catalogue = RecipeCatalogue()
+
+# Script-facing `_meta` aliases (download_recipes.py resume offsets) — bound
+# to the shared instance so a re-pointed catalogue.schema carries through.
+get_meta = catalogue.get_meta
+set_meta = catalogue.set_meta

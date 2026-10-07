@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import aiosqlite
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
+from backend import pg
 from backend.census.constants import ARCHETYPES, CLASS_GROUPS
-from backend.eq2db.items import DB_PATH
-from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
+from backend.eq2db.items import SCHEMA as _ITEMS_SCHEMA
+from backend.eq2db.items import catalogue as _items
 from backend.eq2db.recipes import catalogue as _recipes
 from backend.server.cache import TTLCache
 from backend.server.core.census_lifecycle import shared_census_client
@@ -298,7 +298,7 @@ async def search_items(
     if not any([name, tier, slot, item_type, class_name, min_level is not None, max_level is not None, parsed_stats]):
         return ItemSearchResponse(results=[], total=0, page=1, per_page=per_page)
 
-    if not DB_PATH.exists():
+    if not _items.ready():
         raise HTTPException(status_code=503, detail="Item database not available")
 
     # ── Build WHERE clause ────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ async def search_items(
     where_params: list = []  # bound to the WHERE clause
 
     if name:
-        conditions.append("i.displayname_lower LIKE ?")
+        conditions.append("i.displayname_lower LIKE %s")
         where_params.append(f"%{name.lower()}%")
 
     if tier:
@@ -316,14 +316,14 @@ async def search_items(
         # Exception: "COMMON" must be an exact match to avoid matching "UNCOMMON".
         db_tier = tier.upper()
         if db_tier == "COMMON":
-            conditions.append("i.tier_display = ?")
+            conditions.append("i.tier_display = %s")
             where_params.append("COMMON")
         else:
-            conditions.append("i.tier_display LIKE ?")
+            conditions.append("i.tier_display LIKE %s")
             where_params.append(f"%{db_tier}%")
 
     if slot:
-        conditions.append("i.slot = ?")
+        conditions.append("i.slot = %s")
         where_params.append(slot)
 
     if item_type:
@@ -332,31 +332,30 @@ async def search_items(
             # Filter via classification_list column (e.g. "Material")
             # Also require type = 'Item' to exclude containers/strongboxes that
             # happen to carry a materials classification tag.
-            conditions.append("i.classification_list LIKE ? AND i.type = 'Item'")
+            conditions.append("i.classification_list LIKE %s AND i.type = 'Item'")
             where_params.append(cl_pattern)
         else:
             # Map display name back to raw DB typeinfo_name value(s)
             raw_types = _ITEM_TYPE_DB_MAP.get(item_type)
             if raw_types:
-                placeholders = ",".join("?" * len(raw_types))
-                conditions.append(f"LOWER(i.typeinfo_name) IN ({placeholders})")
-                where_params.extend(raw_types)  # already lowercase
+                conditions.append("LOWER(i.typeinfo_name) = ANY(%s)")
+                where_params.append(raw_types)  # already lowercase
             else:
                 # General case: compare lowercase (DB values are all-lowercase)
-                conditions.append("LOWER(i.typeinfo_name) = ?")
+                conditions.append("LOWER(i.typeinfo_name) = %s")
                 where_params.append(item_type.lower())
 
     if class_name:
         # classes_json is a JSON object keyed by lowercase class name
-        conditions.append("LOWER(i.classes_json) LIKE ?")
+        conditions.append("LOWER(i.classes_json) LIKE %s")
         where_params.append(f'%"{class_name.lower()}"%')
 
     if min_level is not None:
-        conditions.append("i.level_to_use >= ?")
+        conditions.append("i.level_to_use >= %s")
         where_params.append(min_level)
 
     if max_level is not None:
-        conditions.append("i.level_to_use <= ?")
+        conditions.append("i.level_to_use <= %s")
         where_params.append(max_level)
 
     where = " AND ".join(conditions)
@@ -376,11 +375,11 @@ async def search_items(
         if threshold is not None:
             op_sql = ">=" if op == "gte" else "<="
             stat_joins += (
-                f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = ? AND {alias}.value {op_sql} ?"
+                f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = %s AND {alias}.value {op_sql} %s"
             )
             join_params.extend([stat, threshold])
         else:
-            stat_joins += f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = ?"
+            stat_joins += f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = %s"
             join_params.append(stat)
 
     # ── Sort ──────────────────────────────────────────────────────────────────
@@ -398,7 +397,7 @@ async def search_items(
             sort_stat_col = f"{stat_alias[sort_by]}.value"
         else:
             # Add a LEFT JOIN so items without the stat still appear (sorted last)
-            stat_joins += " LEFT JOIN item_stats ssort ON i.id = ssort.item_id AND ssort.stat = ?"
+            stat_joins += " LEFT JOIN item_stats ssort ON i.id = ssort.item_id AND ssort.stat = %s"
             join_params.append(sort_by)
             sort_stat_col = "ssort.value"
         order_clause = f"COALESCE({sort_stat_col}, 0) {direction}, i.displayname_lower ASC"
@@ -408,14 +407,17 @@ async def search_items(
 
     offset = (page - 1) * per_page
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    async with pg.aconnection() as db:
+        await db.execute(pg.search_path_sql(_ITEMS_SCHEMA))
 
-        # Total count  (use subquery to avoid DISTINCT issues with LEFT JOINs)
-        count_sql = f"SELECT COUNT(DISTINCT i.id) FROM items i{stat_joins} WHERE {where}"
-        async with db.execute(count_sql, params) as cur:
-            count_row = await cur.fetchone()
-            total = count_row[0] if count_row else 0
+        # Total count. Every stat JOIN hits item_stats on its (item_id, stat)
+        # PRIMARY KEY, so joins can never fan an item out into multiple rows —
+        # plain COUNT(*) is exact (and the old SQLite GROUP BY i.id, which PG
+        # rejects when joined columns are selected, is unnecessary).
+        count_sql = f"SELECT COUNT(*) AS n FROM items i{stat_joins} WHERE {where}"
+        cur = await db.execute(count_sql, params)
+        count_row = await cur.fetchone()
+        total = count_row["n"] if count_row else 0
 
         # SELECT the value for each has_stat filter — INNER JOINs guarantee
         # non-NULL values, so no COALESCE needed here.
@@ -426,43 +428,47 @@ async def search_items(
             f"{stat_val_selects} "
             f"FROM items i{stat_joins} "
             f"WHERE {where} "
-            f"GROUP BY i.id "
             f"ORDER BY {order_clause} "
             f"LIMIT {per_page} OFFSET {offset}"
         )
-        async with db.execute(select_sql, params) as cur:
-            rows = await cur.fetchall()
+        cur = await db.execute(select_sql, params)
+        rows = await cur.fetchall()
 
-        # For each result, fetch its stat names and build the stat_values map
-        results: list[ItemSearchResult] = []
-        for row in rows:
-            item_id = row["id"]
-            async with db.execute(
-                "SELECT stat FROM item_stats WHERE item_id = ? ORDER BY stat",
-                (item_id,),
-            ) as scur:
-                stat_names = [r[0] for r in await scur.fetchall()]
-
-            stat_vals: dict[str, float] = {
-                stat: float(row[f"_sv_{stat_alias[stat]}"])
-                for stat in has_stat
-                if row[f"_sv_{stat_alias[stat]}"] is not None
-            }
-
-            results.append(
-                ItemSearchResult(
-                    id=item_id,
-                    name=row["displayname"],
-                    tier=row["tier_display"],
-                    slot=row["slot"],
-                    item_type=row["typeinfo_name"],
-                    level=row["level_to_use"],
-                    class_label=row["class_label"],
-                    icon_id=row["icon_id"],
-                    stat_values=stat_vals,
-                    stats=stat_names,
-                )
+        # Stat names for the whole result page in ONE query (was a per-row
+        # N+1 — up to 50 extra round trips).
+        stats_by_item: dict[int, list[str]] = {}
+        page_ids = [row["id"] for row in rows]
+        if page_ids:
+            cur = await db.execute(
+                "SELECT item_id, stat FROM item_stats WHERE item_id = ANY(%s) ORDER BY stat",
+                (page_ids,),
             )
+            for srow in await cur.fetchall():
+                stats_by_item.setdefault(srow["item_id"], []).append(srow["stat"])
+
+    results: list[ItemSearchResult] = []
+    for row in rows:
+        item_id = row["id"]
+        stat_vals: dict[str, float] = {
+            stat: float(row[f"_sv_{stat_alias[stat]}"])
+            for stat in has_stat
+            if row[f"_sv_{stat_alias[stat]}"] is not None
+        }
+
+        results.append(
+            ItemSearchResult(
+                id=item_id,
+                name=row["displayname"],
+                tier=row["tier_display"],
+                slot=row["slot"],
+                item_type=row["typeinfo_name"],
+                level=row["level_to_use"],
+                class_label=row["class_label"],
+                icon_id=row["icon_id"],
+                stat_values=stat_vals,
+                stats=stats_by_item.get(item_id, []),
+            )
+        )
 
     return ItemSearchResponse(
         results=results,
@@ -512,20 +518,21 @@ async def get_spell_scroll(name: str, tier: str) -> SpellScrollResult:
     item_id: int | None = None
     recipe: SpellScrollRecipe | None = None
 
-    # Look up the item in the local items DB
-    if DB_PATH.exists():
+    # Look up the item in the items catalogue
+    if _items.ready():
         scroll_name = f"{name} ({tier})".lower()
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(
-                "SELECT id FROM items WHERE displayname_lower = ?   AND LOWER(typeinfo_name) = 'spellscroll' LIMIT 1",
+        async with pg.aconnection() as db:
+            await db.execute(pg.search_path_sql(_ITEMS_SCHEMA))
+            cur = await db.execute(
+                "SELECT id FROM items WHERE displayname_lower = %s AND LOWER(typeinfo_name) = 'spellscroll' LIMIT 1",
                 (scroll_name,),
-            ) as cur:
-                row = await cur.fetchone()
-                if row:
-                    item_id = row[0]
+            )
+            row = await cur.fetchone()
+            if row:
+                item_id = row["id"]
 
     # Look up the recipe if craftable
-    if craftable and RECIPES_DB_PATH.exists():
+    if craftable and _recipes.ready():
         recipes = _recipes.find_by_spell(name, tier)
         if recipes:
             r = recipes[0]

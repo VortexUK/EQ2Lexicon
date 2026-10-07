@@ -10,8 +10,8 @@ tier        crafting tier: T1 – T14  (T1 = levels 1-9, T2 = 10-19, … T14 = 1
 bench       raw bench key (e.g. "work_desk", "forge") or the display label
             (e.g. "Sage", "Armorer") — both are accepted.
 class_name  adventure class name (lowercase) — matched against the
-            classes_json column of the output item in the items DB.
-            Uses ATTACH + subquery so the items DB is never fully loaded.
+            class_label column of the output item in the items schema
+            (a cross-schema subquery; one database now).
 page        1-based page index (default 1)
 """
 
@@ -19,16 +19,15 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 
-import aiosqlite
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend import pg
 from backend.eq2db.classes import catalogue as _classes
-from backend.eq2db.items import DB_PATH as ITEMS_DB_PATH
-from backend.eq2db.recipes import DB_PATH as RECIPES_DB_PATH
-from backend.server.core.executor import run_sync
+from backend.eq2db.items import catalogue as _items
+from backend.eq2db.recipes import SCHEMA as _RECIPES_SCHEMA
+from backend.eq2db.recipes import catalogue as _recipes
 from backend.sql_loader import load_sql
 
 _SQL = load_sql(__file__)
@@ -161,7 +160,7 @@ def _resolve_bench_param(bench: str | None) -> str | None:
 
 
 def _row_to_result(
-    row: sqlite3.Row,
+    row: dict,
     class_label: str | None = None,
     craft_classes: list[str] | None = None,
 ) -> RecipeResult:
@@ -174,10 +173,7 @@ def _row_to_result(
     # Prefer explicitly passed class_label; fall back to a column if present
     cl = class_label
     if cl is None:
-        try:
-            cl = row["class_label"]
-        except IndexError:
-            pass
+        cl = row.get("class_label")
 
     return RecipeResult(
         id=row["id"],
@@ -219,47 +215,6 @@ async def get_recipe_filters() -> RecipeFiltersResponse:
     )
 
 
-def _query_items_db(
-    class_name: str | None,
-    elaborate_ids: list[int] | None,
-) -> tuple[list[int] | None, dict[int, str]]:
-    """Synchronous items-DB lookup — called via run_in_executor.
-
-    Returns:
-        class_item_ids  – list of item IDs whose class_label matches class_name,
-                          or None if class_name is not set.
-        label_map       – {item_id: class_label} for the given elaborate_ids
-                          (used to enrich result rows), empty if elaborate_ids
-                          is None or items DB is absent.
-    """
-    if not ITEMS_DB_PATH.exists():
-        return None, {}
-
-    conn = sqlite3.connect(str(ITEMS_DB_PATH))
-    conn.execute("PRAGMA query_only = ON")  # safety: never write
-    try:
-        class_item_ids: list[int] | None = None
-        if class_name:
-            rows = conn.execute(
-                _SQL["items_by_class_label_like"],
-                (f"%{class_name.lower()}%",),
-            ).fetchall()
-            class_item_ids = [r[0] for r in rows]
-
-        label_map: dict[int, str] = {}
-        if elaborate_ids:
-            ph = ",".join("?" * len(elaborate_ids))
-            lrows = conn.execute(
-                _SQL["items_class_labels_by_id_chunk"].format(placeholders=ph),
-                elaborate_ids,
-            ).fetchall()
-            label_map = {r[0]: r[1] for r in lrows if r[1]}
-
-        return class_item_ids, label_map
-    finally:
-        conn.close()
-
-
 @router.get("/recipes/search", response_model=RecipeSearchResponse)
 async def search_recipes(
     q: str | None = None,
@@ -271,12 +226,12 @@ async def search_recipes(
 ) -> RecipeSearchResponse:
     per_page = 25
 
-    if not RECIPES_DB_PATH.exists():
+    if not _recipes.ready():
         raise HTTPException(status_code=503, detail="Recipe database not available")
 
-    items_db_available = ITEMS_DB_PATH.exists()
+    items_available = _items.ready()
 
-    if class_name and not items_db_available:
+    if class_name and not items_available:
         raise HTTPException(
             status_code=503,
             detail="Items database not available for class filtering",
@@ -284,22 +239,12 @@ async def search_recipes(
 
     bench_key = _resolve_bench_param(bench)
 
-    # ── Resolve class filter → item IDs (sync, off event loop) ────────────────
-    # Done BEFORE building SQL so the result becomes a plain IN list.
-    # No ATTACH — that causes SQLite file-lock contention with other routes
-    # hitting the items DB concurrently under uvicorn.
-    class_item_ids: list[int] | None = None
-    if class_name and items_db_available:
-        class_item_ids, _ = await run_sync(_query_items_db, class_name, None)
-        if not class_item_ids:
-            return RecipeSearchResponse(results=[], total=0, page=1, per_page=per_page)
-
     # ── Build WHERE clause ─────────────────────────────────────────────────────
     conditions: list[str] = []
     params: list = []
 
     if q:
-        conditions.append("name_lower LIKE ?")
+        conditions.append("name_lower LIKE %s")
         params.append(f"%{q.lower()}%")
 
     tier_range = _craft_tier_to_level_range(tier) if tier else None
@@ -308,34 +253,28 @@ async def search_recipes(
         if hi is None:
             # Open-ended top tier (T14 → level 130+). NULL out_level fails the
             # comparison, so unleveled recipes never match a specific tier.
-            conditions.append("out_level >= ?")
+            conditions.append("out_level >= %s")
             params.append(lo)
         else:
-            conditions.append("out_level BETWEEN ? AND ?")
+            conditions.append("out_level BETWEEN %s AND %s")
             params.extend([lo, hi])
 
     if bench_key:
-        conditions.append("bench = ?")
+        conditions.append("bench = %s")
         params.append(bench_key)
 
-    # Tradeskill-class filter via the recipe_classes mapping (same DB → subquery,
-    # no ATTACH). A recipe taught by multiple classes' books matches each of them.
+    # Tradeskill-class filter via the recipe_classes mapping. A recipe taught
+    # by multiple classes' books matches each of them.
     if craft_class:
-        conditions.append("id IN (SELECT recipe_id FROM recipe_classes WHERE class = ?)")
+        conditions.append("id IN (SELECT recipe_id FROM recipe_classes WHERE class = %s)")
         params.append(craft_class)
 
-    if class_item_ids is not None:
-        # Use out_elaborate_id — that's the named-quality scroll output.
-        # out_formed_id is the rare "perfect craft" bonus and often points
-        # to a different item (fuel component, etc.).
-        # Split into chunks of 900 to stay well under SQLite's variable limit.
-        chunks = [class_item_ids[i : i + 900] for i in range(0, len(class_item_ids), 900)]
-        chunk_clauses = []
-        for chunk in chunks:
-            ph = ",".join("?" * len(chunk))
-            chunk_clauses.append(f"out_elaborate_id IN ({ph})")
-            params.extend(chunk)
-        conditions.append("(" + " OR ".join(chunk_clauses) + ")")
+    # Adventure-class filter: a cross-schema subquery against the items
+    # schema replaces the old two-database id-list round trip (and its
+    # chunks-of-900 OR lists).
+    if class_name:
+        conditions.append(_SQL["class_filter_subquery"])
+        params.append(f"%{class_name.lower()}%")
 
     # Require at least one filter
     if not conditions:
@@ -344,37 +283,35 @@ async def search_recipes(
     where = " AND ".join(conditions)
     offset = (page - 1) * per_page
 
-    # ── Recipes query (aiosqlite, no ATTACH) ───────────────────────────────────
-    async with aiosqlite.connect(RECIPES_DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    # ── One connection for everything (search_path = recipes; the items
+    # schema is referenced schema-qualified inside the SQL) ────────────────────
+    async with pg.aconnection() as db:
+        await db.execute(pg.search_path_sql(_RECIPES_SCHEMA))
 
         count_sql = _SQL["count_recipes_where"].format(where=where)
-        async with db.execute(count_sql, params) as cur:
-            count_row = await cur.fetchone()
-            total = count_row[0] if count_row else 0
+        cur = await db.execute(count_sql, params)
+        count_row = await cur.fetchone()
+        total = count_row["n"] if count_row else 0
 
         select_sql = _SQL["select_recipes_where"].format(where=where, limit=per_page, offset=offset)
-        async with db.execute(select_sql, params) as cur:
-            rows = await cur.fetchall()
+        cur = await db.execute(select_sql, params)
+        rows = await cur.fetchall()
 
         # Tradeskill class(es) for each result recipe — the accurate label
         # (the `bench` column is shared across classes, so it can't be used).
         class_by_recipe: dict[int, list[str]] = {}
         row_ids = [r["id"] for r in rows]
         if row_ids:
-            ph = ",".join("?" * len(row_ids))
-            async with db.execute(
-                _SQL["recipe_classes_for_recipes_chunk"].format(placeholders=ph),
-                row_ids,
-            ) as cur:
-                async for rid, cls in cur:
-                    class_by_recipe.setdefault(rid, []).append(cls)
+            cur = await db.execute(_SQL["recipe_classes_for_recipes"], (row_ids,))
+            for crow in await cur.fetchall():
+                class_by_recipe.setdefault(crow["recipe_id"], []).append(crow["class"])
 
-    # ── Enrich with class_label from items DB (sync, off event loop) ──────────
-    elaborate_ids = [r["out_elaborate_id"] for r in rows if r["out_elaborate_id"]]
-    label_map: dict[int, str] = {}
-    if elaborate_ids and items_db_available:
-        _, label_map = await run_sync(_query_items_db, None, elaborate_ids)
+        # Enrich with class_label from the items schema.
+        elaborate_ids = [r["out_elaborate_id"] for r in rows if r["out_elaborate_id"]]
+        label_map: dict[int, str] = {}
+        if elaborate_ids and items_available:
+            cur = await db.execute(_SQL["items_class_labels_by_ids"], (elaborate_ids,))
+            label_map = {lrow["id"]: lrow["class_label"] for lrow in await cur.fetchall() if lrow["class_label"]}
 
     results = [
         _row_to_result(

@@ -11,7 +11,6 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
 from backend.census.constants import SPELL_TIER_ORDER as _TIER_ORDER
-from backend.eq2db.spells import DB_PATH as _SPELLS_DB
 from backend.eq2db.spells import catalogue as _spells
 from backend.server.api.character import router
 from backend.server.api.character.views import _build_char_response
@@ -46,7 +45,7 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
     Spell IDs come from the character record that was already fetched (and cached)
     when the character page loaded — no extra Census call needed.
     """
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         raise HTTPException(status_code=503, detail="Spells database not available")
 
     # Use the cached character record (populated on first character page load).

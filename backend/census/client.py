@@ -154,18 +154,12 @@ class CensusClient:
     # ------------------------------------------------------------------
 
     async def get_item(self, query: str) -> ItemData | None:
-        from backend.eq2db.items import DB_PATH
-
-        db_exists = DB_PATH.exists()
-        # Try local DB first (fast, no rate limits)
+        # Try the items catalogue first (fast, no rate limits)
         raw = await self._find_in_db(query)
         if raw:
             _log.debug("[db] Cache hit for %r", query)
             return _parse_item_fn(raw)
-        if db_exists:
-            _log.debug("[db] Cache miss for %r — falling back to Census API", query)
-        else:
-            _log.debug("[db] No database at %s — using Census API", DB_PATH)
+        _log.debug("[db] Cache miss for %r — falling back to Census API", query)
         # Fall back to live Census API
         data = await self._fetch(self._build_params(query))
         if not data:
@@ -174,12 +168,12 @@ class CensusClient:
         if not item_list:
             return None
         raw_item = item_list[0]
-        # Cache in local DB so the next lookup is instant
-        self._cache_item(raw_item)
+        # Cache in the catalogue so the next lookup is instant
+        await self._cache_item(raw_item)
         return _parse_item_fn(raw_item)
 
     async def _find_in_db(self, query: str) -> dict | None:
-        """Look up an item in the local SQLite DB. Returns raw Census dict or None."""
+        """Look up an item in the items catalogue. Returns raw Census dict or None."""
         query = query.strip()
         # Game link
         m = re.match(r"\\*aITEM\s+(-?\d+)", query)
@@ -194,12 +188,19 @@ class CensusClient:
         # Display name
         return await item_db.find_by_name(query)
 
-    def _cache_item(self, raw: dict) -> None:
-        """Write a freshly-fetched Census item into the local DB."""
+    async def _cache_item(self, raw: dict) -> None:
+        """Write a freshly-fetched Census item into the items catalogue.
+
+        Off the event loop (``to_thread``): the upsert is a network write
+        now, and this rides request handlers — a cache write must never
+        stall the response path."""
+
+        def _write() -> None:
+            with item_db.init_db() as conn:
+                item_db.upsert_items([raw], conn)
+
         try:
-            conn = item_db.init_db()
-            item_db.upsert_items([raw], conn)
-            conn.close()
+            await asyncio.to_thread(_write)
             _log.debug("[db] Cached item %s (%s)", raw.get("id"), raw.get("displayname"))
         except Exception:
             _log.exception("[db] Failed to cache item %s", raw.get("id"))
@@ -301,12 +302,39 @@ class CensusClient:
             return None
         raw_item = item_list[0]
         # Persist so the next character lookup (this one or any other)
-        # is items.db-only and zero Census traffic.
-        self._cache_item(raw_item)
+        # is catalogue-only and zero Census traffic.
+        await self._cache_item(raw_item)
         return raw_item
 
     async def _parse_equipment(self, raw_slots: list) -> list[EquipmentSlot]:
-        """Parse a Census equipmentslot_list into EquipmentSlot dataclass objects."""
+        """Parse a Census equipmentslot_list into EquipmentSlot dataclass objects.
+
+        All item + adorn ids are prefetched in ONE catalogue query; only
+        ids the catalogue doesn't know fall through to the per-id
+        :meth:`_resolve_item_meta` Census path (which also caches them)."""
+        wanted: set[int] = set()
+        for slot in raw_slots:
+            if not isinstance(slot, dict):
+                continue
+            item_data = slot.get("item")
+            if not isinstance(item_data, dict):
+                continue
+            iid = _int(item_data.get("id"))
+            if iid is not None:
+                wanted.add(iid)
+            for adorn in item_data.get("adornment_list") or []:
+                if isinstance(adorn, dict):
+                    aid = _int(adorn.get("id"))
+                    if aid is not None:
+                        wanted.add(aid)
+        prefetched = await item_db.find_raw_by_ids(sorted(wanted))
+
+        async def _meta(item_id: int) -> dict | None:
+            hit = prefetched.get(item_id)
+            if hit:
+                return hit
+            return await self._resolve_item_meta(item_id)
+
         equipment: list[EquipmentSlot] = []
         for slot in raw_slots:
             if not isinstance(slot, dict):
@@ -320,7 +348,7 @@ class CensusClient:
             item_id = _int(item_data.get("id"))
             if item_id is None:
                 continue
-            meta = await self._resolve_item_meta(item_id)
+            meta = await _meta(item_id)
             if meta:
                 item_name = meta.get("displayname") or f"Item #{item_id}"
                 item_tier = str(meta.get("tier") or "")
@@ -339,7 +367,7 @@ class CensusClient:
                 color = adorn.get("color", "").capitalize()
                 adorn_id = _int(adorn.get("id"))
                 if adorn_id is not None:
-                    adorn_meta = await self._resolve_item_meta(adorn_id)
+                    adorn_meta = await _meta(adorn_id)
                     adorn_name = adorn_meta.get("displayname") if adorn_meta else None
                 else:
                     adorn_name = None

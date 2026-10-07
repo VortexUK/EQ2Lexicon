@@ -53,7 +53,6 @@ from backend.eq2db.spell_effects import (
     static_class_spell_base_for,
     static_overrides_for,
 )
-from backend.eq2db.spells import DB_PATH as _SPELLS_DB
 from backend.eq2db.spells import SpellRow
 from backend.eq2db.spells import catalogue as _spells
 from backend.server.api.character import router
@@ -1142,7 +1141,7 @@ async def get_buff_tiers(request: Request, name: str) -> list[ClassBuffResponse]
     """Era tier rows (Apprentice → Master) of one raid-buff line, parsed —
     the raid-buff panel's tier dropdown (default Expert). ``name`` is the
     base spell name without rank ('Crusade')."""
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         raise HTTPException(status_code=503, detail="Spells database not available")
     max_level = current_server().max_level or 80
     return await run_sync(_buff_tiers_sync, name, max_level)
@@ -1153,7 +1152,7 @@ async def get_buff_tiers(request: Request, name: str) -> list[ClassBuffResponse]
 async def get_class_buffs(request: Request, cls: str) -> list[ClassBuffResponse]:
     """A class's group/raid/ally buff book for the simulator's group
     make-up panel — real spell names with parsed mods and procs."""
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         raise HTTPException(status_code=503, detail="Spells database not available")
     max_level = current_server().max_level or 80
     return await run_sync(_class_buffs_sync, cls, max_level)
@@ -1188,7 +1187,7 @@ async def get_character_buffs(request: Request, name: str) -> CharacterBuffsResp
     """A specific group member's buff book at THEIR owned spell ranks —
     the group make-up panel adds real characters, not generic classes,
     so buff values reflect what that player can actually cast."""
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         raise HTTPException(status_code=503, detail="Spells database not available")
     char = await _resolve_character(name)
     aa_trees = await _fetch_aa_trees(name)
@@ -1265,7 +1264,7 @@ async def _resolve_character(name: str):
 @limiter.limit("30/minute")
 async def get_character_rotation_data(request: Request, name: str) -> CharacterRotationDataResponse:
     """The rotation simulator's per-character ability payload."""
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         raise HTTPException(status_code=503, detail="Spells database not available")
 
     char = await _resolve_character(name)

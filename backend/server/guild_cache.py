@@ -30,9 +30,6 @@ from backend.census.store import GuildHistorySnapshot
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
 from backend.eq2db.spells import (
-    DB_PATH as _SPELLS_DB,
-)
-from backend.eq2db.spells import (
     SpellRow as _SpellRow,
 )
 from backend.eq2db.spells import (
@@ -163,7 +160,7 @@ def _build_spell_check_from_overviews(
         MemberSpellTiers,
     )
 
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         return None
 
     all_ids: list[int] = []

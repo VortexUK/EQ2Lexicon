@@ -433,12 +433,22 @@ class PgConnProxy:
 
 class PgCatalogue(SchemaBound):
     """Sync Postgres analogue of :class:`BaseCatalogue` for the
-    caller-owns-connection families (parses, census, zones, raids).
+    caller-owns-connection families (parses, census, zones, raids) and the
+    Phase-2 catalogue mirrors (items, spells, recipes).
 
     ``init_db()`` KEEPS ITS NAME but creates nothing — schema DDL is owned
     by db/migrations/. It returns an open :class:`PgConnProxy` scoped to
     ``self.schema``, preserving the ``conn = store.init_db(); …;
     conn.close()`` caller shape across ~60 sites."""
+
+    #: Table probed by :meth:`ready` — the catalogue's primary table.
+    #: Subclasses that serve route-level "is this catalogue loaded?"
+    #: checks set it; the default disables the probe (always ready).
+    READY_TABLE: ClassVar[str | None] = None
+
+    def __init__(self, schema: str) -> None:
+        super().__init__(schema)
+        self._ready: bool | None = None
 
     def init_db(self) -> PgConnProxy:
         return PgConnProxy(self.schema)
@@ -451,3 +461,78 @@ class PgCatalogue(SchemaBound):
         if row is None:
             return None
         return next(iter(row.values()))
+
+    # ── Read helpers (the BaseCatalogue trio, pooled) ────────────────────────
+
+    def _fetchall(self, sql: str, params: Sequence | Mapping = ()) -> list[dict]:
+        """One read query on a pooled schema-scoped connection. Rows are
+        dicts. Unlike the SQLite base there is no missing-file soft-empty:
+        migrations run before the app serves, so errors are real faults.
+        Route-level degradation goes through :meth:`ready` instead."""
+        from backend import pg  # deferred: SQLite-only consumers never pay the import
+
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
+            return conn.execute(sql, params or None).fetchall()
+
+    def _fetchone(self, sql: str, params: Sequence | Mapping = ()) -> dict | None:
+        """Single-row variant of :meth:`_fetchall`."""
+        from backend import pg
+
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
+            return conn.execute(sql, params or None).fetchone()
+
+    def _find_exact_then_like(self, exact_sql: str, like_sql: str, name: str) -> list[dict]:
+        """The shared name-search protocol: exact lowercased match first,
+        then a LIKE fallback with user wildcards escaped (BE-006) — both
+        queries on ONE connection."""
+        from backend import pg
+
+        with pg.connection() as conn:
+            conn.execute(pg.search_path_sql(self.schema))
+            rows = conn.execute(exact_sql, (name.lower(),)).fetchall()
+            if not rows:
+                rows = conn.execute(like_sql, (f"%{like_escape(name.lower())}%",)).fetchall()
+            return rows
+
+    # ── Load-state probe (replaces the SQLite ``DB_PATH.exists()`` guards) ──
+
+    def ready(self) -> bool:
+        """True once :attr:`READY_TABLE` holds at least one row. An empty
+        or not-yet-migrated schema reads as not-ready, so routes keep the
+        503 degradation the file-exists guards used to give. The True
+        result is cached (reference data never empties at runtime);
+        not-ready re-probes every call until the load lands."""
+        if self.READY_TABLE is None:
+            return True
+        if self._ready:
+            return True
+        import psycopg
+
+        try:
+            row = self._fetchone(f'SELECT 1 AS one FROM "{self.READY_TABLE}" LIMIT 1')
+        except psycopg.errors.UndefinedTable:
+            return False
+        self._ready = row is not None
+        return bool(self._ready)
+
+    def clear_caches(self) -> None:
+        super().clear_caches()
+        self._ready = None
+
+    # ── `_meta` (download provenance / resume offsets), PG flavour ──────────
+
+    def get_meta(self, conn: Any, key: str) -> str | None:
+        row = conn.execute("SELECT value FROM _meta WHERE key = %s", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_meta(self, conn: Any, key: str, value: str) -> None:
+        """Upsert ``(key, value)``. Commits immediately — meta writes are
+        one-shot and don't compose into larger transactions (matches the
+        zones-family module-level helper's semantics)."""
+        conn.execute(
+            "INSERT INTO _meta (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        conn.commit()

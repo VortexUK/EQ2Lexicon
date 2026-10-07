@@ -1,5 +1,5 @@
 """
-Local SQLite mirror of the Census /spell/ collection.
+Mirror of the Census /spell/ collection (Postgres `spells` schema).
 
 Each row is one spell entry — a specific tier of a specific spell (e.g.
 "Divine Strike III Adept" is a separate row from "Divine Strike III Master").
@@ -17,7 +17,8 @@ convention — see AACatalogue): DB lookups are instance methods; the pure
 spell-domain helpers (strip_roman, unique_highest_entries, load_blocklist,
 spell_to_row) are staticmethods on the same class so consumers import ONE
 name — the shared ``catalogue`` instance. Module level holds only types
-(SpellRow, Blocklist), constants (DB_PATH), and the instance.
+(SpellRow, Blocklist), constants (SCHEMA), and the instance. Schema DDL is
+owned by db/migrations/0008_spells.sql.
 """
 
 from __future__ import annotations
@@ -26,16 +27,14 @@ import fnmatch
 import json
 import logging
 import re
-import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from backend.census._coerce import coerce_float as _float
 from backend.census._coerce import coerce_int as _int
 from backend.census._coerce import coerce_str_or_none as _str
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import resolve_db_path
+from backend.db_catalogue import PgCatalogue
 from backend.sql_loader import load_sql
 
 
@@ -81,7 +80,7 @@ _log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-DB_PATH: Path = resolve_db_path("DB_SPELLS_PATH", "spells", "spells.db")
+SCHEMA = "spells"
 
 # Roman-numeral suffix pattern (I–XX) used for base_name computation.
 # Matches a space-separated Roman numeral at the end of a spell name.
@@ -92,19 +91,14 @@ _ROMAN_RE = re.compile(
 
 _BLOCKLIST_PATH: Path = Path(__file__).resolve().parent.parent.parent / "data" / "spells" / "blocklist.json"
 
-# Schema (CREATE TABLE / INDEX) lives in spells.sql; init_db runs each block.
-
-# SQL queries live in spells.sql; loaded once at import. Composition for
-# the dynamic IN-list (find_by_ids) and the shared column-list fragment
-# is done in the methods below via f-string formatting.
+# SQL queries live in spells.sql (PG dialect; DDL is in db/migrations/);
+# loaded once at import. The shared column-list fragment is spliced into
+# every find_* query at format-time.
 _SQL = load_sql(__file__)
 
 # The column list lives in spells.sql under the `select_cols` block — fragment
 # spliced into every find_* query at format-time.
 _SELECT_COLS = _SQL["select_cols"]
-
-# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
-from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 
 
 class Blocklist:
@@ -143,18 +137,19 @@ class Blocklist:
         return f"Blocklist(exact={len(self._exact)}, patterns={len(self._patterns)})"
 
 
-def _row_to_dict(row: sqlite3.Row) -> SpellRow:
+def _row_to_dict(row: dict) -> SpellRow:
     return dict(row)  # type: ignore[return-value]
 
 
-class SpellCatalogue(BaseCatalogue):
-    """Read (and build) access to one spells.db file, with per-instance caching.
+class SpellCatalogue(PgCatalogue):
+    """Read (and build) access to the spells schema, with per-instance caching.
 
-    The eq2db data-interface convention (see AACatalogue): the DB path and
-    caches live on the instance; the shared module-level ``catalogue`` is the
-    runtime entry point, and tests construct ``SpellCatalogue(tmp_db)``. The
-    pure spell-domain helpers are staticmethods here so the class is the one
-    interface for everything spell-shaped.
+    The eq2db data-interface convention (see AACatalogue): the schema name
+    and caches live on the instance; the shared module-level ``catalogue``
+    is the runtime entry point, and tests lease a scratch schema and
+    re-point ``catalogue.schema``. The pure spell-domain helpers are
+    staticmethods here so the class is the one interface for everything
+    spell-shaped.
 
     Only the CRC lookup is cached (the hot path — AA tooltips resolve spell
     effects by crc per hover); id/name lookups take dynamic inputs and stay
@@ -162,25 +157,20 @@ class SpellCatalogue(BaseCatalogue):
     changed; stale CRC lookups would lie).
     """
 
+    READY_TABLE = "spells"
+
     # Cache bound — parity with the pre-catalogue @lru_cache(maxsize=4096).
     # The route feeding this (GET /aa/spell/{crc}?tier=N) takes arbitrary
     # client ints, so an unbounded dict would grow until process restart.
     _CRC_CACHE_MAX = 4096
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
         self._crc_cache: dict[tuple[int, int | None], SpellRow | None] = {}
-
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_spells"])
-        conn.executescript(_SQL["indexes_spells"])
-        # Idempotent migration: add effects column if missing (pre-existing DBs)
-        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(spells)").fetchall()}
-        if "effects" not in existing_cols:
-            conn.execute(_SQL["migrate_add_effects_column"])
 
     def clear_caches(self) -> None:
         """Reset the per-instance caches — used by tests and upsert_spells."""
+        super().clear_caches()
         self._crc_cache.clear()
 
     def _cache_info(self) -> dict[str, int]:
@@ -360,7 +350,7 @@ class SpellCatalogue(BaseCatalogue):
 
     # ── Build (scripts/download_spells.py) ───────────────────────────────────
 
-    def upsert_spells(self, spells: list[dict], conn: sqlite3.Connection) -> int:
+    def upsert_spells(self, spells: list[dict], conn: Any) -> int:
         """Upsert a batch of raw Census spell dicts. Returns the number inserted/replaced."""
         rows = [self.spell_to_row(s) for s in spells if s.get("id") is not None]
         conn.executemany(_SQL["upsert"], rows)
@@ -368,8 +358,8 @@ class SpellCatalogue(BaseCatalogue):
         self.clear_caches()  # BE-236: spell data changed; stale CRC lookups would lie
         return len(rows)
 
-    def spell_count(self, conn: sqlite3.Connection) -> int:
-        return conn.execute(_SQL["count"]).fetchone()[0]
+    def spell_count(self, conn: Any) -> int:
+        return self.fetchval(conn.execute(_SQL["count"]))
 
     # ── Lookups (async-friendly via asyncio.to_thread) ───────────────────────
 
@@ -382,10 +372,9 @@ class SpellCatalogue(BaseCatalogue):
         """Return {spell_id: row_dict} for all matching IDs. Missing IDs are omitted."""
         if not spell_ids:
             return {}
-        placeholders = ",".join("?" * len(spell_ids))
         rows = self._fetchall(
-            _SQL["find_by_ids"].format(cols=_SELECT_COLS, placeholders=placeholders),
-            spell_ids,
+            _SQL["find_by_ids"].format(cols=_SELECT_COLS),
+            (list(spell_ids),),
         )
         return {row["id"]: _row_to_dict(row) for row in rows}
 
@@ -396,16 +385,12 @@ class SpellCatalogue(BaseCatalogue):
         highest-level rank per base line (Rousing Tune VII beats VI)."""
         if not names:
             return []
-        rows: list[SpellRow] = []
-        chunk_size = 500
-        for i in range(0, len(names), chunk_size):
-            chunk = names[i : i + chunk_size]
-            placeholders = ",".join("?" * len(chunk))
-            fetched = self._fetchall(
-                _SQL["beneficial_group_by_names"].format(cols=_SELECT_COLS, placeholders=placeholders),
-                [*chunk, max_level],
-            )
-            rows.extend(_row_to_dict(r) for r in fetched)
+        # One `= ANY` query — the SQLite 500-name chunking is gone.
+        fetched = self._fetchall(
+            _SQL["beneficial_group_by_names"].format(cols=_SELECT_COLS),
+            (list(names), max_level),
+        )
+        rows: list[SpellRow] = [_row_to_dict(r) for r in fetched]
         # Best tier per exact name (raiders run Masters where they exist).
         by_name: dict[str, SpellRow] = {}
         for r in rows:
@@ -466,9 +451,8 @@ class SpellCatalogue(BaseCatalogue):
         ids = [c for c in {*crcs} if c is not None]
         if not ids:
             return set()
-        placeholders = ",".join("?" * len(ids))
-        rows = self._fetchall(_SQL["upgradeable_crcs"].format(placeholders=placeholders), ids)
-        return {r[0] for r in rows}
+        rows = self._fetchall(_SQL["upgradeable_crcs"], (ids,))
+        return {r["crc"] for r in rows}
 
     def find_by_crc(self, crc: int, tier: int | None = None) -> SpellRow | None:
         """Return the spell row for the given CRC and AA rank tier.
@@ -562,3 +546,8 @@ class SpellCatalogue(BaseCatalogue):
 
 # The shared default instance — every runtime consumer goes through this.
 catalogue = SpellCatalogue()
+
+# Script-facing `_meta` aliases (download_spells.py resume offsets) — bound
+# to the shared instance so a re-pointed catalogue.schema carries through.
+get_meta = catalogue.get_meta
+set_meta = catalogue.set_meta

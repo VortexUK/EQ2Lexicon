@@ -69,7 +69,10 @@ REPORTS_DIR = _REPO / "reports"
 #: _classify_zone, which reads the zones schema — with stale/empty zones
 #: data every kill would classify "other" (7-day tier) and curated raid
 #: detail would be over-pruned at load.
-FAMILIES = ("users", "zones", "raids", "census", "parses")
+#: Phase-2 read-only catalogue mirrors (items / spells / recipes) ride the
+#: same machinery — their one-time bulk load sources the LOCAL data/<name>/
+#: <name>.db files (the volume copies are identical).
+FAMILIES = ("users", "zones", "raids", "census", "parses", "items", "spells", "recipes")
 
 #: Tables whose rows are intentionally NOT copied (none today; placeholder
 #: so a future exclusion is one line).

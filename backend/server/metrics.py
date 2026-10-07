@@ -281,19 +281,17 @@ class _DBFileSizeCollector(Collector):
     spot the difference via the labelset gap."""
 
     def collect(self):  # type: ignore[override]
+        from backend.eq2db import aas as aas_db
         from backend.eq2db import classes as classes_db
-        from backend.eq2db import items as items_db
-        from backend.eq2db import recipes as recipes_db
-        from backend.eq2db import spells as spells_db
 
         # Map label → Path. Centralised so adding a new DB is one tuple.
-        # (users + parses + census + zones + raids moved to Postgres —
-        # covered by the schema-size gauge below instead of a file stat.)
+        # (users/parses/census/zones/raids and now items/spells/recipes
+        # moved to Postgres — covered by the schema-size gauge below
+        # instead of a file stat. Only the committed reference SQLite
+        # files remain.)
         candidates = [
-            ("items", items_db.DB_PATH),
-            ("spells", spells_db.DB_PATH),
-            ("recipes", recipes_db.DB_PATH),
             ("classes", classes_db.DB_PATH),
+            ("aas", aas_db.DB_PATH),
         ]
 
         g_size = GaugeMetricFamily(
@@ -326,7 +324,8 @@ class _DBFileSizeCollector(Collector):
                 rows = conn.execute(
                     "SELECT schemaname AS s,"
                     " SUM(pg_total_relation_size((quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass))::bigint AS b"
-                    " FROM pg_tables WHERE schemaname IN ('users', 'parses', 'census', 'zones', 'raids')"
+                    " FROM pg_tables WHERE schemaname IN"
+                    " ('users', 'parses', 'census', 'zones', 'raids', 'items', 'spells', 'recipes')"
                     " GROUP BY schemaname"
                 ).fetchall()
             for r in rows:

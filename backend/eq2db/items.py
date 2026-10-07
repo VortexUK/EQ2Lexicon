@@ -1,5 +1,5 @@
 """
-Local SQLite mirror of the Census /item/ collection.
+Mirror of the Census /item/ collection (Postgres `items` schema).
 
 All behaviour lives on :class:`ItemCatalogue` (the eq2db data-interface
 convention — see AACatalogue / SpellCatalogue): DB lookups are instance
@@ -7,8 +7,8 @@ methods (the async ``find_by_name`` / ``find_by_id`` pair included); the
 pure item-domain helpers (compute_class_label, extract_item_stats,
 extract_effect_stats, item_to_row) are staticmethods on the same class so
 consumers import ONE name — the shared ``catalogue`` instance. Module
-level holds only types (GearRow), constants (DB_PATH, SERVER_MAX_LEVEL),
-and the instance.
+level holds only types (GearRow), constants (SCHEMA, SERVER_MAX_LEVEL),
+and the instance. Schema DDL is owned by db/migrations/0007_items.sql.
 """
 
 from __future__ import annotations
@@ -16,17 +16,13 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
-from pathlib import Path
 from typing import Any, NamedTuple
-
-import aiosqlite
 
 from backend.census._coerce import coerce_int as _coerce_int
 from backend.census._coerce import coerce_str_or_none as _coerce_str
 from backend.census.item_level import compute_ilvl
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import like_escape, resolve_db_path
+from backend.db_catalogue import PgCatalogue
+from backend.db_helpers import like_escape
 from backend.eq2db.classes import catalogue as _classes
 from backend.sql_loader import load_sql
 
@@ -35,7 +31,7 @@ _SQL = load_sql(__file__)
 _log = logging.getLogger(__name__)
 
 
-DB_PATH = resolve_db_path("DB_ITEMS_PATH", "items", "items.db")
+SCHEMA = "items"
 
 
 def _resolve_max_level() -> int | None:
@@ -75,27 +71,6 @@ _ARCHETYPES: list[tuple[str, frozenset[str]]] = [
 ] + [(f"All {subclass}s", frozenset(n.lower() for n in members)) for subclass, members in _classes.subclass_groups()]
 
 
-# Schema (CREATE TABLE / INDEX) lives in items.sql; init_db runs each block.
-
-# Columns added after initial schema — used by init_db() to migrate existing DBs
-_MIGRATIONS = [
-    ("visible", "INTEGER DEFAULT 1"),
-    ("typeinfo_name", "TEXT"),
-    ("classes_json", "TEXT"),
-    ("physical_damage_absorption", "INTEGER"),
-    ("class_label", "TEXT"),
-    ("class_count", "INTEGER"),
-    ("tier_display", "TEXT"),
-    ("skill_type", "TEXT"),
-    ("spell_target", "TEXT"),
-    ("spell_range", "TEXT"),
-    ("spell_power_cost", "INTEGER"),
-    ("spell_resistability", "TEXT"),
-    ("flag_pvp", "INTEGER DEFAULT 0"),
-    ("classification_list", "TEXT"),
-    ("ilvl", "REAL"),
-]
-
 # ---------------------------------------------------------------------------
 # Effect-based stat extraction
 # ---------------------------------------------------------------------------
@@ -115,14 +90,7 @@ _EFFECT_STAT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Attack Speed of .+? by ([\d.]+)"), "Haste"),
 ]
 
-# Bump this string whenever _EFFECT_STAT_PATTERNS changes.
-# init_db() stores it in _meta; backfill only runs when stored value differs.
-_EFFECT_STATS_VERSION = "1"
-
 _PVP_STAT_PREFIXES = ("pvp",)
-
-# `_meta` get/set is shared across every eq2db module — see backend/eq2db/_meta.py.
-from backend.eq2db._meta import get_meta, set_meta  # noqa: E402,F401
 
 # ---------------------------------------------------------------------------
 # Generic field coercers (Census JSON → column values)
@@ -158,43 +126,27 @@ class GearRow(NamedTuple):
     tier_display: str | None  # for adorn-bonus calc
 
 
-class ItemCatalogue(BaseCatalogue):
-    """Read (and build) access to one items.db file.
+class ItemCatalogue(PgCatalogue):
+    """Read (and build) access to the items schema.
 
     The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
-    the DB path lives on the instance; the shared module-level ``catalogue``
-    is the runtime entry point, and tests construct ``ItemCatalogue(tmp_db)``.
-    The pure item-domain helpers are staticmethods here so the class is the
-    one interface for everything item-shaped.
+    the schema name lives on the instance; the shared module-level
+    ``catalogue`` is the runtime entry point, and tests lease a scratch
+    schema and re-point ``catalogue.schema``. The pure item-domain helpers
+    are staticmethods here so the class is the one interface for everything
+    item-shaped.
+
+    The old SQLite startup backfills (pvp flag, effect stats,
+    classification_list) are gone: ``item_to_row`` computes every derived
+    column at write time, and historic rows arrived pre-backfilled via the
+    one-time bulk copy. A new effect-stat pattern now means re-running
+    scripts/backfill_item_stats.py rather than bumping a version gate.
     """
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    READY_TABLE = "items"
 
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_items"])
-        # Migrate existing DBs: add any columns introduced after initial creation.
-        # Must run BEFORE index creation so new indexes on new columns don't fail.
-        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(items)")}
-        for col_name, col_def in _MIGRATIONS:
-            if col_name not in existing_cols:
-                conn.execute(_SQL["migration_add_column"].format(col=col_name, coltype=col_def))
-        conn.executescript(_SQL["indexes_items"])
-        # Stats side-table
-        conn.execute(_SQL["schema_item_stats"])
-        conn.executescript(_SQL["indexes_item_stats"])
-
-    def _post_init(self, conn: sqlite3.Connection) -> None:
-        # Backfill flag_pvp for items that predate this column.
-        # Uses LOWER(raw_json) LIKE '%pvp%' — catches both pvp stats and effect text.
-        # Safe to run every startup; is a no-op once all rows are set.
-        self._backfill_pvp_flag(conn)
-        # Backfill effect-derived stats (Haste etc.) for items that predate this
-        # feature.  Version-gated — only runs once per _EFFECT_STATS_VERSION.
-        self._backfill_effect_stats(conn)
-        # Backfill classification_list for rows that predate this column.
-        # Uses json_extract to pull the array out of raw_json; safe to re-run.
-        self._backfill_classification_list(conn)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
 
     # ── Pure helpers (no DB access — statics so the class is the ONE interface) ──
 
@@ -437,90 +389,16 @@ class ItemCatalogue(BaseCatalogue):
             "classification_list": json.dumps(item.get("classification_list") or []),
         }
 
-    # ── Startup backfills (run by init_db against an open conn) ──────────────
-
-    @staticmethod
-    def _backfill_classification_list(conn: sqlite3.Connection) -> None:
-        """Populate classification_list for rows that predate the column.
-
-        Uses SQLite's json_extract to pull the array straight out of raw_json.
-        Version-gated like the sibling backfills: without the gate the
-        UPDATE's table scan (~0.56s) ran on EVERY init_db connection —
-        profiling showed it as 85% of the rotation endpoint's latency.
-        New rows always get the column from item_to_row, so once is enough.
-        """
-        if get_meta(conn, "classification_backfill_version") == "1":
-            return  # already done
-        conn.execute(_SQL["backfill_classification_list"])
-        set_meta(conn, "classification_backfill_version", "1")
-        conn.commit()
-
-    @staticmethod
-    def _backfill_pvp_flag(conn: sqlite3.Connection) -> None:
-        """Set flag_pvp=1 on any existing item whose raw_json mentions 'pvp'.
-
-        Only touches rows where flag_pvp IS NULL or 0 and raw_json contains the
-        string, so it runs quickly after the first pass (nearly all rows are 0).
-        Guarded by a version key so the full table scan only happens once.
-        """
-        if get_meta(conn, "pvp_backfill_version") == "1":
-            return  # already done
-        conn.execute(_SQL["backfill_pvp_flag"])
-        set_meta(conn, "pvp_backfill_version", "1")
-        conn.commit()
-
-    @staticmethod
-    def _backfill_effect_stats(conn: sqlite3.Connection) -> None:
-        """Parse effect_list from raw_json and populate effect-based stats in item_stats.
-
-        Uses a version key in _meta so the full table scan only happens once per
-        _EFFECT_STATS_VERSION.  Bump _EFFECT_STATS_VERSION when new patterns are
-        added to _EFFECT_STAT_PATTERNS to trigger a re-run.
-
-        Effect stats are inserted with OR IGNORE so existing modifier-derived
-        values are never overwritten.
-        """
-        stored_version = get_meta(conn, "effect_stats_version")
-        if stored_version == _EFFECT_STATS_VERSION:
-            return  # already up to date
-
-        # Narrow the scan using a keyword hint from the patterns so we don't have
-        # to JSON-decode every row.  Build one LIKE filter per pattern.
-        # For now "Attack Speed" covers all patterns in _EFFECT_STAT_PATTERNS.
-        keyword_hints = ["attack speed"]  # lowercase; extend when patterns grow
-
-        conditions = " OR ".join("LOWER(raw_json) LIKE ?" for _ in keyword_hints)
-        rows = conn.execute(
-            _SQL["select_raw_json_by_keyword"].format(conditions=conditions),
-            [f"%{kw}%" for kw in keyword_hints],
-        ).fetchall()
-
-        stat_rows: list[tuple] = []
-        for item_id, raw_json_str in rows:
-            try:
-                raw = json.loads(raw_json_str)
-            except Exception as exc:
-                _log.warning("[items-db] Failed to parse effect_stats JSON for item_id=%s: %s", item_id, exc)
-                continue
-            for stat_name, value in ItemCatalogue.extract_effect_stats(raw).items():
-                stat_rows.append((item_id, stat_name, value))
-
-        if stat_rows:
-            conn.executemany(_SQL["insert_item_stat_ignore"], stat_rows)
-
-        set_meta(conn, "effect_stats_version", _EFFECT_STATS_VERSION)
-        conn.commit()
-
     # ── Build (scripts/download_items.py) ────────────────────────────────────
 
-    def upsert_items(self, items: list[dict], conn: sqlite3.Connection) -> int:
+    def upsert_items(self, items: list[dict], conn: Any) -> int:
         """Upsert a batch of raw Census item dicts. Returns number inserted/replaced."""
         rows = [self.item_to_row(item) for item in items]
         conn.executemany(_SQL["upsert"], rows)
         # Maintain item_stats side-table.
-        # Modifier stats (from `modifiers` dict) are inserted first with OR REPLACE.
-        # Effect stats (parsed from effect_list text) are inserted second with OR IGNORE
-        # so that modifier values always win when both are present.
+        # Modifier stats (from `modifiers` dict) are upserted first (DO UPDATE).
+        # Effect stats (parsed from effect_list text) are inserted second with
+        # DO NOTHING so that modifier values always win when both are present.
         mod_stat_rows: list[tuple] = []
         effect_stat_rows: list[tuple] = []
         for item in items:
@@ -538,8 +416,8 @@ class ItemCatalogue(BaseCatalogue):
         conn.commit()
         return len(rows)
 
-    def item_count(self, conn: sqlite3.Connection) -> int:
-        return conn.execute(_SQL["count"]).fetchone()[0]
+    def item_count(self, conn: Any) -> int:
+        return self.fetchval(conn.execute(_SQL["count"]))
 
     # ── Lookups ──────────────────────────────────────────────────────────────
 
@@ -548,50 +426,32 @@ class ItemCatalogue(BaseCatalogue):
 
         Covers both worn items (use ``ilvl``/``wield_style``) and adornments (use
         ``level``/``tier_display`` for the adorn bonus) in one query. Ids missing
-        from the DB are absent from the result; non-gear items have ``ilvl=None``.
-        Returns {} if the DB doesn't exist yet (graceful when items.db hasn't been
-        provisioned)."""
-        if not ids or not self.path.exists():
+        from the DB are absent from the result; non-gear items have ``ilvl=None``."""
+        if not ids:
             return {}
-        conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
-        try:
-            placeholders = ",".join("?" for _ in ids)
-            rows = conn.execute(
-                _SQL["gear_for_ids"].format(placeholders=placeholders),
-                ids,
-            )
-            return {row[0]: GearRow(row[1], row[2], row[3], row[4]) for row in rows}
-        finally:
-            conn.close()
+        rows = self._fetchall(_SQL["gear_for_ids"], (list(ids),))
+        return {
+            row["id"]: GearRow(row["ilvl"], row["wield_style"], row["level_to_use"], row["tier_display"])
+            for row in rows
+        }
 
     def stats_for_ids(self, ids: list[int]) -> list[tuple[int, str, float]]:
         """All ``(item_id, stat, value)`` rows for the given ids (read-only).
 
         One row per stat per distinct id — callers holding duplicate ids
-        (two copies of the same ring) must weight by occurrence themselves.
-        Returns [] if the DB doesn't exist yet."""
-        if not ids or not self.path.exists():
+        (two copies of the same ring) must weight by occurrence themselves."""
+        if not ids:
             return []
-        conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
-        try:
-            placeholders = ",".join("?" for _ in ids)
-            rows = conn.execute(_SQL["stats_for_ids"].format(placeholders=placeholders), ids)
-            return [(row[0], row[1], row[2]) for row in rows]
-        finally:
-            conn.close()
+        rows = self._fetchall(_SQL["stats_for_ids"], (list(ids),))
+        return [(row["item_id"], row["stat"], row["value"]) for row in rows]
 
     def set_bonus_rows_for_ids(self, ids: list[int]) -> list[tuple[int, str, str | None]]:
         """``(item_id, setbonus_name, raw_json)`` for the ids that belong to an
-        item set (read-only). Returns [] if the DB doesn't exist yet."""
-        if not ids or not self.path.exists():
+        item set (read-only)."""
+        if not ids:
             return []
-        conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
-        try:
-            placeholders = ",".join("?" for _ in ids)
-            rows = conn.execute(_SQL["set_bonus_rows_for_ids"].format(placeholders=placeholders), ids)
-            return [(row[0], row[1], row[2]) for row in rows]
-        finally:
-            conn.close()
+        rows = self._fetchall(_SQL["set_bonus_rows_for_ids"], (list(ids),))
+        return [(row["id"], row["setbonus_name"], row["raw_json"]) for row in rows]
 
     def class_spell_names(self, cls: str) -> set[str]:
         """Base spell names (tier suffix stripped) a class can scribe,
@@ -602,15 +462,12 @@ class ItemCatalogue(BaseCatalogue):
         legacy all-class collection scrolls (e.g. one "Breeze (Master)")
         list every class, artisans included, at level 0."""
         cls_key = re.sub(r"[^a-z]", "", cls.lower())
-        if not cls_key or not self.path.exists():
+        if not cls_key:
             return set()
         out: set[str] = set()
-        conn = self.init_db()
-        try:
-            rows = conn.execute(_SQL["spellscroll_names_for_class"], (f'%"{cls_key}"%',)).fetchall()
-        finally:
-            conn.close()
-        for spell_name, classes_json in rows:
+        rows = self._fetchall(_SQL["spellscroll_names_for_class"], (f'%"{cls_key}"%',))
+        for row in rows:
+            spell_name, classes_json = row["spell_name"], row["classes_json"]
             try:
                 entry = (json.loads(classes_json or "{}") or {}).get(cls_key)
             except (TypeError, ValueError):
@@ -630,28 +487,19 @@ class ItemCatalogue(BaseCatalogue):
         bonuses apart from lines nested under a proc trigger (which belong
         to a TEMP buff). SYNC; run via run_sync."""
         ids = [i for i in item_ids if i]
-        if not ids or not self.path.exists():
+        if not ids:
             return []
         out: list[tuple[int, str, str, int]] = []
-        conn = self.init_db()
-        try:
-            chunk_size = 500
-            for i in range(0, len(ids), chunk_size):
-                chunk = ids[i : i + chunk_size]
-                rows = conn.execute(
-                    _SQL["raw_json_by_ids"].format(placeholders=",".join("?" * len(chunk))), chunk
-                ).fetchall()
-                for item_id, raw_json in rows:
-                    try:
-                        raw = json.loads(raw_json or "{}")
-                    except (TypeError, ValueError):
-                        continue
-                    name = str(raw.get("displayname") or item_id)
-                    for e in raw.get("effect_list") or []:
-                        if isinstance(e, dict) and e.get("description"):
-                            out.append((item_id, name, str(e["description"]), int(e.get("indentation") or 0)))
-        finally:
-            conn.close()
+        for row in self._fetchall(_SQL["raw_json_by_ids"], (ids,)):
+            item_id, raw_json = row["id"], row["raw_json"]
+            try:
+                raw = json.loads(raw_json or "{}")
+            except (TypeError, ValueError):
+                continue
+            name = str(raw.get("displayname") or item_id)
+            for e in raw.get("effect_list") or []:
+                if isinstance(e, dict) and e.get("description"):
+                    out.append((item_id, name, str(e["description"]), int(e.get("indentation") or 0)))
         return out
 
     def named_effects_for_ids(self, item_ids: list[int]) -> dict[int, list[str]]:
@@ -663,30 +511,21 @@ class ItemCatalogue(BaseCatalogue):
         the family (VI vs VII) are different names and do. SYNC; run
         via run_sync."""
         ids = [i for i in item_ids if i]
-        if not ids or not self.path.exists():
+        if not ids:
             return {}
         out: dict[int, list[str]] = {}
-        conn = self.init_db()
-        try:
-            chunk_size = 500
-            for i in range(0, len(ids), chunk_size):
-                chunk = ids[i : i + chunk_size]
-                rows = conn.execute(
-                    _SQL["raw_json_by_ids"].format(placeholders=",".join("?" * len(chunk))), chunk
-                ).fetchall()
-                for item_id, raw_json in rows:
-                    try:
-                        raw = json.loads(raw_json or "{}")
-                    except (TypeError, ValueError):
-                        continue
-                    adorns = raw.get("adornment_list") or []
-                    if isinstance(adorns, dict):
-                        adorns = [adorns]
-                    names = [str(a["name"]) for a in adorns if isinstance(a, dict) and a.get("name")]
-                    if names:
-                        out[item_id] = names
-        finally:
-            conn.close()
+        for row in self._fetchall(_SQL["raw_json_by_ids"], (ids,)):
+            item_id, raw_json = row["id"], row["raw_json"]
+            try:
+                raw = json.loads(raw_json or "{}")
+            except (TypeError, ValueError):
+                continue
+            adorns = raw.get("adornment_list") or []
+            if isinstance(adorns, dict):
+                adorns = [adorns]
+            names = [str(a["name"]) for a in adorns if isinstance(a, dict) and a.get("name")]
+            if names:
+                out[item_id] = names
         return out
 
     def spell_meta_by_names(self, names: list[str]) -> dict[str, dict]:
@@ -701,47 +540,36 @@ class ItemCatalogue(BaseCatalogue):
         text; the spells.db spell-record text is unscaled for some spells
         (Smite Corruption reads "1 - 2" where the scroll says "132 - 161"),
         so consumers prefer this when present."""
-        if not names or not self.path.exists():
+        if not names:
             return {}
         out: dict[str, dict] = {}
-        conn = self.init_db()
-        try:
-            chunk_size = 500
-            for i in range(0, len(names), chunk_size):
-                chunk = names[i : i + chunk_size]
-                rows = conn.execute(
-                    _SQL["spell_meta_by_names"].format(placeholders=",".join("?" * len(chunk))),
-                    chunk,
-                ).fetchall()
-                for spell_name, duration, power, raw_json in rows:
-                    effects: list[dict] = []
-                    if raw_json:
-                        try:
-                            raw = json.loads(raw_json)
-                            effects = [
-                                {"description": e.get("description"), "indentation": e.get("indentation")}
-                                for e in (raw.get("effect_list") or [])
-                                if isinstance(e, dict)
-                            ]
-                        except (TypeError, ValueError):
-                            effects = []
-                    out[spell_name] = {
-                        "spell_duration": duration,
-                        "spell_power_cost": power,
-                        "effects": effects,
-                    }
-        finally:
-            conn.close()
+        for row in self._fetchall(_SQL["spell_meta_by_names"], (list(names),)):
+            effects: list[dict] = []
+            if row["raw_json"]:
+                try:
+                    raw = json.loads(row["raw_json"])
+                    effects = [
+                        {"description": e.get("description"), "indentation": e.get("indentation")}
+                        for e in (raw.get("effect_list") or [])
+                        if isinstance(e, dict)
+                    ]
+                except (TypeError, ValueError):
+                    effects = []
+            out[row["spell_name"]] = {
+                "spell_duration": row["spell_duration"],
+                "spell_power_cost": row["spell_power_cost"],
+                "effects": effects,
+            }
         return out
 
     async def find_by_name(self, name: str) -> dict | None:
         """Return raw Census JSON dict for the closest name match, or None."""
-        if not self.path.exists():
-            return None
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
+        from backend import pg  # deferred: sync-only consumers never pay the import
 
-            async def _best(where_clause: str, params: tuple) -> aiosqlite.Row | None:
+        async with pg.aconnection() as db:
+            await db.execute(pg.search_path_sql(self.schema))
+
+            async def _best(where_clause: str, params: tuple) -> dict | None:
                 """
                 Return the best matching row given a WHERE clause + params.
 
@@ -755,48 +583,72 @@ class ItemCatalogue(BaseCatalogue):
                 """
                 if SERVER_MAX_LEVEL is not None:
                     # Phase 1: valid for current expansion
-                    async with db.execute(
+                    cur = await db.execute(
                         _SQL["find_by_name_level_capped"].format(where=where_clause),
                         params + (SERVER_MAX_LEVEL,),
-                    ) as cur:
-                        row = await cur.fetchone()
+                    )
+                    row = await cur.fetchone()
                     if row:
                         return row
                     # Phase 2: nothing valid — return highest-level item anyway
-                    async with db.execute(
+                    cur = await db.execute(
                         _SQL["find_by_name_any_level"].format(where=where_clause),
                         params,
-                    ) as cur:
-                        return await cur.fetchone()
-                else:
-                    async with db.execute(
-                        _SQL["find_by_name_no_max_level"].format(where=where_clause),
-                        params,
-                    ) as cur:
-                        return await cur.fetchone()
+                    )
+                    return await cur.fetchone()
+                cur = await db.execute(
+                    _SQL["find_by_name_no_max_level"].format(where=where_clause),
+                    params,
+                )
+                return await cur.fetchone()
 
             # Exact match first
-            row = await _best("displayname_lower = ?", (name.lower(),))
+            row = await _best("displayname_lower = %s", (name.lower(),))
             if row:
                 return json.loads(row["raw_json"])
             # LIKE fallback — escape user input so '%' / '_' in a literal name
             # can't silently broaden the match or force a table scan.
             row = await _best(
-                "displayname_lower LIKE ? ESCAPE '\\'",
+                "displayname_lower LIKE %s ESCAPE '\\'",
                 (f"%{like_escape(name.lower())}%",),
             )
             return json.loads(row["raw_json"]) if row else None
 
     async def find_by_id(self, item_id: int) -> dict | None:
         """Return raw Census JSON dict for the given item ID, or None."""
-        if not self.path.exists():
-            return None
-        async with aiosqlite.connect(self.path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(_SQL["find_by_id_raw_json"], (item_id,)) as cur:
-                row = await cur.fetchone()
+        from backend import pg  # deferred: sync-only consumers never pay the import
+
+        async with pg.aconnection() as db:
+            await db.execute(pg.search_path_sql(self.schema))
+            cur = await db.execute(_SQL["find_by_id_raw_json"], (item_id,))
+            row = await cur.fetchone()
             return json.loads(row["raw_json"]) if row else None
+
+    async def find_raw_by_ids(self, item_ids: list[int]) -> dict[int, dict]:
+        """{item_id: raw Census JSON dict} for all known ids, ONE query —
+        the batch form of :meth:`find_by_id` (equipment parsing resolves
+        ~25 slots + adorns per character; per-slot lookups were an N+1)."""
+        ids = [i for i in item_ids if i]
+        if not ids:
+            return {}
+        from backend import pg  # deferred: sync-only consumers never pay the import
+
+        out: dict[int, dict] = {}
+        async with pg.aconnection() as db:
+            await db.execute(pg.search_path_sql(self.schema))
+            cur = await db.execute(_SQL["raw_json_by_ids"], (ids,))
+            for row in await cur.fetchall():
+                try:
+                    out[row["id"]] = json.loads(row["raw_json"] or "{}")
+                except (TypeError, ValueError):
+                    continue
+        return out
 
 
 # The shared default instance — every runtime consumer goes through this.
 catalogue = ItemCatalogue()
+
+# Script-facing `_meta` aliases (download_items.py resume offsets) — bound
+# to the shared instance so a re-pointed catalogue.schema carries through.
+get_meta = catalogue.get_meta
+set_meta = catalogue.set_meta

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -20,10 +19,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-
-from backend.sql_loader import load_sql
-
-_SQL = load_sql(__file__)
 
 
 class _HashedAssetsStaticFiles(StaticFiles):
@@ -116,107 +111,6 @@ from backend.server.metrics import (
 from backend.server.server_context import ServerContextMiddleware
 
 _log = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Item-stats startup check
-# ---------------------------------------------------------------------------
-
-
-def _ensure_item_stats() -> None:
-    """
-    Called in a background thread at startup.
-
-    * Creates the item_stats table / indexes if missing (idempotent).
-    * If the table is empty but the items table has data, runs the stats
-      backfill automatically.  This happens once after a fresh deployment
-      or after the code is upgraded on an existing DB.
-    """
-    import sqlite3
-
-    from backend.eq2db.items import DB_PATH as items_db_path
-    from backend.eq2db.items import catalogue as items_catalogue
-
-    if not items_db_path.exists():
-        return  # No items DB yet — nothing to initialise
-
-    try:
-        items_catalogue.init_db()  # creates tables/indexes if missing
-
-        conn = sqlite3.connect(items_db_path)
-        stat_count = conn.execute(_SQL["count_item_stats"]).fetchone()[0]
-        item_count = conn.execute(_SQL["count_items"]).fetchone()[0]
-        conn.close()
-
-        if stat_count == 0 and item_count > 0:
-            _log.info(
-                "[startup] item_stats is empty (%d items) — running background backfill…",
-                item_count,
-            )
-            # Ensure repo root is on sys.path so the scripts package is importable
-            import sys
-
-            repo_root = str(Path(__file__).resolve().parent.parent.parent)
-            if repo_root not in sys.path:
-                sys.path.insert(0, repo_root)
-            from scripts.backfill_item_stats import run as _backfill  # type: ignore[import]
-
-            _backfill(rebuild=False)
-            _log.info("[startup] item_stats backfill complete.")
-
-    except Exception:
-        _log.exception("[startup] item_stats init/backfill error")
-
-
-def _ensure_recipe_levels() -> None:
-    """
-    Called in a background thread at startup.
-
-    * Adds the recipes.out_level column if missing (idempotent migration).
-    * If any recipe rows still have a NULL out_level and items.db has data,
-      resolves the crafted-output level from items.db and fills it. This runs
-      once after a fresh deployment or after the code is upgraded on an existing
-      DB; subsequent boots find 0 NULL rows and no-op.
-
-    out_level drives the T1–T14 craft tier on the recipe page (replacing the old
-    fuel-name heuristic). Until this pass finishes, craft_tier reads blank for
-    not-yet-filled rows; all other recipe search/display works immediately.
-    """
-    import sqlite3
-
-    from backend.eq2db.items import DB_PATH as items_db_path
-    from backend.eq2db.recipes import DB_PATH as recipes_db_path
-    from backend.eq2db.recipes import catalogue as recipes_catalogue
-
-    if not recipes_db_path.exists() or not items_db_path.exists():
-        return  # need both DBs to resolve levels
-
-    try:
-        recipes_catalogue.init_db().close()  # ensures out_level column exists
-
-        conn = sqlite3.connect(recipes_db_path)
-        missing = conn.execute("SELECT COUNT(*) FROM recipes WHERE out_level IS NULL").fetchone()[0]
-        total = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
-        conn.close()
-
-        if missing > 0 and total > 0:
-            _log.info(
-                "[startup] %d/%d recipes missing out_level — running background backfill…",
-                missing,
-                total,
-            )
-            import sys
-
-            repo_root = str(Path(__file__).resolve().parent.parent.parent)
-            if repo_root not in sys.path:
-                sys.path.insert(0, repo_root)
-            from scripts.backfill_recipe_levels import run as _backfill  # type: ignore[import]
-
-            _backfill(rebuild=False)
-            _log.info("[startup] recipe out_level backfill complete.")
-
-    except Exception:
-        _log.exception("[startup] recipe out_level init/backfill error")
-
 
 # ---------------------------------------------------------------------------
 # HTTP metrics middleware
@@ -506,26 +400,10 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         # (zones moved to Postgres — its schema is owned by db/migrations/
         # 0004_zones.sql, applied by the pg_migrate.run above; no per-start
         # init needed.)
-        # Initialise recipes.db synchronously so the out_level column (and any
-        # future migrations) exist BEFORE the first recipe read. The search and
-        # eq2db find_* paths SELECT out_level directly and do not run init_db
-        # themselves — without this, requests arriving before the background
-        # backfill thread finishes init_db hit "no such column: out_level".
-        # init_db is CREATE TABLE IF NOT EXISTS + idempotent ALTERs, so it's
-        # safe on a populated recipes.db. The slower data backfill still runs in
-        # the background thread below.
-        from backend.eq2db import recipes as recipes_db
-
-        recipes_db.catalogue.init_db().close()
-        # Run the item-stats check in a background thread so it never blocks
-        # startup or Railway health checks.  On a fresh deployment the backfill
-        # may take ~60–90 s; stat-filter searches will return 0 results until it
-        # finishes, but name/tier/slot/class/level searches work immediately.
-        threading.Thread(target=_ensure_item_stats, daemon=True, name="item-stats-backfill").start()
-        # Recipe craft-tier (out_level) self-heal — resolves crafted-output levels
-        # from items.db so the recipe page shows correct T1–T14 tiers. Background
-        # so it never blocks startup; one-time pass after a fresh deploy/upgrade.
-        threading.Thread(target=_ensure_recipe_levels, daemon=True, name="recipe-levels-backfill").start()
+        # (items/spells/recipes moved to Postgres — schema DDL is owned by
+        # db/migrations/0007-0009 applied by pg_migrate.run above, and the
+        # old startup self-heals are gone: item_stats and recipes.out_level
+        # are loader-owned, computed at build/refresh time by the scripts.)
         # Register the DB gauge collector and set static app info.
         _register_db_collector()
         APP_INFO.info({"world": _WORLD, "version": "0.1.0"})

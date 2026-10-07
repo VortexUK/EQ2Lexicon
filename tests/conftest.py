@@ -65,8 +65,8 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     BE-096: moved from module-level os.environ calls to avoid a race with
     pytest plugins (e.g. pytest-asyncio) that may import web.app during
     plugin discovery."""
-    os.environ["DB_SPELLS_PATH"] = str(_TEST_DB_DIR / "spells.db")
-    os.environ["DB_RECIPES_PATH"] = str(_TEST_DB_DIR / "recipes.db")
+    # (items/spells/recipes moved to Postgres — their tests lease scratch
+    # schemas via tests/fixtures/catalogues_db; no env re-point needed.)
     # DB_CLASSES_PATH intentionally NOT overridden — classes.db is the
     # committed source-of-truth (data/classes/classes.db) and is read-only
     # at runtime. Tests read it directly; nothing writes to it. Pointing
@@ -98,39 +98,11 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
 
     provision_for_session()
 
-    # Imports below this line read the env vars above when they evaluate their
-    # module-level constants (DB_PATH, SESSION_SECRET, ...).
-
-    # Force module-level DB_PATH constants to pick up the env vars set above.
-    # The constants are evaluated at module import time; if a pytest plugin
-    # imported these modules before pytest_configure ran (we saw it for
-    # parses_db: the merger started executing SQL against the developer's
-    # real data/parses/parses.db with real player names visible in debug
-    # output), the cached constants point at the wrong path. Re-evaluate
-    # via the shared backend.db_helpers.resolve_db_path which honours the
-    # same env-var override convention.
-    from backend.db_helpers import resolve_db_path  # noqa: PLC0415
-    from backend.eq2db import classes as classes_db
-    from backend.eq2db import items as items_db
-    from backend.eq2db import recipes as recipes_db
-    from backend.eq2db import spells as spells_db
-
-    # eq2db catalogue modules: re-point both the module constant AND the
-    # shared catalogue instance (its path was captured at import time).
-    # (zones moved to Postgres — its tests lease scratch schemas via
-    # tests/fixtures/pg instead of a tmp file.)
-    for mod, env_var, subdir, filename in (
-        (spells_db, "DB_SPELLS_PATH", "spells", "spells.db"),
-        (recipes_db, "DB_RECIPES_PATH", "recipes", "recipes.db"),
-        (items_db, "DB_ITEMS_PATH", "items", "items.db"),
-        (classes_db, "DB_CLASSES_PATH", "classes", "classes.db"),
-    ):
-        mod.DB_PATH = resolve_db_path(env_var, subdir, filename)
-        mod.catalogue.path = mod.DB_PATH
-
-    # (The users + parses schemas are provisioned by provision_for_session
-    # above — FastAPI's startup hooks don't fire under ASGITransport, but
-    # the migrations already ran against the test database.)
+    # (The users + parses schemas — and the Phase-2 items/spells/recipes
+    # catalogue schemas — are provisioned by provision_for_session above.
+    # FastAPI's startup hooks don't fire under ASGITransport, but the
+    # migrations already ran against the test database. classes.db and
+    # aas.db stay committed SQLite and are read in place.)
 
 
 from unittest.mock import AsyncMock, MagicMock  # noqa: E402
@@ -218,6 +190,7 @@ def mock_character_cache():
 
 # Re-export per-domain fixtures so they can be requested from any test
 # directory (the fixtures' module location is implementation detail).
+from tests.fixtures.catalogues_db import items_schema, recipes_schema, spells_schema  # noqa: F401,E402
 from tests.fixtures.census_db import census_schema  # noqa: F401,E402
 from tests.fixtures.logging_state import _logging_state_isolation  # noqa: F401,E402
 from tests.fixtures.parses_db import parses_db_conn, parses_db_path  # noqa: F401,E402

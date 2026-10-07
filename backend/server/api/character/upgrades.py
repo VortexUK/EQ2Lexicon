@@ -5,16 +5,13 @@ Carved out of the original 933-line web/routes/character.py.
 
 from __future__ import annotations
 
-import sqlite3
 from collections import defaultdict
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
-from backend.eq2db.items import DB_PATH as _ITEMS_DB
-from backend.eq2db.recipes import DB_PATH as _RECIPES_DB
+from backend.eq2db.items import catalogue as _items
 from backend.eq2db.recipes import catalogue as _recipes
-from backend.eq2db.spells import DB_PATH as _SPELLS_DB
 from backend.eq2db.spells import catalogue as _spells
 from backend.server.api.character import router
 from backend.server.api.character.views import _build_char_response
@@ -44,7 +41,7 @@ def _lookup_items_by_name(names: list[str]) -> dict[str, dict]:
                renamed materials like "Raw Opaline" → "Rough Opaline".
     Non-"Raw" ingredients are only attempted with an exact match.
     """
-    if not _ITEMS_DB.exists() or not names:
+    if not names or not _items.ready():
         return {}
 
     # Partition into "raw" originals and plain originals.
@@ -60,29 +57,27 @@ def _lookup_items_by_name(names: list[str]) -> dict[str, dict]:
         else:
             orig_to_lookup[lo] = lo
 
-    def _row_to_info(row) -> dict:
-        tier_raw = row[3] or ""
+    def _row_to_info(row: dict) -> dict:
+        tier_raw = row["tier_display"] or ""
         return {
-            "item_id": row[0],
-            "display_name": row[1],  # canonical cased name from DB
-            "icon_id": row[2],
+            "item_id": row["id"],
+            "display_name": row["displayname"],  # canonical cased name from DB
+            "icon_id": row["icon_id"],
             "tier": tier_raw.title() if tier_raw else None,
-            "description": row[4] or None,
-            "item_level": row[5],
+            "description": row["description"] or None,
+            "item_level": row["item_level"],
         }
 
     by_lookup: dict[str, dict] = {}
-    with sqlite3.connect(_ITEMS_DB) as conn:
-        # ── Pass 1: exact match (displayname_lower IN (...)) ─────────────────
-        unique_lookups = list(set(orig_to_lookup.values()))
-        placeholders = ",".join("?" * len(unique_lookups))
+    with _items.init_db() as conn:
+        # ── Pass 1: exact match (displayname_lower = ANY(...)) ──────────────
         rows = conn.execute(
-            f"SELECT id, displayname, icon_id, tier_display, description, item_level "
-            f"FROM items WHERE displayname_lower IN ({placeholders})",
-            unique_lookups,
+            "SELECT id, displayname, icon_id, tier_display, description, item_level "
+            "FROM items WHERE displayname_lower = ANY(%s)",
+            (list(set(orig_to_lookup.values())),),
         ).fetchall()
         for row in rows:
-            key = row[1].lower()  # displayname → lowercase for keying
+            key = row["displayname"].lower()  # displayname → lowercase for keying
             if key not in by_lookup:
                 by_lookup[key] = _row_to_info(row)
 
@@ -96,7 +91,7 @@ def _lookup_items_by_name(names: list[str]) -> dict[str, dict]:
             row = conn.execute(
                 "SELECT id, displayname, icon_id, tier_display, description, item_level "
                 "FROM items "
-                "WHERE displayname_lower LIKE ? "
+                "WHERE displayname_lower LIKE %s "
                 "  AND flag_no_value = 1 "
                 "  AND max_stack_size = 800 "
                 "LIMIT 1",
@@ -134,9 +129,9 @@ async def get_upgrade_materials(request: Request, name: str) -> UpgradeMaterials
     spells to Expert tier, using the local recipes DB.
     """
     # Graceful degradation if either DB is missing
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         raise HTTPException(status_code=503, detail="Spells database not available")
-    if not _RECIPES_DB.exists():
+    if not _recipes.ready():
         raise HTTPException(status_code=503, detail="Recipes database not available")
 
     # Reuse cached character record
@@ -231,9 +226,9 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
     """
     if len(name) > 64:
         raise HTTPException(status_code=400, detail="Character name is too long")
-    if not _SPELLS_DB.exists():
+    if not _spells.ready():
         raise HTTPException(status_code=503, detail="Spells database not available")
-    if not _RECIPES_DB.exists():
+    if not _recipes.ready():
         raise HTTPException(status_code=503, detail="Recipes database not available")
 
     # Reuse cached character record (same pattern as get_upgrade_materials)
