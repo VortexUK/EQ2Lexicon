@@ -11,6 +11,7 @@ import time
 
 import aiohttp
 
+from backend.census import failures
 from backend.census.client import _redact_url as _redact_url
 from backend.census.config import CENSUS_BASE_URL as _CENSUS_BASE_URL
 from backend.server.config import SERVICE_ID as _SERVICE_ID
@@ -36,10 +37,11 @@ def _reset_for_test() -> None:
     global _status, _checked_at
     _status, _checked_at = "unknown", 0
     _server_states.clear()
+    failures._reset_for_test()
 
 
 def get_state() -> dict:
-    return {"status": _status, "checked_at": _checked_at}
+    return {"status": _status, "checked_at": _checked_at, "breaker": failures.tripped()}
 
 
 def get_server_state(world: str) -> dict | None:
@@ -87,7 +89,11 @@ async def _fetch_server_states() -> None:
 
 
 def is_down() -> bool:
-    return _status == "down"
+    """True when the 5-minute probe last failed OR the live breaker tripped
+    (a burst of real request failures recorded by the Census client — the
+    probe's tiny ``world`` query often stays green while ``character/`` is
+    timing out)."""
+    return _status == "down" or failures.tripped()
 
 
 def _body_looks_healthy(body: dict) -> bool:

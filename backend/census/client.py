@@ -8,6 +8,7 @@ from collections import Counter
 
 import aiohttp
 
+from backend.census import failures
 from backend.census._coerce import coerce_int as _int
 from backend.census.config import CENSUS_BASE_URL as BASE_URL  # re-exported so callers can import from client
 from backend.census.item_parser import parse_item as _parse_item_fn
@@ -135,19 +136,36 @@ class CensusClient:
         """One canonical Census HTTP+parse+error-swallow wrapper.
 
         Returns the parsed JSON dict, or None on any HTTP / network / parse
-        error (already logged at WARNING). Replaces the hand-rolled
-        try/except blocks in the public methods.
+        error or a 200 whose body is a Census error envelope (``errorCode``).
+        Every failure is recorded in :mod:`backend.census.failures` (which
+        trips ``census_health.is_down()`` after a burst) and logged at
+        WARNING, coalesced per endpoint. Callers still see ``None`` for both
+        "failed" and "not found" — consult ``census_health`` to tell them apart.
         """
         url = f"{BASE_URL}/s:{self.service_id}/json/get/eq2/{path}"
         try:
             async with self._session_().get(url, params=params, timeout=aiohttp.ClientTimeout(total=timeout_s)) as resp:
                 _log.debug("[census] HTTP %s url=%s", resp.status, _redact_url(str(resp.url)))
                 if resp.status != 200:
+                    failures.note_failure()
+                    if failures.should_log(f"http:{path}:{resp.status}"):
+                        _log.warning("[census] HTTP %s on %s (coalesced: one line/min per endpoint)", resp.status, path)
                     return None
-                return await resp.json(content_type=None)
+                body = await resp.json(content_type=None)
         except Exception as exc:
-            _log.warning("[census] API error on %s: %s: %r", path, type(exc).__name__, exc)
+            failures.note_failure()
+            if failures.should_log(f"exc:{path}:{type(exc).__name__}"):
+                _log.warning("[census] API error on %s: %s: %r (coalesced)", path, type(exc).__name__, exc)
             return None
+        if isinstance(body, dict) and "errorCode" in body:
+            # Census answers 200 with {"errorCode": "SERVER_ERROR"} during
+            # outages — that is a failure, not an empty result set.
+            failures.note_failure()
+            if failures.should_log(f"err:{path}:{body.get('errorCode')}"):
+                _log.warning("[census] error envelope on %s: %s (coalesced)", path, body.get("errorCode"))
+            return None
+        failures.note_success()
+        return body
 
     # ------------------------------------------------------------------
     # Public API

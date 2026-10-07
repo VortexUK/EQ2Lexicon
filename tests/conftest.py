@@ -195,6 +195,18 @@ def session_access_enforced():
 
 
 @pytest.fixture(autouse=True)
+def _reset_census_breaker():
+    """The Census client records request failures in a process-wide breaker
+    (backend.census.failures); a test that hits a failing/mocked Census must
+    not trip census_health.is_down() for the tests after it."""
+    from backend.census import failures
+
+    failures._reset_for_test()
+    yield
+    failures._reset_for_test()
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limiter():
     """The shared slowapi limiter keeps in-memory counters for the whole
     pytest process (every test client shares one IP), so heavily-hit routes
