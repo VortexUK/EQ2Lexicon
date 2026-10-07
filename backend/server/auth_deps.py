@@ -64,6 +64,7 @@ from fastapi import HTTPException, Request
 
 from backend.server import db as users_db
 from backend.server.core.session_user import SessionUser, TokenUser
+from backend.server.limiter import client_ip
 
 # Admin allow-list. Comma-separated env var of Discord IDs. Frozen at import
 # time — a config change requires a process restart, which is fine for our
@@ -129,7 +130,7 @@ async def require_user_session_or_token(request: Request) -> TokenUser:
         _log.warning(
             "[auth-deps] Invalid token presented: token_hash=%s remote_ip=%s",
             _token_hash_for_log(raw_token),
-            request.client.host if request.client else None,
+            client_ip(request),
         )
         raise HTTPException(status_code=401, detail="Invalid or revoked token")
     if row.get("access_status") not in ("approved", None):
@@ -140,7 +141,7 @@ async def require_user_session_or_token(request: Request) -> TokenUser:
             "[auth-deps] Token presented for non-approved account: user_id=%s access_status=%s remote_ip=%s",
             row.get("user_id"),
             row.get("access_status"),
-            request.client.host if request.client else None,
+            client_ip(request),
         )
         raise HTTPException(status_code=403, detail="Account not approved")
 
