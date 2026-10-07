@@ -356,3 +356,4 @@ scripts/dev/.epics_wikitext_cache.json
 # local tooling state and personal VS Code workspace — never committed
 /.bobbit/
 *.code-workspace
+/node_modules/
