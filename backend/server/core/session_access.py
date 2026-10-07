@@ -93,7 +93,10 @@ class SessionAccessMiddleware:
             await self.app(scope, receive, send)
             return
         session = scope.get("session")
-        user = session.get("user") if isinstance(session, dict) else None
+        if not isinstance(session, dict):
+            await self.app(scope, receive, send)
+            return
+        user = session.get("user")
         if user:
             try:
                 verdict = await check_session(user, scope.get("path", ""))
