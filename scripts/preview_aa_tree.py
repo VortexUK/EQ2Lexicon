@@ -15,6 +15,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from backend.image.aa_tree import render_tree
 
 if __name__ == "__main__":

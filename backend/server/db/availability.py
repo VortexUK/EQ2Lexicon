@@ -5,8 +5,8 @@ player who never touches the calendar is always available (per the raid-
 planning design). Global per user: a player is AFK on a date regardless of
 which character or guild is involved.
 
-Per-call connections via the shared ``AsyncStoreBase._db()``; tests
-re-point ``store.path``.
+Per-call connections via the shared ``PgStoreBase._db()``; tests
+re-point ``store.schema``.
 """
 
 from __future__ import annotations

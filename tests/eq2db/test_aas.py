@@ -1,8 +1,13 @@
-"""Tests for backend/eq2db/aas.py — the AA-tree catalogue.
+"""Tests for backend/eq2db/aas.py — the AA-tree catalogue (Postgres ``aas`` schema).
 
-Round-trip tests use a tmp DB through the real build path (upsert_tree);
-the committed-data tests assert invariants of the shipped data/AAs/aas.db
-(mirroring tests/eq2db/test_classes.py's approach to committed reference data).
+Round-trip tests lease an isolated scratch schema via the ``aas_schema``
+fixture (tests/fixtures/catalogues_db.py) and go through the real build path
+(upsert_tree / upsert_limits); the ``cat`` fixture empties the lease first so
+every assertion controls its own data, like the old tmp-file db. The
+seeded-data tests assert invariants of the migration seeds in
+db/migrations/0012_aas.sql — every environment is data-complete from
+migrations alone (mirroring tests/eq2db/test_classes.py's approach to
+seeded reference data), so there is no "not built locally" skip anymore.
 """
 
 from __future__ import annotations
@@ -49,15 +54,25 @@ def _node(node_id: int, **over) -> dict:
 
 
 @pytest.fixture
-def cat(tmp_path):
-    """A fresh AACatalogue on a tmp db, built via init_db."""
-    c = aas.AACatalogue(tmp_path / "aas.db")
-    c.init_db().close()
+def cat(aas_schema):
+    """A fresh AACatalogue on an EMPTIED leased schema — the analog of the
+    old tmp-file db built via init_db. The lease arrives fully seeded
+    (157 trees / 12 limits); wiping lets every round-trip assertion own
+    the whole table (e.g. total_max_points sums globally per type). The
+    leaser re-seeds on release."""
+    c = aas.AACatalogue(aas_schema)
+    conn = c.init_db()
+    try:
+        conn.execute("DELETE FROM aa_trees")  # cascades to aa_nodes
+        conn.execute("DELETE FROM aa_limits")
+        conn.commit()
+    finally:
+        conn.close()
     return c
 
 
 # ---------------------------------------------------------------------------
-# Round trip (tmp DB via the real build path)
+# Round trip (leased schema via the real build path)
 # ---------------------------------------------------------------------------
 
 
@@ -123,14 +138,20 @@ def test_rebuild_replaces_removed_nodes(cat):
     assert [n["node_id"] for n in tree["nodes"]] == [101]
 
 
-def test_missing_db_and_unknown_tree(tmp_path, cat):
-    missing = aas.AACatalogue(tmp_path / "nope.db")
-    assert missing.load_tree_index() == {}
-    assert missing.tree_node_costs(1) == {}
-    assert missing.tree_max_points(1) == 0
-    assert missing.total_max_points(frozenset({"tradeskill"})) == 0
-    assert missing.get_tree(1) is None
-    assert cat.get_tree(999) is None  # built but empty
+def test_empty_schema_and_unknown_tree(cat):
+    """(Was: missing-DB degradation — files are gone, and a lease is always
+    migration-seeded.) The NEW contract: an emptied schema reads not-ready
+    and the seeded default schema is ready; the unknown-tree soft paths
+    still return None/{}/0 instead of raising."""
+    assert not cat.ready()  # emptied lease — routes degrade via ready()
+    assert cat.load_tree_index() == {}
+    assert cat.tree_node_costs(1) == {}
+    assert cat.tree_max_points(1) == 0
+    assert cat.total_max_points(frozenset({"tradeskill"})) == 0
+    assert cat.get_tree(1) is None
+    seeded = aas.AACatalogue("aas")  # the session schema, migration-seeded
+    assert seeded.ready()
+    assert seeded.get_tree(999_999_999) is None  # seeded but unknown id
 
 
 def test_total_max_points_filters_by_type(cat):
@@ -147,7 +168,7 @@ def test_total_max_points_filters_by_type(cat):
     assert cat.total_max_points(frozenset()) == 0
 
 
-def test_limits_round_trip_and_alias_resolution(tmp_path, cat):
+def test_limits_round_trip_and_alias_resolution(cat):
     conn = cat.init_db()
     try:
         cat.upsert_limits(
@@ -159,7 +180,9 @@ def test_limits_round_trip_and_alias_resolution(tmp_path, cat):
         lim = cat.xpac_limits(query)
         assert lim == {"aa_cap": 300, "unlocked_trees": ["class", "subclass"], "visible_rows": {}}, query
     assert cat.xpac_limits("Unknown Xpac") is None
-    assert aas.AACatalogue(tmp_path / "missing.db").xpac_limits("DoV") is None
+    # (Was: a missing-file catalogue → None.) A fresh instance over the same
+    # schema still soft-Nones an alias whose row is absent, cache-independent.
+    assert aas.AACatalogue(cat.schema).xpac_limits("EoF") is None
 
 
 def test_limits_visible_rows_round_trip(cat):
@@ -182,28 +205,21 @@ def test_limits_visible_rows_round_trip(cat):
     assert lim["visible_rows"] == {"class": [0, 1, 2, 3, 4], "subclass": [0, 3, 6, 9, 13]}
 
 
-def test_init_db_migrates_pre_visible_rows_limits_table(tmp_path):
-    """init_db on a DB whose aa_limits predates the visible_rows column must
-    migrate in place and keep existing rows readable.
+def test_limits_visible_rows_defaults_empty_when_omitted(cat):
+    """An upsert_limits entry without visible_rows reads back as {} — the
+    column is part of the migration-owned DDL (db/migrations/0012_aas.sql)
+    with DEFAULT '{}'.
 
-    Memory [test-migrations-against-old-db-shape].
-    """
-    import sqlite3
-
-    db_path = tmp_path / "old-aas.db"
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE aa_limits (xpac TEXT PRIMARY KEY, aa_cap INTEGER NOT NULL DEFAULT 0,"
-        " unlocked_trees TEXT NOT NULL DEFAULT '[]', notes TEXT)"
-    )
-    conn.execute(
-        "INSERT INTO aa_limits (xpac, aa_cap, unlocked_trees, notes) VALUES ('Kingdom of Sky', 50, '[\"class\"]', 'x')"
-    )
-    conn.commit()
-    conn.close()
-
-    cat = aas.AACatalogue(db_path)
-    cat.init_db().close()  # applies the ALTER migration
+    (Retired: the SQLite-era in-place ALTER — migrate_aa_limits_visible_rows —
+    that backfilled the column onto pre-2026-07 aas.db files; this test used
+    to seed an old-shape aa_limits table via raw sqlite3 and assert init_db
+    migrated it. Memory [test-migrations-against-old-db-shape] is now served
+    by migrations owning all DDL up front.)"""
+    conn = cat.init_db()
+    try:
+        cat.upsert_limits(conn, "Kingdom of Sky", {"aa_cap": 50, "unlocked_trees": ["class"], "notes": "x"})
+    finally:
+        conn.close()
     lim = cat.xpac_limits("KoS")
     assert lim == {"aa_cap": 50, "unlocked_trees": ["class"], "visible_rows": {}}
 
@@ -225,21 +241,18 @@ def test_detect_tree_type_cases():
 
 
 # ---------------------------------------------------------------------------
-# Committed data/AAs/aas.db invariants (skipped if not built locally)
+# Migration-seed invariants (db/migrations/0012_aas.sql — the former
+# committed data/AAs/aas.db, present in every environment by construction)
 # ---------------------------------------------------------------------------
 
-_committed = pytest.mark.skipif(not aas.DB_PATH.exists(), reason="committed aas.db not present")
 
-
-@_committed
-def test_committed_db_tree_count():
+def test_seeded_db_tree_count():
     idx = aas.catalogue.load_tree_index()
     assert len(idx) == 157
     assert all(v["type"] != "unknown" for v in idx.values())
 
 
-@_committed
-def test_committed_db_known_values():
+def test_seeded_db_known_values():
     # Bladedance (tree 1) costs 2 points/tier — the same real-data invariant
     # test_aa_routes.py relies on.
     assert aas.catalogue.tree_node_costs(1).get(554687586) == 2
@@ -249,15 +262,13 @@ def test_committed_db_known_values():
     assert aas.catalogue.total_max_points(frozenset({"tradeskill", "tradeskill_general"})) == 116
 
 
-@_committed
-def test_committed_db_limits():
+def test_seeded_db_limits():
     lim = aas.catalogue.xpac_limits("Destiny of Velious")
     assert lim is not None and lim["aa_cap"] == 300
     assert aas.catalogue.xpac_limits("KoS") == aas.catalogue.xpac_limits("Kingdom of Sky")
 
 
-@_committed
-def test_committed_db_era_visible_rows():
+def test_seeded_db_era_visible_rows():
     """The 2026-07 era curation: pre-Sentinel's-Fate xpacs hide the class
     tree's rows 5-6 and the subclass rows 16/19 (verified against live
     Wuoshi census data, boundary user-confirmed); SF+ show everything."""
@@ -274,12 +285,12 @@ def test_committed_db_era_visible_rows():
     assert sf is not None and sf["visible_rows"] == {}
 
 
-@_committed
-def test_committed_db_meta_stamps():
+def test_seeded_db_meta_stamps():
     conn = aas.catalogue.init_db()
     try:
-        assert aas.get_meta(conn, "tree_count") == "157"
-        assert aas.get_meta(conn, "built_at") is not None
+        # The seeds carry the provenance stamps of the final SQLite build.
+        assert aas.catalogue.get_meta(conn, "tree_count") == "157"
+        assert aas.catalogue.get_meta(conn, "built_at") is not None
     finally:
         conn.close()
 

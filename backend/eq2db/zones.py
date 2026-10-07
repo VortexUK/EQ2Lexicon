@@ -69,9 +69,9 @@ def _connect(schema: str) -> PgConnProxy:
     return PgConnProxy(schema)
 
 
-# zones-schema `_meta` helpers. The shared backend/eq2db/_meta.py helper
-# keeps its `?` dialect for the SQLite catalogues (items/spells/recipes);
-# zones routes its provenance reads/writes through these %s-dialect blocks.
+# zones-schema `_meta` (provenance) helpers — module-level predecessors of
+# the PgCatalogue.get_meta/set_meta methods; kept for the build/ingest
+# scripts that call them as `zones_db.get_meta(conn, ...)`.
 def get_meta(conn: Any, key: str, default: str | None = None) -> str | None:
     """Return the value for ``key`` or ``default`` if missing."""
     row = conn.execute(_SQL["meta_select"], (key,)).fetchone()

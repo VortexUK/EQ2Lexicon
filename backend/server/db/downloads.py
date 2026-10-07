@@ -6,8 +6,8 @@ app is behind the login gate, so every click carries a session.
 ``UNIQUE(discord_id, slug)`` keeps it one row per user per asset, so the public
 count is distinct-downloaders — one person re-clicking never inflates it.
 
-Mirrors the favorites domain: per-call connections via ``AsyncStoreBase._db()``;
-tests re-point ``store.path`` (conftest does it for every ``ALL_STORES`` entry).
+Mirrors the favorites domain: per-call connections via ``PgStoreBase._db()``;
+tests re-point ``store.schema`` (conftest does it for every ``ALL_STORES`` entry).
 """
 
 from __future__ import annotations

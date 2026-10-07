@@ -2,22 +2,24 @@
 """
 Download AA node icon PNGs from eq2wire for all tree files.
 
-Scans every tree in data/AAs/aas.db, collects unique icon IDs, then
-fetches https://u.eq2wire.com/images/aa/{id}.png into data/AAs/icons/.
-Files that already exist are skipped.
+Scans every tree in the Postgres ``aas`` schema (DATABASE_URL), collects
+unique icon IDs, then fetches https://u.eq2wire.com/images/aa/{id}.png into
+data/AAs/icons/. Files that already exist are skipped.
 
 Usage:
     python scripts/download_aa_icons.py
 """
 
 import asyncio
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import aiohttp
+from dotenv import load_dotenv
+
+load_dotenv()
 
 ICONS_DIR = Path(__file__).resolve().parent.parent / "data" / "AAs" / "icons"
 ICON_BASE = "https://u.eq2wire.com/images/aa/{id}.png"

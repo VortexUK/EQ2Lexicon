@@ -5,8 +5,8 @@ carries no guild or claim implications. Reads/writes are scoped to the active
 server's world (``current_world()``).
 
 Caching: the favourited-by-N count is cached (``favorite_count_cache``) because
-character pages are hot — a cache hit skips the count query and its aiosqlite
-connection entirely (an anonymous GET on a warm key does zero DB work). Writes
+character pages are hot — a cache hit skips the count query and its Postgres
+round-trip entirely (an anonymous GET on a warm key does zero DB work). Writes
 invalidate the key exactly (single-process asyncio), so the TTL is only a
 backstop — it also self-heals the one write path that bypasses this module
 (a user deletion's ON DELETE CASCADE). ``favorited_by_me`` is never cached (a

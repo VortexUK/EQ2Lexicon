@@ -231,7 +231,7 @@ class TTLCache:
 #   claim:     one entry per discord_id; 200 covers a large player base
 #   aa:        one entry per character; 200 covers regular users
 #   favorites: one favourited-by-N count per (character, world) — a cheap int,
-#              cached to skip the per-request aiosqlite connection open on hot
+#              cached to skip the per-request Postgres round-trip on hot
 #              character pages. Writes invalidate exactly (single-process), so
 #              the TTL is only a backstop.
 # 2000: guild-roster views and the startup pre-warm insert every member/claimed

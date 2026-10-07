@@ -321,13 +321,6 @@ data/users.db-shm
 # Brainstorming visual companion artifacts
 .superpowers/
 
-# Class catalogue — committed as the source of truth (small, static; 26
-# adventure classes + 9 crafters). Code reads it at module-import time;
-# CI uses the committed file. Only the WAL/SHM transients stay ignored.
-data/classes/classes.db-wal
-data/classes/classes.db-shm
-data/AAs/aas.db-wal
-data/AAs/aas.db-shm
 # Census downloads — local build intermediates for scripts/build_aas_db.py
 data/AAs/trees/
 data/AAs/index.json

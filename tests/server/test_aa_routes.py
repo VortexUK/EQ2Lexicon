@@ -91,35 +91,39 @@ def _make_census_aas_mock(name: str = "Sihtric") -> MagicMock:
 
 
 class TestGetAaConfig:
-    """aa_limits now live in aas.db — each test seeds a tmp db through the real
-    build path (aas.upsert_limits) and binds xpac_limits to it. total_max_points
-    still reads the committed aas.db, so the tradeskill caps stay real-data."""
+    """aa_limits live in the aas schema — each test seeds the leased scratch
+    schema (aas_schema fixture) through the real build path (aas.upsert_limits).
+    The lease's aa_trees stay fully migration-seeded, so total_max_points reads
+    the same real data as the old committed aas.db (tradeskill caps 45/116)."""
 
     def setup_method(self) -> None:
         _load_tree_for_response.cache_clear()
 
     @staticmethod
-    def _limits_db(tmp_path, limits: dict):
+    def _limits_db(limits: dict):
+        """Make the leased schema's aa_limits hold EXACTLY these rows: wiped
+        first (the migration seeds the 12 real xpacs), then re-seeded through
+        the real build path. The route's aa_db IS the shared catalogue the
+        aas_schema fixture re-points, so no patch is needed — a nullcontext
+        keeps the call sites' `with` shape."""
+        from contextlib import nullcontext
+
         from backend.eq2db import aas
 
-        cat = aas.AACatalogue(tmp_path / "aas.db")
-        conn = cat.init_db()
+        conn = aas.catalogue.init_db()
         try:
+            conn.execute("DELETE FROM aa_limits")
             for xpac, entry in limits.items():
-                cat.upsert_limits(conn, xpac, entry)
+                aas.catalogue.upsert_limits(conn, xpac, entry)
+            conn.commit()
         finally:
             conn.close()
-        # xpac_limits resolves against the tmp catalogue; everything else
-        # (total_max_points for the tradeskill caps) stays on the real
-        # committed db so those assertions remain real-data.
-        proxy = MagicMock(wraps=aas.catalogue)
-        proxy.xpac_limits = cat.xpac_limits
-        proxy.total_max_points = aas.catalogue.total_max_points
-        return patch("backend.server.api.aa.aa_db", proxy)
+        aas.catalogue.clear_caches()
+        return nullcontext()
 
-    async def test_empty_limits_returns_zero_defaults(self, app, tmp_path) -> None:
-        """An aas.db with no aa_limits rows → aa_cap 0 and empty lists."""
-        with self._limits_db(tmp_path, {}):
+    async def test_empty_limits_returns_zero_defaults(self, app, aas_schema) -> None:
+        """An aas schema with no aa_limits rows → aa_cap 0 and empty lists."""
+        with self._limits_db({}):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.get("/api/aa/config")
         assert r.status_code == 200
@@ -127,7 +131,7 @@ class TestGetAaConfig:
         assert body["aa_cap"] == 0
         assert body["unlocked_tree_types"] == []
 
-    async def test_limits_file_present_returns_xpac_values(self, app, tmp_path) -> None:
+    async def test_limits_file_present_returns_xpac_values(self, app, aas_schema) -> None:
         """When aa_limits.json exists with an xpac entry, values are returned."""
         limits_data = {
             "Varsoon": {
@@ -140,7 +144,7 @@ class TestGetAaConfig:
         mock_server.current_xpac = "Varsoon"
 
         with (
-            self._limits_db(tmp_path, limits_data),
+            self._limits_db(limits_data),
             patch("backend.server.api.aa.current_server", return_value=mock_server),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -152,7 +156,7 @@ class TestGetAaConfig:
         assert "class" in body["unlocked_tree_types"]
         assert body["visible_rows"] == {"class": [0, 1, 2, 3, 4]}
 
-    async def test_explicit_xpac_param_overrides_server_era(self, app, tmp_path) -> None:
+    async def test_explicit_xpac_param_overrides_server_era(self, app, aas_schema) -> None:
         """The planner's era dropdown passes ?xpac= — resolved independently of
         the active server's current_xpac; unknown eras 404."""
         limits_data = {
@@ -167,7 +171,7 @@ class TestGetAaConfig:
         mock_server.current_xpac = "Varsoon"
 
         with (
-            self._limits_db(tmp_path, limits_data),
+            self._limits_db(limits_data),
             patch("backend.server.api.aa.current_server", return_value=mock_server),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -181,7 +185,7 @@ class TestGetAaConfig:
         assert body["visible_rows"] == {"class": [0, 1, 2, 3, 4]}
         assert unknown.status_code == 404
 
-    async def test_tradeskill_cap_derived_from_unlocked_trees(self, app, tmp_path) -> None:
+    async def test_tradeskill_cap_derived_from_unlocked_trees(self, app, aas_schema) -> None:
         """tradeskill_aa_cap = Σ max points of the UNLOCKED tradeskill trees, derived
         from the tree data. Adventure aa_cap is unaffected by tradeskill."""
         limits_data = {
@@ -192,7 +196,7 @@ class TestGetAaConfig:
             mock_server = MagicMock()
             mock_server.current_xpac = xpac
             with (
-                self._limits_db(tmp_path, limits_data),
+                self._limits_db(limits_data),
                 patch("backend.server.api.aa.current_server", return_value=mock_server),
             ):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -201,7 +205,7 @@ class TestGetAaConfig:
             assert body["tradeskill_aa_cap"] == expected_ts, xpac
             assert body["aa_cap"] == expected_adv, xpac  # adventure cap unchanged
 
-    async def test_short_xpac_code_resolves_to_full_key(self, app, tmp_path) -> None:
+    async def test_short_xpac_code_resolves_to_full_key(self, app, aas_schema) -> None:
         """A server whose current_xpac is a short code ("DoV") still resolves to
         the aa_limits.json entry — otherwise the cap silently reads 0 and the
         Raid-Ready check + per-expansion limit vanish from the AA tab."""
@@ -209,7 +213,7 @@ class TestGetAaConfig:
         mock_server = MagicMock()
         mock_server.current_xpac = "DoV"
         with (
-            self._limits_db(tmp_path, limits_data),
+            self._limits_db(limits_data),
             patch("backend.server.api.aa.current_server", return_value=mock_server),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -219,14 +223,14 @@ class TestGetAaConfig:
         assert body["tradeskill_aa_cap"] == 45
         assert body["xpac"] == "DoV"  # raw code preserved for display
 
-    async def test_limits_file_present_unknown_xpac_returns_zero_defaults(self, app, tmp_path) -> None:
+    async def test_limits_file_present_unknown_xpac_returns_zero_defaults(self, app, aas_schema) -> None:
         """When aa_limits.json exists but xpac key is absent, zeros are returned."""
         limits_data = {"SomeExpansion": {"aa_cap": 320, "unlocked_trees": ["class"]}}
         mock_server = MagicMock()
         mock_server.current_xpac = "UnknownXpac"
 
         with (
-            self._limits_db(tmp_path, limits_data),
+            self._limits_db(limits_data),
             patch("backend.server.api.aa.current_server", return_value=mock_server),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -258,10 +262,11 @@ class TestGetAaTree:
         assert r.status_code == 404
         assert "9999" in r.json()["detail"]
 
-    async def test_existing_tree_returns_tree_response(self, app, tmp_path) -> None:
-        """A tree present in aas.db is served as an AATreeResponse. The raw
-        Census JSON (string-valued numerics included) goes through the real
-        build path (aas.upsert_tree) into a tmp DB, so coercion is covered."""
+    async def test_existing_tree_returns_tree_response(self, app, aas_schema) -> None:
+        """A tree present in the aas schema is served as an AATreeResponse.
+        The raw Census JSON (string-valued numerics included) goes through the
+        real build path (aas.upsert_tree) into the leased schema, so coercion
+        is covered. Tree id 900001 avoids the 157 migration-seeded ids."""
         from backend.eq2db import aas
 
         tree_data = {
@@ -288,21 +293,21 @@ class TestGetAaTree:
                 }
             ]
         }
-        cat = aas.AACatalogue(tmp_path / "aas.db")
-        conn = cat.init_db()
+        # The aas_schema fixture re-points the shared catalogue (the route's
+        # aa_db) at the lease — upsert there and the route serves it.
+        conn = aas.catalogue.init_db()
         try:
-            cat.upsert_tree(conn, 42, tree_data)
+            aas.catalogue.upsert_tree(conn, 900001, tree_data)
         finally:
             conn.close()
 
-        with patch("backend.server.api.aa.aa_db", cat):
-            _load_tree_for_response.cache_clear()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                r = await client.get("/api/aa/tree/42")
+        _load_tree_for_response.cache_clear()
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/aa/tree/900001")
 
         assert r.status_code == 200
         body = r.json()
-        assert body["tree_id"] == 42
+        assert body["tree_id"] == 900001
         assert body["tree_name"] == "Templar"
         assert len(body["nodes"]) == 1
         assert body["nodes"][0]["node_id"] == 101

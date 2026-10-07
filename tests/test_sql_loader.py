@@ -133,9 +133,11 @@ def test_empty_file():
 
 
 def test_loader_resolves_sibling():
-    """End-to-end: backend/eq2db/_meta.py picks up backend/eq2db/_meta.sql."""
-    from backend.eq2db._meta import _SQL
+    """End-to-end: backend/eq2db/aas.py picks up backend/eq2db/aas.sql.
+    (The former smoke target, backend/eq2db/_meta.sql, was retired with the
+    SQLite _meta module — meta helpers live on PgCatalogue now.)"""
+    from backend.eq2db.aas import _SQL
 
-    assert "select_value" in _SQL
-    assert "upsert" in _SQL
-    assert "FROM _meta" in _SQL["select_value"]
+    assert "select_tree_index" in _SQL
+    assert "upsert_tree" in _SQL
+    assert "FROM aa_trees" in _SQL["select_tree_index"]

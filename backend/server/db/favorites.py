@@ -2,8 +2,8 @@
 
 A favourite is a per-user bookmark of a (character_name, world) pair — NOT
 ownership; it carries no guild or claim implications. Mirrors the raid_schedule
-domain: per-call connections open via the shared AsyncStoreBase._db(); tests
-re-point ``store.path`` (or construct their own store over a tmp DB).
+domain: per-call connections open via the shared PgStoreBase._db(); tests
+re-point ``store.schema`` (or construct their own store over a scratch schema).
 Callers validate + capitalise ``character_name`` before calling in.
 """
 

@@ -1,10 +1,11 @@
-"""Integrity tests for the committed classes.db.
+"""Integrity tests for the migration-seeded classes schema.
 
-The class catalogue is owned by ``data/classes/classes.db`` (committed). These
-tests read the rows directly + check the module-level derived constants in
-backend.eq2db.classes / backend.census.constants. There is no CLASS_SEED
-struct anymore — to change class metadata, edit the row in classes.db and
-commit the new file.
+The class catalogue is owned by the Postgres ``classes`` schema, whose rows
+are seeded in full by db/migrations/0011_classes.sql (applied to the session
+test database before collection). These tests read the rows directly + check
+the module-level derived constants in backend.eq2db.classes /
+backend.census.constants. There is no CLASS_SEED struct anymore — to change
+class metadata, edit the row in the DB and add a new migration.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ def list_all():
 
 
 class TestDbRows:
-    """Properties of the rows committed in classes.db itself."""
+    """Properties of the rows seeded by 0011_classes.sql itself."""
 
     def test_has_26_adventure_plus_9_crafters(self):
         rows = list_all()
@@ -95,8 +96,8 @@ class TestDbRows:
 
 class TestSeedDerivedConstants:
     """Single-source-of-truth guarantees: every module-level constant
-    derives from classes.db. A future regression that tries to redefine
-    class data inline breaks one of these."""
+    derives from the classes schema. A future regression that tries to
+    redefine class data inline breaks one of these."""
 
     def test_archetype_colours_match_db(self):
         rows = [r for r in list_all() if r["archetype"] != "Crafter"]

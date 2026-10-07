@@ -3,7 +3,7 @@
 Saved AA planner builds — owned by a Discord user, pinned to the character
 they were planned from, shareable read-only via the always-minted
 ``share_slug``. Mirrors the raid_schedule domain: per-call connections via
-the shared ``AsyncStoreBase._db()``; tests re-point ``store.path``.
+the shared ``PgStoreBase._db()``; tests re-point ``store.schema``.
 """
 
 from __future__ import annotations

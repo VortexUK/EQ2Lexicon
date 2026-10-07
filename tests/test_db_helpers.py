@@ -1,45 +1,14 @@
-"""Tests for backend.db_helpers."""
+"""Tests for backend.db_helpers.
+
+(resolve_db_path / _repo_root were retired with the SQLite-era path
+resolution — the remaining read-only mirrors take their env overrides
+directly and the Postgres families have no file paths at all. like_escape
+lives on: it guards the LIKE fallbacks in the Postgres catalogues too.)
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
-from backend.db_helpers import _repo_root, like_escape, resolve_db_path
-
-
-class TestResolveDbPath:
-    def test_env_var_override_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("FAKE_DB_TEST_PATH", "/tmp/override.db")
-        assert resolve_db_path("FAKE_DB_TEST_PATH", "ignored", "x.db") == Path("/tmp/override.db")
-
-    def test_default_path_uses_repo_root(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("FAKE_DB_TEST_PATH", raising=False)
-        result = resolve_db_path("FAKE_DB_TEST_PATH", "items", "items.db")
-        assert result == _repo_root() / "data" / "items" / "items.db"
-        assert result.name == "items.db"
-        assert result.parent.name == "items"
-
-    def test_single_subpath_segment(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("FAKE_DB_TEST_PATH", raising=False)
-        result = resolve_db_path("FAKE_DB_TEST_PATH", "users.db")
-        assert result == _repo_root() / "data" / "users.db"
-
-    def test_empty_env_var_falls_back_to_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Empty string is falsy → use default.
-        monkeypatch.setenv("FAKE_DB_TEST_PATH", "")
-        result = resolve_db_path("FAKE_DB_TEST_PATH", "x.db")
-        assert result == _repo_root() / "data" / "x.db"
-
-
-class TestRepoRoot:
-    def test_contains_backend(self) -> None:
-        assert (_repo_root() / "backend").is_dir(), "repo root must contain a `backend/` dir"
-
-    def test_cached(self) -> None:
-        # Same object identity on repeat calls — lru_cache wins.
-        assert _repo_root() is _repo_root()
+from backend.db_helpers import like_escape
 
 
 class TestLikeEscape:

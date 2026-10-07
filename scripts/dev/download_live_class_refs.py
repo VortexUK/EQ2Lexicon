@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -31,6 +30,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
+from backend.eq2db.classes import catalogue as classes_catalogue  # noqa: E402
 from backend.server.config import SERVICE_ID  # noqa: E402
 
 BASE = f"https://census.daybreakgames.com/s:{SERVICE_ID}/json/get/eq2/character/"
@@ -40,13 +40,12 @@ SLEEP_S = 1.5
 
 
 def adventure_classes() -> list[tuple[int, str]]:
-    conn = sqlite3.connect(Path(__file__).parent.parent.parent / "data" / "classes" / "classes.db")
-    try:
-        return [
-            (r[0], r[1]) for r in conn.execute("SELECT icon_id, name FROM classes WHERE icon_id < 100 ORDER BY icon_id")
-        ]
-    finally:
-        conn.close()
+    """(icon_id, name) per adventure class, from the Postgres classes schema.
+
+    icon_id < 100 excludes the crafter rows (placeholder icon_ids 100+) and
+    doubles as Census type.classid for the character queries below."""
+    rows = [r for r in classes_catalogue.list_all() if r["icon_id"] < 100]
+    return [(r["icon_id"], r["name"]) for r in sorted(rows, key=lambda r: r["icon_id"])]
 
 
 def find_candidate(client: httpx.Client, world: str, classid: int, level: int) -> dict | None:

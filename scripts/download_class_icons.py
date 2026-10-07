@@ -2,9 +2,10 @@
 
 Source: https://u.eq2wire.com/images/class_medium/{icon_id}.png
 Saved as data/classes/icons/{icon_id}.png. These are small static assets and
-ARE committed alongside the source-of-truth classes.db. Only adventure-class
-icons are fetched — crafter rows use placeholder icon_ids (100+) for which
-EQ2wire has no public assets.
+ARE committed. Class rows come from the Postgres ``classes`` schema (seeded
+by db/migrations/0011_classes.sql). Only adventure-class icons are fetched —
+crafter rows use placeholder icon_ids (100+) for which EQ2wire has no public
+assets.
 
 Usage:
     uv run python scripts/download_class_icons.py
@@ -17,6 +18,10 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv()
 
 from backend.eq2db.classes import catalogue  # noqa: E402
 
