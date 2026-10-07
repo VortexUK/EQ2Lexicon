@@ -71,11 +71,8 @@ def _all_upgradeable(crcs, **_kw):
 
 @pytest.mark.asyncio
 async def test_spells_db_not_available(app):
-    """503 when spells DB doesn't exist."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = False
-
-    with patch("backend.server.api.character.spells._SPELLS_DB", mock_db):
+    """503 when the spells catalogue isn't ready (no data loaded)."""
+    with patch.object(catalogue, "ready", lambda: False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/character/Sihtric/spells")
 
@@ -85,14 +82,11 @@ async def test_spells_db_not_available(app):
 @pytest.mark.asyncio
 async def test_spells_character_not_found(app):
     """404 when character not found and DB exists."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     mock_census = AsyncMock()
     mock_census.get_character = AsyncMock(return_value=None)
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient", return_value=mock_census),
@@ -109,13 +103,10 @@ async def test_spells_character_not_found(app):
 @pytest.mark.asyncio
 async def test_spells_returns_empty_for_no_spell_ids(app):
     """Returns empty spells list when character has no spell_ids."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     char = _fake_char(spell_ids=[])
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
     ):
         mock_cache.get_stale.return_value = (char, False)
@@ -132,9 +123,6 @@ async def test_spells_returns_empty_for_no_spell_ids(app):
 @pytest.mark.asyncio
 async def test_spells_returns_data(app):
     """Happy path: cached character with spell IDs → resolved spells returned."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     char = _fake_char(spell_ids=[1001, 1002])
     spell_rows = {
         1001: _fake_spell_row(1001, name="Wound I", tier_name="Adept", level=20),
@@ -142,7 +130,7 @@ async def test_spells_returns_data(app):
     }
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch.object(catalogue, "find_by_ids", return_value=spell_rows),
         patch.object(catalogue, "upgradeable_crcs", side_effect=_all_upgradeable),
@@ -169,9 +157,6 @@ async def test_spells_returns_data(app):
 @pytest.mark.asyncio
 async def test_spells_blocklist_applied(app):
     """Blocked spells are excluded from the response."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     char = _fake_char(spell_ids=[2001, 2002])
     spell_rows = {
         2001: _fake_spell_row(2001, name="Fighting Chance I", tier_name="Adept", level=10),
@@ -182,7 +167,7 @@ async def test_spells_blocklist_applied(app):
     blocklist = Blocklist(frozenset({"fighting chance"}), [])
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch.object(catalogue, "find_by_ids", return_value=spell_rows),
         patch.object(catalogue, "upgradeable_crcs", side_effect=_all_upgradeable),
@@ -210,9 +195,6 @@ async def test_spells_includes_all_upgradeable_excludes_aa_and_utility(app):
     upgradeable spell must show instead of being dropped for the lower-rank
     scroll the character happened to scribe.
     """
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     char = _fake_char(spell_ids=[3001, 3002, 3003, 3004, 3005])
     spell_rows = {
         3001: _fake_spell_row(3001, name="Scribed Spell I", level=30, given_by="spellscroll", crc=9001),
@@ -226,7 +208,7 @@ async def test_spells_includes_all_upgradeable_excludes_aa_and_utility(app):
     upgradeable = {9001, 9002, 9003}
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch.object(catalogue, "find_by_ids", return_value=spell_rows),
         patch.object(catalogue, "upgradeable_crcs", return_value=upgradeable),
@@ -250,9 +232,6 @@ async def test_spells_includes_all_upgradeable_excludes_aa_and_utility(app):
 @pytest.mark.asyncio
 async def test_spells_excludes_zero_level(app):
     """Spells with level=0 are excluded."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     char = _fake_char(spell_ids=[5001, 5002])
     spell_rows = {
         5001: _fake_spell_row(5001, name="Zero Level Spell", tier_name="Adept", level=0),
@@ -260,7 +239,7 @@ async def test_spells_excludes_zero_level(app):
     }
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch.object(catalogue, "find_by_ids", return_value=spell_rows),
         patch.object(catalogue, "upgradeable_crcs", side_effect=_all_upgradeable),
@@ -281,9 +260,6 @@ async def test_spells_excludes_zero_level(app):
 @pytest.mark.asyncio
 async def test_spells_deduplication_keeps_highest_level(app):
     """Duplicate base names keep only the highest-level entry."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     char = _fake_char(spell_ids=[6001, 6002, 6003])
     spell_rows = {
         6001: _fake_spell_row(6001, name="Fireball I", tier_name="Apprentice", level=10),
@@ -292,7 +268,7 @@ async def test_spells_deduplication_keeps_highest_level(app):
     }
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch.object(catalogue, "find_by_ids", return_value=spell_rows),
         patch.object(catalogue, "upgradeable_crcs", side_effect=_all_upgradeable),
@@ -314,9 +290,6 @@ async def test_spells_deduplication_keeps_highest_level(app):
 @pytest.mark.asyncio
 async def test_spells_fetches_from_census_on_cache_miss(app):
     """Falls back to Census API when character is not in cache."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     from backend.census.models import CharacterOverview
 
     mock_char_overview = CharacterOverview(
@@ -336,7 +309,7 @@ async def test_spells_fetches_from_census_on_cache_miss(app):
     mock_census.get_character = AsyncMock(return_value=mock_char_overview)
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient", return_value=mock_census),
@@ -359,16 +332,13 @@ async def test_spells_fetches_from_census_on_cache_miss(app):
 @pytest.mark.asyncio
 async def test_spells_response_structure(app):
     """Response has all required fields with correct types."""
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     char = _fake_char(spell_ids=[7001])
     spell_rows = {
         7001: _fake_spell_row(7001, name="Heal I", tier_name="Adept", level=10),
     }
 
     with (
-        patch("backend.server.api.character.spells._SPELLS_DB", mock_db),
+        patch.object(catalogue, "ready", lambda: True),
         patch("backend.server.api.character.spells.character_cache") as mock_cache,
         patch.object(catalogue, "find_by_ids", return_value=spell_rows),
         patch.object(catalogue, "upgradeable_crcs", side_effect=_all_upgradeable),

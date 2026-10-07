@@ -75,12 +75,12 @@ async def test_resolve_item_meta_falls_back_to_census_and_caches(client, monkeyp
 
     client._build_params = MagicMock(return_value={"name": "99999"})
     client._fetch = AsyncMock(return_value={"item_list": [census_raw]})
-    client._cache_item = MagicMock()
+    client._cache_item = AsyncMock()  # async now — _resolve_item_meta awaits it
 
     got = await client._resolve_item_meta(99999)
     assert got is census_raw
     client._fetch.assert_awaited_once()
-    client._cache_item.assert_called_once_with(census_raw)
+    client._cache_item.assert_awaited_once_with(census_raw)
 
 
 @pytest.mark.asyncio

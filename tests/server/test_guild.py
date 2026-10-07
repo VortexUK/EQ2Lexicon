@@ -508,11 +508,8 @@ def test_guild_spell_check_includes_base_tier_apprentice():
         4: _spell_row("AA Strike I", "Expert", "alternateadvancement", 104, 25),  # AA → excluded
         5: _spell_row("Cure", "Apprentice", "class", 105, 10),  # single-tier utility → not upgradeable
     }
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
-
     with (
-        patch.object(guild_cache, "_SPELLS_DB", mock_db),
+        patch.object(guild_cache._spells, "ready", lambda: True),
         patch.object(guild_cache._spells, "find_by_ids", return_value=spell_db),
         patch.object(guild_cache._spells, "load_blocklist", return_value=set()),
         # Catalogue says 101/102/103 span multiple tiers; the AA spell and "Cure" don't.

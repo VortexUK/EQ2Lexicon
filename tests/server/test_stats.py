@@ -175,19 +175,34 @@ async def test_server_stats_503_after_recent_failed_build(app):
     assert r.status_code == 503
 
 
-_REAL_SPELLS_DB = __import__("pathlib").Path("data/spells/spells.db")
-
-
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _REAL_SPELLS_DB.exists(), reason="local spells.db not present (gitignored artifact)")
-async def test_character_lifetime_resolves_ability_names(app, monkeypatch):
-    """crc→ability via the local spells.db: 1729734970 = Frenzy II
+async def test_character_lifetime_resolves_ability_names(app, spells_schema):
+    """crc→ability via the spells catalogue: 1729734970 = Frenzy II
     (real-data assertion — the id came from a live census record hit).
-    conftest points the spells catalogue at an empty test db; re-point it
-    at the real artifact for this test only."""
+    The catalogue now lives in Postgres, so the leased ``spells_schema``
+    is seeded with exactly that row — the old skipif-file-absent guard
+    (gitignored spells.db artifact) is gone with the file."""
     from backend.eq2db.spells import catalogue as spells_catalogue
 
-    monkeypatch.setattr(spells_catalogue, "path", _REAL_SPELLS_DB)
+    conn = spells_catalogue.init_db()
+    try:
+        spells_catalogue.upsert_spells(
+            [
+                {
+                    "id": 1,
+                    "name": "Frenzy II",
+                    "crc": 1729734970,
+                    "tier": 5,
+                    "tier_name": "Adept",
+                    "type": "arts",
+                    "level": 55,
+                    "given_by": "spellscroll",
+                }
+            ],
+            conn,
+        )
+    finally:
+        conn.close()
     client = _mock_client()
     client.get_character_statistics = AsyncMock(
         return_value={

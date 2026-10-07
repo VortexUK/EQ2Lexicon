@@ -64,7 +64,7 @@ class TestGetItem:
             "set_data": None,
         }
         census_response = {"item_list": [fake_raw]}
-        cache_mock = MagicMock()
+        cache_mock = AsyncMock()  # _cache_item is async now (awaited by get_item)
 
         with (
             patch.object(client, "_find_in_db", new=AsyncMock(return_value=None)),
@@ -75,7 +75,7 @@ class TestGetItem:
 
         assert result is not None
         assert result.name == "Steel Sword"
-        cache_mock.assert_called_once_with(fake_raw)
+        cache_mock.assert_awaited_once_with(fake_raw)
 
     @pytest.mark.asyncio
     async def test_census_miss_returns_none(self, client):
@@ -142,26 +142,31 @@ class TestFindInDB:
 
 
 class TestCacheItem:
-    def test_cache_item_calls_upsert(self, client):
+    @pytest.mark.asyncio
+    async def test_cache_item_calls_upsert(self, client):
         fake_raw = {"id": 1, "displayname": "Test Item"}
-        init_mock = MagicMock()
         conn_mock = MagicMock()
-        init_mock.return_value = conn_mock
+        # init_db() is used as a context manager now — make `with ... as conn`
+        # hand back the proxy itself, mirroring PgConnProxy.__enter__.
+        conn_mock.__enter__.return_value = conn_mock
+        init_mock = MagicMock(return_value=conn_mock)
 
         with (
             patch("backend.census.client.item_db.init_db", init_mock),
             patch("backend.census.client.item_db.upsert_items") as upsert_mock,
         ):
-            client._cache_item(fake_raw)
+            await client._cache_item(fake_raw)
 
         upsert_mock.assert_called_once_with([fake_raw], conn_mock)
-        conn_mock.close.assert_called_once()
+        # The with-block released the connection (commit-and-return-to-pool).
+        conn_mock.__exit__.assert_called_once()
 
-    def test_cache_item_swallows_db_error(self, client):
+    @pytest.mark.asyncio
+    async def test_cache_item_swallows_db_error(self, client):
         """DB errors in caching must not propagate."""
         with patch("backend.census.client.item_db.init_db", side_effect=Exception("DB exploded")):
             # Should not raise
-            client._cache_item({"id": 1, "displayname": "Item"})
+            await client._cache_item({"id": 1, "displayname": "Item"})
 
 
 # ---------------------------------------------------------------------------

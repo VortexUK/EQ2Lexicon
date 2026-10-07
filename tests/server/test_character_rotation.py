@@ -71,13 +71,13 @@ def _catalogue_patches(rows_by_id: dict[int, dict], meta: dict[str, dict] | None
 
 
 async def _get(app, char: CharacterResponse, name: str = "Sihtric", aa_trees: list | None = None):
+    from backend.server.api.character import rotation as mod
+
     mock_cache = MagicMock()
     mock_cache.get_stale.return_value = (char, False)
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
         patch("backend.server.api.character.views.character_cache", mock_cache),
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch("backend.server.api.character.rotation._fetch_aa_trees", AsyncMock(return_value=aa_trees or [])),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -694,11 +694,9 @@ async def test_character_buffs_uses_owned_ranks(app):
     char = _fake_char(name="Adomia", spell_ids=[1, 2, 3])
     mock_cache = MagicMock()
     mock_cache.get_stale.return_value = (char, False)
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
         patch("backend.server.api.character.views.character_cache", mock_cache),
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch.object(mod._spells, "find_by_ids", lambda ids: {i: rows[i] for i in ids if i in rows}),
         patch.object(mod._items, "spell_meta_by_names", lambda names: {}),
     ):
@@ -766,11 +764,9 @@ async def test_character_buffs_applies_member_aa_adjustments(app):
     char = _fake_char(name="Adomia", spell_ids=[1])
     mock_cache = MagicMock()
     mock_cache.get_stale.return_value = (char, False)
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
         patch("backend.server.api.character.views.character_cache", mock_cache),
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch(
             "backend.server.api.character.rotation._fetch_aa_trees",
             AsyncMock(return_value=[(49, {"1": 2, "2": 3})]),
@@ -826,11 +822,9 @@ async def test_character_buffs_includes_aa_granted_group_buffs(app):
     char = _fake_char(name="Sihtric", spell_ids=[])
     mock_cache = MagicMock()
     mock_cache.get_stale.return_value = (char, False)
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
         patch("backend.server.api.character.views.character_cache", mock_cache),
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch(
             "backend.server.api.character.rotation._fetch_aa_trees",
             AsyncMock(return_value=[(4, {"1": 1})]),
@@ -872,10 +866,8 @@ async def test_class_buffs_endpoint(app):
     )
     song_row["target_type"] = "group"
     meta = {"Cacophony of Blades II (Master)": {"spell_duration": 1200.0, "spell_power_cost": None}}
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch.object(mod._items, "class_spell_names", lambda cls: {"Cacophony of Blades II"}),
         patch.object(mod._spells, "beneficial_group_spells", lambda names, max_level: [song_row]),
         patch.object(mod._items, "spell_meta_by_names", lambda names: meta),
@@ -973,10 +965,8 @@ async def test_class_buffs_filters_irrelevant(app):
             [{"description": "Decreases Hate Gain of group members (AE) by 33.8.", "indentation": 0}],
         ),
     ]
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch.object(mod._items, "class_spell_names", lambda cls: {r["name"] for r in rows}),
         patch.object(mod._spells, "beneficial_group_spells", lambda names, max_level: rows),
         patch.object(mod._items, "spell_meta_by_names", lambda names: {}),
@@ -1049,15 +1039,13 @@ async def test_rotation_derived_modifiers(app):
     )
     mock_cache = MagicMock()
     mock_cache.get_stale.return_value = (char, False)
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     p1, p2, p3 = _catalogue_patches({})
     with (
         p1,
         p2,
         p3,
         patch("backend.server.api.character.views.character_cache", mock_cache),
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch(
             "backend.server.api.character.rotation._fetch_aa_trees",
             AsyncMock(return_value=[(3, {"1": 10})]),
@@ -1192,11 +1180,9 @@ async def test_rotation_own_aa_adjustments_compress_dot(app):
     char = _fake_char(name="Menludeth", spell_ids=[1])
     mock_cache = MagicMock()
     mock_cache.get_stale.return_value = (char, False)
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
         patch("backend.server.api.character.views.character_cache", mock_cache),
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch(
             "backend.server.api.character.rotation._fetch_aa_trees",
             AsyncMock(return_value=[(49, {"1": 5})]),
@@ -1237,10 +1223,8 @@ async def test_buff_tiers_endpoint(app):
         return r
 
     rows = [tier_row(5, "Adept", 3.75), tier_row(7, "Expert", 4.82), tier_row(9, "Master", 5.0)]
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
     with (
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch.object(mod._spells, "beneficial_buff_tiers", lambda base, lvl: rows if base == "Unholy Strength" else []),
         patch.object(mod._items, "spell_meta_by_names", lambda names: {}),
     ):
@@ -1257,12 +1241,12 @@ async def test_buff_tiers_endpoint(app):
 
 @pytest.mark.asyncio
 async def test_rotation_404_unknown_character(app):
-    mock_db = MagicMock()
-    mock_db.exists.return_value = True
+    from backend.server.api.character import rotation as mod
+
     mock_census = AsyncMock()
     mock_census.get_character = AsyncMock(return_value=None)
     with (
-        patch("backend.server.api.character.rotation._SPELLS_DB", mock_db),
+        patch.object(mod._spells, "ready", lambda: True),
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient", return_value=mock_census),
     ):
@@ -1273,9 +1257,9 @@ async def test_rotation_404_unknown_character(app):
 
 @pytest.mark.asyncio
 async def test_rotation_503_when_spells_db_missing(app):
-    mock_db = MagicMock()
-    mock_db.exists.return_value = False
-    with patch("backend.server.api.character.rotation._SPELLS_DB", mock_db):
+    from backend.server.api.character import rotation as mod
+
+    with patch.object(mod._spells, "ready", lambda: False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/character/Sihtric/rotation-data")
     assert r.status_code == 503
