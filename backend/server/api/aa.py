@@ -14,6 +14,7 @@ from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
 from backend.eq2db.aas import catalogue as aa_db
 from backend.eq2db.spells import catalogue as spells_db
+from backend.server import census_refresh
 from backend.server.cache import aa_cache
 from backend.server.constants import CHARACTER_STALE_S
 from backend.server.core.cache_keys import aa_cache_key
@@ -365,6 +366,16 @@ async def _bg_refresh_aas(name: str, cache_key: str) -> None:
             aa_cache.set(cache_key, result)
     except Exception as exc:
         _log.warning("[cache] Background AA refresh failed for %s: %s", scrub(name), exc)
+    finally:
+        census_refresh.end(cache_key)
+
+
+def _spawn_aa_refresh(name: str, cache_key: str) -> None:
+    """Background AA refresh through census_refresh's gates (health, one
+    in-flight per key, 15-minute throttle) — a direct create_task refired on
+    every view whenever Census had nothing newer."""
+    if census_refresh.try_begin(cache_key):
+        asyncio.create_task(_bg_refresh_aas(name, cache_key))
 
 
 @router.get("/character/{name}/aas", response_model=CharAAsResponse)
@@ -385,7 +396,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
     cached, is_stale = aa_cache.get_stale(cache_key)
     if cached is not None:
         if is_stale:
-            asyncio.create_task(_bg_refresh_aas(name, cache_key))
+            _spawn_aa_refresh(name, cache_key)
         return cached
 
     # 2) Durable store — serve known-good data without a Census round-trip.
@@ -401,7 +412,7 @@ async def get_character_aas(name: str) -> CharAAsResponse:
         aa_cache.record_store_hit()
         stale = (now - rec["last_resolved_at"]) > CHARACTER_STALE_S
         if stale:
-            asyncio.create_task(_bg_refresh_aas(name, cache_key))
+            _spawn_aa_refresh(name, cache_key)
         resp = CharAAsResponse(**rec["data"])
         aa_cache.set(cache_key, resp)
         return resp

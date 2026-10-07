@@ -21,6 +21,7 @@ from backend.census.store import StoreRecord
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
 from backend.eq2db.items import catalogue as _items
+from backend.server import census_refresh
 from backend.server.api.character import router
 from backend.server.api.character.stat_deltas import compute_stat_deltas
 from backend.server.api.character.views import (
@@ -143,6 +144,14 @@ async def _bg_refresh_gear_sets(name: str, cache_key: str) -> None:
         gear_sets_cache.set(cache_key, result)
     except Exception as exc:
         _log.warning("[cache] Background gear-sets refresh failed for %s: %s", scrub(name), exc)
+    finally:
+        census_refresh.end(cache_key)
+
+
+def _spawn_gear_sets_refresh(name: str, cache_key: str) -> None:
+    """Background refresh through census_refresh's gates (see aa.py)."""
+    if census_refresh.try_begin(cache_key):
+        asyncio.create_task(_bg_refresh_gear_sets(name, cache_key))
 
 
 @router.get("/character/{name}/gear-sets", response_model=CharGearSetsResponse)
@@ -155,7 +164,7 @@ async def get_character_gear_sets(name: str) -> CharGearSetsResponse:
     cached, is_stale = gear_sets_cache.get_stale(cache_key)
     if cached is not None:
         if is_stale:
-            asyncio.create_task(_bg_refresh_gear_sets(name, cache_key))
+            _spawn_gear_sets_refresh(name, cache_key)
         return cached
 
     def _read() -> StoreRecord | None:
@@ -170,7 +179,7 @@ async def get_character_gear_sets(name: str) -> CharGearSetsResponse:
         gear_sets_cache.record_store_hit()
         stale = (now - rec["last_resolved_at"]) > CHARACTER_STALE_S
         if stale:
-            asyncio.create_task(_bg_refresh_gear_sets(name, cache_key))
+            _spawn_gear_sets_refresh(name, cache_key)
         resp = CharGearSetsResponse(**rec["data"])
         gear_sets_cache.set(cache_key, resp)
         return resp

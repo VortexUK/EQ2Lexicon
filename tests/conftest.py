@@ -195,6 +195,18 @@ def session_access_enforced():
 
 
 @pytest.fixture(autouse=True)
+def _reset_census_refresh_gates():
+    """census_refresh keeps process-wide throttle / in-flight state (now also
+    used by the AA and gear-set refreshers); a test that triggered a refresh
+    must not throttle the next test's."""
+    from backend.server import census_refresh
+
+    census_refresh._reset_for_test()
+    yield
+    census_refresh._reset_for_test()
+
+
+@pytest.fixture(autouse=True)
 def _reset_census_breaker():
     """The Census client records request failures in a process-wide breaker
     (backend.census.failures); a test that hits a failing/mocked Census must

@@ -86,3 +86,15 @@ async def test_character_refresh_with_no_census_record_publishes_nochange(monkey
     assert published and published[0]["type"] == "character"
     assert published[0]["key"] == key and published[0]["nochange"] is True
     assert key not in cr._in_flight
+
+
+def test_try_begin_applies_throttle_dedupe_and_health_gate(monkeypatch):
+    cr._reset_for_test()
+    monkeypatch.setattr(cr.census_health, "is_down", lambda: False)
+    key = "aas:menludiir:varsoon"
+    assert cr.try_begin(key) is True
+    assert cr.try_begin(key) is False  # in flight
+    cr.end(key)
+    assert cr.try_begin(key) is False  # throttled (attempt marked)
+    monkeypatch.setattr(cr.census_health, "is_down", lambda: True)
+    assert cr.try_begin("gear:other:varsoon") is False  # health-gated

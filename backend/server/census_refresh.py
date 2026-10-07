@@ -45,6 +45,24 @@ def _mark_attempt(key: str) -> None:
     _last_attempt[key] = time.monotonic()
 
 
+def try_begin(key: str) -> bool:
+    """Claim a refresh slot for an arbitrary entity key (the AA / gear-set
+    refreshers use their cache keys). Applies the same three gates as the
+    character/guild paths — Census health, one in-flight per key, and the
+    15-minute per-entity throttle — so sibling refreshers can't refire on
+    every page view when Census keeps returning nothing. Pair with
+    :func:`end` in the task's ``finally``."""
+    if not _should_refresh(key):
+        return False
+    _mark_attempt(key)
+    _in_flight.add(key)
+    return True
+
+
+def end(key: str) -> None:
+    _in_flight.discard(key)
+
+
 def request_character_refresh(name: str) -> bool:
     """Fire-and-forget a throttled background character refresh. Returns True
     only when a refresh actually started — the response's ``refreshing`` flag
