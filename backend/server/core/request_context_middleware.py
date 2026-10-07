@@ -20,12 +20,13 @@ _HEADER = "X-Request-ID"
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
-    """Mint + propagate per-request context.
+    """Mint + propagate the per-request ``request_id``.
 
-    Install BEFORE ServerContextMiddleware so the request_id is set on the
-    contextvar before ServerContextMiddleware reads it (so its own log lines
-    carry the request_id). Install AFTER SessionMiddleware so we can read
-    request.session["user"] for the user_id stamp.
+    Runs OUTSIDE SessionMiddleware and ServerContextMiddleware (it is added
+    after them, and Starlette runs add_middleware calls in reverse), so the
+    request_id exists before either of them logs. The session is not decoded
+    yet at this layer — ``user_id`` is stamped by SessionAccessMiddleware
+    (inside the session layer) and ``world`` by ServerContextMiddleware.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -35,30 +36,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         inbound = request.headers.get(_HEADER)
         rid = inbound if inbound and len(inbound) <= 64 else uuid.uuid4().hex[:16]
 
-        # Best-effort user_id pickup. SessionMiddleware may not have run on
-        # an unauthenticated request — that's fine; user_id falls back to "-".
-        uid: str | None = None
-        try:
-            session_user = request.session.get("user")  # type: ignore[union-attr]
-            if isinstance(session_user, dict):
-                uid = session_user.get("id")
-        except Exception:
-            uid = None  # SessionMiddleware not installed for this scope
-
-        # World pickup runs AFTER ServerContextMiddleware. We can't rely on
-        # it here because middleware execution is bottom-up — the dispatch
-        # of THIS middleware runs first, but the request_id needs to be set
-        # before the next middleware (ServerContextMiddleware) reads it.
-        # So we set world to None initially; the route handler's logs will
-        # see the world via current_world() through the filter (which reads
-        # the contextvar from backend/server/server_context.py, not from here).
         rid_token = request_id_var.set(rid)
-        uid_token = user_id_var.set(uid)
+        uid_token = user_id_var.set(None)  # inner layers set it once the session is decoded
         # Also on the ASGI scope (request.state is scope["state"]) — it
         # outlives the contextvar reset below, so the outermost
         # UnhandledErrorMiddleware can still stamp the id on its one-liner.
         request.state.request_id = rid
-        # world_var stays at its outer value (None outside a request).
         try:
             response: Response = await call_next(request)
         finally:

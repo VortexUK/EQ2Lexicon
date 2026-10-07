@@ -29,6 +29,7 @@ import psycopg
 
 from backend.server import db as users_db
 from backend.server.auth_deps import ADMIN_IDS
+from backend.server.core.request_context import user_id_var
 
 _log = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class SessionAccessMiddleware:
         self.app = app
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
-        if scope["type"] != "http" or not ENFORCE:
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         session = scope.get("session")
@@ -97,7 +98,7 @@ class SessionAccessMiddleware:
             await self.app(scope, receive, send)
             return
         user = session.get("user")
-        if user:
+        if user and ENFORCE:
             try:
                 verdict = await check_session(user, scope.get("path", ""))
             except psycopg.Error as exc:
@@ -113,4 +114,13 @@ class SessionAccessMiddleware:
                     scope.get("path"),
                 )
                 session.pop("user", None)
-        await self.app(scope, receive, send)
+                user = None
+        # This is the first layer that sees a decoded, validated session, so
+        # it is where the per-request log context learns who the user is
+        # (RequestContextMiddleware runs outside SessionMiddleware).
+        uid_token = user_id_var.set(str(user["id"])) if user and user.get("id") else None
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            if uid_token is not None:
+                user_id_var.reset(uid_token)

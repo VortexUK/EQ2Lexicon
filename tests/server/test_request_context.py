@@ -79,3 +79,23 @@ def test_filter_preserves_caller_set_extra() -> None:
     rec.request_id = "rid-explicit"  # type: ignore[attr-defined]
     flt.filter(rec)
     assert rec.request_id == "rid-explicit"  # type: ignore[attr-defined]
+
+
+async def test_session_access_middleware_stamps_user_id_for_inner_layers() -> None:
+    """Log lines inside a request carry the session user's id; the stamp is
+    reset afterwards. RequestContextMiddleware runs outside the session layer,
+    so SessionAccessMiddleware is the layer that must do this."""
+    from backend.server.core import session_access
+
+    seen: list = []
+
+    async def inner(scope, receive, send):
+        seen.append(user_id_var.get())
+
+    mw = session_access.SessionAccessMiddleware(inner)
+    scope = {"type": "http", "path": "/api/x", "session": {"user": {"id": "u-42", "epoch": 0}}}
+    await mw(scope, None, None)
+    await mw({"type": "http", "path": "/api/x", "session": {}}, None, None)
+
+    assert seen == ["u-42", None]
+    assert user_id_var.get() is None  # reset after the request

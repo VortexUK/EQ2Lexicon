@@ -525,12 +525,11 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
     app.add_middleware(ServerContextMiddleware)
 
-    # RequestContextMiddleware: mints UUID4 request_id, sets contextvars,
-    # echoes X-Request-ID on responses. Install between ServerContextMiddleware
-    # and SessionMiddleware in add_middleware order — Starlette executes
-    # add_middleware calls in reverse, so this runs AFTER SessionMiddleware
-    # (request.session["user"] is available) and BEFORE ServerContextMiddleware
-    # (request_id is set before ServerContextMiddleware fires its logs).
+    # RequestContextMiddleware: mints the request_id, echoes X-Request-ID on
+    # responses. Added after Session/ServerContext, so (reverse execution
+    # order) it runs OUTSIDE both and the request_id exists before they log.
+    # The session is not decoded at this layer — SessionAccessMiddleware
+    # stamps user_id once it has validated the session.
     from backend.server.core.request_context_middleware import RequestContextMiddleware
 
     app.add_middleware(RequestContextMiddleware)
