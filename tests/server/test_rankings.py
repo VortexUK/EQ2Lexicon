@@ -973,3 +973,37 @@ async def test_rankings_excluded_endpoint_admin_only(app, rankings_db):
     assert body["world"] == "Varsoon"
     assert [e["title"] for e in body["excluded"]] == ["Tarinax"]
     assert body["excluded"][0]["missing"] == ["tarinax", "xygoz"]
+
+
+# ---------------------------------------------------------------------------
+# Stale-while-revalidate: the rebuild must not evict the entry it replaces
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stale_kills_stay_servable_during_the_background_rebuild():
+    """The background rebuild once began with ``rankings_cache.get()``, which
+    evicts a stale entry — so every visitor during the multi-minute rebuild
+    blocked on the shared build instead of being served the stale board."""
+    import time
+
+    from backend.server.api import rankings as rk
+
+    world = "SwrWorld"
+    key = f"{rk._KILLS_KEY}:{world}"
+    old, new = [{"id": 1}], [{"id": 2}]
+    cache = rk.rankings_cache
+    cache._store[key] = (time.monotonic() - cache._ttl - 1, old)  # aged past ttl, inside max_age
+    seen_during_rebuild: list = []
+
+    def _slow_load(w):
+        seen_during_rebuild.append(cache.get_stale(key))
+        return new
+
+    with patch.object(rk, "_load_primary_boss_kills", side_effect=_slow_load):
+        result = await rk._kills_build_task(world)
+
+    assert result == new
+    assert seen_during_rebuild == [(old, True)]  # still served, flagged stale
+    assert cache.get_stale(key) == (new, False)
+    cache.delete(key)

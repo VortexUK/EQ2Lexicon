@@ -4,9 +4,8 @@ GET /api/rankings          — a ranked board for one (size, zone, boss, metric[
 
 Computed-on-read over the existing parses tables (no separate ranking store).
 Boss kills are detected with parses.boss.is_boss, mirror-grouped to their
-primary upload, then ranked. Soft-deleted parses still rank (the leaderboard
-ignores hidden_at); only a hard purge removes them. See
-docs/superpowers/specs/2026-05-25-eq2logs-rankings-design.md.
+primary upload, then ranked. Hidden (soft-deleted) parses and uploads whose
+logger was not a character claimed by the uploading account never rank.
 """
 
 from __future__ import annotations
@@ -669,9 +668,9 @@ def _apply_era_lock(kills: list[dict], lock: tuple[str, int] | None, zone_xpac: 
 
 def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
     """Load winning boss-kill encounters, mirror-group them, and return one
-    'primary' (longest) upload per fight with its combatants attached. Ignores
-    hidden_at so soft-deleted parses still rank. Called from an executor by the
-    async endpoints.
+    'primary' (longest) upload per fight with its combatants attached. Hidden
+    and unverified-uploader rows are excluded in SQL. Called from an executor
+    by the async endpoints.
 
     ``world`` scopes to the active server so each server sees only its own
     leaderboard data."""
@@ -803,18 +802,27 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
         conn.close()
 
 
-def _cached_kills(world: str | None = None) -> list[dict]:
-    """Return the cached boss-kill list for ``world`` (defaults to
-    current_world() when called inside a request context).  The cache key
-    is per-world so each server's leaderboard is independently cached."""
-    effective_world = world or current_server().world
-    cache_key = f"{_KILLS_KEY}:{effective_world}"
-    cached = rankings_cache.get(cache_key)
-    if cached is not None:
-        return cached
-    kills = _load_primary_boss_kills(effective_world)
-    rankings_cache.set(cache_key, kills)
+def _rebuild_kills(world: str) -> list[dict]:
+    """Unconditionally rebuild and store the kills list for ``world``.
+
+    Never reads the cache first: the stale entry must stay servable for the
+    whole multi-minute rebuild (``TTLCache.get`` would evict it, and every
+    visitor during the rebuild would then block on the shared build)."""
+    kills = _load_primary_boss_kills(world)
+    rankings_cache.set(f"{_KILLS_KEY}:{world}", kills)
     return kills
+
+
+def _cached_kills(world: str | None = None) -> list[dict]:
+    """Return a FRESH cached boss-kill list for ``world`` (defaults to
+    current_world() when called inside a request context), rebuilding when
+    the entry is missing or stale. The cache key is per-world so each
+    server's leaderboard is independently cached."""
+    effective_world = world or current_server().world
+    cached, is_stale = rankings_cache.get_stale(f"{_KILLS_KEY}:{effective_world}")
+    if cached is not None and not is_stale:
+        return cached
+    return _rebuild_kills(effective_world)
 
 
 def benchmarks_for_boss(boss_title: str, world: str | None = None) -> dict[str, tuple[dict[str, float], float]]:
@@ -892,7 +900,7 @@ def _kills_build_task(world: str) -> asyncio.Task:
 
         async def _build() -> list[dict]:
             try:
-                return await run_sync(_cached_kills, world)
+                return await run_sync(_rebuild_kills, world)
             finally:
                 _kills_build_tasks.pop(world, None)
 
