@@ -13,10 +13,12 @@ from backend.server.api.role_requests import RoleRequestEntry
 from backend.server.auth_deps import KNOWN_ROLES
 from backend.server.auth_deps import require_admin as _require_admin
 from backend.server.constants import ADMIN_PARSE_LIST_MAX_LIMIT
+from backend.server.core import session_access
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
 from backend.server.core.validation import DISCORD_INVITE_RE
 from backend.server.db import (
+    bump_session_epoch,
     delete_claim,
     delete_claims_for_user,
     get_claim_by_id,
@@ -849,6 +851,8 @@ async def kick_user(discord_id: str, request: Request) -> dict:
     if not await set_user_access(discord_id, "denied"):
         raise HTTPException(status_code=404, detail="User not found")
     count = await delete_claims_for_user(discord_id)
+    await bump_session_epoch(discord_id)
+    session_access.invalidate(discord_id)
     invalidate_user_claim_cache_all_worlds(discord_id)
     audit_log(
         "user_kicked",
@@ -877,6 +881,7 @@ async def erase_user(discord_id: str, request: Request) -> dict:
     result = await run_sync(erase_user_sync, discord_id)
     if not result.found:
         raise HTTPException(status_code=404, detail="User not found")
+    session_access.invalidate(discord_id)
     invalidate_user_claim_cache_all_worlds(discord_id)
     supporters.invalidate()
     metrics.forget_user(discord_id)

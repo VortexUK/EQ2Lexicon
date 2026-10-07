@@ -16,8 +16,8 @@ from backend.eq2db import raids as raids_module
 from backend.eq2db import zones as zones_module
 from tests.fixtures.pg import SchemaLeaser
 
-zones_leaser = SchemaLeaser("zones", "0004_zones.sql")
-raids_leaser = SchemaLeaser("raids", "0005_raids.sql")
+zones_leaser = SchemaLeaser("zones")
+raids_leaser = SchemaLeaser("raids")
 
 
 @pytest.fixture

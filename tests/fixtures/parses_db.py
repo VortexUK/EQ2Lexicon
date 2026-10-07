@@ -24,7 +24,7 @@ from backend.server.parses import db as parses_db
 from tests.fixtures.pg import SchemaLeaser
 
 #: Scratch-schema pool for the parses family (parses_s<pid>_N).
-parses_leaser = SchemaLeaser("parses", "0002_parses.sql")
+parses_leaser = SchemaLeaser("parses")
 
 
 @pytest.fixture

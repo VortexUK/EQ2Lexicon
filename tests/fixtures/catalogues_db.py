@@ -20,11 +20,11 @@ from backend.eq2db import recipes as recipes_module
 from backend.eq2db import spells as spells_module
 from tests.fixtures.pg import SchemaLeaser
 
-items_leaser = SchemaLeaser("items", "0007_items.sql")
-spells_leaser = SchemaLeaser("spells", "0008_spells.sql")
-recipes_leaser = SchemaLeaser("recipes", "0009_recipes.sql")
-classes_leaser = SchemaLeaser("classes", "0011_classes.sql")
-aas_leaser = SchemaLeaser("aas", "0012_aas.sql")
+items_leaser = SchemaLeaser("items")
+spells_leaser = SchemaLeaser("spells")
+recipes_leaser = SchemaLeaser("recipes")
+classes_leaser = SchemaLeaser("classes")
+aas_leaser = SchemaLeaser("aas")
 
 
 @pytest.fixture

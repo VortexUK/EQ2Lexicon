@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from backend.server.api.claim import invalidate_user_claim_cache_all_worlds
 from backend.server.api.guild import _leader_chars, _officer_chars, _roster_rank_map, _validate_guild_name
 from backend.server.auth_deps import require_admin as _require_admin
+from backend.server.core import session_access
 from backend.server.core.audit_log import audit_log
 from backend.server.db import (
+    bump_session_epoch,
     get_claim_by_id,
     list_claims,
     list_pending_users,
@@ -219,18 +221,24 @@ async def get_pending_users(request: Request) -> list[PendingUserItem]:
 @router.post("/admin/users/{discord_id}/approve", status_code=200)
 async def approve_user(discord_id: str, request: Request) -> dict:
     """Grant access to a pending user. Admin only."""
-    _require_admin(request)
+    admin = _require_admin(request)
     if not await set_user_access(discord_id, "approved"):
         raise HTTPException(status_code=404, detail="User not found")
+    session_access.invalidate(discord_id)
+    audit_log("user_approved", actor=admin["id"], discord_id=discord_id)
     return {"ok": True}
 
 
 @router.post("/admin/users/{discord_id}/deny", status_code=200)
 async def deny_user(discord_id: str, request: Request) -> dict:
-    """Deny access to a pending (or previously approved) user. Admin only."""
+    """Deny access to a pending (or previously approved) user and end their
+    live sessions. Claims are kept (use kick to remove them). Admin only."""
     admin = _require_admin(request)
     if discord_id == admin["id"]:
         raise HTTPException(status_code=400, detail="You cannot deny your own access")
     if not await set_user_access(discord_id, "denied"):
         raise HTTPException(status_code=404, detail="User not found")
+    await bump_session_epoch(discord_id)
+    session_access.invalidate(discord_id)
+    audit_log("user_denied", actor=admin["id"], discord_id=discord_id)
     return {"ok": True}

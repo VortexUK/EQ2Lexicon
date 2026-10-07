@@ -110,6 +110,21 @@ class UsersStore(PgStoreBase):
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
+    async def get_session_access(self, discord_id: str) -> tuple[str, int] | None:
+        """``(access_status, session_epoch)`` for a user, or None when there is no row."""
+        async with self._db() as db:
+            async with await db.execute(_SQL["select_session_access"], (discord_id,)) as cur:
+                row = await cur.fetchone()
+        return (row["access_status"], int(row["session_epoch"])) if row else None
+
+    async def bump_session_epoch(self, discord_id: str) -> int | None:
+        """Kill every live session cookie for a user. Returns the new epoch, or None if no row."""
+        async with self._db() as db:
+            async with await db.execute(_SQL["bump_session_epoch"], (discord_id,)) as cur:
+                row = await cur.fetchone()
+            await db.commit()
+        return int(row["session_epoch"]) if row else None
+
     async def set_user_access(self, discord_id: str, status: str) -> bool:
         """Set access_status for a user. Returns True if a row was updated."""
         async with self._db() as db:

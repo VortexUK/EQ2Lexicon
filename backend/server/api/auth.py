@@ -16,7 +16,7 @@ from backend.server.auth_deps import (
 )
 from backend.server.config import OPEN_SIGNUP
 from backend.server.core.audit_log import audit_log
-from backend.server.db import get_user_access_status, list_roles_for_user, upsert_user
+from backend.server.db import get_session_access, get_user_access_status, list_roles_for_user, upsert_user
 
 _log = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -141,13 +141,6 @@ async def callback(code: str, state: str | None = None, *, request: Request) -> 
             raise HTTPException(status_code=400, detail="Failed to fetch Discord user")
         user = user_resp.json()
 
-    request.session["user"] = {
-        "id": user["id"],
-        "username": user["username"],
-        "global_name": user.get("global_name"),
-        "avatar": user.get("avatar"),
-    }
-
     # Persist / update user record in our DB.
     # Admin IDs are always force-approved — protects against DB wipe lockout.
     access_status = await upsert_user(
@@ -158,6 +151,17 @@ async def callback(code: str, state: str | None = None, *, request: Request) -> 
         admin_ids=_ADMIN_IDS,
         open_signup=OPEN_SIGNUP,
     )
+    session_access = await get_session_access(user["id"])
+
+    # The epoch binds this cookie to the account row: kick/deny bump the row
+    # and every cookie minted before that stops validating (core/session_access).
+    request.session["user"] = {
+        "id": user["id"],
+        "username": user["username"],
+        "global_name": user.get("global_name"),
+        "avatar": user.get("avatar"),
+        "epoch": session_access[1] if session_access else 0,
+    }
 
     audit_log(
         "login",

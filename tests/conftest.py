@@ -141,6 +141,57 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
 
 
 @pytest.fixture(autouse=True)
+def _bypass_session_access(request):
+    """Route tests inject fake session users that have no ``users`` row, which
+    the session access gate would log out. Enforcement is off unless the test
+    requests the ``session_access_enforced`` fixture."""
+    from backend.server.core import session_access
+
+    if "session_access_enforced" in request.fixturenames:
+        yield
+        return
+    session_access.ENFORCE = False
+    try:
+        yield
+    finally:
+        session_access.ENFORCE = True
+
+
+@pytest.fixture(autouse=True)
+def _bypass_uploader_claims(request):
+    """Ingest/attendance tests upload as fake users with no claims; the
+    logger→claim binding would mark every upload unverified. Bypassed unless
+    the test requests the ``uploader_claims_enforced`` fixture."""
+    if "uploader_claims_enforced" in request.fixturenames:
+        yield
+        return
+    from unittest.mock import AsyncMock, patch
+
+    with (
+        patch("backend.server.api.parses.ingest._uploader_claimed", new=AsyncMock(return_value=True)),
+        patch("backend.server.api.attendance._uploader_claimed", new=AsyncMock(return_value=True)),
+    ):
+        yield
+
+
+@pytest.fixture
+def uploader_claims_enforced():
+    """Opt a test INTO the real logger→approved-claim check."""
+    yield
+
+
+@pytest.fixture
+def session_access_enforced():
+    """Opt a test INTO the session access/epoch gate (with a cold cache)."""
+    from backend.server.core import session_access
+
+    session_access.ENFORCE = True
+    session_access.clear_cache()
+    yield
+    session_access.clear_cache()
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limiter():
     """The shared slowapi limiter keeps in-memory counters for the whole
     pytest process (every test client shares one IP), so heavily-hit routes

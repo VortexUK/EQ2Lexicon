@@ -16,7 +16,7 @@ from backend.census import store as census_store_module
 from tests.fixtures.pg import SchemaLeaser
 
 #: Scratch-schema pool for the census family (census_s<pid>_N).
-census_leaser = SchemaLeaser("census", "0003_census.sql")
+census_leaser = SchemaLeaser("census")
 
 
 @pytest.fixture

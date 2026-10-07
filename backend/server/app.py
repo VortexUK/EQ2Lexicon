@@ -518,12 +518,20 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     # session cookie (strict would block the cookie on the redirect from
     # discord.com → /api/auth/callback, breaking CSRF state validation).
     # Lax still blocks cross-site POST/DELETE (the CSRF vector we care about).
+    #
+    # SessionAccessMiddleware is added BEFORE SessionMiddleware so it runs
+    # inside it (Starlette runs add_middleware calls in reverse): it needs the
+    # decoded session to check access_status / the revocation epoch.
+    from backend.server.core.session_access import SessionAccessMiddleware
+
+    app.add_middleware(SessionAccessMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret or _SESSION_SECRET,
         https_only=_HTTPS_ONLY,
         same_site="lax",
         domain=_SESSION_COOKIE_DOMAIN,
+        max_age=14 * 24 * 3600,  # the privacy page promises "up to 14 days"
     )
 
     app.add_middleware(

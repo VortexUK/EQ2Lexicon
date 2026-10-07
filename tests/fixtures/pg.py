@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -106,9 +107,9 @@ def provision_for_session() -> None:
     # so adding 0003_census.sql etc. needs no fixture change.
     families: list[str] = []
     for path in pg_migrate.migration_files():
-        first = path.read_text(encoding="utf-8").splitlines()[0].strip().lower()
-        if first.startswith("create schema if not exists "):
-            families.append(first.removeprefix("create schema if not exists ").rstrip(";").strip())
+        fam = migration_family(path)
+        if fam and fam not in families:
+            families.append(fam)
     with pg.connection() as conn:
         # Drop the ledger so pg_migrate re-applies everything, then the
         # session schemas and any scratch schemas a crashed run left over.
@@ -133,32 +134,45 @@ def pg_conn(schema: str = "users") -> Iterator[Any]:
         conn.commit()
 
 
+def migration_family(path: Path) -> str | None:
+    """The family a migration file targets (from its two-line header), or
+    None for ``-- global`` files."""
+    first = path.read_text(encoding="utf-8").splitlines()[0].strip().lower()
+    if first.startswith("create schema if not exists "):
+        return first.removeprefix("create schema if not exists ").rstrip(";").strip()
+    return None
+
+
 class SchemaLeaser:
-    """Lazily-grown pool of scratch users-family schemas.
+    """Lazily-grown pool of scratch schemas for one family.
 
-    Fresh schemas are built by retargeting the same migration file the
-    production schema uses, so scratch and session schemas can never
-    drift. ``release()`` resets with one TRUNCATE + seeds re-run
-    (~10-20ms) instead of a 100-250ms CREATE SCHEMA + full DDL per test."""
+    Fresh schemas are built by retargeting EVERY migration file of the family
+    (in order) — the same files production runs — so scratch and session
+    schemas can never drift. ``release()`` resets with one TRUNCATE + seeds
+    re-run (~10-20ms) instead of a 100-250ms CREATE SCHEMA + full DDL per
+    test."""
 
-    def __init__(self, family: str = "users", migration: str = "0001_users.sql") -> None:
+    def __init__(self, family: str = "users") -> None:
         self.family = family
-        self._migration = pg_migrate.MIGRATIONS_DIR / migration
+        self._migrations = [p for p in pg_migrate.migration_files() if migration_family(p) == family]
+        if not self._migrations:
+            raise AssertionError(f"no migration file targets family {family!r}")
         self._free: list[str] = []
         self._count = 0
         self._tables: list[str] | None = None
         self._seeds: str | None = None
 
-    def _sql_text(self) -> str:
-        return self._migration.read_text(encoding="utf-8")
-
     def _seeds_sql(self) -> str:
         if self._seeds is None:
-            text = self._sql_text()
-            marker = text.find("-- seeds")
-            if marker < 0:
-                raise AssertionError(f"{self._migration.name} has no '-- seeds' marker")
-            self._seeds = text[marker:]
+            parts: list[str] = []
+            for path in self._migrations:
+                text = path.read_text(encoding="utf-8")
+                marker = text.find("-- seeds")
+                if marker >= 0:
+                    parts.append(text[marker:])
+            if not parts:
+                raise AssertionError(f"no {self.family} migration has a '-- seeds' marker")
+            self._seeds = "\n".join(parts)
         return self._seeds
 
     def _create(self) -> str:
@@ -167,7 +181,8 @@ class SchemaLeaser:
         name = f"{self.family}_s{os.getpid()}_{self._count}"
         with pg.connection() as conn:
             conn.execute(f'DROP SCHEMA IF EXISTS "{name}" CASCADE')
-            conn.execute(pg_migrate.retarget(self._sql_text(), name))
+            for path in self._migrations:
+                conn.execute(pg_migrate.retarget(path.read_text(encoding="utf-8"), name))
             conn.commit()
         return name
 

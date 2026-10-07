@@ -21,6 +21,13 @@ ON CONFLICT(discord_id) DO UPDATE SET
 -- :name select_access_status
 SELECT access_status FROM users WHERE discord_id = %s;
 
+-- :name select_session_access
+SELECT access_status, session_epoch FROM users WHERE discord_id = %s;
+
+-- :name bump_session_epoch
+UPDATE users SET session_epoch = session_epoch + 1 WHERE discord_id = %s
+RETURNING session_epoch;
+
 -- :name select_display_names_by_ids
 -- The id list binds as ONE array parameter (= ANY) — no composed
 -- placeholder strings and no variable-count limits.
