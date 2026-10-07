@@ -38,6 +38,15 @@ LIMIT %s;
 SELECT name FROM combatants
 WHERE encounter_id = %s AND is_player = 1;
 
+-- :name ally_rosters_bulk
+-- Every candidate encounter's player roster in ONE statement, already in
+-- top-N order (encDPS DESC, name ASC) so the grouper slices [:n] for the
+-- top-N set and uses the whole list for the containment set. Replaces the
+-- four lookups per compared pair (twelve percent of all production statements).
+SELECT encounter_id, name FROM combatants
+WHERE encounter_id = ANY(%s) AND is_player = 1
+ORDER BY encounter_id, encdps DESC, name ASC;
+
 -- ---------------------------------------------------------------------------
 -- Lazy combatant-classification trigger
 -- ---------------------------------------------------------------------------

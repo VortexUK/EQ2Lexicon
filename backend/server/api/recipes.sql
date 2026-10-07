@@ -14,9 +14,16 @@
 -- :name class_filter_subquery
 -- WHERE-clause fragment: recipes whose named-quality scroll output
 -- (out_elaborate_id — out_formed_id is the rare "perfect craft" bonus and
--- often points elsewhere) is usable by a class. ILIKE: class_label is
--- TitleCase ("All Fighters") and the query arrives lowercased.
-out_elaborate_id IN (SELECT id FROM items.items WHERE class_label ILIKE %s)
+-- often points elsewhere) is usable by a class. The matching class_label
+-- values are resolved FIRST (items_class_labels_matching, an index-only
+-- scan over ~235 distinct labels) and bound here as an array: the ILIKE
+-- form inside the subquery mis-estimated and the planner probed the 430 MB
+-- items heap once per recipe (36 s per search).
+out_elaborate_id IN (SELECT id FROM items.items WHERE class_label = ANY(%s))
+
+-- :name items_class_labels_matching
+SELECT DISTINCT class_label FROM items.items
+WHERE class_label IS NOT NULL AND class_label ILIKE %s;
 
 -- :name items_class_labels_by_ids
 -- For the result page's output-item ids, fetch (id, class_label) so the

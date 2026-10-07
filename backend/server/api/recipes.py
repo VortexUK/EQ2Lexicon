@@ -270,11 +270,13 @@ async def search_recipes(
         params.append(craft_class)
 
     # Adventure-class filter: a cross-schema subquery against the items
-    # schema replaces the old two-database id-list round trip (and its
-    # chunks-of-900 OR lists).
+    # schema. The class_label values are resolved on the connection below
+    # (indexed, ~235 distinct values) before the recipe query runs.
+    class_label_slot: int | None = None
     if class_name:
         conditions.append(_SQL["class_filter_subquery"])
-        params.append(f"%{class_name.lower()}%")
+        class_label_slot = len(params)
+        params.append([])  # filled with the matching labels below
 
     # Require at least one filter
     if not conditions:
@@ -287,6 +289,13 @@ async def search_recipes(
     # schema is referenced schema-qualified inside the SQL) ────────────────────
     async with pg.aconnection() as db:
         await db.execute(pg.search_path_sql(_RECIPES_SCHEMA))
+
+        if class_label_slot is not None and class_name:
+            cur = await db.execute(_SQL["items_class_labels_matching"], (f"%{class_name.lower()}%",))
+            labels = [r["class_label"] for r in await cur.fetchall()]
+            if not labels:
+                return RecipeSearchResponse(results=[], total=0, page=page, per_page=per_page)
+            params[class_label_slot] = labels
 
         count_sql = _SQL["count_recipes_where"].format(where=where)
         cur = await db.execute(count_sql, params)

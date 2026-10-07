@@ -11,6 +11,7 @@ import asyncio
 import functools
 import logging
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from types import MappingProxyType
 from typing import Any, Literal
 
@@ -149,6 +150,24 @@ def _classify_now(conn: Any, encounter_id: int, zone: str | None) -> bool:
     return True
 
 
+# Rosters prefetched by _group_into_fights for the encounters it is grouping:
+# {encounter_id: [names in encDPS DESC, name ASC order]}. The two helpers
+# below serve from it when set, so a grouping pass costs one statement
+# instead of four per compared pair; direct callers (and tests) still get
+# the per-encounter queries.
+_roster_prefetch: ContextVar[dict[int, list[str]] | None] = ContextVar("roster_prefetch", default=None)
+
+
+def _ally_rosters(conn: Any, encounter_ids: list[int]) -> dict[int, list[str]]:
+    """Every encounter's ordered player roster in one ``= ANY`` statement."""
+    out: dict[int, list[str]] = {eid: [] for eid in encounter_ids}
+    if not encounter_ids:
+        return out
+    for row in conn.execute(_SQL["ally_rosters_bulk"], (list(encounter_ids),)):
+        out.setdefault(row["encounter_id"], []).append(row["name"])
+    return out
+
+
 def _top_n_ally_names(conn: Any, encounter_id: int, n: int) -> set[str]:
     """Return the top-N player names in this encounter by encDPS descending.
 
@@ -160,6 +179,9 @@ def _top_n_ally_names(conn: Any, encounter_id: int, n: int) -> set[str]:
     allies than ``n``. Empty set when there are no qualifying allies at all
     (e.g. an empty-ally parse) — that case still merges trivially under the
     Phase 4 mutual-containment rule (``set() ⊆ X`` is always true)."""
+    pre = _roster_prefetch.get()
+    if pre is not None and encounter_id in pre:
+        return set(pre[encounter_id][:n])
     return {row["name"] for row in conn.execute(_TOP_N_ALLY_SQL, (encounter_id, n))}
 
 
@@ -167,6 +189,9 @@ def _all_ally_names(conn: Any, encounter_id: int) -> set[str]:
     """Every qualifying player name in the encounter. Pairs with
     ``_top_n_ally_names`` to evaluate the merger's mutual-containment rule
     (``top_N(A) ⊆ allies(B)`` and vice versa)."""
+    pre = _roster_prefetch.get()
+    if pre is not None and encounter_id in pre:
+        return set(pre[encounter_id])
     return {row["name"] for row in conn.execute(_ALL_ALLY_SQL, (encounter_id,))}
 
 
@@ -315,6 +340,18 @@ def _list_encounters_sync(
 
 
 def _group_into_fights(encounters: list[dict], conn: Any) -> list[dict]:
+    """Mirror-group ``encounters`` (see :func:`_group_into_fights_prefetched`)
+    with every candidate's player roster fetched in ONE statement up front."""
+    if not encounters:
+        return []
+    token = _roster_prefetch.set(_ally_rosters(conn, [e["id"] for e in encounters]))
+    try:
+        return _group_into_fights_prefetched(encounters, conn)
+    finally:
+        _roster_prefetch.reset(token)
+
+
+def _group_into_fights_prefetched(encounters: list[dict], conn: Any) -> list[dict]:
     """Greedy mirror-grouping. Two uploads are the same fight when ALL of:
       - they come from *different* uploaders,
       - their guild + title match,
@@ -448,12 +485,16 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, wo
         # matching the row-level encDPS semantics. Stored columns are
         # untouched — this is presentation math.
         dur = enc.get("duration_s") or 0
+        # Four bulk statements for the whole encounter, not five per combatant.
+        breakdowns = parses_db.get_detail_breakdowns_bulk(
+            conn, [c["id"] for c in combatants], limit=top_attacks_per_combatant
+        )
         for c in combatants:
-            c["top_attacks"] = parses_db.get_top_attacks_for_combatant(conn, c["id"], limit=top_attacks_per_combatant)
-            c["top_heals"] = parses_db.get_top_heals_for_combatant(conn, c["id"], limit=top_attacks_per_combatant)
-            c["top_cures"] = parses_db.get_top_cures_for_combatant(conn, c["id"], limit=top_attacks_per_combatant)
-            c["top_threats"] = parses_db.get_top_threats_for_combatant(conn, c["id"], limit=top_attacks_per_combatant)
-            c["damage_types"] = parses_db.get_damage_types_for_combatant(conn, c["id"])
+            c["top_attacks"] = breakdowns["top_attacks"].get(c["id"], [])
+            c["top_heals"] = breakdowns["top_heals"].get(c["id"], [])
+            c["top_cures"] = breakdowns["top_cures"].get(c["id"], [])
+            c["top_threats"] = breakdowns["top_threats"].get(c["id"], [])
+            c["damage_types"] = breakdowns["damage_types"].get(c["id"], [])
             c["ally"] = bool(c["ally"])
             c["is_player"] = bool(c.get("is_player"))
             if dur > 0:
@@ -558,11 +599,14 @@ def _build_list_dataset(
         return rows, [], 0
     conn = parses_db.init_db()
     try:
-        # Phase 4 lazy backfill: pre-pipeline encounters have is_player=NULL
+        # Lazy backfill: pre-pipeline encounters have is_player=NULL
         # combatants — classify before the merger so its top-N gate sees the
-        # right flags, and refresh player_count on the same request.
+        # right flags, and refresh player_count on the same request. ONE
+        # batched probe finds the needy set (the per-row probe was 40% of all
+        # statements in production and always empty).
+        needy = encounters_needing_classification(conn, [r["id"] for r in rows])
         for r in rows:
-            if _ensure_classified(conn, r["id"], r.get("zone")):
+            if r["id"] in needy and _classify_now(conn, r["id"], r.get("zone")):
                 refreshed = conn.execute(
                     "SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1",
                     (r["id"],),

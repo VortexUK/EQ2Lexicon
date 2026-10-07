@@ -477,6 +477,45 @@ class ParsesStore(PgCatalogue):
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @staticmethod
+    def _bulk_by_combatant(rows: list, combatant_ids: list[int]) -> dict[int, list[dict]]:
+        out: dict[int, list[dict]] = {cid: [] for cid in combatant_ids}
+        for r in rows:
+            d = dict(r)
+            d.pop("rn", None)
+            out.setdefault(d["combatant_id"], []).append(d)
+        return out
+
+    @staticmethod
+    def get_detail_breakdowns_bulk(
+        conn: Any, combatant_ids: list[int], limit: int = 10
+    ) -> dict[str, dict[int, list[dict]]]:
+        """The parse-detail breakdowns for every combatant at once — four
+        statements total (attacks, heals, cures, threats share attack_types;
+        damage_types is its own table) instead of five per combatant. Returns
+        ``{"top_attacks" | "top_heals" | "top_cures" | "top_threats" |
+        "damage_types": {combatant_id: rows}}`` with the same per-combatant
+        ordering and limit as the single-combatant getters."""
+        ids = list(combatant_ids)
+        if not ids:
+            return {k: {} for k in ("top_attacks", "top_heals", "top_cures", "top_threats", "damage_types")}
+        bulk = ParsesStore._bulk_by_combatant
+        return {
+            "top_attacks": bulk(
+                conn.execute(_SQL["get_top_attacks_bulk"], (ids, _DAMAGE_SWING_TYPES, limit)).fetchall(), ids
+            ),
+            "top_heals": bulk(
+                conn.execute(_SQL["get_top_attacks_bulk"], (ids, _HEAL_SWING_TYPES, limit)).fetchall(), ids
+            ),
+            "top_cures": bulk(
+                conn.execute(_SQL["get_top_cures_bulk"], (ids, _CURE_SWING_TYPES, limit)).fetchall(), ids
+            ),
+            "top_threats": bulk(
+                conn.execute(_SQL["get_top_threats_bulk"], (ids, _THREAT_SWING_TYPES, limit)).fetchall(), ids
+            ),
+            "damage_types": bulk(conn.execute(_SQL["get_damage_types_bulk"], (ids,)).fetchall(), ids),
+        }
+
     # ---------------------------------------------------------------------------
     # Tiered detail retention (cleanup sweep)
     # ---------------------------------------------------------------------------

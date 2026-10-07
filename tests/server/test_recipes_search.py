@@ -110,7 +110,7 @@ def items_for_class_filter(items_schema, monkeypatch):
     be invisible to the class filter / label enrichment."""
     from backend.server.api import recipes as recipes_api
 
-    for key in ("class_filter_subquery", "items_class_labels_by_ids"):
+    for key in ("class_filter_subquery", "items_class_labels_by_ids", "items_class_labels_matching"):
         monkeypatch.setitem(
             recipes_api._SQL,
             key,

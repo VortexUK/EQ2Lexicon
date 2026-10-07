@@ -189,6 +189,40 @@ SELECT * FROM damage_types
 WHERE combatant_id = %s
 ORDER BY damage DESC;
 
+-- Bulk variants for the parse detail page: one statement per table for
+-- every combatant in the encounter instead of five per combatant (a
+-- 30-combatant raid parse was ~150 round trips). ROW_NUMBER() applies the
+-- same per-combatant ordering + LIMIT as the single-row blocks above.
+
+-- :name get_top_attacks_bulk
+SELECT * FROM (
+    SELECT a.*, ROW_NUMBER() OVER (PARTITION BY combatant_id ORDER BY damage DESC) AS rn
+    FROM attack_types a
+    WHERE combatant_id = ANY(%s) AND swing_type = ANY(%s)
+) t WHERE rn <= %s
+ORDER BY combatant_id, rn;
+
+-- :name get_top_cures_bulk
+SELECT * FROM (
+    SELECT a.*, ROW_NUMBER() OVER (PARTITION BY combatant_id ORDER BY hits DESC, damage DESC) AS rn
+    FROM attack_types a
+    WHERE combatant_id = ANY(%s) AND swing_type = ANY(%s)
+) t WHERE rn <= %s
+ORDER BY combatant_id, rn;
+
+-- :name get_top_threats_bulk
+SELECT * FROM (
+    SELECT a.*, ROW_NUMBER() OVER (PARTITION BY combatant_id ORDER BY damage DESC) AS rn
+    FROM attack_types a
+    WHERE combatant_id = ANY(%s) AND swing_type = ANY(%s) AND attack_name <> 'All'
+) t WHERE rn <= %s
+ORDER BY combatant_id, rn;
+
+-- :name get_damage_types_bulk
+SELECT * FROM damage_types
+WHERE combatant_id = ANY(%s)
+ORDER BY combatant_id, damage DESC;
+
 -- ---------------------------------------------------------------------------
 -- client_warnings + tamper_reports
 -- ---------------------------------------------------------------------------
