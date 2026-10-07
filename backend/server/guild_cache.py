@@ -480,6 +480,11 @@ async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
     now = int(time.time())
     roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, world))
     if roster is None:
+        # Nothing came back (Census down / guild gone) — end the page's
+        # "Updating…" state rather than leaving it up forever.
+        census_events.publish(
+            {"type": "guild", "key": census_refresh_guild_key(guild_name, world), "nochange": True, "fetched_at": now}
+        )
         return
     info, _ = guild_cache.get_stale(guild_info_key(guild_name, world))
     roster_stubs, _ = guild_cache.get_stale(f"roster_stubs:{guild_name.lower()}:{world.lower()}")

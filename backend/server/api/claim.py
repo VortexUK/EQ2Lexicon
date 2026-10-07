@@ -6,10 +6,13 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _safe_for_log
+from backend.server import census_health
 from backend.server.auth_deps import require_user_session as _require_user
 from backend.server.cache import character_cache, claim_cache
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.db import get_active_claims, set_primary, submit_claim, upsert_user, withdraw_claim
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
@@ -62,6 +65,14 @@ def _claim_cache_key(discord_id: str, world: str) -> str:
     return f"claims:{discord_id}:{world}"
 
 
+def _stored_guilds_sync(names: list[str], world: str) -> dict[str, dict]:
+    conn = census_store.init_db()
+    try:
+        return census_store.get_characters(conn, names, world)
+    finally:
+        conn.close()
+
+
 async def _build_claims_response(discord_id: str, world: str) -> tuple[ClaimsResponse, bool]:
     """
     Fetch claim + guild data from DB/Census for a specific world.
@@ -93,8 +104,28 @@ async def _build_claims_response(discord_id: str, world: str) -> tuple[ClaimsRes
         else:
             need_census.append(char_name)
 
-    # Fire Census calls only for characters not in character_cache
+    # Durable store next — the roster sync stamps guild_name on every stored
+    # member, so anyone seen before is answered without Census (this runs on
+    # every character page via FavoriteButton; a cold cache used to mean one
+    # inline 30 s Census call per claimed character).
     any_failed = False
+    if need_census:
+        stored = await run_sync(_stored_guilds_sync, need_census, world)
+        still_needed: list[str] = []
+        for char_name in need_census:
+            rec = stored.get(char_name.lower())
+            if rec is not None:
+                cached_guild[char_name] = rec.get("guild_name")
+            else:
+                still_needed.append(char_name)
+        need_census = still_needed
+    if need_census and census_health.is_down():
+        # Never-seen characters while Census is out: answer without a guild
+        # and don't cache, so the next request retries.
+        any_failed = True
+        need_census = []
+
+    # Fire Census calls only for characters in neither the cache nor the store
     census_guild: dict[str, str | None | BaseException] = {}
     if need_census:
         async with shared_census_client() as client:
@@ -221,8 +252,6 @@ async def create_claim(request: Request, body: SubmitClaimRequest) -> ClaimRespo
         discord_username=user.get("username", ""),
         avatar=user.get("avatar"),
     )
-
-    from backend.server import census_health
 
     if census_health.is_down():
         _log.debug("[claim] Skipping live fetch — census_health=down (name=%s)", _safe_for_log(name))

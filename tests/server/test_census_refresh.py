@@ -42,3 +42,47 @@ def test_merge_roster_skips_unknown_members():
     names = {m["name"] for m in out}
     assert names == {"Menludiir"}
     assert "Ghost" not in names
+
+
+# ---------------------------------------------------------------------------
+# Honest "refreshing": the requester reports whether a refresh started, and a
+# refresh that finds nothing newer still tells the page it is over.
+# ---------------------------------------------------------------------------
+
+
+def test_request_character_refresh_reports_whether_it_started(monkeypatch):
+    import asyncio
+
+    cr._reset_for_test()
+    monkeypatch.setattr(cr.census_health, "is_down", lambda: False)
+    monkeypatch.setattr(cr, "current_world", lambda: "Varsoon")
+    created: list = []
+    monkeypatch.setattr(asyncio, "create_task", lambda coro: (created.append(coro), coro.close()))
+
+    assert cr.request_character_refresh("Menludiir") is True  # started
+    assert cr.request_character_refresh("Menludiir") is False  # throttled / in flight
+    monkeypatch.setattr(cr.census_health, "is_down", lambda: True)
+    assert cr.request_guild_refresh("Exordium") is False  # health-gated
+    assert len(created) == 1
+
+
+async def test_character_refresh_with_no_census_record_publishes_nochange(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    cr._reset_for_test()
+    client = MagicMock()
+    client.get_character = AsyncMock(return_value=None)
+    client.close = AsyncMock()
+    published: list[dict] = []
+    with (
+        patch("backend.server.core.census_lifecycle._clients", {}),
+        patch("backend.server.core.census_lifecycle.CensusClient", return_value=client),
+        patch.object(cr.census_events, "publish", side_effect=published.append),
+    ):
+        key = "menludiir:varsoon"
+        cr._in_flight.add(key)
+        await cr._run_character_refresh("Menludiir", key, "Varsoon")
+
+    assert published and published[0]["type"] == "character"
+    assert published[0]["key"] == key and published[0]["nochange"] is True
+    assert key not in cr._in_flight

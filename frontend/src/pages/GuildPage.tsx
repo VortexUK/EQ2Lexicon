@@ -485,11 +485,22 @@ export default function GuildPage() {
     setRosterLoading(true)
     setRosterError(null)
 
+    // officer-status is fetched separately: it may wait on a Census roster
+    // check, and the roster itself must never wait on it.
+    fetch(`/api/guild/${encodeURIComponent(guildName)}/officer-status`, { credentials: 'include' })
+      .then(async officerRes => {
+        if (officerRes.ok) {
+          const d = await officerRes.json()
+          setIsOfficer(d.is_officer === true)
+          setIsLeader(d.is_leader === true)
+        }
+      })
+      .catch(() => {})
+
     Promise.all([
       fetch(`/api/guild/${encodeURIComponent(guildName)}`, { credentials: 'include' }),
       fetch(`/api/guild/${encodeURIComponent(guildName)}/info`, { credentials: 'include' }),
-      fetch(`/api/guild/${encodeURIComponent(guildName)}/officer-status`, { credentials: 'include' }),
-    ]).then(async ([rosterRes, infoRes, officerRes]) => {
+    ]).then(async ([rosterRes, infoRes]) => {
       if (rosterRes.status === 503) {
         setRosterError(
           `${guildName} isn't cached yet and Census is currently unavailable. Try again shortly.`
@@ -500,11 +511,6 @@ export default function GuildPage() {
         setRoster(await rosterRes.json())
       }
       if (infoRes.ok) setInfo(await infoRes.json())
-      if (officerRes.ok) {
-        const d = await officerRes.json()
-        setIsOfficer(d.is_officer === true)
-        setIsLeader(d.is_leader === true)
-      }
     })
       .catch(() => setRosterError('Network error — please try again.'))
       .finally(() => setRosterLoading(false))
@@ -516,7 +522,11 @@ export default function GuildPage() {
   useEffect(() => {
     if (!rosterName || !rosterWorld) return
     const key = `guild:${rosterName.toLowerCase()}:${rosterWorld.toLowerCase()}`
-    return subscribe<GuildData>(key, (data) => {
+    return subscribe<GuildData>(key, (data, _fetchedAt, noChange) => {
+      if (noChange) {
+        setRoster(r => (r ? { ...r, refreshing: false } : r))
+        return
+      }
       setRoster(data)
     })
   }, [rosterName, rosterWorld, subscribe])
@@ -630,7 +640,7 @@ export default function GuildPage() {
           </div>
         )}
         <div className="mb-4">
-          <FreshnessBadge stale={roster?.stale} />
+          <FreshnessBadge stale={roster?.stale} refreshing={roster?.refreshing} />
           {guildName && <CensusRefreshControl kind="guild" name={guildName} />}
         </div>
 

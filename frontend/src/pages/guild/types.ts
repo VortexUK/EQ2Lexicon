@@ -20,6 +20,7 @@ export interface GuildData {
   members: GuildMember[]
   fetched_at?: number | null
   stale?: boolean
+  refreshing?: boolean
 }
 
 export interface MemberSpellTiers {

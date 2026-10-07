@@ -375,7 +375,12 @@ export default function CharacterPage() {
   useEffect(() => {
     if (!charName || !charWorld) return
     const key = `${charName.toLowerCase()}:${charWorld.toLowerCase()}`
-    return subscribe<Character>(key, (updated) => {
+    return subscribe<Character>(key, (updated, _fetchedAt, noChange) => {
+      if (noChange) {
+        // Refresh finished with nothing newer — stop saying "Updating…".
+        setState(s => (s.status === 'ok' ? { status: 'ok', char: { ...s.char, refreshing: false } } : s))
+        return
+      }
       setCachedCharacter(updated)
       setState({ status: 'ok', char: updated })
     })
@@ -861,7 +866,7 @@ function GeneralBanner({ char, equipment, itemsReady, maxLevel, ratingConfig }: 
         <div className="text-text-muted text-[0.82rem] mt-0.5">
           {[char.world, char.race, char.gender].filter(Boolean).join(' · ')}
         </div>
-        <FreshnessBadge stale={char.stale} />
+        <FreshnessBadge stale={char.stale} refreshing={char.refreshing} />
         <CensusRefreshControl kind="character" name={char.name} />
         {char.guild_name && (
           <Link

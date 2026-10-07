@@ -45,15 +45,19 @@ def _mark_attempt(key: str) -> None:
     _last_attempt[key] = time.monotonic()
 
 
-def request_character_refresh(name: str) -> None:
-    """Fire-and-forget a throttled background character refresh."""
+def request_character_refresh(name: str) -> bool:
+    """Fire-and-forget a throttled background character refresh. Returns True
+    only when a refresh actually started — the response's ``refreshing`` flag
+    (and the "Updating from Census…" badge) must not claim work that the
+    throttle or the health gate suppressed."""
     world = current_world()
     key = census_refresh_key(name, world)
     if not _should_refresh(key):
-        return
+        return False
     _mark_attempt(key)
     _in_flight.add(key)
     asyncio.create_task(_run_character_refresh(name, key, world))
+    return True
 
 
 async def _run_character_refresh(name: str, key: str, world: str) -> None:
@@ -63,7 +67,11 @@ async def _run_character_refresh(name: str, key: str, world: str) -> None:
         async with shared_census_client() as client:
             char = await client.get_character(name, world)
         if char is None:
-            return  # not found / not resolved → keep best-known
+            # Not found / not resolved → keep best-known. Tell the page the
+            # refresh is over so its "Updating…" badge doesn't stay up forever
+            # (Census returns nothing for anyone not logged in recently).
+            census_events.publish({"type": "character", "key": key, "nochange": True, "fetched_at": int(time.time())})
+            return
         resp = _build_char_response(char)  # CharacterResponse (pydantic)
         data = resp.model_dump()
         resolved = bool(data.get("cls") or data.get("level"))
@@ -120,14 +128,16 @@ async def run_guild_refresh_now(name: str, world: str) -> None:
     await _run_guild_refresh(name, key, world)
 
 
-def request_guild_refresh(name: str) -> None:
+def request_guild_refresh(name: str) -> bool:
+    """Guild counterpart of :func:`request_character_refresh` (True iff started)."""
     world = current_world()
     key = census_refresh_guild_key(name, world)
     if not _should_refresh(key):
-        return
+        return False
     _mark_attempt(key)
     _in_flight.add(key)
     asyncio.create_task(_run_guild_refresh(name, key, world))
+    return True
 
 
 async def _run_guild_refresh(name: str, key: str, world: str) -> None:

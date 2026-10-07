@@ -107,6 +107,7 @@ export interface Character {
   equipment: EquipmentSlot[]
   fetched_at?: number | null
   stale?: boolean
+  refreshing?: boolean
 }
 
 // ── Stat display formats ─────────────────────────────────────────────────────

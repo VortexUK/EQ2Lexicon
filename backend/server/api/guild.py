@@ -99,6 +99,7 @@ class GuildResponse(BaseModel):
     members: list[GuildMemberResponse]
     fetched_at: int | None = None
     stale: bool = False
+    refreshing: bool = False  # a background Census refresh actually started for this response
 
 
 # ---------------------------------------------------------------------------
@@ -173,14 +174,38 @@ async def _roster_rank_map(guild_name: str) -> dict[str, int | None]:
     guild fetch via _fetch_and_cache_guild (which also pre-warms every other
     cache key so the roster endpoint and character pages are all warm too).
     """
-    roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, current_world()))
+    world = current_world()
+    roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, world))
     if roster is not None:
         return {m.name.lower(): m.rank_id for m in roster.members}
-    full = await _fetch_and_cache_guild(guild_name, current_world())
+    # Durable store next: the persisted roster carries rank ids, so officer
+    # checks (and the guild page waiting on them) never block on Census for a
+    # guild seen before. A stale record still triggers the throttled refresh.
+    stored = await _stored_rank_map(guild_name, world)
+    if stored is not None:
+        return stored
+    full = await _fetch_and_cache_guild(guild_name, world)
     if not full:
         return {}
     guild_data, _, _ = full
     return {m.name.lower(): m.rank_id for m in guild_data.members}
+
+
+async def _stored_rank_map(guild_name: str, world: str) -> dict[str, int | None] | None:
+    """{member_lower: rank_id} from the census_store guild record, or None
+    when the guild has never been persisted. Kicks the throttled background
+    refresh when the stored roster is past the roster staleness window."""
+    from backend.server.census_refresh import request_guild_refresh  # noqa: PLC0415 — avoid import cycle
+
+    rec = await run_sync(_stored_guild_sync, guild_name, world)
+    if rec is None:
+        return None
+    members = (rec.get("data") or {}).get("roster", {}).get("members") or []
+    if not members:
+        return None
+    if int(time.time()) - rec["last_resolved_at"] > 900:
+        request_guild_refresh(guild_name)
+    return {str(m["name"]).lower(): m.get("rank_id") for m in members if m.get("name")}
 
 
 async def _roster_rank_map_cached(guild_name: str) -> dict[str, int | None] | None:
@@ -191,10 +216,14 @@ async def _roster_rank_map_cached(guild_name: str) -> dict[str, int | None] | No
     stacked at 10–107s awaiting one shared fetch, Cloudflare 524ing the
     tail). Returns None on a cold cache; a background warm is kicked
     (deduped inside _fetch_and_cache_guild) so a later poll succeeds."""
-    roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, current_world()))
+    world = current_world()
+    roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, world))
     if roster is not None:
         return {m.name.lower(): m.rank_id for m in roster.members}
-    asyncio.create_task(_fetch_and_cache_guild(guild_name, current_world()))
+    stored = await _stored_rank_map(guild_name, world)  # one indexed read, never Census
+    if stored is not None:
+        return stored
+    asyncio.create_task(_fetch_and_cache_guild(guild_name, world))
     return None
 
 
@@ -383,11 +412,12 @@ async def get_guild(request: Request, guild_name: str) -> GuildResponse:
     if rec is not None:
         age = int(time.time()) - rec["last_resolved_at"]
         stale = age > 900
-        if stale:
-            request_guild_refresh(guild_name)
+        refreshing = bool(request_guild_refresh(guild_name)) if stale else False
         stored = rec["data"]
         roster_data = stored["roster"]
-        resp = GuildResponse(**{**roster_data, "fetched_at": rec["last_resolved_at"], "stale": stale})
+        resp = GuildResponse(
+            **{**roster_data, "fetched_at": rec["last_resolved_at"], "stale": stale, "refreshing": refreshing}
+        )
         guild_cache.set(cache_key, resp)
         return resp
     # Never seen in the store — need a live Census fetch.

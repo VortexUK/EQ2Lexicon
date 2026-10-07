@@ -118,6 +118,16 @@ def _store_get_sync(name: str, world: str):
         conn.close()
 
 
+def _store_records_sync(names: list[str], world: str) -> dict:
+    from backend.census.store import store as census_store
+
+    conn = census_store.init_db()
+    try:
+        return census_store.get_character_records(conn, names, world)
+    finally:
+        conn.close()
+
+
 def _store_put_sync(name: str, world: str, data: dict, *, now: int) -> None:
     from backend.census.store import store as census_store
 
@@ -290,6 +300,7 @@ class CharacterResponse(BaseModel):
     spell_ids: list[int] = []
     fetched_at: int | None = None  # unix s of last resolved data (freshness)
     stale: bool = False  # served from store older than the staleness window
+    refreshing: bool = False  # a background Census refresh actually started for this response
 
 
 def _ilvl_from_gear(equipment, gear: dict[int, GearRow]) -> float | None:
@@ -399,7 +410,33 @@ async def _prewarm_for_world(world: str, sem: asyncio.Semaphore) -> None:
         if not names:
             return
 
-        _log.info("[startup] Pre-warming character cache for %d character(s) on %s...", len(names), world)
+        # Store first: everyone seen before loads from Postgres in ONE query
+        # (no Census traffic at boot); only never-seen names go to Census.
+        # Records older than the staleness window are left to the request
+        # path, which serves them store-first and refreshes in the background.
+        from backend.server import census_health
+
+        records = await run_sync(_store_records_sync, names, world)
+        now = int(time.time())
+        warmed = 0
+        for name in names:
+            rec = records.get(name.lower())
+            if rec is None or not rec["data"].get("id") or now - rec["last_resolved_at"] > CHARACTER_STALE_S:
+                continue
+            character_cache.set(
+                char_cache_key(name, world),
+                CharacterResponse(**{**rec["data"], "fetched_at": rec["last_resolved_at"]}),
+            )
+            warmed += 1
+        names = [n for n in names if n.lower() not in records]
+        _log.info(
+            "[startup] Pre-warmed %d character(s) from the store on %s; %d never-seen name(s) for Census",
+            warmed,
+            world,
+            len(names),
+        )
+        if not names or census_health.is_down():
+            return
 
         failures: list[tuple[str, Exception]] = []
 
@@ -499,15 +536,17 @@ async def resolve_character_store_first(name: str) -> CharacterResponse:
         # full stored response data already carries id/world, so this is a no-op.
         partial = not data.get("id")
         stale = partial or (now - rec["last_resolved_at"]) > STALE_S
-        if stale:
-            request_character_refresh(name)  # throttled/health-gated background refresh
+        # throttled/health-gated background refresh; False when suppressed, so
+        # the badge only says "Updating…" when something is actually updating.
+        refreshing = bool(request_character_refresh(name)) if stale else False
         resp = CharacterResponse(
             **{
                 **data,
                 "id": data.get("id") or "",
-                "world": data.get("world") or current_world(),
+                "world": data.get("world") or world,
                 "fetched_at": rec["last_resolved_at"],
                 "stale": stale,
+                "refreshing": refreshing,
             }
         )
         # Self-heal any "Item #<id>" placeholders left over from a cold
