@@ -61,6 +61,20 @@ async def open_pools() -> None:
     Small on purpose: WEB_CONCURRENCY=1 and web+bot share one process, so
     ~10 server connections total stays well inside Supabase's session-
     pooler limits."""
+    import asyncio
+    import sys
+
+    if sys.platform == "win32" and isinstance(asyncio.get_running_loop(), asyncio.ProactorEventLoop):
+        # Fail fast and loud: psycopg's async side can't create connections
+        # on the ProactorEventLoop, and the symptom otherwise is every
+        # async checkout silently timing out after 30s (a blank site).
+        # Plain `uvicorn backend.server.app:app` lands here on Windows
+        # (uvicorn 0.52 picks Proactor without --reload).
+        raise RuntimeError(
+            "psycopg async cannot run on Windows' ProactorEventLoop. Start the app "
+            "via `python main.py`, or uvicorn WITH --reload (scripts/dev_backend.ps1), "
+            "or call pg.ensure_selector_event_loop_policy() before the loop is created."
+        )
     global _async_pool, _sync_pool
     _async_pool = AsyncConnectionPool(dsn(), min_size=1, max_size=5, open=False, kwargs={"row_factory": dict_row})
     await _async_pool.open()
