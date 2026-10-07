@@ -13,8 +13,9 @@ The DSN comes from the usual env chain (DATABASE_URL → SUPABASE_DB_URL →
 POSTGRES_CONNECTION_STRING) or --dsn. Safety: the script prints the target
 host and requires --yes (or interactive confirmation) before writing.
 
-Per family (one transaction each): TRUNCATE … RESTART IDENTITY CASCADE →
-COPY each table in FK order → setval every identity sequence → COMMIT.
+Per family: TRUNCATE … RESTART IDENTITY CASCADE → COPY each table in FK
+order (committed PER TABLE — bounds WAL so a bulk load can't fill a small
+disk) → setval every identity sequence → ANALYZE → final verify.
 Column lists and types are introspected from information_schema, so the
 copy follows the reviewed PG schemas; transforms applied by type:
 
@@ -331,6 +332,13 @@ def copy_family(
                 (now, list(pruned_encounters)),
             )
 
+        # Commit per table: bounds the WAL a bulk load accumulates (a single
+        # family-wide transaction filled a small Supabase disk mid-COPY) and
+        # lets checkpoints recycle between tables. Idempotency is unchanged —
+        # every run starts by truncating the family, and the within-family FK
+        # order means a committed parent is always valid for its children.
+        conn.commit()
+
     # setval every identity sequence to MAX(col).
     for table in order:
         for col in pg_identity_columns(conn, schema, table):
@@ -346,7 +354,7 @@ def copy_family(
     for table in order:
         conn.execute(f"ANALYZE {table}")
 
-    # Verify counts inside the same transaction.
+    # Verify counts (tables were committed individually above).
     for table in order:
         key = f"{schema}.{table}"
         trep = report.table(key)
