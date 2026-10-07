@@ -8,12 +8,12 @@ INSERT INTO encounters (
     world, act_encid, title, zone,
     started_at, ended_at, duration_s,
     total_damage, encdps, kills, deaths, success_level,
-    source_dsn, uploaded_by, guild_name, ingested_at
+    source_dsn, uploaded_by, guild_name, ingested_at, uploader_verified
 ) VALUES (
     %(world)s, %(act_encid)s, %(title)s, %(zone)s,
     %(started_at)s, %(ended_at)s, %(duration_s)s,
     %(total_damage)s, %(encdps)s, %(kills)s, %(deaths)s, %(success_level)s,
-    %(source_dsn)s, %(uploaded_by)s, %(guild_name)s, %(ingested_at)s
+    %(source_dsn)s, %(uploaded_by)s, %(guild_name)s, %(ingested_at)s, %(uploader_verified)s
 )
 RETURNING id;
 

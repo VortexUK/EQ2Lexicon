@@ -30,6 +30,7 @@ from backend.server.api.parses.ingest import (
     CENSUS_UNAVAILABLE,
     _resolve_uploader_guild_async,
     _sanitize_world,
+    _uploader_claimed,
     _validate_character_name,
     _validate_payload_signature,
 )
@@ -141,6 +142,13 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
         raise HTTPException(status_code=400, detail="logger_server is missing or malformed.")
     if world.lower() not in _ALLOWED_SERVERS_LOWER:
         raise HTTPException(status_code=403, detail=f"Server '{world}' is not tracked here.")
+    # Attendance writes land in the logger's GUILD, so the logger must be a
+    # character this account has an approved claim on (admins excepted).
+    if not is_admin(user) and not await _uploader_claimed(str(user["id"]), logger_name, world):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{logger_name}' is not a character claimed by your account on {world}.",
+        )
 
     # The uploader's guild is resolved server-side (cache/store first; one
     # live Census call on a true cold miss — EQ2Parser's timeout is generous).

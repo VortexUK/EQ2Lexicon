@@ -55,12 +55,14 @@ SELECT name_lower, expansion_short FROM zones WHERE expansion_short IS NOT NULL;
 -- :name list_winning_encounters_with_player_count
 -- Every world-scoped winning encounter, most-recent-first. The
 -- player_count_sql template parameter is the shared subquery from
--- parses/list.py (avoids a separate JOIN per row).
+-- parses/list.py (avoids a separate JOIN per row). Hidden (soft-deleted)
+-- and unverified-uploader rows never rank.
 SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by,
        e.started_at, e.duration_s, e.success_level, e.ingested_at,
        ({player_count_sql}) AS player_count
 FROM encounters e
 WHERE e.success_level = 1 AND e.world = %s
+  AND e.hidden_at IS NULL AND e.uploader_verified = 1
 ORDER BY e.started_at DESC;
 
 -- :name count_player_combatants_for_encounter

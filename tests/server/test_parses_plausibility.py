@@ -8,7 +8,7 @@ the ingest route's reject/quarantine wiring.
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -146,7 +146,10 @@ def test_evaluate_rejects_negative_combatant_damage():
 def test_evaluate_quarantines_long_idle_merge_without_erroring():
     # A > 2h "encounter" is ACT idle-merge, not a real fight — quarantined
     # (off-board), NOT rejected, so the upload still succeeds for the user.
-    r = evaluate(_enc(duration_s=plausibility.MAX_FIGHT_S + 1), [_combatant()], now=_NOW)
+    # Timestamps span the same window — an idle-merge is long in both.
+    long = plausibility.MAX_FIGHT_S + 1
+    ended = datetime(2026, 5, 24, 13, 51, 56, tzinfo=UTC) + timedelta(seconds=long)
+    r = evaluate(_enc(duration_s=long, ended_at=ended), [_combatant()], now=_NOW)
     assert r.verdict is Verdict.QUARANTINE
     assert r.reason == "duration_too_long"
 
@@ -286,3 +289,36 @@ async def test_route_quarantines_implausible_rate_off_the_board(app):
     assert r.json()["encounter_id"] is None
     quarantine.assert_called_once()  # routed to the audit table
     insert.assert_not_called()  # never reached the encounters table
+
+
+# ---------------------------------------------------------------------------
+# 2026-10 review additions: the checks the module docstring promised
+# ---------------------------------------------------------------------------
+
+
+def test_duration_longer_than_timestamp_window_is_rejected():
+    # 46 s window (13:51:56 → 13:52:42); a 300 s duration cannot fit in it.
+    assert evaluate(_enc(duration_s=300), [_combatant()], now=_NOW).reason == "duration_exceeds_window"
+    # Shorter than the window is fine — ACT trims idle tails.
+    assert evaluate(_enc(duration_s=20), [_combatant()], now=_NOW).verdict is Verdict.ACCEPT
+
+
+@pytest.mark.parametrize("field", ["damage_perc", "healed_perc", "crit_dam_perc", "crit_heal_perc"])
+@pytest.mark.parametrize("value", [-1.0, 100.5, 9999.0])
+def test_out_of_range_percentages_are_rejected(field, value):
+    res = evaluate(_enc(), [_combatant(**{field: value})], now=_NOW)
+    assert res.verdict is Verdict.REJECT and res.reason == "percentage_out_of_range"
+
+
+def test_boundary_percentages_are_accepted():
+    assert evaluate(_enc(), [_combatant(damage_perc=100.0, crit_dam_perc=0.0)], now=_NOW).verdict is Verdict.ACCEPT
+
+
+def test_ally_out_damaging_the_fight_is_quarantined():
+    res = evaluate(_enc(total_damage=500_000), [_combatant(damage=600_000)], now=_NOW)
+    assert res.verdict is Verdict.QUARANTINE and res.reason == "combatant_exceeds_total"
+    # Inside the 5% slack (ACT's total-damage computations differ slightly).
+    assert evaluate(_enc(total_damage=500_000), [_combatant(damage=520_000)], now=_NOW).verdict is Verdict.ACCEPT
+    # Enemies are not checked; an unknown total (0) is not checked.
+    assert evaluate(_enc(total_damage=500_000), [_combatant(ally=False, damage=900_000)], now=_NOW).ok
+    assert evaluate(_enc(total_damage=0), [_combatant(damage=900_000)], now=_NOW).ok

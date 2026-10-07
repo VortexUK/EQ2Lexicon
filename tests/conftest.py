@@ -162,21 +162,24 @@ def _bypass_uploader_claims(request):
     """Ingest/attendance tests upload as fake users with no claims; the
     logger→claim binding would mark every upload unverified. Bypassed unless
     the test requests the ``uploader_claims_enforced`` fixture."""
+    from backend.server.api.parses import ingest
+
     if "uploader_claims_enforced" in request.fixturenames:
         yield
         return
-    from unittest.mock import AsyncMock, patch
-
-    with (
-        patch("backend.server.api.parses.ingest._uploader_claimed", new=AsyncMock(return_value=True)),
-        patch("backend.server.api.attendance._uploader_claimed", new=AsyncMock(return_value=True)),
-    ):
+    ingest.ENFORCE_UPLOADER_CLAIMS = False
+    try:
         yield
+    finally:
+        ingest.ENFORCE_UPLOADER_CLAIMS = True
 
 
 @pytest.fixture
 def uploader_claims_enforced():
     """Opt a test INTO the real logger→approved-claim check."""
+    from backend.server.api.parses import ingest
+
+    ingest.ENFORCE_UPLOADER_CLAIMS = True
     yield
 
 

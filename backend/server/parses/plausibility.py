@@ -102,9 +102,17 @@ def evaluate(enc: Encounter, combatants: list[Combatant], *, now: int) -> Plausi
     if started > 0 and (started < TS_FLOOR or started > now + FUTURE_SKEW_S):
         return _reject("timestamp_implausible")
 
+    # Duration longer than the wall-clock window the timestamps describe is
+    # impossible (shorter is fine — ACT trims idle tails). 5 s covers rounding.
+    if started > 0 and ended > 0 and enc.duration_s > (ended - started) + 5:
+        return _reject("duration_exceeds_window")
+
     for c in combatants:
         if c.ally and c.damage < 0:
             return _reject("combatant_damage_negative")
+        for perc in (c.damage_perc, c.healed_perc, c.crit_dam_perc, c.crit_heal_perc):
+            if perc < 0 or perc > 100:
+                return _reject("percentage_out_of_range")
 
     # --- Layer 2: possible but implausible → QUARANTINE (off-board, 201) -----
     # These do NOT error the upload — the plugin gets a normal 201; the parse
@@ -123,5 +131,9 @@ def evaluate(enc: Encounter, combatants: list[Combatant], *, now: int) -> Plausi
             continue
         if c.encdps > MAX_PLAUSIBLE_RATE or c.enchps > MAX_PLAUSIBLE_RATE:
             return _quarantine("implausible_rate")
+        # One ally out-damaging the whole fight (5% slack for ACT's differing
+        # total-damage computations) is the forged-row shape.
+        if enc.total_damage > 0 and c.damage > enc.total_damage * 1.05:
+            return _quarantine("combatant_exceeds_total")
 
     return PlausibilityResult(Verdict.ACCEPT)

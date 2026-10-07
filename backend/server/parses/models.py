@@ -175,12 +175,14 @@ class Encounter:
         ingested_at: int,
         uploaded_by: str = "local",
         guild_name: str | None = None,
+        uploader_verified: bool = True,
     ) -> dict[str, object]:
         """Return a ``{column_name: value}`` dict ready for the ``:name``-style
         ``insert_encounter`` SQL. The model field ``encid`` maps to the
         ``act_encid`` column; datetime fields are converted to unix-seconds."""
         return {
             "world": world,
+            "uploader_verified": 1 if uploader_verified else 0,
             "act_encid": self.encid,
             "title": self.title,
             "zone": self.zone,

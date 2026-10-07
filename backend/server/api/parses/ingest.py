@@ -40,6 +40,7 @@ from backend.server.core.executor import run_sync
 from backend.server.core.session_user import TokenUser
 from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
+from backend.server.db import get_active_claims
 from backend.server.limiter import limiter, upload_rate_key
 from backend.server.parses import plausibility
 from backend.server.parses.db import store as parses_db
@@ -88,6 +89,24 @@ class _CensusUnavailable:
 
 
 CENSUS_UNAVAILABLE = _CensusUnavailable()
+
+
+#: Tests upload as fake users with no claims; the conftest turns the binding
+#: off except where a test opts in (``uploader_claims_enforced``).
+ENFORCE_UPLOADER_CLAIMS = True
+
+
+async def _uploader_claimed(user_id: str, uploader: str, world: str) -> bool:
+    """True when ``user_id`` holds an approved claim on ``uploader`` for ``world``.
+
+    Uploads bind to the TOKEN OWNER's characters, not to whatever name the
+    client puts in ``logger_name`` — otherwise any approved account can file
+    fights (and attendance) under a rival guild's roster."""
+    if not ENFORCE_UPLOADER_CLAIMS:
+        return True
+    claims = await get_active_claims(user_id, world=world)
+    wanted = uploader.lower()
+    return any(c["character_name"].lower() == wanted for c in claims["approved"])
 
 
 async def _resolve_uploader_guild_async(
@@ -679,6 +698,7 @@ def _insert_encounter_rows_sync(
     source_dsn: str,
     world: str,
     client_warnings: list[str] | None = None,
+    uploader_verified: bool = True,
 ) -> tuple[int, int, int]:
     """Insert encounter + all sub-rows in a single transaction.
     Returns (encounter_id, n_damage_types, n_attack_types).
@@ -704,6 +724,7 @@ def _insert_encounter_rows_sync(
         uploaded_by=uploaded_by,
         guild_name=guild_name,
         world=world,
+        uploader_verified=uploader_verified,
     )
     # Persist client_warnings as JSON on the new row. Sanitise
     # defensively: drop empty entries, truncate each at 64 chars
@@ -759,8 +780,9 @@ def _ingest_payload_sync(
     source_dsn: str,
     snapshots: dict[str, CombatantSnapshot] | None = None,
     world: str = "Varsoon",
+    uploader_verified: bool = True,
 ) -> tuple[str, int | None, int, int, int]:
-    """Write the payload into parses.db. Returns (status, encounter_id,
+    """Write the payload into the parses schema. Returns (status, encounter_id,
     n_combatants, n_damage_types, n_attack_types).
 
     status: 'inserted' on success, 'revived' if the encid was already
@@ -803,6 +825,7 @@ def _ingest_payload_sync(
             source_dsn=source_dsn,
             world=world,
             client_warnings=payload.client_warnings,
+            uploader_verified=uploader_verified,
         )
         return ("inserted", encounter_id, len(combatants), n_dt, n_at)
     finally:
@@ -1117,7 +1140,21 @@ async def ingest_parse(
     # HttpClient timeout — 2026-07-28 incident.) logger_server (plugin
     # v0.1.10+) overrides EQ2_WORLD; after the strict gate above the value
     # is guaranteed valid.
-    guild_result = await _resolve_uploader_guild_async(uploader, body.logger_server)
+    # The logger must be a character the uploading account has an approved
+    # claim on for this world; otherwise the upload is kept for its uploader
+    # but is never attributed to a guild (no backfill either) and never ranks.
+    uploader_verified = await _uploader_claimed(str(user["id"]), uploader, parse_world)
+    if uploader_verified:
+        guild_result = await _resolve_uploader_guild_async(uploader, body.logger_server)
+    else:
+        guild_result = None
+        _log.info(
+            "[parses-ingest] unverified logger: user_id=%s logger=%s world=%s encid=%s",
+            user["id"],
+            scrub(uploader),
+            parse_world,
+            scrub(body.encounter.encid),
+        )
     # CENSUS_UNAVAILABLE covers both "not in cache/store" and (via the
     # backfill's own retry) "Census down" — either way: commit NULL now,
     # backfill fills it in.
@@ -1161,6 +1198,7 @@ async def ingest_parse(
             f"plugin:{user['id']}",  # source_dsn marks the auth path
             snapshots,
             parse_world,
+            uploader_verified,
         )
     except (DuplicatePayloadRows, psycopg.errors.UniqueViolation) as exc:
         # A payload that breaks a uniqueness rule is the CLIENT's bug: say

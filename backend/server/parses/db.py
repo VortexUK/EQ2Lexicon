@@ -89,6 +89,7 @@ class ParsesStore(PgCatalogue):
         uploaded_by: str = "local",
         guild_name: str | None = None,
         world: str = "Varsoon",
+        uploader_verified: bool = True,
     ) -> int:
         """Insert one encounter row. The column ↔ field mapping (incl. the
         ``encid → act_encid`` rename and the datetime → unix conversion) lives
@@ -102,6 +103,7 @@ class ParsesStore(PgCatalogue):
                 ingested_at=ingested_at,
                 uploaded_by=uploaded_by,
                 guild_name=guild_name,
+                uploader_verified=uploader_verified,
             ),
         )
         row = cur.fetchone()
