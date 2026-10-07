@@ -1,45 +1,38 @@
-"""Local SQLite AA catalogue (aas.db) — the single source of AA reference data.
+"""AA catalogue (Postgres ``aas`` schema) — the single source of AA reference data.
 
 Condenses the AA JSONs (census tree downloads + ``aa_limits.json``) into
 ``aa_trees`` + ``aa_nodes`` + ``aa_limits``. ``tree_type`` (the structural
 detect_tree_type heuristic) and ``max_points`` (Σ maxtier × points_per_tier)
 are precomputed at build time by ``scripts/build_aas_db.py``, so runtime
-consumers do simple indexed reads.
+consumers do simple indexed reads. Schema DDL is owned by
+db/migrations/0012_aas.sql.
 
 All access goes through the :class:`AACatalogue` class — one method call per
 question, so AA code elsewhere stays minimal. The module-level ``catalogue``
-is the shared default instance (committed ``data/AAs/aas.db``, like
-classes.db; ``DB_AAS_PATH`` env overrides). Tests construct their own
-``AACatalogue(tmp_path)`` — every instance carries its own caches.
+is the shared default instance; tests lease a scratch schema and re-point
+``catalogue.schema`` — every instance carries its own caches.
 
-Rebuild flow (tree JSONs are LOCAL intermediates, gitignored — only aas.db
-and the hand-curated aa_limits.json are committed):
-``scripts/download_aa_trees.py`` → ``scripts/build_aas_db.py`` → commit aas.db.
+Rebuild flow (tree JSONs are LOCAL intermediates, gitignored — only the
+hand-curated aa_limits.json is committed):
+``scripts/download_aa_trees.py`` → ``scripts/build_aas_db.py`` (writes to
+the database at DATABASE_URL).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from collections.abc import Iterable, Mapping
-from pathlib import Path
 from typing import Any
 
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import resolve_db_path
-from backend.eq2db import _meta as _meta_db
+from backend.db_catalogue import PgCatalogue
 from backend.sql_loader import load_sql
 
 _log = logging.getLogger(__name__)
 
 _SQL = load_sql(__file__)
 
-DB_PATH: Path = resolve_db_path("DB_AAS_PATH", "AAs", "aas.db")
-
-# Re-export the shared meta helpers (provenance stamps set by the build script).
-get_meta = _meta_db.get_meta
-set_meta = _meta_db.set_meta
+SCHEMA = "aas"
 
 # EQ2 expansion short codes → canonical aa_limits keys. A server's current_xpac
 # is often stored as a short code (e.g. "DoV"); without this the limits lookup
@@ -104,17 +97,17 @@ def detect_tree_type(tree_data: dict) -> str:
     return "unknown"
 
 
-class AACatalogue(BaseCatalogue):
-    """Read (and build) access to one aas.db file, with per-instance caching.
+class AACatalogue(PgCatalogue):
+    """Read (and build) access to the aas schema, with per-instance caching.
 
     AA data is static per deploy, so every read is cached forever on the
     instance; ``clear_caches()`` resets (tests + the build script).
     """
 
-    FOREIGN_KEYS = True
+    READY_TABLE = "aa_trees"
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
         self._tree_index: dict[int, dict[str, str]] | None = None
         self._trees: dict[int, dict | None] = {}
         self._node_costs: dict[int, dict[int, int]] = {}
@@ -122,24 +115,13 @@ class AACatalogue(BaseCatalogue):
         self._total_max_points: dict[frozenset[str], int] = {}
         self._limits: dict[str, dict | None] = {}
 
-    # ── Connection helpers ───────────────────────────────────────────────────
-
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_aa_trees"])
-        conn.execute(_SQL["schema_aa_nodes"])
-        conn.execute(_SQL["schema_aa_limits"])
-        conn.executescript(_SQL["indexes_aas"])
-        # Idempotent for DBs built before the era-row curation shipped
-        # (2026-07: per-xpac node visibility for the AA planner).
-        self._apply_migrations(conn, [_SQL["migrate_aa_limits_visible_rows"]])
-
-    def _query(self, name: str, params: tuple = ()) -> list:
-        """Run one read query by its _SQL block name; [] when the DB is
-        missing or unbuilt (see BaseCatalogue._fetchall)."""
+    def _query(self, name: str, params: tuple = ()) -> list[dict]:
+        """Run one read query by its _SQL block name. Rows are dicts."""
         return self._fetchall(_SQL[name], params)
 
     def clear_caches(self) -> None:
         """Reset every per-instance cache — used by tests and the build script."""
+        super().clear_caches()
         self._tree_index = None
         self._trees.clear()
         self._node_costs.clear()
@@ -166,7 +148,7 @@ class AACatalogue(BaseCatalogue):
         """
         if self._tree_index is None:
             rows = self._query("select_tree_index")
-            self._tree_index = {int(r[0]): {"name": r[1], "type": r[2]} for r in rows}
+            self._tree_index = {int(r["id"]): {"name": r["name"], "type": r["tree_type"]} for r in rows}
         return self._tree_index
 
     def tree_node_costs(self, tree_id: int) -> dict[int, int]:
@@ -174,7 +156,7 @@ class AACatalogue(BaseCatalogue):
         node (most are 1, some endline nodes are 2). Unknown tree → {}."""
         if tree_id not in self._node_costs:
             rows = self._query("select_node_costs", (tree_id,))
-            self._node_costs[tree_id] = {int(r[0]): int(r[1]) for r in rows}
+            self._node_costs[tree_id] = {int(r["node_id"]): int(r["points_per_tier"]) for r in rows}
         return self._node_costs[tree_id]
 
     def resolve_tree_id(self, tree_ids: Iterable[int], wanted_types: set[str]) -> int | None:
@@ -194,7 +176,7 @@ class AACatalogue(BaseCatalogue):
         """The tree's fully-maxed point total (precomputed at build). Unknown → 0."""
         if tree_id not in self._max_points:
             rows = self._query("select_max_points", (tree_id,))
-            self._max_points[tree_id] = int(rows[0][0]) if rows else 0
+            self._max_points[tree_id] = int(rows[0]["max_points"]) if rows else 0
         return self._max_points[tree_id]
 
     def total_max_points(self, tree_types: frozenset[str]) -> int:
@@ -203,14 +185,10 @@ class AACatalogue(BaseCatalogue):
         if not tree_types:
             return 0
         if tree_types not in self._total_max_points:
-            placeholders = ",".join("?" * len(tree_types))
-            row = self._fetchone(
-                _SQL["sum_max_points_for_types"].format(placeholders=placeholders),
-                sorted(tree_types),
-            )
+            row = self._fetchone(_SQL["sum_max_points_for_types"], (sorted(tree_types),))
             if row is None:
-                return 0  # missing/unbuilt DB — don't cache the zero
-            self._total_max_points[tree_types] = int(row[0]) if row[0] is not None else 0
+                return 0  # unloaded schema — don't cache the zero
+            self._total_max_points[tree_types] = int(row["total"]) if row["total"] is not None else 0
         return self._total_max_points[tree_types]
 
     def get_tree(self, tree_id: int) -> dict | None:
@@ -253,25 +231,25 @@ class AACatalogue(BaseCatalogue):
                 break
         if row is None and norm:
             # Case-insensitive full-name fallback
-            for (key,) in self._query("select_limit_xpacs"):
-                if key.lower() == norm:
-                    row = self._query("select_limit", (key,))[0]
+            for xr in self._query("select_limit_xpacs"):
+                if xr["xpac"].lower() == norm:
+                    row = self._query("select_limit", (xr["xpac"],))[0]
                     break
         if row is None:
             return None
         try:
-            unlocked = json.loads(row[1] or "[]")
+            unlocked = json.loads(row["unlocked_trees"] or "[]")
         except json.JSONDecodeError:
             unlocked = []
         try:
-            visible_rows = json.loads(row[3] or "{}")
-        except (json.JSONDecodeError, IndexError):
+            visible_rows = json.loads(row["visible_rows"] or "{}")
+        except json.JSONDecodeError:
             visible_rows = {}
-        return {"aa_cap": int(row[0]), "unlocked_trees": unlocked, "visible_rows": visible_rows}
+        return {"aa_cap": int(row["aa_cap"]), "unlocked_trees": unlocked, "visible_rows": visible_rows}
 
     # ── Build (scripts/build_aas_db.py) ──────────────────────────────────────
 
-    def upsert_tree(self, conn: sqlite3.Connection, tree_id: int, tree_data: dict) -> int:
+    def upsert_tree(self, conn: Any, tree_id: int, tree_data: dict) -> int:
         """Insert/replace one tree (and all its nodes) from its raw JSON dict.
 
         Computes tree_type + max_points from the SAME coerced values that get
@@ -339,7 +317,7 @@ class AACatalogue(BaseCatalogue):
         conn.commit()
         return len(rows)
 
-    def upsert_limits(self, conn: sqlite3.Connection, xpac: str, entry: dict) -> None:
+    def upsert_limits(self, conn: Any, xpac: str, entry: dict) -> None:
         """Insert/replace one expansion's AA limits (from aa_limits.json's
         ``{xpac: {aa_cap, unlocked_trees, visible_rows, notes}}`` entries)."""
         conn.execute(
@@ -357,3 +335,8 @@ class AACatalogue(BaseCatalogue):
 
 # The shared default instance — every runtime consumer goes through this.
 catalogue = AACatalogue()
+
+# Script-facing `_meta` aliases (build_aas_db.py provenance stamps) — bound
+# to the shared instance so a re-pointed catalogue.schema carries through.
+get_meta = catalogue.get_meta
+set_meta = catalogue.set_meta

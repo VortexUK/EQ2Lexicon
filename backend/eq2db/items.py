@@ -51,24 +51,38 @@ SERVER_MAX_LEVEL: int | None = _resolve_max_level()
 # ---------------------------------------------------------------------------
 # EQ2 class-group label helper
 # ---------------------------------------------------------------------------
-# Class-group membership is OWNED by the committed classes.db, accessed via
-# backend.eq2db.classes.catalogue (archetype_groups / subclass_groups /
-# crafter_names). Census API item rows use lowercase
-# class-name keys ({"guardian": {...}}), so the tables below lowercase the
-# canonical TitleCase names from the DB rows.
+# Class-group membership is OWNED by the Postgres classes schema, accessed
+# via backend.eq2db.classes.catalogue (archetype_groups / subclass_groups /
+# crafter_names). Census API item rows use lowercase class-name keys
+# ({"guardian": {...}}), so the tables below lowercase the canonical
+# TitleCase names from the DB rows.
 #
-# DO NOT redefine class groupings here — edit the row in classes.db.
+# LAZY on purpose (Phase 3): class data is a network read now, and this
+# module is imported by conftest/scripts before migrations or env setup can
+# run — the first compute_class_label call builds the tables, cached forever.
+#
+# DO NOT redefine class groupings here — edit the classes schema.
 
-_CRAFTERS: frozenset[str] = frozenset(name.lower() for name in _classes.crafter_names())
-_ALL_ADVENTURERS: frozenset[str] = frozenset(n.lower() for _, members in _classes.archetype_groups() for n in members)
+_class_tables_cache: tuple[frozenset[str], frozenset[str], list[tuple[str, frozenset[str]]]] | None = None
 
-# Groups checked in priority order: full archetypes first ("All Fighters"…),
-# then subclasses ("All Warriors"…). The algorithm in compute_class_label
-# removes matched classes from `remaining` as it goes, so a complete archetype
-# is consumed before its constituent subclasses are tested.
-_ARCHETYPES: list[tuple[str, frozenset[str]]] = [
-    (f"All {archetype}s", frozenset(n.lower() for n in members)) for archetype, members in _classes.archetype_groups()
-] + [(f"All {subclass}s", frozenset(n.lower() for n in members)) for subclass, members in _classes.subclass_groups()]
+
+def _class_tables() -> tuple[frozenset[str], frozenset[str], list[tuple[str, frozenset[str]]]]:
+    """(crafters, all_adventurers, archetype-priority groups), built once.
+
+    Groups are checked in priority order: full archetypes first ("All
+    Fighters"…), then subclasses ("All Warriors"…). compute_class_label
+    removes matched classes from `remaining` as it goes, so a complete
+    archetype is consumed before its constituent subclasses are tested."""
+    global _class_tables_cache
+    if _class_tables_cache is None:
+        crafters = frozenset(name.lower() for name in _classes.crafter_names())
+        adventurers = frozenset(n.lower() for _, members in _classes.archetype_groups() for n in members)
+        archetypes = [
+            (f"All {archetype}s", frozenset(n.lower() for n in members))
+            for archetype, members in _classes.archetype_groups()
+        ] + [(f"All {subclass}s", frozenset(n.lower() for n in members)) for subclass, members in _classes.subclass_groups()]
+        _class_tables_cache = (crafters, adventurers, archetypes)
+    return _class_tables_cache
 
 
 # ---------------------------------------------------------------------------
@@ -165,17 +179,18 @@ class ItemCatalogue(PgCatalogue):
         if not classes or not isinstance(classes, dict):
             return None
 
+        crafters, all_adventurers, archetypes = _class_tables()
         keys = frozenset(classes.keys())
-        adv = keys & _ALL_ADVENTURERS
+        adv = keys & all_adventurers
 
         # All 26 adventure classes present (crafters optional) → "All Classes"
-        if adv >= _ALL_ADVENTURERS:
+        if adv >= all_adventurers:
             return "All Classes"
 
         parts: list[str] = []
         remaining = set(adv)
 
-        for label, group in _ARCHETYPES:
+        for label, group in archetypes:
             if remaining >= group:
                 parts.append(label)
                 remaining -= group
@@ -188,7 +203,7 @@ class ItemCatalogue(PgCatalogue):
 
         # Crafter-only items (no adventure classes matched at all)
         if not parts:
-            crafter_keys = keys & _CRAFTERS
+            crafter_keys = keys & crafters
             if crafter_keys:
                 return "Crafters"
 

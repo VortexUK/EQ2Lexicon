@@ -1,93 +1,73 @@
-"""EQ2 class catalogue — read-only DB-backed accessor behind ClassCatalogue.
+"""EQ2 class catalogue — read-only accessor behind ClassCatalogue.
 
-The canonical class catalogue is the committed SQLite file at
-``data/classes/classes.db``. It holds:
+The canonical class catalogue is the Postgres ``classes`` schema, seeded by
+db/migrations/0011_classes.sql (the seeds ARE the canonical data — classes
+was previously a hand-maintained committed SQLite file with no build
+script). It holds:
   - 26 adventure classes (archetype ∈ {Fighter, Priest, Scout, Mage})
   - 9 crafters (archetype = "Crafter")
 
-All access goes through :class:`ClassCatalogue` (the AACatalogue methodology:
-one class encapsulating the DB path + per-instance caches, with the shared
+All access goes through :class:`ClassCatalogue` (the eq2db methodology: one
+class encapsulating the schema name + per-instance caches, with the shared
 module-level ``catalogue`` as the runtime entry point). Derived views —
 archetype colours, crafter names, subclass/archetype groups — are catalogue
-methods; ``backend.census.constants`` and ``backend.eq2db.items`` build their
-module-level tables from these at import, so a missing/empty classes.db still
-fails fast at process start. It does NOT define class data inline anywhere —
-to change a class's role, colour, icon_id, or subclass, edit the row in
-classes.db and commit the new file.
+methods; ``backend.census.constants`` and ``backend.eq2db.items`` build
+their module-level tables from these AT IMPORT, so main.py applies
+migrations BEFORE importing the app and a missing/empty classes schema
+still fails fast at process start. To change a class's role, colour,
+icon_id, or subclass: edit the row in the DB and add a new migration for
+reproducibility.
 
 Keyed by class NAME: EQ2 has several unrelated class-id schemes (icon_id is
 the EQ2wire icon id; AA trees and Census type.classid use different ids), so
 name is the only stable cross-reference.
-
-Why DB-backed instead of a Python literal:
-  - One source of truth at runtime. Code never disagrees with the DB.
-  - Maintainers (and admin tooling) can update class metadata by editing
-    the committed .db file — no code redeploy needed for cosmetic
-    changes like archetype colours.
-  - The DB is small (~20 KB) and committed, so CI works without a build
-    step. First-access read cost is one SQLite open + 35-row scan, cached
-    on the instance thereafter.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import sqlite3
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, TypeVar
 
-from backend.db_catalogue import BaseCatalogue
-from backend.db_helpers import resolve_db_path
-from backend.sql_loader import load_sql
+from backend.db_catalogue import PgCatalogue
 
 _T = TypeVar("_T")
 
-_SQL = load_sql(__file__)
+SCHEMA = "classes"
 
-# classes.db ships IN the repo (source of truth since #50) and must never be
-# shadowed by a deployment copy: a stale volume file behind DB_CLASSES_PATH
-# served the pre-2026-08 swapped Coercer/Illusionist ids in prod for weeks
-# (live report 2026-09-22 — the stats Explorer queried the wrong classid).
-# The env override is therefore IGNORED with a warning; every deploy reads
-# the committed file.
-DB_PATH: Path = resolve_db_path("_DB_CLASSES_PATH_UNUSED", "classes", "classes.db")
+# The old SQLite-era env override stays loudly ignored: a stale volume file
+# behind DB_CLASSES_PATH served the pre-2026-08 swapped Coercer/Illusionist
+# ids in prod for weeks (live report 2026-09-22).
 if os.getenv("DB_CLASSES_PATH"):
     logging.getLogger(__name__).warning(
-        "[classes-db] DB_CLASSES_PATH is set but deliberately ignored — classes.db is "
-        "committed reference data and the repo copy at %s is authoritative. "
-        "Remove the env var (and the stale volume copy) to silence this.",
-        DB_PATH,
+        "[classes-db] DB_CLASSES_PATH is set but ignored — class data lives in the "
+        "Postgres `classes` schema (seeded by db/migrations/0011_classes.sql). "
+        "Remove the env var to silence this."
     )
 
 _ADVENTURE_ARCHETYPES: tuple[str, ...] = ("Fighter", "Priest", "Scout", "Mage")
 _CRAFTER_ARCHETYPE: str = "Crafter"
 
 
-class ClassCatalogue(BaseCatalogue):
-    """Read access to one classes.db file, with per-instance caching.
+class ClassCatalogue(PgCatalogue):
+    """Read access to the classes schema, with per-instance caching.
 
     Class data is static per deploy — every read is cached forever on the
     instance; ``clear_caches()`` resets (tests). Returned rows/structures are
     shared cached objects: treat them as read-only.
     """
 
-    # classes.db is committed pre-populated — no download provenance to
-    # track, so skip the shared _meta table.
-    CREATE_META = False
+    READY_TABLE = "classes"
 
-    def __init__(self, path: Path = DB_PATH) -> None:
-        super().__init__(path)
+    def __init__(self, schema: str = SCHEMA) -> None:
+        super().__init__(schema)
         self._rows: list[dict] | None = None
         self._derived: dict[str, Any] = {}
 
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(_SQL["schema_classes"])
-        conn.executescript(_SQL["indexes_classes"])
-
     def clear_caches(self) -> None:
         """Reset the per-instance caches — used by tests."""
+        super().clear_caches()
         self._rows = None
         self._derived.clear()
 
@@ -107,24 +87,22 @@ class ClassCatalogue(BaseCatalogue):
     def list_all(self) -> list[dict]:
         """All classes ordered by display_order.
 
-        Raises RuntimeError when the DB is missing/unseeded — the catalogue is
-        committed source-of-truth and an empty read means a broken checkout,
-        not an empty game."""
+        Raises RuntimeError when the schema is missing/unseeded — the
+        catalogue is migration-seeded source-of-truth and an empty read means
+        a broken environment, not an empty game."""
         if self._rows is None:
             try:
-                conn = self.init_db()
-                try:
-                    conn.row_factory = sqlite3.Row
-                    rows = [dict(r) for r in conn.execute(_SQL["list_all"]).fetchall()]
-                finally:
-                    conn.close()
-            except sqlite3.DatabaseError:
-                rows = []
+                rows = [dict(r) for r in self._fetchall("SELECT * FROM classes ORDER BY display_order")]
+            except Exception as exc:  # psycopg errors → same fail-fast contract
+                raise RuntimeError(
+                    f"classes schema {self.schema!r} is unreadable ({exc}). It is seeded by "
+                    "db/migrations/0011_classes.sql — run migrations (app startup does, and "
+                    "main.py applies them before the app imports)."
+                ) from exc
             if not rows:
                 raise RuntimeError(
-                    f"classes.db at {self.path} is empty or unreadable. The DB is committed at "
-                    "data/classes/classes.db — if it's missing on a fresh clone, fetch the "
-                    "file from origin or restore from the Railway volume."
+                    f"classes schema {self.schema!r} is empty. It is seeded by "
+                    "db/migrations/0011_classes.sql — run migrations against this database."
                 )
             self._rows = rows
         return self._rows

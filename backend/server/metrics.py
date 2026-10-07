@@ -270,48 +270,13 @@ class _DBCollector(Collector):
         yield g_spell_timers
 
 
-class _DBFileSizeCollector(Collector):
-    """File-size gauge for every SQLite DB the app reads/writes. Lets the
-    Databases dashboard show growth trends per DB without per-table COUNTs
-    (those live in :class:`_DBCollector`).
-
-    Inspects only what's on disk; doesn't touch the DBs. Missing DBs are
-    silently absent from the output rather than reporting 0 — a missing
-    file is a different state than an empty one, and the dashboard can
-    spot the difference via the labelset gap."""
+class _PgSchemaSizeCollector(Collector):
+    """Total relation size per Postgres family schema — the growth-trend
+    gauge behind the Databases dashboard (and the measurement behind the
+    Supabase tier decision). The SQLite db_file_size_bytes gauge died with
+    Phase 3: every data family lives in Postgres now."""
 
     def collect(self):  # type: ignore[override]
-        from backend.eq2db import aas as aas_db
-        from backend.eq2db import classes as classes_db
-
-        # Map label → Path. Centralised so adding a new DB is one tuple.
-        # (users/parses/census/zones/raids and now items/spells/recipes
-        # moved to Postgres — covered by the schema-size gauge below
-        # instead of a file stat. Only the committed reference SQLite
-        # files remain.)
-        candidates = [
-            ("classes", classes_db.DB_PATH),
-            ("aas", aas_db.DB_PATH),
-        ]
-
-        g_size = GaugeMetricFamily(
-            "db_file_size_bytes",
-            "On-disk size of each SQLite database (bytes)",
-            labels=["db"],
-        )
-
-        for label, path in candidates:
-            try:
-                if path.exists():
-                    g_size.add_metric([label], path.stat().st_size)
-            except Exception:
-                _log.exception("[metrics] db file-size for %s", label)
-
-        yield g_size
-
-        # Migrated families: total relation size per Postgres schema — the
-        # growth-trend replacement for their old file gauges (and the
-        # measurement behind the Supabase tier decision).
         g_pg = GaugeMetricFamily(
             "pg_schema_size_bytes",
             "Total relation size per migrated Postgres family schema (bytes)",
@@ -325,7 +290,7 @@ class _DBFileSizeCollector(Collector):
                     "SELECT schemaname AS s,"
                     " SUM(pg_total_relation_size((quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass))::bigint AS b"
                     " FROM pg_tables WHERE schemaname IN"
-                    " ('users', 'parses', 'census', 'zones', 'raids', 'items', 'spells', 'recipes')"
+                    " ('users', 'parses', 'census', 'zones', 'raids', 'items', 'spells', 'recipes', 'aas', 'classes')"
                     " GROUP BY schemaname"
                 ).fetchall()
             for r in rows:
@@ -361,7 +326,7 @@ def _register_db_collector() -> None:
     global _db_collector_registered
     if not _db_collector_registered:
         REGISTRY.register(_DBCollector())
-        REGISTRY.register(_DBFileSizeCollector())
+        REGISTRY.register(_PgSchemaSizeCollector())
         REGISTRY.register(_CensusHealthCollector())
         REGISTRY.register(_ActiveUsersCollector())
         _db_collector_registered = True

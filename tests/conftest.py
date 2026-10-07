@@ -190,7 +190,13 @@ def mock_character_cache():
 
 # Re-export per-domain fixtures so they can be requested from any test
 # directory (the fixtures' module location is implementation detail).
-from tests.fixtures.catalogues_db import items_schema, recipes_schema, spells_schema  # noqa: F401,E402
+from tests.fixtures.catalogues_db import (  # noqa: F401,E402
+    aas_schema,
+    classes_schema,
+    items_schema,
+    recipes_schema,
+    spells_schema,
+)
 from tests.fixtures.census_db import census_schema  # noqa: F401,E402
 from tests.fixtures.logging_state import _logging_state_isolation  # noqa: F401,E402
 from tests.fixtures.parses_db import parses_db_conn, parses_db_path  # noqa: F401,E402

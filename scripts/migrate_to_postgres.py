@@ -71,7 +71,10 @@ REPORTS_DIR = _REPO / "reports"
 #: detail would be over-pruned at load.
 #: Phase-2 read-only catalogue mirrors (items / spells / recipes) ride the
 #: same machinery — their one-time bulk load sources the LOCAL data/<name>/
-#: <name>.db files (the volume copies are identical).
+#: <name>.db files (the volume copies are identical). The Phase-3 reference
+#: pair (aas / classes) is deliberately NOT here: their rows are seeded by
+#: the 0011/0012 migrations themselves (full-data seeds — every environment
+#: is data-complete from migrations alone).
 FAMILIES = ("users", "zones", "raids", "census", "parses", "items", "spells", "recipes")
 
 #: Tables whose rows are intentionally NOT copied (none today; placeholder

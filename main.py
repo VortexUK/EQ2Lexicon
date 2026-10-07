@@ -71,6 +71,15 @@ async def run_bot() -> None:
 async def run_web() -> None:
     import uvicorn
 
+    # Migrations BEFORE the app module imports: importing the app pulls in
+    # backend.eq2db.classes consumers whose first access reads the Postgres
+    # classes schema (seeded by 0011) — on a fresh database the lifespan's
+    # own migration run would come too late. Idempotent; the lifespan run
+    # stays as the second line of defence.
+    from backend import pg_migrate
+
+    await asyncio.to_thread(pg_migrate.run)
+
     from backend.server.app import app
 
     port = int(os.getenv("PORT", "8000"))

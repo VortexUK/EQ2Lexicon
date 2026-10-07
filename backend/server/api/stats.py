@@ -119,9 +119,15 @@ class LifetimeStatResponse(BaseModel):
 
 
 def _classid_names() -> dict[int, str]:
-    """classes.db's icon_id column IS the census classid scheme (Templar=13,
-    Mystic=19 — verified against live character type.classid)."""
-    return {int(row["icon_id"]): row["name"] for row in classes_db.list_all() if row.get("icon_id") is not None}
+    """{census type.classid: class name} — from the classes schema's explicit
+    census_classid column (Templar=13, Mystic=19 — verified against live
+    character type.classid). Historically this abused icon_id, which happens
+    to share the enumeration; the Phase-3 port split the two concepts."""
+    return {
+        int(row["census_classid"]): row["name"]
+        for row in classes_db.list_all()
+        if row.get("census_classid") is not None
+    }
 
 
 def _agg(value: dict, stat: str) -> StatAggregate:
