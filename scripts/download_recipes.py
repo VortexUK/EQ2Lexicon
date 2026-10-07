@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Download all recipes from the Census /recipe/ collection into data/recipes/recipes.db.
+Download all recipes from the Census /recipe/ collection into the Postgres
+`recipes` schema (DATABASE_URL — see backend/pg.py for the DSN resolution chain).
 
 Mirrors scripts/download_spells.py in structure:
-  - Resumes automatically from saved offset (stored in DB _meta table)
-  - Safe to re-run: uses INSERT OR REPLACE keyed on recipe ID
+  - Resumes automatically from saved offset (stored in the schema's _meta table)
+  - Safe to re-run: upserts keyed on recipe ID
   - ~70,000 recipes total; takes a few minutes on a good connection
   - Spell-scroll recipes (e.g. "Lightning Palm III (Expert)") are automatically
     parsed into base_name_lower + crafted_tier columns at ingest time.
@@ -32,7 +33,8 @@ from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from backend.eq2db.recipes import DB_PATH, catalogue, get_meta, set_meta
+from backend.eq2db.recipes import catalogue, get_meta, set_meta
+from backend.pg import ensure_selector_event_loop_policy
 
 BASE_URL = "https://census.daybreakgames.com"
 PAGE_SIZE = 100  # Census silently caps responses at 100 regardless of c:limit
@@ -118,7 +120,7 @@ async def main(restart: bool, recipe_limit: int | None) -> None:
 
     conn = catalogue.init_db()
     existing = catalogue.recipe_count(conn)
-    print(f"DB:            {DB_PATH}")
+    print(f"DB:            Postgres schema '{catalogue.schema}'")
     print(f"Existing rows: {existing:,}")
 
     if restart:
@@ -200,7 +202,7 @@ async def main(restart: bool, recipe_limit: int | None) -> None:
     conn.close()
     final_conn = catalogue.init_db()
     final = catalogue.recipe_count(final_conn)
-    spell_rows = final_conn.execute("SELECT COUNT(*) FROM recipes WHERE crafted_tier IS NOT NULL").fetchone()[0]
+    spell_rows = catalogue.fetchval(final_conn.execute("SELECT COUNT(*) FROM recipes WHERE crafted_tier IS NOT NULL"))
     final_conn.close()
     print(f"\nDone. Written this run: {written:,}  |  Total in DB: {final:,}  |  Spell-scroll recipes: {spell_rows:,}")
 
@@ -210,4 +212,8 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None, help="Max recipes to download this run (for testing)")
     parser.add_argument("--restart", action="store_true", help="Ignore saved offset and start from 0")
     args = parser.parse_args()
+    # Windows: psycopg's async side can't run on the default ProactorEventLoop.
+    # The DB work here is sync psycopg, but set the selector policy before the
+    # loop exists so any future async PG use inside main() just works.
+    ensure_selector_event_loop_policy()
     asyncio.run(main(args.restart, args.limit))

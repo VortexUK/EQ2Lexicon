@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Download all spells from the Census /spell/ collection into data/spells/spells.db.
+Download all spells from the Census /spell/ collection into the Postgres
+`spells` schema (DATABASE_URL — see backend/pg.py for the DSN resolution chain).
 
 Mirrors scripts/download_items.py in structure:
-  - Resumes automatically from saved offset (stored in DB _meta table)
-  - Safe to re-run: uses INSERT OR REPLACE keyed on spell ID
+  - Resumes automatically from saved offset (stored in the schema's _meta table)
+  - Safe to re-run: upserts keyed on spell ID
   - ~167,000 spells total; takes a few minutes on a good connection
 
 Usage:
@@ -30,7 +31,8 @@ from backend.census.config import SERVICE_ID, WORLD
 
 load_dotenv(override=True)
 
-from backend.eq2db.spells import DB_PATH, catalogue, get_meta, set_meta
+from backend.eq2db.spells import catalogue, get_meta, set_meta
+from backend.pg import ensure_selector_event_loop_policy
 
 BASE_URL = "https://census.daybreakgames.com"
 PAGE_SIZE = 100  # Census silently caps responses at 100 regardless of c:limit
@@ -116,7 +118,7 @@ async def main(restart: bool, spell_limit: int | None) -> None:
 
     conn = catalogue.init_db()
     existing = catalogue.spell_count(conn)
-    print(f"DB:            {DB_PATH}")
+    print(f"DB:            Postgres schema '{catalogue.schema}'")
     print(f"Existing rows: {existing:,}")
 
     if restart:
@@ -196,7 +198,9 @@ async def main(restart: bool, spell_limit: int | None) -> None:
         print("\nReached end of Census data — offset reset for next run.")
 
     conn.close()
-    final = catalogue.spell_count(catalogue.init_db())
+    final_conn = catalogue.init_db()
+    final = catalogue.spell_count(final_conn)
+    final_conn.close()
     print(f"\nDone. Written this run: {written:,}  |  Total in DB: {final:,}")
 
 
@@ -205,4 +209,8 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None, help="Max spells to download this run (for testing)")
     parser.add_argument("--restart", action="store_true", help="Ignore saved offset and start from 0")
     args = parser.parse_args()
+    # Windows: psycopg's async side can't run on the default ProactorEventLoop.
+    # The DB work here is sync psycopg, but set the selector policy before the
+    # loop exists so any future async PG use inside main() just works.
+    ensure_selector_event_loop_policy()
     asyncio.run(main(args.restart, args.limit))

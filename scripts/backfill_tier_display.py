@@ -1,30 +1,18 @@
-import sqlite3
-import sys
-from pathlib import Path
+"""RETIRED — one-time SQLite-era backfill (items.db).
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from backend.eq2db.items import DB_PATH, catalogue
+Filled the then-new ``tier_display`` column (``tier`` with a ``'COMMON'``
+default for null/empty tiers). Superseded by the Postgres ``items`` schema
+(db/migrations/0007_items.sql): ``ItemCatalogue.item_to_row`` computes
+``tier_display`` at write time, and historic rows arrived pre-backfilled via
+the one-time bulk copy.
 
-conn = catalogue.init_db()
-conn.execute("""
-    UPDATE items
-    SET tier_display = CASE
-        WHEN tier IS NOT NULL AND tier != '' THEN tier
-        ELSE 'COMMON'
-    END
-""")
-conn.commit()
-count = conn.execute("SELECT COUNT(*) FROM items WHERE tier_display IS NOT NULL").fetchone()[0]
-print(f"Backfilled {count:,} rows")
+Kept as a stub so the implementation stays reachable in git history.
+"""
 
-# Verify
-print("\nSample of previously-null tiers now resolved:")
-rows = conn.execute("""
-    SELECT tierid, tier, tier_display, COUNT(*) as cnt
-    FROM items WHERE tier IS NULL OR tier = ''
-    GROUP BY tierid, tier, tier_display
-    ORDER BY tierid DESC
-""").fetchall()
-for r in rows:
-    print(f"  tierid={r[0]}  tier={str(r[1]):<8}  tier_display={r[2]}  count={r[3]:,}")
-conn.close()
+from __future__ import annotations
+
+if __name__ == "__main__":
+    raise SystemExit(
+        "retired: one-time SQLite-era backfill — tier_display is computed at write time "
+        "by the Postgres loader (backend/eq2db/items.py item_to_row)."
+    )
