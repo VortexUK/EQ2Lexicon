@@ -32,8 +32,12 @@ jobs:
           # are not ours to dump and would fail on permissions.
           # Full path: the runner image preinstalls an older client whose
           # pg_dump wins PATH and aborts on the server version mismatch.
+          # All ten family schemas: items/spells/recipes are NOT re-seedable
+          # (a multi-hour Census crawl to rebuild); aas/classes are migration
+          # seeds but cheap to carry.
           /usr/lib/postgresql/17/bin/pg_dump -Fc -d "$DATABASE_URL" \
-            -n users -n parses -n census -n zones -n raids -n public \
+            -n users -n parses -n census -n zones -n raids \
+            -n items -n spells -n recipes -n aas -n classes -n public \
             -f "$dump"
           ls -la "$dump"
           echo "DUMP=$dump" >> "$GITHUB_ENV"

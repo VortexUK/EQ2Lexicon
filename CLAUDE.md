@@ -275,7 +275,7 @@ Two-stage by design — the network-dependent scrape is decoupled from the fast 
 
 ### Backups (Postgres → Cloudflare R2, nightly pg_dump)
 
-The writable families live in Supabase Postgres; `.github/workflows/pg-backup.yml` runs a nightly `pg_dump -Fc` of the five family schemas into the R2 bucket (`pgdump/` prefix) with 30-day in-action pruning. Secrets live on the GitHub repo: `SUPABASE_DB_URL` (session pooler) + the four `R2_*` values. Restore drill:
+Every data family lives in Supabase Postgres; `.github/workflows/pg-backup.yml` runs a nightly `pg_dump -Fc` of all ten family schemas (items/spells/recipes are not re-seedable without a multi-hour Census crawl) into the R2 bucket (`pgdump/` prefix) with 30-day in-action pruning. Secrets live on the GitHub repo: `SUPABASE_DB_URL` (session pooler) + the four `R2_*` values. Restore drill:
 
 ```bash
 pg_restore -d "$DATABASE_URL" --clean --if-exists eq2lexicon-<ts>.dump
