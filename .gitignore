@@ -348,3 +348,7 @@ scripts/dev/.epics_wikitext_cache.json
 # reports (both carry real user data) — never committed.
 /restore/
 /reports/
+
+# review write-ups and superpowers plans/specs — local working docs, never committed
+/docs/reviews/
+/docs/superpowers/
