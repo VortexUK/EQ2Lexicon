@@ -63,8 +63,12 @@ from backend import pg  # noqa: E402
 
 REPORTS_DIR = _REPO / "reports"
 
-#: family schema → (cli flag name). Copy order matters only within a family.
-FAMILIES = ("users", "parses", "census", "zones", "raids")
+#: Copy order. Cross-family FKs don't exist, but ZONES MUST PRECEDE PARSES:
+#: the parses detail-retention tiers classify each encounter's zone via
+#: _classify_zone, which reads the zones schema — with stale/empty zones
+#: data every kill would classify "other" (7-day tier) and curated raid
+#: detail would be over-pruned at load.
+FAMILIES = ("users", "zones", "raids", "census", "parses")
 
 #: Tables whose rows are intentionally NOT copied (none today; placeholder
 #: so a future exclusion is one line).

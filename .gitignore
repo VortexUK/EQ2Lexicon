@@ -350,3 +350,8 @@ scripts/dev/.epics_wikitext_cache.json
 # Local MCP server config (Claude Code) — carries the Supabase personal
 # access token. Machine-local only, never committed.
 .mcp.json
+
+# Cutover artifacts: restored prod SQLite replicas + copy-script audit
+# reports (both carry real user data) — never committed.
+/restore/
+/reports/
