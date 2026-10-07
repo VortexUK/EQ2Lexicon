@@ -65,7 +65,7 @@ LEFT JOIN users u ON u.discord_id = c.discord_id
 ORDER BY c.requested_at {order};
 
 -- :name select_claim_user_and_world
-SELECT discord_id, world, character_name FROM character_claims WHERE id = %s;
+SELECT discord_id, world, character_name, status FROM character_claims WHERE id = %s;
 
 -- A user cannot favourite their own character; when a claim is approved the
 -- new owner's existing favourite of that character (if any) is removed in the
@@ -76,13 +76,16 @@ SELECT discord_id, world, character_name FROM character_claims WHERE id = %s;
 DELETE FROM character_favorites
 WHERE discord_id = %s AND world = %s AND LOWER(character_name) = LOWER(%s);
 
+-- Only a pending claim can be reviewed: an approved claim is an identity the
+-- officer/leader checks trust, so re-reviewing one must be a no-op even when
+-- two reviewers race.
 -- :name review_claim
 UPDATE character_claims
 SET status = %s,
     reviewed_at = floor(extract(epoch from now())),
     reviewed_by = %s,
     note = %s
-WHERE id = %s;
+WHERE id = %s AND status = 'pending';
 
 -- :name check_user_has_primary_on_world
 SELECT id FROM character_claims

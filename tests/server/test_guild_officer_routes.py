@@ -16,6 +16,7 @@ Admin routes use the `_require_admin` dependency.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -63,8 +64,22 @@ def _fake_claim(**kwargs) -> dict:
         "requested_at": 1700000000,
         "status": "pending",
         "reviewed_by": None,
+        "world": "Varsoon",
     }
     return {**defaults, **kwargs}
+
+
+@contextlib.contextmanager
+def _review_scope(roster: dict | None = None):
+    """Make the default fake claim (Sihtric, Varsoon) reviewable by an Exordium officer."""
+    with (
+        patch(
+            "backend.server.api.guild_officer._roster_rank_map",
+            new=AsyncMock(return_value={"sihtric": 1} if roster is None else roster),
+        ),
+        patch("backend.server.api.guild_officer.current_world", return_value="Varsoon"),
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +289,7 @@ class TestOfficerApproveClaim:
                 "backend.server.api.guild_officer.get_claim_by_id",
                 new=AsyncMock(return_value=own_claim),
             ),
+            _review_scope(),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app),
@@ -297,6 +313,7 @@ class TestOfficerApproveClaim:
                 "backend.server.api.guild_officer.get_claim_by_id",
                 new=AsyncMock(return_value=claim),
             ),
+            _review_scope(),
             patch(
                 "backend.server.api.guild_officer.review_claim",
                 new=AsyncMock(return_value=approved),
@@ -313,6 +330,43 @@ class TestOfficerApproveClaim:
                 r = await client.post("/api/guild/Exordium/claims/1/approve")
         assert r.status_code == 200
         assert r.json()["character_name"] == "Sihtric"
+
+    # -- scope: an officer may only review pending claims for members of THEIR
+    #    guild on THIS world. Every out-of-scope case is an identical 404 so the
+    #    id→name oracle is closed too.
+
+    @pytest.mark.parametrize(
+        "claim, roster",
+        [
+            pytest.param(_fake_claim(character_name="Rivalleader"), {"sihtric": 1}, id="not-in-roster"),
+            pytest.param(_fake_claim(world="Wuoshi"), {"sihtric": 1}, id="other-world"),
+            pytest.param(_fake_claim(status="approved"), {"sihtric": 1}, id="already-approved"),
+            pytest.param(_fake_claim(status="rejected"), {"sihtric": 1}, id="already-rejected"),
+        ],
+    )
+    async def test_out_of_scope_claim_is_404_and_untouched(self, app, claim, roster):
+        review = AsyncMock(return_value={**claim, "status": "approved"})
+        with (
+            patch(
+                "backend.server.api.guild_officer._officer_chars",
+                new=AsyncMock(return_value={"sihtric"}),
+            ),
+            patch(
+                "backend.server.api.guild_officer.get_claim_by_id",
+                new=AsyncMock(return_value=claim),
+            ),
+            _review_scope(roster),
+            patch("backend.server.api.guild_officer.review_claim", new=review),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                cookies=_officer_cookies(),
+            ) as client:
+                r = await client.post("/api/guild/Exordium/claims/1/approve")
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Claim not found"
+        review.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +405,7 @@ class TestOfficerRejectClaim:
                 "backend.server.api.guild_officer.get_claim_by_id",
                 new=AsyncMock(return_value=own_claim),
             ),
+            _review_scope(),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app),
@@ -359,6 +414,31 @@ class TestOfficerRejectClaim:
             ) as client:
                 r = await client.post("/api/guild/Exordium/claims/1/reject", json={"note": None})
         assert r.status_code == 403
+
+    async def test_reject_of_approved_claim_is_404_and_untouched(self, app):
+        """Rejecting an APPROVED claim would strip a live identity — refused."""
+        claim = _fake_claim(status="approved")
+        review = AsyncMock(return_value={**claim, "status": "rejected"})
+        with (
+            patch(
+                "backend.server.api.guild_officer._officer_chars",
+                new=AsyncMock(return_value={"sihtric"}),
+            ),
+            patch(
+                "backend.server.api.guild_officer.get_claim_by_id",
+                new=AsyncMock(return_value=claim),
+            ),
+            _review_scope(),
+            patch("backend.server.api.guild_officer.review_claim", new=review),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                cookies=_officer_cookies(),
+            ) as client:
+                r = await client.post("/api/guild/Exordium/claims/1/reject", json={"note": None})
+        assert r.status_code == 404
+        review.assert_not_awaited()
 
     async def test_happy_path_rejects_and_returns_ok(self, app):
         """Valid reject → 200 with ok."""
@@ -373,6 +453,7 @@ class TestOfficerRejectClaim:
                 "backend.server.api.guild_officer.get_claim_by_id",
                 new=AsyncMock(return_value=claim),
             ),
+            _review_scope(),
             patch(
                 "backend.server.api.guild_officer.review_claim",
                 new=AsyncMock(return_value=rejected),

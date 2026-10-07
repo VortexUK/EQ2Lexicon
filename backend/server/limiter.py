@@ -42,3 +42,7 @@ def upload_rate_key(request: Request) -> str:
     if user and user.get("id"):
         return "usr:" + str(user["id"])
     return "ip:" + get_remote_address(request)
+
+
+# Same keying for authenticated non-upload writes (officer/admin actions).
+user_rate_key = upload_rate_key

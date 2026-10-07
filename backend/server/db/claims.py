@@ -223,21 +223,25 @@ class ClaimsStore(PgStoreBase):
         an independent primary), and removes the new owner's favourite of the
         character if one exists — you can't favourite your own character, and this
         is the single funnel every approval path (admin + officer) flows through.
-        Returns the updated claim (with user info) or None if not found.
+        Returns the updated claim (with user info), or None if the claim does
+        not exist or is no longer pending (already reviewed / withdrawn).
         """
         async with self._db() as db:
             async with await db.execute(_SQL["select_claim_user_and_world"], (claim_id,)) as cur:
                 row = await cur.fetchone()
-            if not row:
+            if not row or row["status"] != "pending":
                 return None
             discord_id = row["discord_id"]
             claim_world = row["world"]
             character_name = row["character_name"]
 
-            await db.execute(
+            cur = await db.execute(
                 _SQL["review_claim"],
                 (status, admin_id, note, claim_id),
             )
+            if cur.rowcount == 0:
+                await db.rollback()
+                return None
             # Auto-assign primary if this is the user's first approved character on this world
             if status == "approved":
                 async with await db.execute(

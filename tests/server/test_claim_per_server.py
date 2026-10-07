@@ -314,3 +314,27 @@ async def test_same_character_name_claimable_on_different_servers():
     # but u2 claiming "Sihtric" on Varsoon (same server as u1's) must be rejected
     with pytest.raises(ValueError):
         await submit_claim("u2", "Sihtric", world="Varsoon")
+
+
+# ---------------------------------------------------------------------------
+# review_claim only ever transitions a PENDING claim
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_claim_refuses_non_pending_claims():
+    """An approved claim is an identity officer rights are derived from, so a
+    second review (approve or reject) must be a no-op that returns None."""
+    uid = "review-twice-user"
+    await _seed_user(uid)
+    claim = await submit_claim(uid, "ReviewTwice", world="Varsoon")
+
+    first = await review_claim(claim["id"], "approved", "admin-1")
+    assert first is not None and first["status"] == "approved"
+
+    assert await review_claim(claim["id"], "rejected", "officer-9") is None
+    assert await review_claim(claim["id"], "approved", "officer-9") is None
+
+    data = await get_active_claims(uid, world="Varsoon")
+    assert [c["character_name"] for c in data["approved"]] == ["ReviewTwice"]
+    assert data["approved"][0]["reviewed_by"] == "admin-1"
