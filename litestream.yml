@@ -1,10 +1,13 @@
 # Litestream — continuous replication of the SQLite DBs to Cloudflare R2.
 #
-# Four databases are backed up: the parses corpus (parses.db), the
+# Five databases are backed up: the parses corpus (parses.db), the
 # Discord/claims/api_tokens store (users.db), the zone/boss-roster
-# catalogue (zones.db), and the raid strategy/timers store
+# catalogue (zones.db), the raid strategy/timers store
 # (raids.db — strategy markdown is hand-edited and revision-tracked, so
-# losing it on a volume wipe would erase audit history).
+# losing it on a volume wipe would erase audit history), and the census
+# store (census.db — mostly a rebuildable Census-API cache, but its
+# guild_history table is accumulated daily history that cannot be
+# re-fetched; added 2026-10 so the Postgres cutover can carry it over).
 #
 # PATHS MUST MATCH THE APP'S DB_*_PATH RESOLUTION. The app reads
 # DB_USERS_PATH / DB_PARSES_PATH / DB_ZONES_PATH / DB_RAIDS_PATH at
@@ -20,6 +23,7 @@
 #   DB_PARSES_PATH      /data/parses.db
 #   DB_ZONES_PATH       /data/zones.db
 #   DB_RAIDS_PATH       /data/raids.db
+#   DB_CENSUS_PATH      /data/census.db
 #   R2_ENDPOINT          https://<account>.r2.cloudflarestorage.com
 #   R2_BUCKET            e.g. eq2lexicon-backups
 #   R2_ACCESS_KEY_ID     R2 API token "Access Key ID"
@@ -83,6 +87,19 @@ dbs:
         endpoint: ${R2_ENDPOINT}
         bucket: ${R2_BUCKET}
         path: raids
+        access-key-id: ${R2_ACCESS_KEY_ID}
+        secret-access-key: ${R2_SECRET_ACCESS_KEY}
+        region: auto
+        retention: 168h
+        retention-check-interval: 24h
+        snapshot-interval: 24h
+
+  - path: ${DB_CENSUS_PATH}
+    replicas:
+      - type: s3
+        endpoint: ${R2_ENDPOINT}
+        bucket: ${R2_BUCKET}
+        path: census
         access-key-id: ${R2_ACCESS_KEY_ID}
         secret-access-key: ${R2_SECRET_ACCESS_KEY}
         region: auto
