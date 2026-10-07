@@ -835,7 +835,7 @@ async def list_expansions_admin(request: Request) -> list[dict]:
     _require_admin(request)
     from backend.eq2db.zones import catalogue as zones_db
 
-    return zones_db.list_expansions()
+    return await run_sync(zones_db.list_expansions)
 
 
 @router.post("/admin/users/{discord_id}/kick", status_code=200)

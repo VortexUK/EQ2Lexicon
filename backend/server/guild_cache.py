@@ -475,8 +475,6 @@ async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
     that to census_store, upsert ONLY the freshly-resolved members into the
     character store, and publish an SSE roster event with the merged roster."""
     from backend.server import census_events
-    from backend.server.api.guild import GuildMemberResponse, GuildResponse  # noqa: PLC0415
-    from backend.server.census_refresh import _merge_roster  # local import — cycle avoidance
 
     await _fetch_and_cache_guild(guild_name, world)  # warms roster/info/spells/adorns + char cache
     now = int(time.time())
@@ -487,6 +485,22 @@ async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
     roster_stubs, _ = guild_cache.get_stale(f"roster_stubs:{guild_name.lower()}:{world.lower()}")
     if roster_stubs is None:
         roster_stubs = []
+
+    # Hundreds of store round trips for a big guild — never on the loop.
+    merged_data = await run_sync(_persist_guild_sync, guild_name, world, roster, info, roster_stubs, now)
+    guild_cache.delete(guild_history_key(guild_name, world))
+    # SSE event carries the MERGED roster
+    census_events.publish(
+        {"type": "guild", "key": census_refresh_guild_key(guild_name, world), "data": merged_data, "fetched_at": now}
+    )
+
+
+def _persist_guild_sync(guild_name: str, world: str, roster, info, roster_stubs: list, now: int) -> dict:
+    """The database half of :func:`_persist_and_publish_guild` (executor):
+    build the best-known merged roster, persist guild + history, upsert the
+    freshly-resolved members. Returns the merged roster response dict."""
+    from backend.server.api.guild import GuildMemberResponse, GuildResponse  # noqa: PLC0415
+    from backend.server.census_refresh import _merge_roster  # local import — cycle avoidance
 
     resolved_members = roster.model_dump()["members"]
     fresh_by_name: dict[str, dict] = {m["name"]: m for m in resolved_members}
@@ -527,7 +541,6 @@ async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
             now=now,
             retention_days=GUILD_HISTORY_RETENTION_DAYS,
         )
-        guild_cache.delete(guild_history_key(guild_name, world))
 
         for m in fresh_by_name.values():
             if not m.get("name"):
@@ -542,10 +555,7 @@ async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
             )
     finally:
         conn.close()
-    # SSE event carries the MERGED roster
-    census_events.publish(
-        {"type": "guild", "key": census_refresh_guild_key(guild_name, world), "data": merged_data, "fetched_at": now}
-    )
+    return merged_data
 
 
 def _overview_to_char_response(ov: CharacterOverview):  # → CharacterResponse

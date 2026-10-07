@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 from typing import TYPE_CHECKING
 
@@ -60,7 +61,9 @@ class AaCheckCog(commands.Cog):
             return
 
         wanted_types = _CHOICE_TO_TYPES.get(tree.value, {tree.value})
-        tree_id = aa_db.resolve_tree_id(char_aas.tree_ids, wanted_types)
+        # Catalogue reads + the PIL render run off the loop: the bot shares
+        # its event loop with the web app and the Discord heartbeat.
+        tree_id = await asyncio.to_thread(aa_db.resolve_tree_id, char_aas.tree_ids, wanted_types)
         if tree_id is None:
             await interaction.followup.send(
                 f"**{char_aas.character_name}** has no AAs in a **{tree.name}** tree.",
@@ -71,17 +74,18 @@ class AaCheckCog(commands.Cog):
         aa_data = char_aas.for_tree(tree_id)
 
         try:
-            img, _tree_type = render_tree(tree_id, aa_data)
+            img, _tree_type = await asyncio.to_thread(render_tree, tree_id, aa_data)
         except Exception as exc:
             await interaction.followup.send(f"Failed to render tree: {exc}", ephemeral=True)
             raise
 
-        tree_name = aa_db.load_tree_index().get(tree_id, {}).get("name", str(tree_id))
+        tree_index = await asyncio.to_thread(aa_db.load_tree_index)
+        tree_name = tree_index.get(tree_id, {}).get("name", str(tree_id))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
 
-        total = aa_db.points_spent(tree_id, aa_data)
+        total = await asyncio.to_thread(aa_db.points_spent, tree_id, aa_data)
         await interaction.followup.send(
             content=f"**{char_aas.character_name}** — {tree_name} ({total} AAs)",
             file=discord.File(buf, filename="aacheck.png"),

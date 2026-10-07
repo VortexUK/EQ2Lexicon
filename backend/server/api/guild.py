@@ -157,6 +157,15 @@ class GuildAdornCheckResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _stored_guild_sync(guild_name: str, world: str):
+    """census_store guild record for (name, world) — executor-side read."""
+    conn = census_store.init_db()
+    try:
+        return census_store.get_guild(conn, guild_name, world)
+    finally:
+        conn.close()
+
+
 async def _roster_rank_map(guild_name: str) -> dict[str, int | None]:
     """
     Return {member_name_lower: rank_id} for a guild.
@@ -261,11 +270,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
         return cached
     # Fall through to the durable store (the stored blob is the roster shape;
     # derive a minimal GuildInfoResponse from it — name/world + member count).
-    conn = census_store.init_db()
-    try:
-        rec = census_store.get_guild(conn, guild_name, current_world())
-    finally:
-        conn.close()
+    rec = await run_sync(_stored_guild_sync, guild_name, current_world())
     if rec is not None:
         guild_cache.record_store_hit()
         age = int(time.time()) - rec["last_resolved_at"]
@@ -374,11 +379,7 @@ async def get_guild(request: Request, guild_name: str) -> GuildResponse:
     cached, is_stale = guild_cache.get_stale(cache_key)
     if cached is not None and not is_stale:
         return cached
-    conn = census_store.init_db()
-    try:
-        rec = census_store.get_guild(conn, guild_name, current_world())
-    finally:
-        conn.close()
+    rec = await run_sync(_stored_guild_sync, guild_name, current_world())
     if rec is not None:
         age = int(time.time()) - rec["last_resolved_at"]
         stale = age > 900

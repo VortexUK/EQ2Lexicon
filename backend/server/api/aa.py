@@ -117,22 +117,22 @@ async def get_aa_config(xpac: str | None = None) -> AAConfigResponse:
     dropdown passes ``?xpac=`` to plan under a different era's rules
     (alias-tolerant — "DoV" and "Destiny of Velious" both resolve).
     All from aas.db (aa_limits + the precomputed per-tree max_points)."""
-    if xpac is not None:
-        limits = aa_db.xpac_limits(xpac)
-        if limits is None:
-            raise HTTPException(status_code=404, detail=f"Unknown expansion: {xpac}")
-    else:
+    explicit = xpac is not None
+    if xpac is None:
         xpac = current_server().current_xpac or ""
-        limits = aa_db.xpac_limits(xpac)
-        if limits is None:
-            if xpac:
-                _log.warning("[aa] current_xpac %r has no aa_limits entry — AA cap reads 0", xpac)
-            limits = {"aa_cap": 0, "unlocked_trees": [], "visible_rows": {}}
+    # Catalogue reads (memoised after the first hit) — off the loop.
+    limits = await run_sync(aa_db.xpac_limits, xpac)
+    if limits is None:
+        if explicit:
+            raise HTTPException(status_code=404, detail=f"Unknown expansion: {xpac}")
+        if xpac:
+            _log.warning("[aa] current_xpac %r has no aa_limits entry — AA cap reads 0", xpac)
+        limits = {"aa_cap": 0, "unlocked_trees": [], "visible_rows": {}}
     unlocked = limits["unlocked_trees"]
     # Tradeskill cap = the total the unlocked tradeskill trees add up to
     # (Σ maxtier × points_per_tier), derived from the tree data rather than
     # hardcoded. EoF (tradeskill only) → 45; Age of Discovery+ (both) → 116.
-    tradeskill_cap = aa_db.total_max_points(frozenset(_TRADESKILL_TYPES & set(unlocked)))
+    tradeskill_cap = await run_sync(aa_db.total_max_points, frozenset(_TRADESKILL_TYPES & set(unlocked)))
     return AAConfigResponse(
         xpac=xpac,
         aa_cap=limits["aa_cap"],

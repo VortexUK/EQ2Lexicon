@@ -17,6 +17,7 @@ from backend.server.cache import character_cache
 from backend.server.constants import CENSUS_REFRESH_THROTTLE_S
 from backend.server.core.cache_keys import census_refresh_guild_key, census_refresh_key
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.server_context import current_world
 
 _log = logging.getLogger(__name__)
@@ -66,11 +67,15 @@ async def _run_character_refresh(name: str, key: str, world: str) -> None:
         resp = _build_char_response(char)  # CharacterResponse (pydantic)
         data = resp.model_dump()
         resolved = bool(data.get("cls") or data.get("level"))
-        conn = census_store.init_db()
-        try:
-            census_store.upsert_character(conn, name, world, data, resolved=resolved)
-        finally:
-            conn.close()
+
+        def _persist() -> None:
+            conn = census_store.init_db()
+            try:
+                census_store.upsert_character(conn, name, world, data, resolved=resolved)
+            finally:
+                conn.close()
+
+        await run_sync(_persist)
         if resolved:
             character_cache.set(key, resp)
             census_events.publish({"type": "character", "key": key, "data": data, "fetched_at": int(time.time())})

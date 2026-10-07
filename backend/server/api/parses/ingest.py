@@ -166,13 +166,9 @@ async def _resolve_uploader_guild_async(
     # Durable store — no Census. A known uploader (from any prior path) is
     # served from here forever; skip the prewarm since their roster is already
     # persisted and combatant resolution will hit the store.
-    store_conn = census_store.init_db()
-    try:
-        rec = census_store.get_character(store_conn, uploader, effective_world)
-    finally:
-        store_conn.close()
-    if rec is not None:
-        return rec["data"].get("guild_name") or None
+    stored = await run_sync(_store_get_one_sync, uploader, effective_world)
+    if stored is not None:
+        return stored.get("guild_name") or None
 
     if not allow_census:
         return CENSUS_UNAVAILABLE
@@ -424,12 +420,16 @@ async def _backfill_encounter_guild(encounter_id: int, uploader: str, world: str
                 encounter_id,
             )
             return
-        conn = parses_db.init_db()
-        try:
-            parses_db.set_encounter_guild_name(conn, encounter_id, result)
-            _log.info("Background guild backfill set encounter %s guild_name=%r", encounter_id, result)
-        finally:
-            conn.close()
+
+        def _set_guild() -> None:
+            conn = parses_db.init_db()
+            try:
+                parses_db.set_encounter_guild_name(conn, encounter_id, result)
+            finally:
+                conn.close()
+
+        await run_sync(_set_guild)
+        _log.info("Background guild backfill set encounter %s guild_name=%r", encounter_id, result)
     except Exception as exc:
         _log.warning("Background guild backfill failed for encounter %s: %s", encounter_id, exc)
 

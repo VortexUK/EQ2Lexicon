@@ -22,6 +22,7 @@ from backend.server.cache import character_cache
 from backend.server.constants import CHARACTER_STALE_S
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.core.validation import validate_character_name
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
@@ -63,11 +64,13 @@ class EquipmentSlotResponse(BaseModel):
 _ITEM_PLACEHOLDER_RE = re.compile(r"^Item #(-?\d+)$")
 
 
-async def _heal_equipment_placeholders(slots: list[EquipmentSlotResponse]) -> None:
+async def _heal_equipment_placeholders(slots: list[EquipmentSlotResponse]) -> bool:
     """Replace any ``Item #<id>`` placeholder names + missing icons in-place,
-    using items.db as the only source (no Census call — keeps the serve
-    path fast). Adornment names get the same treatment. No-op for slots
-    that already carry a real name."""
+    using the items catalogue as the only source (no Census call — keeps the
+    serve path fast). Adornment names get the same treatment. No-op for slots
+    that already carry a real name. Returns True when anything changed, so the
+    caller only writes the record back when there is something to persist."""
+    changed = False
     for slot in slots:
         m = _ITEM_PLACEHOLDER_RE.match(slot.name or "")
         if m:
@@ -83,6 +86,7 @@ async def _heal_equipment_placeholders(slots: list[EquipmentSlotResponse]) -> No
                     slot.tier = str(row.get("tier") or "") or None
                     if row.get("iconid"):
                         slot.icon_id = str(row["iconid"])
+                    changed = True
 
         # Same lookup for adornments — they suffered the same items.db-cold
         # bug, just stored as None instead of a placeholder string. Re-
@@ -100,6 +104,28 @@ async def _heal_equipment_placeholders(slots: list[EquipmentSlotResponse]) -> No
                 name = row.get("displayname")
                 if name:
                     adorn.adorn_name = name
+                    changed = True
+    return changed
+
+
+def _store_get_sync(name: str, world: str):
+    from backend.census.store import store as census_store
+
+    conn = census_store.init_db()
+    try:
+        return census_store.get_character(conn, name, world)
+    finally:
+        conn.close()
+
+
+def _store_put_sync(name: str, world: str, data: dict, *, now: int) -> None:
+    from backend.census.store import store as census_store
+
+    conn = census_store.init_db()
+    try:
+        census_store.upsert_character(conn, name, world, data, resolved=True, now=now)
+    finally:
+        conn.close()
 
 
 class CharacterStats(BaseModel):
@@ -455,14 +481,10 @@ async def resolve_character_store_first(name: str) -> CharacterResponse:
     if cached is not None and not is_stale:
         return cached
 
-    # 2) Durable store.
-    from backend.census.store import store as census_store
-
-    conn = census_store.init_db()
-    try:
-        rec = census_store.get_character(conn, name, current_world())
-    finally:
-        conn.close()
+    # 2) Durable store — off the event loop: every pooled call is several
+    #    network round trips and this is the hottest read path on the site.
+    world = current_world()
+    rec = await run_sync(_store_get_sync, name, world)
     if rec is not None:
         from backend.server.census_refresh import request_character_refresh
 
@@ -494,29 +516,18 @@ async def resolve_character_store_first(name: str) -> CharacterResponse:
         # fast on the hot serve path; the new client-side Census fallback
         # in census/client.py handles whatever items.db still doesn't
         # know on the next refresh.
-        await _heal_equipment_placeholders(resp.equipment)
-        # Write the healed response back to the durable store so the
-        # next request (and every other process / worker) sees the
-        # resolved names immediately, without paying the items.db
-        # lookups again. Preserves last_resolved_at so the staleness
-        # window doesn't reset — this is a name-fixup, not a refresh.
-        # Best-effort; the user already has a correct response in hand
-        # so a write failure doesn't degrade the visible behaviour.
-        try:
-            conn2 = census_store.init_db()
+        healed = await _heal_equipment_placeholders(resp.equipment)
+        # Write the healed response back to the durable store ONLY when a
+        # placeholder was actually resolved — the unconditional write-back
+        # used to cost a pooled round trip on every store-served view.
+        # Preserves last_resolved_at so the staleness window doesn't reset —
+        # this is a name-fixup, not a refresh. Best-effort; the user already
+        # has a correct response in hand.
+        if healed:
             try:
-                census_store.upsert_character(
-                    conn2,
-                    name,
-                    current_world(),
-                    resp.model_dump(),
-                    resolved=True,
-                    now=rec["last_resolved_at"],
-                )
-            finally:
-                conn2.close()
-        except Exception as exc:
-            _log.debug("[character] self-heal cache write skipped for %s: %s", scrub(name), exc)
+                await run_sync(_store_put_sync, name, world, resp.model_dump(), now=rec["last_resolved_at"])
+            except Exception as exc:
+                _log.debug("[character] self-heal cache write skipped for %s: %s", scrub(name), exc)
         character_cache.set(cache_key, resp)
         return resp
 
@@ -541,12 +552,7 @@ async def resolve_character_store_first(name: str) -> CharacterResponse:
     if char is None:
         raise HTTPException(status_code=404, detail=f"Character '{name}' not found on {current_world()}")
     resp = _build_char_response(char)
-    data = resp.model_dump()
-    conn = census_store.init_db()
-    try:
-        census_store.upsert_character(conn, name, current_world(), data, resolved=True, now=now)
-    finally:
-        conn.close()
+    await run_sync(_store_put_sync, name, world, resp.model_dump(), now=now)
     resp.fetched_at = now
     character_cache.set(cache_key, resp)
     return resp

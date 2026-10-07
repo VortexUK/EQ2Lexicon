@@ -531,7 +531,7 @@ async def get_spell_scroll(name: str, tier: str) -> SpellScrollResult:
 
     # Look up the recipe if craftable
     if craftable and _recipes.ready():
-        recipes = _recipes.find_by_spell(name, tier)
+        recipes = await run_sync(_recipes.find_by_spell, name, tier)
         if recipes:
             r = recipes[0]
             sec = [

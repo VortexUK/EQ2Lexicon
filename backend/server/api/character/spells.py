@@ -17,6 +17,7 @@ from backend.server.api.character.views import _build_char_response
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
 
@@ -74,7 +75,7 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
     # Canonical "owned upgradeable spells at best tier" list — shared with the
     # upgrade-materials checker so the two never drift (see the helper's docstring
     # for the given_by-gate history). Sort by level for display.
-    rows = _spells.character_upgradeable_spells(spell_ids)
+    rows = await run_sync(_spells.character_upgradeable_spells, spell_ids)
     rows.sort(key=lambda r: r.get("level") or 0)
 
     count = Counter(r.get("tier_name") or "Unknown" for r in rows)

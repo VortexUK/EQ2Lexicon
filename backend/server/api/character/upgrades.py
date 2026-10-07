@@ -22,6 +22,7 @@ from backend.server.api.recipes import _level_to_craft_tier as _recipe_level_to_
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
 from backend.server.core.census_lifecycle import shared_census_client
+from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
 from backend.server.server_context import current_world
 
@@ -153,14 +154,14 @@ async def get_upgrade_materials(request: Request, name: str) -> UpgradeMaterials
 
     # Same canonical spell list as the spells tab (scribed/trained/auto-granted
     # alike), then keep only the sub-Expert lines that still have an upgrade path.
-    rows = _spells.character_upgradeable_spells(spell_ids)
+    rows = await run_sync(_spells.character_upgradeable_spells, spell_ids)
     sub_expert = [r for r in rows if (r.get("tier_name") or "") in _SUB_EXPERT_TIERS]
     if not sub_expert:
         return UpgradeMaterialsResponse(spells_needing_upgrade=0, spells_with_recipe=0, ingredients=[])
 
     # Bulk recipe lookup: one DB query for all spell names
     spell_names = [r.get("name") or "" for r in sub_expert]
-    recipes = _recipes.find_spells_by_tier(spell_names, "Expert")
+    recipes = await run_sync(_recipes.find_spells_by_tier, spell_names, "Expert")
 
     # Aggregate ingredients across all matched recipes
     totals: dict[str, int] = defaultdict(int)
@@ -250,14 +251,14 @@ async def get_upgrade_recipes(request: Request, name: str) -> UpgradeRecipesResp
 
     # Same canonical spell list as the spells tab (scribed/trained/auto-granted
     # alike), then keep only the sub-Expert lines that still have an upgrade path.
-    rows = _spells.character_upgradeable_spells(spell_ids)
+    rows = await run_sync(_spells.character_upgradeable_spells, spell_ids)
     sub_expert = [r for r in rows if (r.get("tier_name") or "") in _SUB_EXPERT_TIERS]
     if not sub_expert:
         return UpgradeRecipesResponse(results=[], spells_needing_upgrade=0, spells_with_recipe=0)
 
     # Bulk recipe lookup
     spell_names = [r.get("name") or "" for r in sub_expert]
-    recipes = _recipes.find_spells_by_tier(spell_names, "Expert")
+    recipes = await run_sync(_recipes.find_spells_by_tier, spell_names, "Expert")
 
     results = [
         _RecipeResult(
