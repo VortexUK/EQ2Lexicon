@@ -118,7 +118,7 @@ Tailwind v4 is the **single** styling system. There is no `tailwind.config.js` a
 
 ## Shared frontend infrastructure (use these — don't hand-roll)
 
-The 2026-05-29 cleanliness audit introduced a set of canonical primitives, hooks, and utilities. When writing new frontend code, reach for these BEFORE rolling your own — every hand-rolled version diverges and accrues drift. The original audit + plan live at `docs/superpowers/specs/2026-05-29-frontend-cleanliness-audit.md` and `docs/superpowers/plans/2026-05-29-frontend-cleanliness.md`.
+The 2026-05-29 cleanliness audit introduced a set of canonical primitives, hooks, and utilities. When writing new frontend code, reach for these BEFORE rolling your own — every hand-rolled version diverges and accrues drift.
 
 ### UI primitives — `frontend/src/components/ui/`
 

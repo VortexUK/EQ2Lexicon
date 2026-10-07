@@ -1,5 +1,5 @@
 """Tests for the Phase-1 dungeon-speed-per-character variant in
-web/routes/rankings.py:_build_speed_board_character.
+backend/server/api/rankings.py:_build_speed_board_character.
 
 For dungeons (scope=group + curated dungeon zone), Speed ranks per-player
 instead of per-guild. Each player gets one row showing the fastest clear

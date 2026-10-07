@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RETIRED — one-time SQLite-era backfill (spells.db).
+"""RETIRED — one-time SQLite-era backfill (the spells catalogue).
 
 Fetched spells whose ``effects`` column was NULL from Census (batches of 50
 ids) and filled just that column — needed once when ``effects`` was added

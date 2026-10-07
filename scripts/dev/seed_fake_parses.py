@@ -1,8 +1,8 @@
-"""Seed fake boss-kill parses into the local parses.db so the character
+"""Seed fake boss-kill parses into the local parses schema so the character
 Rankings tab (and the rankings page) can be exercised without real ACT
 uploads.
 
-Creates winning raid encounters against real curated bosses from zones.db
+Creates winning raid encounters against real curated bosses from the zones catalogue
 (so titles canonicalise exactly like production uploads), with:
 
   * the target character parsing on every boss — kill counts, a spread of
@@ -74,8 +74,8 @@ BOSS_SHAPES = [
 def _curated_bosses(limit: int) -> list[tuple[str, str]]:
     """(zone, mob_title) tuples from the zones schema's curated encounters.
     Falls back to heuristic-friendly capitalised fakes if there is no
-    curation. One mob per encounter (DISTINCT ON e.id — the old SQLite
-    version's loose GROUP BY picked an arbitrary mob the same way)."""
+    curation. One mob per encounter (DISTINCT ON e.id picks an
+    arbitrary mob per encounter)."""
     conn = zones_db.init_db()
     try:
         rows = conn.execute(

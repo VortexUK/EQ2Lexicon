@@ -244,7 +244,7 @@ def _process_logo(raw: bytes) -> bytes:
 # Adventure class names from the same catalogue /api/classes serves — the
 # frontend's toggle list and this validator can't drift. ALL_CLASSES
 # (census constants) is a startup cross-check: a mismatch would mean the
-# committed classes.db and the census constants have diverged.
+# committed classes catalogue and the census constants have diverged.
 _adventure_classes: frozenset[str] | None = None
 
 
@@ -253,7 +253,7 @@ def _adventure_class_names_sync() -> frozenset[str]:
 
     names = frozenset(r["name"] for r in classes_db.list_all() if r["archetype"] != "Crafter")
     if names != ALL_CLASSES:
-        _log.warning("[recruitment] classes.db adventure names differ from census constants ALL_CLASSES")
+        _log.warning("[recruitment] classes-schema adventure names differ from census constants ALL_CLASSES")
     return names
 
 

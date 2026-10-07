@@ -241,9 +241,9 @@ def test_ingest_accepts_numeric_percent_fields():
 # Coverage at the DB layer lives in test_auth_tokens.py (mint/lookup/revoke
 # against a real temp DB). Coverage at the HTTP layer above mocks
 # `require_user_session_or_token`. The bearer-token path through
-# `web.auth_deps.require_user_session_or_token` is tested below by mocking
+# `backend.server.auth_deps.require_user_session_or_token` is tested below by mocking
 # `users_db.lookup_api_token` to exercise the wiring without needing to
-# patch web.db.DB_PATH (which is captured at import time).
+# patch backend.server.db.DB_PATH (which is captured at import time).
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""Tests for web/lib/validation.py — pinning the regex shapes."""
+"""Tests for backend/server/core/validation.py — pinning the regex shapes."""
 
 from __future__ import annotations
 

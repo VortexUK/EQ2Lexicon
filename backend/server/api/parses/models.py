@@ -1,6 +1,6 @@
 """Pydantic models shared across the parses route sub-modules.
 
-Carved out of the original 1687-line web/routes/parses.py. NOTHING in this
+Carved out of the former single-file parses module. NOTHING in this
 file imports from another parses sub-module — keep it that way to avoid
 circular-import pain.
 """
@@ -72,9 +72,9 @@ class ParseEncounterSummary(BaseModel):
     success_level: int  # ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
     combatant_count: int
     player_count: int  # ally combatants with single-word names, excluding 'Unknown'
-    # Backed by web/routes/parses/list.py:_classify_zone — Raid / Dungeon /
+    # Backed by backend/server/api/parses/list.py:_classify_zone — Raid / Dungeon /
     # Other bucketing for the ParsesPage hierarchy. Computed at query time
-    # from the zone field against zones.db; not persisted on the encounters
+    # from the zone field against the zones catalogue; not persisted on the encounters
     # table.
     category: Literal["raid", "dungeon", "other"]
     uploaded_by: str  # who ingested the canonical upload; 'local' for local-only era

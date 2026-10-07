@@ -99,7 +99,6 @@ from backend.server.limiter import limiter
 from backend.server.metrics import (
     APP_ERRORS,
     APP_INFO,
-    APP_INFO_LEGACY,
     HTTP_REQUEST_DURATION,
     HTTP_REQUESTS,
     _register_db_collector,
@@ -347,12 +346,12 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # ---- startup (sync) ----
         # Assert the single-process assumption baked into:
-        #   - web/census_events.py — SSE pub/sub uses an in-process asyncio
+        #   - backend/server/census_events.py — SSE pub/sub uses an in-process asyncio
         #     queue; cross-worker fan-out would need Redis.
-        #   - web/routes/rankings.py:_cached_zones_data — LRU is per-process;
+        #   - backend/server/api/rankings.py:_cached_zones_data — LRU is per-process;
         #     invalidate_zones_cache() only clears the LRU on THIS worker.
         #
-        # Set GUNICORN_WORKERS=1 (or unset it for uvicorn's default) on the
+        # Set WEB_CONCURRENCY=1 (or unset it for uvicorn's default) on the
         # deploy. If you ever need to scale workers, the SSE + LRU layers
         # need a Redis-backed rewrite before that flip is safe.
         from backend.core.logging_config import configure_logging
@@ -363,8 +362,8 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         if _workers != 1:
             raise RuntimeError(
                 f"WEB_CONCURRENCY={_workers} is incompatible with the in-process "
-                f"SSE pub/sub (web/census_events.py) and _cached_zones_data LRU "
-                f"(web/routes/rankings.py). Set WEB_CONCURRENCY=1 or rewrite "
+                f"SSE pub/sub (backend/server/census_events.py) and _cached_zones_data LRU "
+                f"(backend/server/api/rankings.py). Set WEB_CONCURRENCY=1 or rewrite "
                 f"both layers to use a cross-process backplane before scaling."
             )
         # Postgres: open the shared pools, then apply any pending migrations
@@ -388,26 +387,15 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             _approved = await users_db.approve_all_pending()
             _log.info("[startup] OPEN_SIGNUP on — approved %d pending user(s).", _approved)
         server_context.load_registry()
-        # Initialise the parses DB too so the schema + migrations are in place
-        # before the first /api/parses/ingest hits — otherwise the first
-        # upload's request pays that cost on the request thread.
+        # Warm one pooled parses connection before the first /api/parses/ingest
+        # (nothing is created here — migrations already ran). Release it at
+        # once: holding it would leak a sync-pool slot for the process lifetime.
         from backend.server.parses.db import store as parses_db
 
-        # Warm one parses checkout + release it (init_db returns a pooled
-        # proxy now — holding it would leak a sync-pool slot for the
-        # process lifetime).
         parses_db.init_db().close()
-        # (zones moved to Postgres — its schema is owned by db/migrations/
-        # 0004_zones.sql, applied by the pg_migrate.run above; no per-start
-        # init needed.)
-        # (items/spells/recipes moved to Postgres — schema DDL is owned by
-        # db/migrations/0007-0009 applied by pg_migrate.run above, and the
-        # old startup self-heals are gone: item_stats and recipes.out_level
-        # are loader-owned, computed at build/refresh time by the scripts.)
         # Register the DB gauge collector and set static app info.
         _register_db_collector()
         APP_INFO.info({"world": _WORLD, "version": "0.1.0"})
-        APP_INFO_LEGACY.info({"world": _WORLD, "version": "0.1.0"})  # legacy; drop next release
 
         # ---- async background tasks (tracked so shutdown can cancel) ----
         from backend.server import census_health, raid_live, recruitment_sweep, refresh_queue, xpac_rollover
@@ -458,7 +446,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         """Periodically run the parses retention sweep (delete aged trash;
         collapse aged boss mirror-groups to their primary). Runs once shortly
         after startup, then every PARSE_CLEANUP_INTERVAL_S. The sweep is sync
-        SQLite work, so it runs in a worker thread to keep the loop responsive;
+        Postgres work, so it runs in a worker thread to keep the loop responsive;
         CancelledError from asyncio.sleep bubbles for clean shutdown.
         """
         from backend.server.parses import cleanup as parse_cleanup
@@ -620,7 +608,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
     # ── /metrics — Prometheus text format ───────────────────────────────────
     # Runs synchronously (FastAPI auto-offloads sync def to a thread pool)
-    # so the DB collector's SQLite queries don't block the event loop.
+    # so the DB collector's Postgres queries don't block the event loop.
     _metrics_token_env = os.getenv("METRICS_TOKEN", "")
 
     @app.get("/metrics", include_in_schema=False, tags=["observability"])

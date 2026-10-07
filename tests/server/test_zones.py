@@ -1,7 +1,7 @@
 """Tests for the zones route — list + detail endpoints.
 
 DB access is mocked (matches the codebase convention) so the suite passes
-without a built ``data/zones/zones.db``.
+without a populated zones schema.
 """
 
 from __future__ import annotations

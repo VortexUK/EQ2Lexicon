@@ -1,11 +1,11 @@
 """Named constants for magic numbers scattered across the backend.
 
-Owns: cache TTLs, refresh throttles, mirror/dedup windows, request-list caps,
-SQLite parameter-chunk safety limit. Each constant carries a comment naming
+Owns: cache TTLs, refresh throttles, mirror/dedup windows, request-list caps.
+Each constant carries a comment naming
 the code path it gates so a future contributor can search by intent rather
 than by literal value.
 
-Adding a new constant: append here, then `from web.constants import FOO`
+Adding a new constant: append here, then `from backend.server.constants import FOO`
 at the consumer site. Never re-declare a constant for "local" use — the
 audit found three independent `_THROTTLE = 900` / `STALE_S = 900` / `> 900`
 literals for the same concept; this module exists to make that mistake
@@ -22,7 +22,7 @@ CACHE_STALE_TTL_S: int = 300  # 5 min
 
 # Hard-expiry window — entries older than this are evicted and the next
 # request MUST do a sync fetch. Bounds memory growth for never-revisited
-# keys (see web/cache.TTLCache.sweep).
+# keys (see backend/server/cache.TTLCache.sweep).
 CACHE_MAX_AGE_S: int = 3600  # 1 hr
 
 
@@ -70,14 +70,6 @@ PARSE_INNER_CAP_FLOOR: int = 2000
 ADMIN_PARSE_LIST_MAX_LIMIT: int = 1000
 
 
-# --- SQLite ---------------------------------------------------------------
-
-# SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; chunked lookups need
-# to stay under this. 900 leaves headroom for the surrounding fixed params
-# in the same query.
-SQLITE_VAR_CHUNK_SAFE: int = 900
-
-
 # --- API tokens -----------------------------------------------------------
 
 # Per-token last_used_at coalescing window (BE-011). UPDATE only fires if
@@ -88,7 +80,7 @@ API_TOKEN_LAST_USED_COALESCE_S: int = 60
 
 # --- Background tasks -----------------------------------------------------
 
-# Cache-sweep loop interval (see web/app.py:_cache_sweep_loop).
+# Cache-sweep loop interval (see backend/server/app.py:_cache_sweep_loop).
 CACHE_SWEEP_INTERVAL_S: int = 600  # 10 min
 
 # Parses retention-sweep loop interval (see app.py:_parse_cleanup_loop).
@@ -103,7 +95,7 @@ PARSE_CLEANUP_INTERVAL_S: int = 6 * 60 * 60  # 6 h
 # retention loop.
 VOICE_OBSERVATION_RETENTION_DAYS: int = 90
 
-# Days of per-guild daily history (census.db ``guild_history``) kept for the
+# Days of per-guild daily history (the census schema ``guild_history``) kept for the
 # guild page's History tab. One row per guild per UTC day, written by the
 # 15-minute guild refresh; the 1-year range pill needs 365, 400 leaves slack.
 # Pruned on write, scoped to the guild being refreshed.

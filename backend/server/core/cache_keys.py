@@ -5,7 +5,7 @@ Every cache key in the app is shaped ``{kind}:{name.lower()}:{world.lower()}``
 (dropping ``.lower()`` on one side) silently missed the cache. This module
 owns every shape so the typo class is impossible.
 
-Pair each cache instance (web/cache.py) with one key-builder here. If a new
+Pair each cache instance (backend/server/cache.py) with one key-builder here. If a new
 cache flavour is added, add its key-builder here too — never hand-roll a
 key in route code.
 """
@@ -56,7 +56,7 @@ def guild_history_key(guild: str, world: str) -> str:
 
 
 def census_refresh_key(name: str, world: str) -> str:
-    """Key into ``web/census_refresh.py`` ``_last_attempt`` / ``_in_flight``.
+    """Key into ``backend/server/census_refresh.py`` ``_last_attempt`` / ``_in_flight``.
     Same shape as ``char_cache_key`` so the throttle + cache line up."""
     return f"{name.lower()}:{world.lower()}"
 

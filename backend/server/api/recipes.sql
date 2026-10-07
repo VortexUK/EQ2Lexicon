@@ -1,8 +1,7 @@
 -- SQL for backend/server/api/recipes.py — recipe search with optional
 -- query / tier / bench / class-name / craft-class filters. Runs on ONE
 -- connection with search_path = recipes; the items schema is referenced
--- schema-qualified (items.items) — the old two-database split (sqlite
--- ATTACH avoidance, 900-id chunking) is gone.
+-- schema-qualified (items.items).
 --
 -- Note on .format() placeholders in comments: avoid mentioning literal
 -- placeholder names like the placeholders-token or where-clause-token
@@ -35,7 +34,7 @@ SELECT id, class_label FROM items.items WHERE id = ANY(%s);
 -- in Python (name_lower LIKE / bench = conditions) from whichever filters
 -- the request actually carried. No literal binding markers in this comment:
 -- psycopg's client-side binder counts them textually, comments included
--- (see the header note — sqlite's parser ignored the old ?-style mentions).
+-- (see the header note).
 SELECT COUNT(DISTINCT id) AS n FROM recipes WHERE {where};
 
 -- :name select_recipes_where

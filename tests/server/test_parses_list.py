@@ -2,7 +2,7 @@
 
 Extracted from test_parses.py:197-534 per TEST-004 / Phase 2b.3.
 Also includes TestUploaderDiscordId (test_parses.py:542-562) which tests a
-helper from web.routes.parses.list, and the SIZE_BUCKETS sanity check.
+helper from backend.server.api.parses.list, and the SIZE_BUCKETS sanity check.
 """
 
 from __future__ import annotations

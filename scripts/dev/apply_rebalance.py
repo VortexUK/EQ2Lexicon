@@ -1,4 +1,4 @@
-"""Apply the zone↔encounter rebalance back into raids.db.
+"""Apply the zone↔encounter rebalance back into the raids catalogue.
 
 Reads JSON files from ``data/raids/rebalance_outbox/`` (or one via
 ``--in``). Each file's ``zones[*]`` entries get:

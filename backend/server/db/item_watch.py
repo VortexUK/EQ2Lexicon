@@ -1,6 +1,6 @@
 """users-schema item_watch table helpers (psycopg).
 
-Carved out of the original 1309-line web/db.py. Async helpers for the item
+Carved out of the former single-file db module. Async helpers for the item
 watch domain. Methods check out pooled connections via the shared
 ``PgStoreBase._db()``; tests re-point ``store.schema``.
 """

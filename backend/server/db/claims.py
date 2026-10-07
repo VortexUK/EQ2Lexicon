@@ -1,6 +1,6 @@
 """users ``character_claims`` helpers (async psycopg).
 
-Carved out of the original 1309-line web/db.py. Async (psycopg) helpers
+Carved out of the former single-file db module. Async (psycopg) helpers
 for the character claims domain. Per-call connections open via the
 shared ``PgStoreBase._db()``; tests re-point ``store.schema``.
 

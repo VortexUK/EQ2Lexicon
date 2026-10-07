@@ -20,7 +20,7 @@ from backend.server.auth_deps import require_editor
 
 
 def test_invalidate_zones_cache_clears_lru_cache() -> None:
-    # Prime the cache by calling once (may return empty dict if zones.db absent)
+    # Prime the cache by calling once (may return empty dict if the zones catalogue absent)
     _cached_zones_data()
     info_before = _cached_zones_data.cache_info()
     assert info_before.currsize >= 0  # cached or not, the call worked

@@ -1,7 +1,7 @@
 /**
  * aaPlanner — pure validation + allocation engine for the AA planner.
  *
- * Rule semantics (verified against aas.db node data + in-game behaviour):
+ * Rule semantics (verified against the aas catalogue node data + in-game behaviour):
  *   - Every threshold counts AA POINTS SPENT (rank × pointspertier), never
  *     rank counts — a 2-point/rank endline contributes 2 per rank.
  *   - Unlock thresholds are SELF-EXCLUSIVE: a node's own points never count

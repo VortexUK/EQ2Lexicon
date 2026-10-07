@@ -1,7 +1,7 @@
-"""Seed ``data/parses/parses.db`` with synthetic raid kills for demo screenshots.
+"""Seed the parses schema with synthetic raid kills for demo screenshots.
 
 Strictly a dev helper. Not for prod, not in CI. Auto-detects the user's primary
-character from ``data/users.db``, Census-resolves the guild, then inserts a
+character from the users schema, Census-resolves the guild, then inserts a
 hand-tuned mix of kills (some full clears, some partial, timestamps spread
 across the last ~30 days) so the ``/raids`` UI lights up end-to-end.
 

@@ -112,7 +112,7 @@ def build() -> None:
     book_recipe_ids: set[int] = set()
     single_books = multi_books = secondary_books = 0
     try:
-        # ORDER BY id: SQLite iterated in rowid order; pin an order here so the
+        # ORDER BY id: pin an order here so the
         # first-single-class-book-wins setdefault below stays deterministic.
         books = conn.execute(f"SELECT raw_json FROM {items_tbl} WHERE typeinfo_name = 'recipescroll' ORDER BY id")
         for book in books:

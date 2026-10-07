@@ -125,8 +125,7 @@ WHERE session_id = %s AND LOWER(character_name) = LOWER(%s) AND kind IN ('raid',
 
 -- The Postgres schema's ON DELETE CASCADE would cover these, but the
 -- child rows are still deleted explicitly in the same transaction —
--- explicit beats implicit for an officer-facing destructive action, and
--- it keeps parity with the SQLite-era behaviour.
+-- explicit beats implicit for an officer-facing destructive action.
 -- :name delete_observations_for_session
 DELETE FROM attendance_observations WHERE session_id = %s;
 

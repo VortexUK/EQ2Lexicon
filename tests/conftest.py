@@ -2,20 +2,14 @@
 
 Test isolation note
 -------------------
-SQLite families: ``parses.db.DB_PATH`` (and the catalogue paths) are
-evaluated at module import time. To stop the test suite from touching the
-developer's real data files, we redirect them via env vars **before** any
-``web.*`` import below. The tmp dir is wiped at the start of every pytest
-session, so tests start from an empty DB every run.
-
-Postgres (users family): tests/fixtures/pg.py points ``pg.dsn()`` at the
+Every data family is Postgres: tests/fixtures/pg.py points ``pg.dsn()`` at the
 local TEST database (TEST_DATABASE_URL) and rebuilds the session schemas
 from db/migrations/ — never the developer's .env Supabase DSN. Per-test
 isolation comes from the ``users_schema`` fixture (leased scratch schemas).
 
 BE-096: env vars are set inside ``pytest_configure`` (a plugin-ordered hook
 that runs after plugin discovery, before test collection) to avoid a race
-with plugins that import ``web.app`` during discovery.
+with plugins that import ``backend.server.app`` during discovery.
 """
 
 from __future__ import annotations
@@ -50,7 +44,7 @@ def _tmp_db_dir_isolation() -> Generator[Path]:
     on rmtree (TEST-039) — each worker creates a fresh unique directory.
     The directory contents are initialised by pytest_configure before any
     test runs; we skip the pre-session wipe to avoid touching open DB
-    file handles on Windows (PermissionError on locked SQLite files).
+    file handles on Windows (PermissionError on locked files).
     """
     try:
         yield _TEST_DB_DIR
@@ -60,20 +54,17 @@ def _tmp_db_dir_isolation() -> Generator[Path]:
 
 def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     """Plugin-ordered env var setup. Runs after plugin discovery, before
-    test collection — guarantees web.app sees the right DB_*_PATH values.
+    test collection — guarantees backend.server.app sees the right env.
 
     BE-096: moved from module-level os.environ calls to avoid a race with
-    pytest plugins (e.g. pytest-asyncio) that may import web.app during
+    pytest plugins (e.g. pytest-asyncio) that may import backend.server.app during
     plugin discovery."""
-    # (items/spells/recipes moved to Postgres — their tests lease scratch
-    # schemas via tests/fixtures/catalogues_db; no env re-point needed.)
-    # DB_CLASSES_PATH intentionally NOT overridden — classes.db is the
-    # committed source-of-truth (data/classes/classes.db) and is read-only
-    # at runtime. Tests read it directly; nothing writes to it. Pointing
-    # it at an empty tmpdir would make backend.eq2db.classes' import-time
-    # row load fail with "classes.db is empty or unreadable".
+    # Catalogue tests lease scratch schemas via tests/fixtures/catalogues_db.
+    # The classes catalogue is the migration-seeded source of truth
+    # (db/migrations/0011_classes.sql), read-only at runtime; tests read it
+    # directly.
 
-    # web.app reads SESSION_SECRET at module-import time and raises if it's
+    # backend.server.app reads SESSION_SECRET at module-import time and raises if it's
     # unset or shorter than 32 chars. CI and fresh contributor checkouts have
     # no .env, so provide a throwaway value here (setdefault leaves a real
     # local SESSION_SECRET untouched). Must be >= 32 chars to pass the check.
@@ -98,11 +89,9 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
 
     provision_for_session()
 
-    # (The users + parses schemas — and the Phase-2 items/spells/recipes
-    # catalogue schemas — are provisioned by provision_for_session above.
+    # (Every family schema is provisioned by provision_for_session above.
     # FastAPI's startup hooks don't fire under ASGITransport, but the
-    # migrations already ran against the test database. classes.db and
-    # aas.db stay committed SQLite and are read in place.)
+    # migrations already ran against the test database.)
 
 
 from unittest.mock import AsyncMock, MagicMock  # noqa: E402

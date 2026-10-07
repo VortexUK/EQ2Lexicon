@@ -10,7 +10,7 @@ names. Validating against the real shape on the way in is defence in depth:
 - Makes invalid input fail loudly at the route layer rather than producing
   a 502 from a downstream Census error.
 
-Originally lived inline in web/routes/parses.py:84-107 — promoted here so
+Originally lived inline in backend/server/api/parses/:84-107 — promoted here so
 every route applies the same rules, not just the ingest endpoint.
 """
 
@@ -27,7 +27,7 @@ WORLD_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 '_-]{0,30}$")
 
 # Guild names allow spaces and apostrophes. Looser than character names by
 # necessity ("The Spitting Cobras" is a real guild). Max 64 chars matches
-# the existing _validate_guild_name in web/routes/guild.py.
+# the existing _validate_guild_name in backend/server/api/guild.py.
 GUILD_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '_-]{0,63}$")
 
 # Only a real Discord invite: discord.gg/<code> or discord.com/invite/<code>.
@@ -70,7 +70,7 @@ def validate_guild_name(name: str | None) -> str | None:
     """Return ``name`` if it matches a plausible EQ2 guild-name shape.
 
     Looser than character names (spaces, apostrophes allowed). Replaces the
-    private ``_validate_guild_name`` in web/routes/guild.py."""
+    private ``_validate_guild_name`` in backend/server/api/guild.py."""
     if not name:
         return None
     candidate = name.strip()

@@ -1,6 +1,6 @@
 """users `users` domain (async psycopg).
 
-Carved out of the original 1309-line web/db.py. Async helpers for the
+Carved out of the former single-file db module. Async helpers for the
 users + role / role_request / role_permission domain. Per-call pooled
 connections via the shared ``PgStoreBase._db()``; tests re-point
 ``store.schema``.
@@ -140,7 +140,7 @@ class UsersStore(PgStoreBase):
     # ---------------------------------------------------------------------------
     #
     # Role strings are validated at the route layer (against the KNOWN_ROLES set in
-    # web/auth_deps.py) — these helpers accept any string so test fixtures and
+    # backend/server/auth_deps.py) — these helpers accept any string so test fixtures and
     # future roles don't need a DB-layer code change.
 
     async def grant_role(

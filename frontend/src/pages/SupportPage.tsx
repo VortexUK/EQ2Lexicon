@@ -72,9 +72,10 @@ export default function SupportPage() {
             traffic.
           </li>
           <li>
-            <strong className="text-text">Backups.</strong> Litestream
-            replicates the parses, raids, and users databases to R2 so
-            nothing is ever a single VM crash away from being gone.
+            <strong className="text-text">Backups.</strong> The database
+            (parses, guilds, strategies, accounts) is dumped nightly to
+            off-site storage so nothing is ever a single outage away from
+            being gone.
           </li>
           <li>
             <strong className="text-text">Domain + monitoring.</strong>{' '}

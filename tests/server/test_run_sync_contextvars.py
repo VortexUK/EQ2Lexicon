@@ -53,7 +53,7 @@ async def test_run_sync_isolates_contextvars_between_calls():
 @pytest.mark.asyncio
 async def test_run_sync_works_for_active_server_contextvar():
     """End-to-end with the production-relevant ContextVar:
-    web.server_context._active_server. This is the actual variable that
+    backend.server.server_context._active_server. This is the actual variable that
     current_world() reads."""
     from backend.server import server_context
     from backend.server.server_context import Server, current_world

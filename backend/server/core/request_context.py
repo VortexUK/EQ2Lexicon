@@ -12,7 +12,7 @@ Why contextvars instead of an `extra=` kwarg at every log call site:
     output without any change to the log site.
 
 Single-process assumption: contextvars don't cross workers. Today the app
-runs with WEB_CONCURRENCY=1 (asserted at startup — see web/app.py:_startup).
+runs with WEB_CONCURRENCY=1 (asserted at startup — see backend/server/app.py:_startup).
 If that ever loosens, request_id propagation between workers needs an
 HTTP-header pickup at the receiving worker too — at which point the middleware
 in request_context_middleware.py needs to honour an inbound X-Request-ID
@@ -67,7 +67,7 @@ def get_logger(name: str) -> _RequestContextAdapter:
         _log = get_logger(__name__)
 
     Plain `logging.getLogger(__name__)` still works — the contextvars are
-    also read by the logging-config filter (web/lib/logging_config.py), so
+    also read by the logging-config filter (backend/core/logging_config.py), so
     every log record from any logger gets the contextvar values attached
     via the filter. The adapter exists for routes that want a typed
     handle + auto-context.
@@ -78,7 +78,7 @@ def get_logger(name: str) -> _RequestContextAdapter:
 class RequestContextFilter(logging.Filter):
     """Logging filter that injects request_id/user_id/world onto every record.
 
-    Used by `configure_logging()` (web/lib/logging_config.py) on the root
+    Used by `configure_logging()` (backend/core/logging_config.py) on the root
     handler so even plain `logging.getLogger(__name__)` consumers (most of
     the codebase) get the contextvar values stamped onto their LogRecord.
     The format string can then reference `%(request_id)s`.

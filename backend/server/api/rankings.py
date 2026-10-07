@@ -316,7 +316,7 @@ def invalidate_zones_cache(zone_name: str | None = None, *, reclassify: bool = T
     _zone_xpac_cache = None  # era-lock zone→xpac map rebuilds on next read
     _cached_zones_data.cache_clear()
     # Local imports: parses.list already imports _cached_zones_data
-    # from this module, and parses.db is a deeper dependency. Local
+    # from this module, and the parses schema is a deeper dependency. Local
     # imports keep the module-load DAG cycle-free.
     from backend.server.api.parses.list import _classifier_cache_clear
     from backend.server.parses.db import store as parses_db
@@ -379,7 +379,7 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
     PROCESS-LOCAL: this LRU lives in one Python process. invalidate_zones_cache()
     only clears it on the worker that handled the mutation; sibling workers
     serve stale data until they happen to evict. A startup assertion in
-    web/app.py:_startup pins WEB_CONCURRENCY=1 so this is safe — if that
+    backend/server/app.py:_startup pins WEB_CONCURRENCY=1 so this is safe — if that
     assertion is ever loosened, move invalidation to a Redis-backed fan-out
     (or re-read on a short TTL)."""
     conn = zones_db.init_db()
@@ -475,7 +475,7 @@ _warned_cut_parses: set[int] = set()
 def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str | None, str | None]:
     """Whether an encounter is a rankable boss, and its canonical (zone, title).
 
-    For both raid AND group scopes, zones.db is authoritative — a title
+    For both raid AND group scopes, the zones catalogue is authoritative — a title
     matching a known curated encounter mob is a boss, remapped to its
     canonical zone + encounter name. This collapses:
       * ACT zone-name variance (different log lines for the same zone)
@@ -513,11 +513,11 @@ def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str |
 def _build_filters(kills: list[dict]) -> dict:
     """Scope → zone → boss tree for the dropdowns.
 
-    Two sources of truth, both from zones.db:
+    Two sources of truth, both from the zones catalogue:
 
       * **Raid** zones/bosses come from the ``raid_x4`` type — full structure
         including bosses with no kills yet, each tagged with its expansion.
-        Heuristic-matched raid kills for zones not yet in zones.db are
+        Heuristic-matched raid kills for zones not yet in the zones catalogue are
         appended under an "Other" expansion so they still appear.
       * **Dungeon** zones/bosses come from the ``dungeon`` type overlay (the
         curated max-level group instances). All curated dungeons appear in
@@ -542,7 +542,7 @@ def _build_filters(kills: list[dict]) -> dict:
             exp_order.append(short)
 
     # Curated dungeons — keyed identically to raid_zones so the per-zone
-    # shape downstream is consistent. Bosses come straight from zones.db
+    # shape downstream is consistent. Bosses come straight from the zones catalogue
     # (the curated 3–11 per zone for EoF), not from kill data.
     dungeon_zones: dict[str, dict] = {}
     for entry in dungeon_tree:
@@ -618,10 +618,8 @@ def _zone_expansion_map() -> dict[str, str]:
     """{canonical zone name lower: expansion short} from the zones schema.
     Cached — cleared by invalidate_zones_cache alongside the boss trees.
 
-    The old SQLite version swallowed sqlite3.Error because a dev checkout
-    might simply not have the zones.db file; on Postgres the schema is
-    guaranteed by migrations, so a failure here is a real fault and
-    propagates."""
+    The schema is guaranteed by migrations, so a failure here is a real
+    fault and propagates."""
     global _zone_xpac_cache
     if _zone_xpac_cache is None:
         conn = zones_db.init_db()
@@ -711,7 +709,7 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
                 r["player_count"] = int(refreshed["n"]) if refreshed else 0
         t_classify = _time.monotonic()
         # Gate + canonicalise per row (scope is known from player_count): raid
-        # bosses resolve against zones.db, everything else via the heuristic.
+        # bosses resolve against the zones catalogue, everything else via the heuristic.
         encs: list[dict] = []
         for r in rows:
             d = dict(r)
@@ -899,7 +897,7 @@ def _kills_build_task(world: str) -> asyncio.Task:
     """ONE shared rebuild task per world. The startup prewarm, stale
     background refreshes and cold-cache requests all await the same task —
     two dedup mechanisms once let a visitor during the prewarm start a
-    SECOND competing multi-minute rebuild against the same SQLite file."""
+    SECOND competing multi-minute rebuild against the same database."""
     task = _kills_build_tasks.get(world)
     if task is None or task.done():
 
@@ -958,7 +956,7 @@ async def prewarm_rankings_kills() -> None:
 @router.get("/rankings/filters")
 @limiter.limit("60/minute")
 async def get_ranking_filters(request: Request) -> dict:
-    """The dropdown tree. Its authoritative content is STATIC (zones.db,
+    """The dropdown tree. Its authoritative content is STATIC (the zones catalogue,
     cached for the process lifetime) — kills only contribute the "Other"
     bucket for heuristic-matched zones not yet curated. So the heavy
     kills scan must never block (or 500) the dropdowns: serve whatever
@@ -972,7 +970,7 @@ async def get_ranking_filters(request: Request) -> dict:
     kills, is_stale = rankings_cache.get_stale(f"{_KILLS_KEY}:{world}")
     _, raid_tree, dungeon_tree, _ = _cached_zones_data()
     if kills is None and not raid_tree and not dungeon_tree:
-        # No curated zones.db (dev/tests): the dropdowns are ENTIRELY
+        # No curated zones catalogue (dev/tests): the dropdowns are ENTIRELY
         # parse-derived there, so the scan is the only source — block once.
         kills = await run_sync(_cached_kills, world)
     elif kills is None or is_stale:

@@ -5,8 +5,8 @@ Rebuild the item_stats side-table from raw_json stored in the items schema.
 Run whenever the stat-extraction patterns change (STAT_MAP additions, new
 _EFFECT_STAT_PATTERNS entries in backend/eq2db/items.py) — this re-extracts
 both modifier-derived and effect-derived stats in place, no re-download. The
-old SQLite startup backfills are gone: the loader computes stats at write
-time, and this script is THE way to recompute them after a pattern change.
+loader computes stats at write time, and this script is THE way to recompute
+them after a pattern change.
 
     uv run python scripts/backfill_item_stats.py [--rebuild]
 

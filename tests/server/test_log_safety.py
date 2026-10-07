@@ -1,6 +1,6 @@
-"""Tests for web.lib.log_safety — COV-022.
+"""Tests for backend.server.core.log_safety — COV-022.
 
-Target: ≥ 90 % on web.lib.log_safety.
+Target: ≥ 90 % on backend.server.core.log_safety.
 """
 
 from __future__ import annotations

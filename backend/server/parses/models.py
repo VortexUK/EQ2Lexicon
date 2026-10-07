@@ -14,7 +14,7 @@ and percentage strings (e.g. '93%' or '--') are parsed to floats via
 shape: missing values, empty strings, ACT's 'T'/'F' bool encoding.
 
 The shape itself predates the HTTP ingest path — these dataclasses
-originally mirrored ACT's ODBC SQLite export at AttackType depth, used
+originally mirrored ACT's ODBC export at AttackType depth, used
 by the now-removed ``parses.act_reader`` + ``parses.ingest`` CLIs. The
 plugin's JSON payload carries the same shape forward so the dataclasses
 serve the v0.1.8+ upload path unchanged.
@@ -26,7 +26,7 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-# SQLite stores integers as signed 64-bit. A payload value outside this range
+# Postgres bigint is signed 64-bit. A payload value outside this range
 # raises OverflowError at insert time (an uncaught 500); clamp instead so a
 # hostile/garbage number degrades to a bound the plausibility gate then
 # rejects, rather than crashing the request.

@@ -79,7 +79,7 @@ export interface AdminParse {
 /** Reason codes the plugin emits today. Stored as free-form strings
  *  server-side so a future plugin version can add a code without a
  *  server bump — the UI falls back to "unknown" styling in that case.
- *  See web/routes/parses/tamper_report.py:KNOWN_TAMPER_REASONS. */
+ *  See backend/server/api/parses/tamper_report.py:KNOWN_TAMPER_REASONS. */
 export type TamperReason =
   | 'title_enemy_mismatch'      // ACT right-click → Rename Encounter
   | 'stale_encounter'           // EndTime > 1 hour ago (almost certainly imported)

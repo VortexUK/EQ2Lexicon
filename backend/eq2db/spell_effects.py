@@ -1,6 +1,6 @@
 """Effect-text parser for the rotation simulator — pure, no DB access.
 
-spells.db stores damage ONLY as English effect lines ("Inflicts 447 - 746
+the spells catalogue stores damage ONLY as English effect lines ("Inflicts 447 - 746
 melee damage on target", "... every 4 seconds"); no numeric columns exist.
 This module turns those lines into structured damage components the
 simulator can do arithmetic on. One canonical grammar covers every
@@ -36,9 +36,9 @@ Parsing rules (each backed by observed rows):
   * Heals, threat, debuffs, requirement text → ignored (kept in ``lines``).
 
 Unit constants live here so every consumer shares one source of truth:
-  * ``SPELL_DURATION_DIVISOR`` — items.db ``spell_duration`` is HUNDREDTHS
+  * ``SPELL_DURATION_DIVISOR`` — the items catalogue ``spell_duration`` is HUNDREDTHS
     of a second (verified: Dark Pyre VI 1000 → 10 s; Tempest 800 → 8 s).
-  * ``RECOVERY_DIVISOR`` — spells.db ``recovery_secs`` is 10× inflated:
+  * ``RECOVERY_DIVISOR`` — the spells catalogue ``recovery_secs`` is 10× inflated:
     the census ``recovery_secs_tenths`` field actually carries hundredths
     and ``spell_to_row`` divides by 10, so the stored 5.0 is really the
     universal in-game 0.5 s. Normalised at read time; fixing ingestion +
@@ -50,9 +50,9 @@ from __future__ import annotations
 import re
 from typing import TypedDict
 
-#: items.db spell_duration → seconds (field is hundredths of a second).
+#: the items catalogue spell_duration → seconds (field is hundredths of a second).
 SPELL_DURATION_DIVISOR = 100.0
-#: spells.db recovery_secs → real seconds (stored value is 10× inflated).
+#: the spells catalogue recovery_secs → real seconds (stored value is 10× inflated).
 RECOVERY_DIVISOR = 10.0
 #: A beneficial spell with a duration at or under this is "temp-buff shaped"
 #: and belongs in the rotation; longer buffs are permanent and already
@@ -65,7 +65,7 @@ TEMP_BUFF_MAX_DURATION_S = 300.0
 #: and is treated as a PERMANENT buff, never a temp window.
 TEMP_BUFF_MIN_DURATION_S = 5.0
 #: DoT lines usually carry no duration in the effect text; when the
-#: items.db join has none either, the engine assumes this (flagged "est.").
+#: the items catalogue join has none either, the engine assumes this (flagged "est.").
 FALLBACK_DOT_DURATION_S = 12.0
 #: Census renders SOME spells' damage text without scaling context, so the
 #: line reads "Inflicts 1 - 2 divine damage" at level 71 (Smite Corruption,
@@ -326,7 +326,7 @@ _REUSE_EFFECT_RE = re.compile(r"Decreases? the [^.]*? (?:spell |ability )?reuse 
 #: Secrets, Nagol's Treasure's cast-time cut). These are spell-effect
 #: lines, NOT the Casting/Reuse Speed character stats, so census sheet
 #: stats never include them — genuinely hidden. Full scope survey of
-#: items.db: all / hostile / beneficial / Subjugation-based / healing;
+#: the items catalogue: all / hostile / beneficial / Subjugation-based / healing;
 #: only all+hostile speed the damage rotation (beneficial/healing don't,
 #: and skill-scoped cuts would need per-ability skill tracking), and a
 #: scopeless "Reduces casting time by 10%" form also exists.
@@ -996,7 +996,7 @@ def extract_damage_pairs(lines: list[str]) -> list[tuple[float, float]]:
 def parse_effect_lines(effects: list[dict]) -> ParsedEffects:
     """The full effects JSON of one spell row → structured components.
 
-    ``effects`` is spells.db's parsed JSON: [{"description": str,
+    ``effects`` is the spells catalogue's parsed JSON: [{"description": str,
     "indentation": int}, ...]."""
     components: list[DamageComponent] = []
     procs: list[ProcDef] = []

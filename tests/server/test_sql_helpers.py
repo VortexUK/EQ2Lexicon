@@ -1,6 +1,6 @@
-"""Tests for web.lib.sql_helpers — COV-023.
+"""Tests for backend.server.core.sql_helpers — COV-023.
 
-Target: ≥ 90 % on web.lib.sql_helpers.
+Target: ≥ 90 % on backend.server.core.sql_helpers.
 """
 
 from __future__ import annotations

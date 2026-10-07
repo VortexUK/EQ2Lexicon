@@ -69,8 +69,7 @@ def test_is_player_index_exists(parses_db_path):
 
 
 def test_migration_is_idempotent():
-    """The SQLite "re-apply every ALTER, duplicates are no-ops" check becomes:
-    the migration runner on an already-migrated database applies nothing."""
+    """The migration runner on an already-migrated database applies nothing."""
     assert pg_migrate.run() == []
 
 

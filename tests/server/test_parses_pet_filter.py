@@ -1,5 +1,5 @@
 """Tests for the Phase-4 SQL filter switch + lazy backfill in
-web/routes/parses/list.py.
+backend/server/api/parses/list.py.
 
 After Phase 4: _PLAYER_COUNT_SQL filters on is_player=1, not on the
 old multi-word/Unknown predicate. _ensure_classified runs lazy

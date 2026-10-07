@@ -9,7 +9,7 @@ Reads:
     back to minting a fresh UUID4.
   - `request.session["user"]["id"]` if SessionMiddleware already populated
     it. Falls back to None.
-  - `web.server_context.current_world()` (read AFTER ServerContextMiddleware
+  - `backend.server.server_context.current_world()` (read AFTER ServerContextMiddleware
     has run — see Phase 2b for the install ordering).
 
 Writes:
@@ -65,7 +65,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         # before the next middleware (ServerContextMiddleware) reads it.
         # So we set world to None initially; the route handler's logs will
         # see the world via current_world() through the filter (which reads
-        # the contextvar from web/server_context.py, not from here).
+        # the contextvar from backend/server/server_context.py, not from here).
         rid_token = request_id_var.set(rid)
         uid_token = user_id_var.set(uid)
         # Also on the ASGI scope (request.state is scope["state"]) — it

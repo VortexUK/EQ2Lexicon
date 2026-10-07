@@ -192,7 +192,7 @@ def test_to_int_clamps_to_int64():
 
 
 def test_to_int_of_huge_float_does_not_overflow():
-    # A finite huge float must clamp, never raise at the SQLite boundary.
+    # A finite huge float must clamp, never raise at the database boundary.
     assert _to_int(1e308) == 2**63 - 1
     assert math.isfinite(float(_to_int(1e308)))
 

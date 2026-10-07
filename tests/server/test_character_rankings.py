@@ -1,7 +1,7 @@
 """Tests for GET /api/character/{name}/rankings (WCL-style per-boss summary).
 
 The kills dataset is faked at the _cached_kills seam (same data shape the
-rankings module builds from parses.db), so these tests pin the percentile,
+rankings module builds from the parses schema), so these tests pin the percentile,
 median, All Stars, and gating semantics without any DB plumbing.
 """
 

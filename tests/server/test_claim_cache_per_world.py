@@ -70,7 +70,7 @@ def test_cache_key_helper_is_world_scoped():
 
 def _fake_user_for(discord_id: str):
     """Factory: returns a sync _require_user replacement (the real one
-    in web.auth_deps is sync) that resolves to the given Discord ID.
+    in backend.server.auth_deps is sync) that resolves to the given Discord ID.
     Different tests use different IDs so the shared test DB doesn't
     carry claim state across tests in the module."""
 

@@ -1,7 +1,7 @@
 """Export current scraped strategies into N balanced JSON chunks for
 parallel-agent polishing.
 
-Reads ``raids.db`` for every encounter that has non-empty ``strategy_md``,
+Reads the raids schema for every encounter that has non-empty ``strategy_md``,
 groups by zone, then splits across ``--chunks`` files balanced by total
 char count. Writes each chunk to ``data/raids/polish_inbox/chunk_<n>.json``.
 

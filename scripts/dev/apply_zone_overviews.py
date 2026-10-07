@@ -1,4 +1,4 @@
-"""Apply the audited zone overviews back into raids.db.
+"""Apply the audited zone overviews back into the raids catalogue.
 
 Reads every JSON file in ``data/raids/zone_overview_outbox/`` (or one via
 ``--in``). For each entry: updates ``raid_zones.overview_md`` and stamps

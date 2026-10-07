@@ -464,7 +464,7 @@ async def explore_stats(request: Request, stat: str, cls: str | None = None) -> 
 
 
 def _resolve_ability(crc: Any) -> str | None:
-    """Best-effort crc → ability name via spells.db (coverage is partial —
+    """Best-effort crc → ability name via the spells catalogue (coverage is partial —
     sentinel/unknown crcs simply render unnamed)."""
     try:
         crc_int = int(crc)

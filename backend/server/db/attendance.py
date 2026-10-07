@@ -90,8 +90,7 @@ class AttendanceStore(PgStoreBase):
                 # psycopg's implicit transaction opens at this first execute.
                 # The advisory xact lock (auto-released at commit/rollback)
                 # serialises concurrent snapshot folds per (world, guild)
-                # exactly as SQLite's BEGIN IMMEDIATE eager write lock did —
-                # two uploaders can't both miss the other's freshly inserted
+                # — two uploaders can't both miss the other's freshly inserted
                 # session and double-create.
                 await db.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s))",

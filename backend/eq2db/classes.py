@@ -1,9 +1,8 @@
 """EQ2 class catalogue — read-only accessor behind ClassCatalogue.
 
 The canonical class catalogue is the Postgres ``classes`` schema, seeded by
-db/migrations/0011_classes.sql (the seeds ARE the canonical data — classes
-was previously a hand-maintained committed SQLite file with no build
-script). It holds:
+db/migrations/0011_classes.sql (the seeds ARE the canonical data; there is
+no build script). It holds:
   - 26 adventure classes (archetype ∈ {Fighter, Priest, Scout, Mage})
   - 9 crafters (archetype = "Crafter")
 
@@ -36,9 +35,8 @@ _T = TypeVar("_T")
 
 SCHEMA = "classes"
 
-# The old SQLite-era env override stays loudly ignored: a stale volume file
-# behind DB_CLASSES_PATH served the pre-2026-08 swapped Coercer/Illusionist
-# ids in prod for weeks (live report 2026-09-22).
+# DB_CLASSES_PATH is ignored (with a warning): class data lives in the
+# Postgres `classes` schema.
 if os.getenv("DB_CLASSES_PATH"):
     logging.getLogger(__name__).warning(
         "[classes-db] DB_CLASSES_PATH is set but ignored — class data lives in the "

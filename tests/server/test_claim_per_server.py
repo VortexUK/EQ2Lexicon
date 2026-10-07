@@ -4,7 +4,7 @@ Tests use the DB helpers directly with explicit ``world`` args so they run
 without a live HTTP layer and stay fast.  Each test gets an isolated leased
 users schema (the autouse ``users_db`` alias of ``users_schema`` below).
 
-Convention mirrors the rest of tests/web/: use the shared ``app`` fixture
+Convention mirrors the rest of tests/server/: use the shared ``app`` fixture
 from conftest when testing route-level behaviour (x-server header), and call
 the DB helpers directly for unit-level isolation cases.
 """

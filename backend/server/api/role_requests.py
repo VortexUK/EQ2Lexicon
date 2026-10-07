@@ -4,7 +4,7 @@ POST   /api/me/role-requests        — submit a new pending request
 DELETE /api/me/role-requests/{id}   — withdraw your own pending request
 
 Self-service half of the role-request flow. The admin queue + approve/reject
-endpoints live in ``web/routes/admin.py``. On approval, the admin route also
+endpoints live in ``backend/server/api/admin.py``. On approval, the admin route also
 inserts a row into ``user_roles`` so the request and the grant stay decoupled
 (an approved request is immutable audit history; the grant itself can be
 revoked separately without rewriting the request row).

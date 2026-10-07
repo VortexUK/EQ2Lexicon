@@ -1,6 +1,6 @@
 """GET /parses + GET /parses/{id} — paginated list + detail of recent encounters.
 
-Carved out of the original 1687-line web/routes/parses.py. All helpers used
+Carved out of the former single-file parses module. All helpers used
 ONLY by the read paths live here. Helpers shared with ingest live in
 ingest.py (and the read paths import them).
 """
@@ -117,7 +117,7 @@ def _ensure_classified(conn: Any, encounter_id: int, zone: str | None) -> bool:
 
 def encounters_needing_classification(conn: Any, encounter_ids: list[int]) -> set[int]:
     """Batched probe: which of these encounters still have unclassified
-    ally rows? ONE ``= ANY`` query (the SQLite 500-id chunking is gone)
+    ally rows? ONE ``= ANY`` query
     instead of one probe per encounter — at Wuoshi's backlog size the
     per-encounter probes alone cost the rankings rebuild the better part
     of a minute."""

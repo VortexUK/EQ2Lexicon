@@ -79,7 +79,7 @@ async def test_unknown_zone_classifies_as_other(app):
         patch("backend.server.api.parses.list._require_user", _fake_user),
         patch("backend.server.api.parses.list._list_encounters_sync", fake_list_sync),
         # No patch on _classify_zone — let the real helper run; it returns
-        # "other" for None per its own spec, no zones.db needed.
+        # "other" for None per its own spec, no zones catalogue needed.
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/parses")

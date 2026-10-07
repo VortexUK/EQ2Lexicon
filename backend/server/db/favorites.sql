@@ -2,9 +2,8 @@
 
 -- Cap-guarded insert: the count check rides in the INSERT itself (no route-
 -- layer check-then-insert window). NOTE: under Postgres read-committed two
--- concurrent inserts can each see count < cap and land cap+1 — SQLite's
--- single-writer made this fully atomic; acceptable drift for a soft bookmark
--- cap. Rowcount 0 means EITHER the row already existed (ON CONFLICT DO
+-- concurrent inserts can each see count < cap and land cap+1 —
+-- acceptable drift for a soft bookmark cap. Rowcount 0 means EITHER the row already existed (ON CONFLICT DO
 -- NOTHING) or the cap was hit — callers disambiguate with select_is_favorited.
 -- :name insert_favorite_capped
 INSERT INTO character_favorites (discord_id, character_name, world)

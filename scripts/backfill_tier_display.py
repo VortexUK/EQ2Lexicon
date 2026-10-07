@@ -1,4 +1,4 @@
-"""RETIRED — one-time SQLite-era backfill (items.db).
+"""RETIRED — one-time SQLite-era backfill (the items catalogue).
 
 Filled the then-new ``tier_display`` column (``tier`` with a ``'COMMON'``
 default for null/empty tiers). Superseded by the Postgres ``items`` schema

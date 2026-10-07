@@ -2,7 +2,7 @@
 
 Used by the gear-sets endpoint: for each saved set, "what would the sheet
 stats roughly look like wearing this instead of the current gear?" — computed
-as Σ item stats(set) − Σ item stats(worn), sourced from items.db's
+as Σ item stats(set) − Σ item stats(worn), sourced from the items catalogue's
 ``item_stats`` table (items + adorns) plus active item-set bonuses.
 
 Deliberate approximations (the sheet marks these values as approximate):

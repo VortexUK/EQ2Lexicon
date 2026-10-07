@@ -1,4 +1,4 @@
-"""Tests for web/routes/census.py and web/census_events.py — COV-007.
+"""Tests for backend/server/api/census.py and backend/server/census_events.py — COV-007.
 
 Covers:
   GET /api/census/health — returns current state dict.

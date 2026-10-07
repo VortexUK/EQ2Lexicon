@@ -59,7 +59,7 @@ def _fake_spell_row(
 
 # Treat every supplied CRC as upgradeable — the default for tests that aren't
 # specifically exercising the upgradeable filter. Patches eq2db's catalogue
-# query so no real spells.db is needed.
+# query so no real spells catalogue is needed.
 def _all_upgradeable(crcs, **_kw):
     return {c for c in crcs if c is not None}
 

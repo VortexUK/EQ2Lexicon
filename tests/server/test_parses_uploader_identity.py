@@ -61,7 +61,7 @@ async def test_list_parses_resolves_uploader_discord_identity(app):
     """A plugin-uploaded fight gets the uploader's discord_id + display
     name on the canonical encounter AND on its uploads[] entry. The
     display-name resolution is a single batched DB query — patched here
-    to avoid touching the real users.db."""
+    to avoid touching the real users schema."""
     plugin_uploaded = dict(
         _FAKE_ENCOUNTER,
         source_dsn="plugin:discord-1234",

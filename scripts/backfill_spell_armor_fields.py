@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RETIRED — one-time SQLite-era backfill (items.db).
+"""RETIRED — one-time SQLite-era backfill (the items catalogue).
 
 Filled the then-new ``skill_type`` / ``spell_target`` / ``spell_range`` /
 ``spell_power_cost`` / ``spell_resistability`` columns from ``raw_json``

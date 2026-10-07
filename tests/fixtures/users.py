@@ -31,7 +31,7 @@ def make_fake_admin(id: str = "admin-1", username: str = "boss") -> SessionUser:
     """Return a SessionUser-shaped dict for an admin fixture user.
 
     Defaults match the shape the original `_fake_admin` definitions used
-    across tests/web/test_admin_*.py and tests/web/test_role_requests.py.
+    across tests/server/test_admin_*.py and tests/server/test_role_requests.py.
     """
     return SessionUser(id=id, username=username)
 
@@ -44,7 +44,7 @@ def make_fake_user(id: str = "user-1", username: str = "testuser") -> SessionUse
 def make_fake_require_user(user: SessionUser) -> Callable[..., SessionUser]:
     """Build a `_require_user(request=None)`-shaped callable that returns `user`.
 
-    Matches the signature of `web.auth_deps._require_user` (and the
+    Matches the signature of `backend.server.auth_deps._require_user` (and the
     `_require_user` re-exports in route modules). Use with `patch(...)`:
 
         fake_require_user = make_fake_require_user(make_fake_user())

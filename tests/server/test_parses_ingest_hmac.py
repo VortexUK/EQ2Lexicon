@@ -1,7 +1,7 @@
 """Regression: HMAC validation must survive a body-rewriting middleware
 between SessionMiddleware and the ingest route.
 
-The strict-mode HMAC check (web/routes/parses._validate_payload_signature)
+The strict-mode HMAC check (backend/server/api/parses._validate_payload_signature)
 reads ``request.body()`` after FastAPI has already injected the body into the
 handler signature. Starlette caches the wire bytes so the second read is
 free — but if any future middleware reads the body via the ASGI receive()

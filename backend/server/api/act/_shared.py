@@ -43,7 +43,7 @@ class TriggerEntry(BaseModel):
 
 class SpellTimerEntry(BaseModel):
     """Mirrors a row of ``act_spell_timers``. ``absolute_`` is named with
-    the trailing underscore in the DB to dodge SQLite reserved-keyword
+    the trailing underscore in the DB to dodge reserved-keyword
     risk, but the API + XML use the plain ``absolute`` attribute."""
 
     id: int
@@ -82,7 +82,7 @@ class SpellTimerEntry(BaseModel):
 
 # The synthetic zone that holds contributor-defined trigger CATEGORIES
 # ("Death Saves", …) — encounters under it are categories, not bosses.
-# It exists only in the raids schema (verified absent from zones.db), so it
+# It exists only in the raids schema (verified absent from the zones catalogue), so it
 # rides every existing per-encounter route, the XML import/export, and the
 # app pack with zero special-casing beyond the resolution branch below.
 GENERAL_ZONE = "General"

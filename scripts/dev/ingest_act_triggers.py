@@ -1,7 +1,7 @@
-"""Hydrate ``data/raids/raids.db`` with ACT triggers from ``spell_timers.xml``.
+"""Hydrate the raids schema with ACT triggers from ``spell_timers.xml``.
 
 Reads ``scripts/dev/spell_timers.xml`` (an ACT export) and writes the relevant
-triggers + spell-timers into raids.db, attributed to the right
+triggers + spell-timers into the raids catalogue, attributed to the right
 ``(zone_name, position)`` per the manual mapping below.
 
 Scope: EoF + RoK only (matches the project's TLE focus). Other expansions in
@@ -11,11 +11,11 @@ Usage
 -----
 
   python scripts/dev/ingest_act_triggers.py                # dry-run, prints plan
-  python scripts/dev/ingest_act_triggers.py --apply        # writes raids.db
+  python scripts/dev/ingest_act_triggers.py --apply        # writes the raids catalogue
   python scripts/dev/ingest_act_triggers.py --xml <path>   # override XML source
 
 Idempotent: re-runs skip triggers whose (encounter_id, regex, sound_data)
-already exists in raids.db. Spell timers are upserted by name (the existing
+already exists in the raids catalogue. Spell timers are upserted by name (the existing
 UNIQUE (encounter_id, name_lower) takes care of dedup).
 """
 
@@ -131,7 +131,7 @@ def parse_triggers_xml(path: Path) -> tuple[list[dict], list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# Encounter resolution (zones.db + raids.db lazy-create)
+# Encounter resolution (the zones catalogue + the raids catalogue lazy-create)
 # ---------------------------------------------------------------------------
 
 
@@ -355,7 +355,7 @@ def main() -> None:
     ap.add_argument(
         "--apply",
         action="store_true",
-        help="Actually write to raids.db (default: dry-run, no writes).",
+        help="Actually write to the raids schema (default: dry-run, no writes).",
     )
     args = ap.parse_args()
 

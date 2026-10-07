@@ -2,7 +2,7 @@
  * Tests for the two exported utilities of RankingsPage.
  *
  * `normaliseBossName` is mirrored on the backend as `_normalise_boss_key`
- * in web/routes/rankings.py — the backend has 11 tests of identical shape.
+ * in backend/server/api/rankings.py — the backend has 11 tests of identical shape.
  * Keep this file's apostrophe/space coverage parallel.
  *
  * `safeSetParams` is the safety net for Firefox's History-API throttle

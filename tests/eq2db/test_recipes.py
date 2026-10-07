@@ -305,7 +305,7 @@ class TestFindByOutputId:
 
 
 class TestSpellTierAtWriteTime:
-    """The SQLite-era ``_backfill_spell_tiers`` startup backfill is gone —
+    """There is no startup spell-tier backfill —
     ``recipe_to_row`` (via ``_parse_spell_tier``) computes base_name_lower +
     crafted_tier at WRITE time, so a row can no longer arrive without them.
     Same intent as the old backfill tests: a tiered recipe name lands with
@@ -347,8 +347,7 @@ class TestOutLevelColumn:
         return {r["column_name"] for r in rows}
 
     def test_fresh_schema_has_out_level_column(self, recipes_db: RecipeCatalogue):
-        # (was test_init_db_adds_out_level_column — the SQLite ALTER migration
-        # is retired; out_level is a real column in 0009_recipes.sql.)
+        # (out_level is a real column in 0009_recipes.sql.)
         assert "out_level" in self._columns(recipes_db.schema)
 
     def test_init_db_is_idempotent_on_out_level(self, recipes_db: RecipeCatalogue):
@@ -368,9 +367,8 @@ class TestOutLevelColumn:
         assert row["out_level"] == 75
 
     def test_row_without_out_level_reads_as_none(self, recipes_db: RecipeCatalogue):
-        """Descendant of test_migrates_pre_out_level_db_shape: the SQLite
-        legacy-shape ALTER-in migration is retired (DDL is owned by
-        db/migrations/0009_recipes.sql; out_level is loader-filled). What
+        """DDL is owned by
+        db/migrations/0009_recipes.sql; out_level is loader-filled. What
         survives of the prod failure it pinned: read paths SELECT out_level,
         so a row written without it must read back cleanly as None — never
         raise "no such column"."""

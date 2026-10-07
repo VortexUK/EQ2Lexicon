@@ -45,7 +45,7 @@ ALLOWED_SERVERS: frozenset[str] = frozenset(
 LAUNCH_DT_ISO: str = os.getenv("LAUNCH_DT", "")
 
 # Base URL for the Daybreak Census API. Used by census/client.py; also
-# imported by web/census_health.py for the health-check poll.
+# imported by backend/server/census_health.py for the health-check poll.
 CENSUS_BASE_URL: str = "https://census.daybreakgames.com"
 
 # Comma-separated Discord guild IDs that receive instant slash-command syncs.

@@ -6,7 +6,7 @@ Verifies:
   - Stale store record: census_store is served immediately, background
     refresh is spawned.
   - The migration-owned census schema carries the character_aas table
-    (descendant of the SQLite "init_db adds the table" upgrade test).
+    (init_db creates nothing).
 """
 
 from __future__ import annotations
@@ -176,9 +176,8 @@ async def test_stale_store_returns_data_and_spawns_refresh(app, census_schema):
 
 # ---------------------------------------------------------------------------
 # Schema invariant: the migrations own the census DDL — the character_aas
-# table must exist in any freshly-built census schema. Descendant of the
-# SQLite "init_db on an old DB adds character_aas" upgrade test (no PG
-# analog: store.init_db() creates nothing; db/migrations/0003_census.sql is
+# table must exist in any freshly-built census schema
+# (store.init_db() creates nothing; db/migrations/0003_census.sql is
 # the single source of schema truth).
 # ---------------------------------------------------------------------------
 

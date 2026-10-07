@@ -1,6 +1,6 @@
 """Backend user/claims/tokens/servers DB layer — the users Postgres schema.
 
-Carved out of the original 1309-line web/db.py. Each domain gets its own
+Carved out of the former single-file db module. Each domain gets its own
 module (users, claims, item_watch, tokens, servers, …); the schema DDL
 lives in db/migrations/0001_users.sql, applied by backend/pg_migrate.py
 from the app lifespan (deploy = migrate) and by the test fixtures.

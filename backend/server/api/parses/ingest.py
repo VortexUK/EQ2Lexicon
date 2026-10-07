@@ -1,6 +1,6 @@
 """POST /parses/ingest — ACT-plugin upload + HMAC validation + snapshot resolve.
 
-Carved out of the original 1687-line web/routes/parses.py. HMAC validation
+Carved out of the former single-file parses module. HMAC validation
 + regression tests live here. The Pydantic ingest models live in models.py
 so they can be type-imported without dragging the helpers along.
 """
@@ -74,7 +74,7 @@ _MAX_SNAPSHOT_NAMES = 40
 # casing for display in /auth/whoami responses.
 _ALLOWED_SERVERS_LOWER: frozenset[str] = frozenset(s.lower() for s in _ALLOWED_SERVERS)
 
-# _sanitize_world and _validate_character_name are imported from web.lib.validation.
+# _sanitize_world and _validate_character_name are imported from backend.server.core.validation.
 
 
 class _CensusUnavailable:
@@ -631,7 +631,7 @@ class DuplicatePayloadRows(ValueError):
     """The payload carries two rows for one (combatant, type) key that
     disagree with each other. Raised from the executor thread by
     ``_ingest_payload_sync`` and turned into a 422 by the route — before
-    2026-09-27 this reached SQLite as a UNIQUE violation and surfaced as a
+    2026-09-27 this reached Postgres as a UNIQUE violation and surfaced as a
     500 with a traceback, which one third-party client then retried every
     couple of seconds for nine hours."""
 
@@ -741,8 +741,8 @@ def _insert_encounter_rows_sync(
     """
     ingested_at = int(time.time())
     # One transaction: the statements below ride the connection's open
-    # transaction and the explicit commit at the end closes it (the old
-    # sqlite ``with conn:`` scope). On an exception mid-way the transaction
+    # transaction and the explicit commit at the end closes it.
+    # On an exception mid-way the transaction
     # is left uncommitted; the caller's conn.close() returns the connection
     # to the pool, which rolls it back.
     encounter_id = parses_db.insert_encounter(
@@ -982,7 +982,7 @@ async def _validate_payload_signature(
     # ASSUMPTION: no middleware between this handler and the body-injection
     # mutates or re-emits the body in a way that breaks the cache. Adding
     # such a middleware will silently break every plugin upload. The
-    # regression test in tests/web/test_parses_ingest_hmac.py pins this
+    # regression test in tests/server/test_parses_ingest_hmac.py pins this
     # behaviour against a no-op body-reading middleware — if you add a
     # middleware that rewrites the body (gzip decode, JSON normaliser,
     # etc.), extend that test to cover the new middleware before shipping.

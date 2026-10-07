@@ -1,5 +1,5 @@
 """Tests for the Phase 4 top-N mutual-containment merge gate in
-web/routes/parses/list.py:_group_into_fights.
+backend/server/api/parses/list.py:_group_into_fights.
 
 Today's merger merges two uploads when (different uploaders) AND (same
 guild_name) AND (same title) AND (start times within 60 s). Phase 4 adds

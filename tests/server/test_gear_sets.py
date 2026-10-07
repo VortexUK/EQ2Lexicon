@@ -9,7 +9,7 @@ the same store-first SWR shape:
   - Character with no saved sets → 200 with an empty list.
   - Unknown character → 404.
   - The migration-owned census schema carries the character_gear_sets table
-    (descendant of the SQLite "init_db adds the table" upgrade test).
+    (init_db creates nothing).
 """
 
 from __future__ import annotations
@@ -242,9 +242,8 @@ async def test_unknown_character_returns_404(app, census_schema):
 # ---------------------------------------------------------------------------
 # Schema invariant: the migrations own the census DDL — the
 # character_gear_sets table must exist in any freshly-built census schema.
-# Descendant of the SQLite "init_db on an old DB adds character_gear_sets"
-# upgrade test (no PG analog: store.init_db() creates nothing;
-# db/migrations/0003_census.sql is the single source of schema truth).
+# (store.init_db() creates nothing; db/migrations/0003_census.sql is the
+# single source of schema truth).
 # ---------------------------------------------------------------------------
 
 

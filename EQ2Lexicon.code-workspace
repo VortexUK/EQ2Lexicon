@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../EQ2Parser"
+		},
+		{
+			"path": "../TarpeyFamily"
+		}
+	],
+	"settings": {}
+}

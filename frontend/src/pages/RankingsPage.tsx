@@ -66,7 +66,7 @@ interface RankingsResponse { rows: RankingRow[]; classes: string[]; total: numbe
 // ACT log files, the in-game client, and curator-entered roster data are
 // inconsistent about which apostrophe codepoint they use (U+0027 vs U+2019
 // vs U+02BC and others) — and similarly for whitespace (NBSP creeps in from
-// copy-paste). Backend mirror: _normalise_boss_key in web/routes/rankings.py.
+// copy-paste). Backend mirror: _normalise_boss_key in backend/server/api/rankings.py.
 // Codepoints written as explicit \uXXXX escapes so editor/tool re-encoding
 // can't silently collapse them to ASCII (which would leave the regex a no-op).
 // All apostrophe-like / space-like variants seen in ACT logs or curator data:
@@ -168,7 +168,7 @@ export default function RankingsPage() {
 
   // Active expansion: explicit ?xpac, else the selected zone's own expansion
   // (raids OR dungeons — both carry expansion now since dungeons came from
-  // the curated zones.db tagging in #36, not from kill data), else the
+  // the curated zones catalogue tagging in #36, not from kill data), else the
   // server's default (SERVER_CURRENT_XPAC / most recent).
   const xpac = xpacOverride || zoneObj?.expansion || filters.default_expansion || ''
   const raidZonesForXpac = useMemo(

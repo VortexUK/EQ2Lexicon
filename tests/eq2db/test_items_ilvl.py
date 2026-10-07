@@ -68,9 +68,7 @@ def test_upsert_round_trip_persists_ilvl(items_schema):
 
 
 def test_ilvl_column_exists_in_fresh_schema(items_schema):
-    # (was test_init_db_adds_ilvl_column_to_legacy_db — the SQLite-era
-    # legacy-DB ALTER migration is retired; ilvl is a real column owned by
-    # db/migrations/0007_items.sql.) A freshly leased schema already carries
+    # (ilvl is a real column owned by db/migrations/0007_items.sql.) A freshly leased schema already carries
     # the column, and a value round-trips through upsert.
     cat = ItemCatalogue(items_schema)
     with cat.init_db() as conn:

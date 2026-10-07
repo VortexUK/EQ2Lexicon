@@ -1,6 +1,6 @@
 """GET /character/{name} + the shared CharacterResponse model + equipment helpers.
 
-Carved out of the original 933-line web/routes/character.py.
+Carved out of the former single-file character module.
 """
 
 from __future__ import annotations
@@ -49,15 +49,15 @@ class EquipmentSlotResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Equipment self-heal
 # ---------------------------------------------------------------------------
-# When a character was fetched while items.db was cold for some item ID, the
+# When a character was fetched while the items catalogue was cold for some item ID, the
 # census client's _parse_equipment fell back to the literal "Item #<id>"
 # placeholder and that placeholder got baked into the cached character row
 # inside census_store (PR #21). The fix in census.client._resolve_item_meta
 # prevents NEW cache rows from being born stale, but existing rows hold the
 # placeholder until they next refresh. Most of those items have since been
-# resolved into items.db (every tooltip click upserts), so a fast items.db
+# resolved into the items catalogue (every tooltip click upserts), so a fast items catalogue
 # lookup at serve time will recover the correct display values without
-# needing a Census round-trip. Items still missing from items.db stay as
+# needing a Census round-trip. Items still missing from the items catalogue stay as
 # the placeholder; the next character refresh (≥ STALE_S seconds later)
 # will resolve them via the new Census fallback path.
 
@@ -88,7 +88,7 @@ async def _heal_equipment_placeholders(slots: list[EquipmentSlotResponse]) -> bo
                         slot.icon_id = str(row["iconid"])
                     changed = True
 
-        # Same lookup for adornments — they suffered the same items.db-cold
+        # Same lookup for adornments — they suffered the same cold-items-catalogue
         # bug, just stored as None instead of a placeholder string. Re-
         # resolving anything missing is cheap and helps the gear tooltip
         # render adornment names where it currently shows nothing.
@@ -294,7 +294,7 @@ class CharacterResponse(BaseModel):
     ts_class: str | None = None
     ts_level: int | None = None
     guild_name: str | None = None
-    ilvl: float | None = None  # average gear ilvl; None if no gear / items.db absent
+    ilvl: float | None = None  # average gear ilvl; None if no gear / items catalogue empty
     stats: CharacterStats = CharacterStats()
     equipment: list[EquipmentSlotResponse] = []
     spell_ids: list[int] = []
@@ -352,7 +352,7 @@ def _adorn_ilvl_bonus(adorn, gear: dict[int, GearRow]) -> float:
 
 def _build_char_response(char) -> CharacterResponse:
     """Convert a CharacterOverview into a CharacterResponse (shared by endpoint + guild pre-warming)."""
-    # One items.db query covers worn items + adorns; reused for the character
+    # One the items catalogue query covers worn items + adorns; reused for the character
     # ilvl and the per-adorn bonus surfaced on each equipment slot.
     gear = _items.gear_for_ids(_equipment_lookup_ids(char.equipment))
     return CharacterResponse(
@@ -550,10 +550,10 @@ async def resolve_character_store_first(name: str) -> CharacterResponse:
             }
         )
         # Self-heal any "Item #<id>" placeholders left over from a cold
-        # items.db at fetch time (see _heal_equipment_placeholders above
-        # for the full backstory). items.db-only lookup so this stays
+        # the items catalogue at fetch time (see _heal_equipment_placeholders above
+        # for the full backstory). an items-catalogue-only lookup so this stays
         # fast on the hot serve path; the new client-side Census fallback
-        # in census/client.py handles whatever items.db still doesn't
+        # in census/client.py handles whatever the items catalogue still doesn't
         # know on the next refresh.
         healed = await _heal_equipment_placeholders(resp.equipment)
         # Write the healed response back to the durable store ONLY when a

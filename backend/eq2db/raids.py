@@ -106,7 +106,7 @@ class RaidCatalogue(PgCatalogue):
     entry point, and tests construct ``RaidCatalogue(scratch_schema)``.
     Write helpers take an open conn (callers batch several writes per
     transaction) and are staticmethods; the read helpers open a pooled
-    checkout per call (mirroring the old per-call sqlite connections).
+    checkout per call.
 
     The provenance tokens are mirrored as class attributes so consumers
     holding the catalogue can write ``raids_db.SOURCE_MANUAL``.
@@ -166,7 +166,7 @@ class RaidCatalogue(PgCatalogue):
           * **Existing row, called with SOURCE_MANUAL** — this helper isn't the
             canonical write path for manual edits (the route layer uses targeted
             UPDATEs that only touch the field the user edited — see
-            ``_write_overview_sync`` in web/routes/raid_strategies.py). Calling
+            ``_write_overview_sync`` in backend/server/api/raid_strategies.py). Calling
             this helper with SOURCE_MANUAL upserts every field passed and stamps
             ``source='manual'`` — useful from migration scripts, not user-facing.
 

@@ -1,11 +1,11 @@
 """/raidcomp — post the raid composition card.
 
 The raid leader picks a starting zone (dropdown of the linked server's
-current-expansion raid zones from zones.db, plus a Custom option that opens
+current-expansion raid zones from the zones catalogue, plus a Custom option that opens
 a text modal) and, when the guild runs multiple teams, which team. The
 composition itself comes from the raid planner's saved layout
 (raid_placements) — the same groups officers drag around on the site —
-with class colours from classes.db and classes resolved via the Census
+with class colours from the classes catalogue and classes resolved via the Census
 roster (placeholder raiders keep their hand-entered class). The rendered
 card (backend/image/raid_comp.py) is posted PUBLICLY in the channel as the
 raid announcement; all the picking happens ephemerally first.
@@ -46,13 +46,13 @@ RAID_TYPE_TOKENS: frozenset[str] = frozenset({"raid_x4", "raid_x3", "raid_x2", "
 
 def raid_zone_names(current_xpac: str | None) -> list[str]:
     """Non-deprecated raid-type zones for the expansion, alphabetical.
-    Empty on unknown xpac / missing zones.db — the dropdown then offers
+    Empty on unknown xpac / missing zones catalogue — the dropdown then offers
     only the Custom option. Pure over the catalogue read."""
     if not current_xpac:
         return []
     try:
         zones = zones_db.list_by_expansion(current_xpac)
-    except Exception:  # zones.db missing locally — degrade to custom-only
+    except Exception:  # the zones catalogue missing locally — degrade to custom-only
         return []
     names = {z["name"] for z in zones if not z["is_deprecated"] and any(t in RAID_TYPE_TOKENS for t in z["types"])}
     return sorted(names)
@@ -77,7 +77,7 @@ def build_groups(
 
 
 def make_member(name: str, cls_by_char: dict[str, str]) -> dict:
-    """Renderer member dict {name, cls, colour} with the classes.db colour."""
+    """Renderer member dict {name, cls, colour} with the classes catalogue colour."""
     cls = cls_by_char.get(name.lower())
     row = classes_db.find_by_name(cls) if cls else None
     return {"name": name, "cls": cls, "colour": row["colour"] if row else None}

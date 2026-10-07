@@ -6,7 +6,7 @@
 // DATA HONESTY: live census effect text for these spells is era-drifted
 // (Jester's Cap reads modern Fervor values), so the mod numbers below are
 // curated estimates flagged `todoValues` — badged "unverified" in the UI
-// until confirmed in-game. Duration/recast seed from spells.db/items.db
+// until confirmed in-game. Duration/recast seed from the spells and items catalogues
 // where the era rank exists but are user-editable in the panel (census
 // carries the modern recast for some, e.g. Jester's Cap's 30s).
 

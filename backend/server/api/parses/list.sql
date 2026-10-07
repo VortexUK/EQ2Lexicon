@@ -66,8 +66,7 @@ WHERE encounter_id = %s AND ally = 1 AND is_player IS NULL LIMIT 1;
 
 -- :name encounters_with_unclassified_combatants
 -- Batched form of has_unclassified_combatants: the rankings rebuild probes
--- its whole candidate set in ONE = ANY query (the SQLite 500-id IN-list
--- chunking is gone) instead of one probe per encounter.
+-- its whole candidate set in ONE = ANY query instead of one probe per encounter.
 SELECT DISTINCT encounter_id FROM combatants
 WHERE encounter_id = ANY(%s) AND ally = 1 AND is_player IS NULL;
 

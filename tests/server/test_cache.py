@@ -1,4 +1,4 @@
-"""Tests for web.cache.TTLCache."""
+"""Tests for backend.server.cache.TTLCache."""
 
 from __future__ import annotations
 

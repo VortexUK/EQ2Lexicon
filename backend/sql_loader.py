@@ -8,10 +8,10 @@ use them. Each file holds one or more named query blocks delimited by
     SELECT z.id, z.name
     FROM zones z
     JOIN zone_types t ON t.zone_id = z.id
-    WHERE t.type = ?;
+    WHERE t.type = %s;
 
     -- :name count_by_type
-    SELECT COUNT(*) FROM zone_types WHERE type = ?;
+    SELECT COUNT(*) FROM zone_types WHERE type = %s;
 
 Python side::
 
@@ -30,9 +30,8 @@ Why a custom loader and not aiosql/yesql:
 Conventions:
   - One ``.sql`` file per Python module that has DML. Path mirrors the
     module: ``backend/eq2db/zones.py`` <-> ``backend/eq2db/zones.sql``.
-  - DDL (CREATE TABLE/INDEX) lives in the ``.sql`` too, as ``schema_*``
-    and ``indexes_*`` blocks run by the store's ``_create_schema`` hook
-    (see backend/db_catalogue.py) — one grep target for all SQL.
+  - DDL does not live here: it is owned by ``db/migrations/NNNN_<family>.sql``
+    and applied by ``backend/pg_migrate.py``. Sidecars hold DML only.
   - Block names are valid Python identifiers ([a-z_][a-z0-9_]*). The
     loader raises on duplicates so a typo can't silently shadow.
 """

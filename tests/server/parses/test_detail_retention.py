@@ -4,7 +4,7 @@ Curated raid zones keep attack_types/damage_types 30 days, curated
 group instances 14, anything else 7; encounters + combatants live
 forever and detail_pruned_at is stamped for the detail-page notice.
 The zone→tier classifier is monkeypatched so these tests don't depend
-on zones.db content.
+on the zones catalogue content.
 """
 
 from __future__ import annotations

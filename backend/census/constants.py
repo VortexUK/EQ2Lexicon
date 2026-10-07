@@ -1,10 +1,9 @@
 """Mappings for Census API field names → display names and groupings.
 
-Class-group membership and archetype colours are OWNED by the committed
-classes.db (read via backend.eq2db.classes.catalogue at this module's import,
-so a broken classes.db still fails fast at process start). Anything defined
+Class-group membership and archetype colours are OWNED by the committed classes catalogue (read via backend.eq2db.classes.catalogue at this module's import,
+so a broken classes catalogue still fails fast at process start). Anything defined
 here that names classes is derived from that source. Don't redefine class
-groupings or colours here — edit the row in classes.db and commit the file.
+groupings or colours here — edit the row in the classes catalogue and commit the file.
 """
 
 from backend.eq2db.classes import catalogue as _classes
@@ -84,7 +83,7 @@ STAT_MAP: dict[str, tuple[str, str]] = {
     "noxious": ("Resistances", "primary"),
 }
 
-# EQ2 class groups — derived from classes.db rows (single source of truth).
+# EQ2 class groups — derived from the classes catalogue rows (single source of truth).
 # Public surface kept stable for back-compat with image/tooltip.py,
 # server/api/item.py, scripts/build_recipe_classes.py.
 _BY_ARCHETYPE: dict[str, frozenset[str]] = dict(ARCHETYPE_GROUPS)
@@ -114,7 +113,7 @@ ALL_CLASSES: frozenset[str] = FIGHTERS | PRIESTS | SCOUTS | MAGES
 ALL_WITH_ARTISANS: frozenset[str] = ALL_CLASSES | ARTISANS
 
 # Exact-match dict used by tooltip / item-route renderers. Built from the same
-# DB-derived groups above so renaming a subclass in classes.db
+# DB-derived groups above so renaming a subclass in the classes catalogue
 # propagates here without any hand-edit.
 CLASS_GROUPS: dict[frozenset, str] = {
     ALL_WITH_ARTISANS: "All Classes",

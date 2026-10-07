@@ -1,6 +1,6 @@
 """servers registry store (sync) + schema invariants.
 
-Converted from the SQLite init_db/migration era: the leased scratch schema
+The leased scratch schema
 (conftest ``users_schema``) is built from db/migrations/0001_users.sql, whose
 ``-- seeds`` section inserts the Varsoon (default) + Wuoshi rows. The old
 legacy-ALTER migration regressions survive here as assertions that the
@@ -56,8 +56,7 @@ def test_seed_rerun_preserves_upserted_settings(users_schema):
 
 
 def test_schema_carries_per_server_columns_and_indexes(users_schema):
-    """Descendant of the SQLite legacy-migration regression (init_db crashing
-    on a pre-per-server users.db): on Postgres the per-server columns and the
+    """The per-server columns and the
     world index are part of the schema outright — assert they exist.
     """
     with pg_conn(users_schema) as conn:
@@ -95,7 +94,7 @@ def test_schema_carries_per_server_columns_and_indexes(users_schema):
 
 
 def test_exactly_one_default_server_seeded(users_schema):
-    """Descendant of the SQLite is_default migration regression: the seeds
+    """The seeds
     must leave exactly one default row (Varsoon), and a seeds re-run must be
     idempotent — still exactly one default.
     """

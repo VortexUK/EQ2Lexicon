@@ -1,4 +1,4 @@
-"""Effect-text parser tests — table-driven over real spells.db lines."""
+"""Effect-text parser tests — table-driven over real spells catalogue lines."""
 
 from __future__ import annotations
 
@@ -448,7 +448,7 @@ def test_aa_subject_of():
 
 
 def test_ability_adjustments_damage_and_duration_reduce():
-    """Enhance: Soulrot rank-5 shape (real spells.db text, no trailing
+    """Enhance: Soulrot rank-5 shape (real spells catalogue text, no trailing
     periods): 'Reduces duration' yields a NEGATIVE amount — the dot's
     ticks COMPRESS into the shorter window — and 'Increases damage by 5%'
     is a whole-tooltip multiplier. Both are self-referential, so they
@@ -525,7 +525,7 @@ def test_parse_item_spell_timing():
 
 
 def test_parse_proc_trigger_line_item_wrapper():
-    """Wand of Crystallized Plasma's wrapper line (real items.db text):
+    """Wand of Crystallized Plasma's wrapper line (real items catalogue text):
     inline duration + rate captured; in worn-item context 'On a spell
     cast' is the WEARER's cast, in debuff context the TARGET's."""
     line = (

@@ -158,7 +158,7 @@ class ParsesStore(PgCatalogue):
         Called from:
           * the ingest path, after the classifier runs against newly-inserted rows
           * the async snapshot fill, after cls fills in (which can flip stage 5)
-          * the lazy-backfill helper in web/routes/parses/list.py
+          * the lazy-backfill helper in backend/server/api/parses/list.py
 
         No-op when ``classification`` is empty. Caller owns the connection
         and transaction scope."""
@@ -397,8 +397,8 @@ class ParsesStore(PgCatalogue):
 
     @staticmethod
     def get_combatants_for_encounters(conn: Any, encounter_ids: list[int]) -> dict[int, list[dict]]:
-        """Batched :meth:`get_combatants_for_encounter` — ONE ``= ANY`` query
-        (the SQLite 500-id IN-list chunking is gone). Rows keep the
+        """Batched :meth:`get_combatants_for_encounter` — ONE ``= ANY`` query.
+        Rows keep the
         per-encounter damage-DESC order."""
         out: dict[int, list[dict]] = {eid: [] for eid in encounter_ids}
         if not encounter_ids:

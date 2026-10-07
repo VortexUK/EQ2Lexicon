@@ -1,4 +1,4 @@
-"""Tests for web/routes/recipes.py — COV-018.
+"""Tests for backend/server/api/recipes.py — COV-018.
 
 Covers:
   GET /recipes/filters  — returns craft tiers, benches, and adventure classes.

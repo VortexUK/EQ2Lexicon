@@ -6,7 +6,7 @@ member names, and an optional sitout strip. Rendered at 2x and downsampled
 (the tooltip renderer's approach) so text stays crisp in Discord.
 
 Pure-data in: ``groups`` is a list of up to 4 lists of member dicts
-{name, cls, colour} (colour = '#rrggbb' from classes.db, None -> muted);
+{name, cls, colour} (colour = '#rrggbb' from the classes catalogue, None -> muted);
 ``sitout`` the same shape. Assembly from planner placements happens in the
 cog's pure helper — this module only draws.
 """

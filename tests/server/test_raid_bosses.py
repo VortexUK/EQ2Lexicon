@@ -62,7 +62,7 @@ def test_names_are_raid_only_normalised_deduped_and_sorted(raid_db):
 
 
 def test_unseeded_zones_schema_is_empty(zones_schema):
-    """No curated rosters at all (the old missing-zones.db case) → empty."""
+    """No curated rosters at all (the old missing-the zones catalogue case) → empty."""
     rankings._raid_boss_names.cache_clear()
     try:
         assert rankings._raid_boss_names() == ()

@@ -7,8 +7,7 @@
 -- and comment-free so str.format can't trip on stray `{`/`}`.
 
 -- ---------------------------------------------------------------------------
--- _meta provenance (zones-schema copy of the shared eq2db helper; the shared
--- backend/eq2db/_meta.py stays ?-dialect for the SQLite catalogues)
+-- _meta provenance (zones-schema copy of the shared eq2db helper)
 -- ---------------------------------------------------------------------------
 
 -- :name meta_select
@@ -137,8 +136,8 @@ WHERE id IN (
 )
 ORDER BY name;
 
--- NULLS LAST keeps SQLite's DESC ordering (unknown-year rows sort to the
--- bottom; Postgres DESC would put them first).
+-- NULLS LAST: unknown-year rows sort to the bottom (Postgres DESC would put
+-- them first).
 -- :name list_distinct_expansions
 SELECT DISTINCT expansion_short, expansion_name, expansion_year
 FROM zones
@@ -352,7 +351,7 @@ DELETE FROM featured_raid_zones
 DELETE FROM featured_raid_expansions WHERE expansion_short = %s;
 
 -- NULLS FIRST keeps the implicit Uncategorised lane (category IS NULL) at the
--- top — SQLite sorted NULL first by default; Postgres ASC default is last.
+-- top (Postgres ASC puts NULLs last by default).
 -- :name list_featured_raid_zones
 SELECT {cols},
        f.position AS featured_position,

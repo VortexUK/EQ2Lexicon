@@ -36,7 +36,7 @@ POLL_INTERVAL_S = 60
 
 #: Level cap per expansion short code — stable game facts (TLE progression).
 XPAC_MAX_LEVEL: dict[str, int] = {
-    "Vanilla": 50,  # zones.db's short for the base game
+    "Vanilla": 50,  # the zones catalogue's short for the base game
     "Classic": 50,
     "DoF": 60,
     "KoS": 70,

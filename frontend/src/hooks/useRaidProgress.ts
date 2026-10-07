@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 /**
  * Per-zone kill progress for the signed-in user's primary-character guild.
  *
- * Shape mirrors ``RaidProgressResponse`` in [web/routes/zones.py]:
+ * Shape mirrors ``RaidProgressResponse`` in [backend/server/api/zones.py]:
  *   - ``killed_encounters`` is keyed by zone name (the curator's canonical
  *     name) → list of {encounter_name, kill_count, last_kill_id, last_kill_at}.
  *   - Frontend joins on zone name; missing entries render as 0/N (untouched).

@@ -3,7 +3,7 @@
 Extracted from test_parses.py:16-185 per TEST-004 / Phase 2b.1.
 These constants mirror what parses_db.recent_encounters /
 get_combatants_for_encounter / get_top_attacks_for_combatant return
-(dicts from sqlite3.Row).
+(dict rows).
 
 Imported by: test_parses_list.py, test_parses_delete.py,
              test_parses_uploader_identity.py.

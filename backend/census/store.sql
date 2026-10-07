@@ -20,9 +20,8 @@ WHERE world = %s AND name_lower = %s AND day >= %s
 ORDER BY day;
 
 -- Latest-known member count per guild on a world — one row per guild from
--- its most recent history day. DISTINCT ON replaces SQLite's bare-column-
--- with-MAX idiom (a hard error on Postgres); idx_guild_history_latest
--- makes it an ordered index scan.
+-- its most recent history day. DISTINCT ON picks that row;
+-- idx_guild_history_latest makes it an ordered index scan.
 -- :name select_latest_member_counts
 SELECT DISTINCT ON (name_lower) name_lower, members, day
 FROM guild_history

@@ -43,8 +43,7 @@ def users_db(users_schema: str) -> str:
 @pytest.fixture(autouse=True)
 def _seed_users(users_db: str):
     """Seed the Discord identities the tests write rows for — claims and
-    user_availability carry enforced FKs to users on Postgres (SQLite never
-    enabled the pragma). Also grant 'subscriber': attendance is in limited
+    user_availability carry enforced FKs to users on Postgres. Also grant 'subscriber': attendance is in limited
     preview behind that role — the HMAC fixture's token user + the
     guild-view session user get it; the gate's own tests use other ids."""
     with pg_conn(users_db) as conn:

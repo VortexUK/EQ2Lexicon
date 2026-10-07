@@ -1,4 +1,4 @@
-"""HTTP-layer tests for web/routes/item.py — search, detail, spell-scroll, filters.
+"""HTTP-layer tests for backend/server/api/item.py — search, detail, spell-scroll, filters.
 
 COV-004 scenarios: stat_filter parsing (gte/lte), tier exact vs LIKE, item_type
 routing (typeinfo_name vs classification_list), JOIN parameter ordering, non-numeric

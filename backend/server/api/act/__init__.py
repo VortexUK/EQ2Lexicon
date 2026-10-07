@@ -1,6 +1,6 @@
-"""web/routes/act — ACT triggers + spell timers package.
+"""backend/server/api/act — ACT triggers + spell timers package.
 
-Split from the original 1098-line web/routes/act_triggers.py (BE-052).
+Split from the former single-file act_triggers module (BE-052).
 
 Sub-modules:
   _shared.py      — models (TriggerEntry, SpellTimerEntry) + encounter
@@ -10,9 +10,9 @@ Sub-modules:
   xml_export.py   — ACT XML serialisation helpers (build_xml, safe_filename, ...)
   xml_import.py   — ACT XML paste-import parser (parse_import_xml, ...)
 
-The combined ``router`` re-exported here is registered in web/app.py
-(unchanged import: ``from web.routes.act_triggers import router``
-now resolves via the thin shim at web/routes/act_triggers.py).
+The combined ``router`` re-exported here is registered in backend/server/app.py
+(unchanged import: ``from backend.server.api.act_triggers import router``
+now resolves via the thin shim at backend/server/api/act_triggers.py).
 """
 
 from __future__ import annotations
@@ -28,5 +28,5 @@ router.include_router(pack.router)
 router.include_router(categories.router)
 
 # Re-export the shared models for consumers that import them directly
-# (e.g. tests/web/test_act_triggers.py).
+# (e.g. tests/server/test_act_triggers.py).
 from backend.server.api.act._shared import SpellTimerEntry, TriggerEntry  # noqa: E402,F401

@@ -1,6 +1,6 @@
 """/lexicon — link a Discord server to an EQ2 guild.
 
-The registry these commands edit (users.db discord_guild_links) drives every
+The registry these commands edit (the users schema discord_guild_links) drives every
 world-aware bot command's context (backend/bot/guild_context.py) and the
 Phase 3 voice-attendance poller. Gated on Discord's own manage_guild
 permission: default_permissions hides the group from regular members in the

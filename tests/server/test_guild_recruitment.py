@@ -42,7 +42,7 @@ def users_db(users_schema: str) -> str:
 
 @pytest.fixture(autouse=True)
 def _fixed_classes(monkeypatch: pytest.MonkeyPatch):
-    """Pin the adventure-class validator so tests never read classes.db."""
+    """Pin the adventure-class validator so tests never read the classes catalogue."""
     monkeypatch.setattr(recruitment_api, "_adventure_classes", frozenset({"Guardian", "Templar", "Wizard"}))
 
 

@@ -31,7 +31,7 @@ _TEST_SECRET = "pytest-session-secret-not-real-0123456789"
 def users_db(users_schema: str) -> str:
     """Isolated leased schema per test (conftest ``users_schema``), aliased
     so tests can keep naming it ``users_db``. Seeds the user rows the FK on
-    download_events.discord_id now actually enforces (SQLite never did)."""
+    download_events.discord_id enforces."""
     with pg_conn(users_schema) as conn:
         for uid in ("disc1", "disc2"):
             conn.execute(

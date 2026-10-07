@@ -1,4 +1,4 @@
-"""Tests for the shared CensusClient lifecycle (web/lib/census_lifecycle)."""
+"""Tests for the shared CensusClient lifecycle (backend/server/core/census_lifecycle)."""
 
 from __future__ import annotations
 

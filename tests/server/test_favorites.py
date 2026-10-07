@@ -42,7 +42,7 @@ def _clear_count_cache():
 def users_db(users_schema: str) -> str:
     """Isolated leased schema per test (conftest ``users_schema``), aliased
     so tests can keep naming it ``users_db``. Seeds the user rows the FK on
-    character_favorites.discord_id now actually enforces (SQLite never did)."""
+    character_favorites.discord_id enforces."""
     with pg_conn(users_schema) as conn:
         for uid in ("disc1", "disc2", "disc3"):
             conn.execute(

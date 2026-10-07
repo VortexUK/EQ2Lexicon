@@ -18,8 +18,8 @@ What gets logged:
     ``TRACEBACK_EVERY_S``, with a count of how many one-liners were
     suppressed in between.
 
-The leaf exception is what a developer wants (``sqlite3.IntegrityError:
-UNIQUE constraint failed …``), not the ExceptionGroup wrapper, so groups are
+The leaf exception is what a developer wants (``psycopg.errors.UniqueViolation:
+duplicate key value …``), not the ExceptionGroup wrapper, so groups are
 unwrapped to their first leaf.
 """
 

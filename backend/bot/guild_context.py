@@ -1,6 +1,6 @@
 """Per-Discord-guild context resolution for bot commands.
 
-The discord_guild_links registry (users.db, configured in Discord via the
+The discord_guild_links registry (the users schema, configured in Discord via the
 /lexicon command group) maps a Discord server to an EQ2 (world, guild_name)
 pair. Every world-aware command resolves its context here instead of the
 old env-WORLD pin; unlinked servers (and DMs) fall back to
@@ -64,7 +64,7 @@ async def is_guild_officer(discord_id: str, ctx: GuildContext) -> bool:
 async def resolve_guild_context(discord_guild_id: int | None) -> GuildContext:
     """The invoking Discord guild's EQ2 context. ``None`` (DMs) and unknown
     guilds resolve to the fallback. A missing table (bot racing the web
-    lifespan's init_db on a brand-new deploy) degrades to the fallback too —
+    lifespan's migrations on a brand-new deploy) degrades to the fallback too —
     a slash command must never crash on registry trouble."""
     if discord_guild_id is None:
         return _FALLBACK

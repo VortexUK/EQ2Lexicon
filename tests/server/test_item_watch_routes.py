@@ -1,4 +1,4 @@
-"""HTTP-layer tests for web/routes/item_watch.py — COV-005.
+"""HTTP-layer tests for backend/server/api/item_watch.py — COV-005.
 
 Covers:
   GET  /guild/{name}/item-watch  — unauthenticated → 401, non-officer → 403,

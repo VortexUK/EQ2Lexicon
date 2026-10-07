@@ -288,10 +288,6 @@ async def list_users(request: Request) -> list[UserItem]:
 # ---------------------------------------------------------------------------
 # Role management
 # ---------------------------------------------------------------------------
-#
-# TODO(future): self-service role requests. Admin-initiated only for now —
-# see the matching TODO in web/db.py's user_roles schema for the proposed
-# shape (a role_requests queue table mirroring character_claims).
 
 
 @router.post("/admin/users/{discord_id}/roles/{role}", status_code=200)
@@ -352,7 +348,7 @@ async def revoke_user_role(discord_id: str, role: str, request: Request) -> dict
 # Role-request review queue
 # ---------------------------------------------------------------------------
 #
-# The user-facing submit/withdraw endpoints live in web/routes/role_requests.py
+# The user-facing submit/withdraw endpoints live in backend/server/api/role_requests.py
 # — here we just add the admin queue + approve/reject actions.
 #
 # Imported here so admin.py owns the entire admin REST surface; the user-side
@@ -534,7 +530,7 @@ async def list_tamper_reports_admin(
     limit: int = 200,
 ) -> TamperReportListResponse:
     """Audit channel for plugin-detected tamper attempts (see
-    web/routes/parses/tamper_report.py).
+    backend/server/api/parses/tamper_report.py).
 
     Defaults to ``status="pending"`` — the admin's working set of
     unreviewed reports. ``reason`` filters to one specific code
@@ -830,7 +826,7 @@ async def update_server_settings(
 async def list_expansions_admin(request: Request) -> list[dict]:
     """Return distinct expansions (newest first) for populating the admin xpac dropdown.
 
-    Sourced from zones.db.  Returns [] (200) when zones.db is unavailable — never 500.
+    Sourced from the zones catalogue.  Returns [] (200) when the zones catalogue is unavailable — never 500.
     """
     _require_admin(request)
     from backend.eq2db.zones import catalogue as zones_db

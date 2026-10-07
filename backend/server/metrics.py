@@ -163,10 +163,6 @@ CENSUS_DURATION = Histogram(
 
 # ── Application info ──────────────────────────────────────────────────────────
 
-# Old metric kept alive for one release so Grafana dashboards have time to
-# switch their filters from eq2_companion → eq2_lexicon. Drop in the next
-# polish PR after dashboards have moved.
-APP_INFO_LEGACY: Info = Info("eq2_companion", "DEPRECATED — use eq2_lexicon")
 APP_INFO: Info = Info("eq2_lexicon", "Per-deployment app info (world, version).")
 
 # ── App-level error counter ───────────────────────────────────────────────────
@@ -204,7 +200,7 @@ class _DBCollector(Collector):
         g_claims = GaugeMetricFamily("character_claims_total", "Character claims by status", labels=["status"])
         g_parses = GaugeMetricFamily(
             "parses_encounters_total",
-            "Total normalised encounters in parses.db (visible / hidden)",
+            "Total normalised encounters in the parses schema (visible / hidden)",
             labels=["visibility"],
         )
         g_raids = GaugeMetricFamily(
@@ -273,8 +269,7 @@ class _DBCollector(Collector):
 class _PgSchemaSizeCollector(Collector):
     """Total relation size per Postgres family schema — the growth-trend
     gauge behind the Databases dashboard (and the measurement behind the
-    Supabase tier decision). The SQLite db_file_size_bytes gauge died with
-    Phase 3: every data family lives in Postgres now."""
+    Supabase tier decision)."""
 
     def collect(self):  # type: ignore[override]
         g_pg = GaugeMetricFamily(
@@ -388,7 +383,7 @@ def check_metrics_auth(authorization: str | None) -> bool:
 
     Uses ``hmac.compare_digest`` to avoid the timing-attack window that ``==``
     on the token string would open. Consistent with
-    ``web.routes.parses._validate_payload_signature`` which uses the same
+    ``backend.server.api.parses._validate_payload_signature`` which uses the same
     helper for the plugin-upload HMAC.
     """
     if not METRICS_TOKEN:

@@ -153,10 +153,8 @@ class ItemCatalogue(PgCatalogue):
     are staticmethods here so the class is the one interface for everything
     item-shaped.
 
-    The old SQLite startup backfills (pvp flag, effect stats,
-    classification_list) are gone: ``item_to_row`` computes every derived
-    column at write time, and historic rows arrived pre-backfilled via the
-    one-time bulk copy. A new effect-stat pattern now means re-running
+    ``item_to_row`` computes every derived column (pvp flag, effect stats,
+    classification_list) at write time. A new effect-stat pattern means re-running
     scripts/backfill_item_stats.py rather than bumping a version gate.
     """
 
@@ -474,7 +472,7 @@ class ItemCatalogue(PgCatalogue):
     def class_spell_names(self, cls: str) -> set[str]:
         """Base spell names (tier suffix stripped) a class can scribe,
         from the spellscroll rows' classes_json — the per-class spell
-        universe (spells.db has no class column). SYNC; run via run_sync.
+        universe (the spells catalogue has no class column). SYNC; run via run_sync.
 
         A class counts only when its entry carries a real scribe level —
         legacy all-class collection scrolls (e.g. one "Breeze (Master)")
@@ -555,7 +553,7 @@ class ItemCatalogue(PgCatalogue):
         spell_duration is in hundredths of a second (see
         backend.eq2db.spell_effects.SPELL_DURATION_DIVISOR). ``effects`` is
         the scroll's effect_list from raw_json — the properly SCALED damage
-        text; the spells.db spell-record text is unscaled for some spells
+        text; the spells catalogue's spell-record text is unscaled for some spells
         (Smite Corruption reads "1 - 2" where the scroll says "132 - 161"),
         so consumers prefer this when present."""
         if not names:

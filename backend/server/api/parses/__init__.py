@@ -1,4 +1,4 @@
-"""Route package — split from the original 1687-line web/routes/parses.py.
+"""Route package — split from the former single-file parses module.
 
 Public API: the module exposes ``router`` (a single FastAPI APIRouter)
 plus the Pydantic models other modules consume. Sub-modules:
@@ -26,7 +26,7 @@ from backend.server.api.parses import list as _list  # noqa: E402,F401
 from backend.server.api.parses import tamper_report as _tamper_report  # noqa: E402,F401
 
 # Re-export the SQL helper + fight-grouping function used cross-module by
-# web/routes/rankings.py to compute primary-boss kills. Pre-split these
+# backend/server/api/rankings.py to compute primary-boss kills. Pre-split these
 # lived as private symbols in the monolithic parses.py and were imported
 # directly — preserve that import surface so consumers don't break.
 from backend.server.api.parses.list import (  # noqa: E402
@@ -34,7 +34,7 @@ from backend.server.api.parses.list import (  # noqa: E402
     _group_into_fights,
 )
 
-# Re-export the models so existing `from web.routes.parses import IngestRequest`
+# Re-export the models so existing `from backend.server.api.parses import IngestRequest`
 # imports keep working.
 from backend.server.api.parses.models import (  # noqa: E402
     AttackSummary,

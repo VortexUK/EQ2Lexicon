@@ -294,7 +294,7 @@ class TestLoadBlocklist:
 @pytest.fixture
 def db(spells_schema):
     """A SpellCatalogue over an isolated leased scratch schema — the analog
-    of the old ``SpellCatalogue(tmp_path / "spells.db")``. A fresh instance
+    of the old ``SpellCatalogue(tmp_path / "the spells catalogue")``. A fresh instance
     per test, so the per-instance crc cache can't bleed between tests."""
     return SpellCatalogue(spells_schema)
 

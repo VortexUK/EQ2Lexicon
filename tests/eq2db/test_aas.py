@@ -208,13 +208,7 @@ def test_limits_visible_rows_round_trip(cat):
 def test_limits_visible_rows_defaults_empty_when_omitted(cat):
     """An upsert_limits entry without visible_rows reads back as {} — the
     column is part of the migration-owned DDL (db/migrations/0012_aas.sql)
-    with DEFAULT '{}'.
-
-    (Retired: the SQLite-era in-place ALTER — migrate_aa_limits_visible_rows —
-    that backfilled the column onto pre-2026-07 aas.db files; this test used
-    to seed an old-shape aa_limits table via raw sqlite3 and assert init_db
-    migrated it. Memory [test-migrations-against-old-db-shape] is now served
-    by migrations owning all DDL up front.)"""
+    with DEFAULT '{}'."""
     conn = cat.init_db()
     try:
         cat.upsert_limits(conn, "Kingdom of Sky", {"aa_cap": 50, "unlocked_trees": ["class"], "notes": "x"})
@@ -288,7 +282,7 @@ def test_seeded_db_era_visible_rows():
 def test_seeded_db_meta_stamps():
     conn = aas.catalogue.init_db()
     try:
-        # The seeds carry the provenance stamps of the final SQLite build.
+        # The seeds carry the provenance stamps of the final catalogue build.
         assert aas.catalogue.get_meta(conn, "tree_count") == "157"
         assert aas.catalogue.get_meta(conn, "built_at") is not None
     finally:

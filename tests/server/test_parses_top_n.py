@@ -1,4 +1,4 @@
-"""Unit tests for the top-N ally encDPS helpers in web/routes/parses/list.py.
+"""Unit tests for the top-N ally encDPS helpers in backend/server/api/parses/list.py.
 
 These helpers are the building blocks for the Phase 4 merger augmentation:
 the top-N ally encDPS lists of two upload candidates must mutually contain

@@ -1,7 +1,7 @@
 """Tests for the server statistics API (census character.stat family).
 
 The census client is mocked at the census_lifecycle layer (same pattern as
-test_gear_sets); classes.db and spells.db assertions run against the real
+test_gear_sets); the classes catalogue and the spells catalogue assertions run against the real
 committed catalogues so classid→name and crc→ability mappings stay honest.
 """
 
@@ -113,7 +113,7 @@ async def test_build_server_stats_shapes_payload():
     assert stats.totals["kills"] == pytest.approx(6843.5 * 21_343)
     assert stats.records["max_melee_hit"] == 268_591
 
-    # classid → name via the committed classes.db (13=Templar, 19=Mystic),
+    # classid → name via the committed classes catalogue (13=Templar, 19=Mystic),
     # sorted by population desc; the other-world row is excluded.
     assert [(c.name, c.count) for c in stats.classes] == [("Mystic", 1100), ("Templar", 900)]
     assert stats.classes[1].global_avg["kills"] == 7000
@@ -181,7 +181,7 @@ async def test_character_lifetime_resolves_ability_names(app, spells_schema):
     (real-data assertion — the id came from a live census record hit).
     The catalogue now lives in Postgres, so the leased ``spells_schema``
     is seeded with exactly that row — the old skipif-file-absent guard
-    (gitignored spells.db artifact) is gone with the file."""
+    (gitignored spells catalogue artifact) is gone with the file."""
     from backend.eq2db.spells import catalogue as spells_catalogue
 
     conn = spells_catalogue.init_db()
@@ -291,7 +291,7 @@ async def test_explore_class_filter_and_client_sort(app):
 
     args, kwargs = client.get_stat_leaders.await_args
     assert args[1] == "stats.combat.abilitymod"
-    assert args[3] == {"type.classid": "13"}  # committed classes.db: Templar icon_id 13
+    assert args[3] == {"type.classid": "13"}  # committed classes catalogue: Templar icon_id 13
     assert kwargs["show"] == "stats"
 
 

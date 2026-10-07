@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RETIRED — one-time SQLite-era migration (items.db).
+"""RETIRED — one-time SQLite-era migration (the items catalogue).
 
 Dropped the redundant ``*_json`` blob columns (typeinfo_json, modifiers_json,
 effect_list_json, …) that duplicated data already present in ``raw_json``

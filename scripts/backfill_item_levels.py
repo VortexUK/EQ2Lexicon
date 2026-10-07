@@ -1,4 +1,4 @@
-"""RETIRED — one-time SQLite-era backfill (items.db).
+"""RETIRED — one-time SQLite-era backfill (the items catalogue).
 
 Recomputed the ``ilvl`` column for wearable-gear rows after the formula
 constants in ``backend/census/item_level.py`` were retuned. Superseded by the

@@ -35,7 +35,7 @@ def users_db(users_schema: str) -> str:
 @pytest.fixture(autouse=True)
 def _seed_common_users(users_db: str) -> None:
     """user_availability.discord_id and character_claims.discord_id are
-    enforced FKs to users on Postgres (SQLite never enabled the pragma) —
+    enforced FKs to users on Postgres —
     seed the ids the tests write with."""
     with pg_conn(users_db) as conn:
         for did in ("u1", "u2", "member-1"):

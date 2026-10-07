@@ -117,7 +117,7 @@ async def get_aa_config(xpac: str | None = None) -> AAConfigResponse:
     Defaults to the active server's current xpac; the AA planner's era
     dropdown passes ``?xpac=`` to plan under a different era's rules
     (alias-tolerant — "DoV" and "Destiny of Velious" both resolve).
-    All from aas.db (aa_limits + the precomputed per-tree max_points)."""
+    All from the aas catalogue (aa_limits + the precomputed per-tree max_points)."""
     explicit = xpac is not None
     if xpac is None:
         xpac = current_server().current_xpac or ""
@@ -152,7 +152,7 @@ async def get_aa_config(xpac: str | None = None) -> AAConfigResponse:
 # chars, all 26 subclasses covered, zero conflicts). The shadows side is
 # cross-checked against the committed db's node classifications in
 # tests/server/test_aa_routes.py, which will catch a tree-id reshuffle on a
-# future aas.db rebuild.
+# future aas catalogue rebuild.
 
 _SHADOWS_TREE_BY_SUBCLASS: dict[str, int] = {
     "Assassin": 37,
@@ -261,7 +261,7 @@ async def get_plan_trees(cls: str) -> list[PlanTreeEntry]:
 
 @lru_cache(maxsize=128)
 def _load_tree_for_response(tree_id: int) -> AATreeResponse | None:
-    """Build the AATreeResponse for a single tree id from aas.db.
+    """Build the AATreeResponse for a single tree id from the aas catalogue.
 
     Returns None when the tree is unknown. Static reference data — the
     eq2db.aas accessors are themselves cached; this cache just skips the

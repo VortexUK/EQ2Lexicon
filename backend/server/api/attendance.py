@@ -234,8 +234,8 @@ def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | Non
     # session_day = date(started_at - 6h UTC), so day D covers fights whose
     # started_at falls in [D 06:00 UTC, D+1 06:00 UTC).
     win_start = int(dt.datetime(d.year, d.month, d.day, tzinfo=dt.UTC).timestamp()) + ROLLOVER_S
-    # lower(e.guild_name) = lower(%s) rides idx_encounters_world_guild_lower —
-    # the Postgres replacement for SQLite's `COLLATE NOCASE` comparison.
+    # lower(e.guild_name) = lower(%s) rides idx_encounters_world_guild_lower
+    # (case-insensitive guild match).
     sql = (
         f"SELECT e.id, e.guild_name, e.zone, e.started_at, e.ended_at, ({_PLAYER_COUNT_SQL}) AS player_count "
         "FROM encounters e WHERE e.world = %s AND lower(e.guild_name) = lower(%s) AND e.hidden_at IS NULL "

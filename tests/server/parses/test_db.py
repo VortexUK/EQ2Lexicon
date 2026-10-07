@@ -1,4 +1,4 @@
-"""Tests for parses.db — schema invariants (migrations-owned DDL) + helpers."""
+"""Tests for the parses schema — schema invariants (migrations-owned DDL) + helpers."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from tests.fixtures.pg import pg_conn
 
 class TestSchema:
     """The schema DDL is owned by db/migrations/0002_parses.sql — these pin
-    the invariants the old SQLite init_db/migration tests guarded."""
+    its invariants."""
 
     def test_creates_all_tables(self, parses_db_path):
         with pg_conn(parses_db_path) as conn:
@@ -38,8 +38,7 @@ class TestSchema:
         assert "idx_combatants_ally" in indexes
 
     def test_migrations_idempotent(self):
-        """Descendant of the SQLite "re-run every CREATE / ALTER" check:
-        re-running the migration runner on an already-migrated database is
+        """Re-running the migration runner on an already-migrated database is
         a no-op (the ledger skips every applied file)."""
         assert pg_migrate.run() == []
 
@@ -54,8 +53,7 @@ class TestSchema:
         assert "hidden_at" in cols
 
     def test_attack_types_unique_tuple_is_swing_scoped(self, parses_db_path):
-        """Descendant of the SQLite legacy UNIQUE(combatant_id, attack_name)
-        rebuild migration: on Postgres the (combatant_id, swing_type,
+        """The (combatant_id, swing_type,
         attack_name) tuple is part of the schema outright. The behavioural
         halves (same name across swing types allowed / same tuple collides)
         are pinned in TestUniqueConstraints."""
@@ -881,8 +879,7 @@ class TestWorldScoping:
         assert row["world"] == "Varsoon"
 
     def test_world_defaults_to_varsoon_at_the_schema_level(self, parses_db_conn):
-        """Descendant of the SQLite add-world rebuild migration (which
-        backfilled legacy rows to 'Varsoon'): on Postgres the DEFAULT lives
+        """The DEFAULT lives
         in the migrations-owned DDL outright — a raw INSERT that omits the
         world column must land as 'Varsoon' in both encounters and
         ingest_log. (The FK-cascade half of the old legacy-rebuild test is

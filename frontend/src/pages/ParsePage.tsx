@@ -122,7 +122,7 @@ export default function ParsePage() {
     id ? `/api/parses/${encodeURIComponent(id)}` : null,
   )
   const [lookup, setLookup] = useState<Record<string, BulkLookupEntry>>({})
-  // Canonical zone name from zones.db when the parse's `zone` field matches a
+  // Canonical zone name from the zones catalogue when the parse's `zone` field matches a
   // curated raid zone (incl. via alias). Null when it doesn't — header then
   // renders the zone text as plain (no cross-link).
   const [raidZoneCanonical, setRaidZoneCanonical] = useState<string | null>(null)

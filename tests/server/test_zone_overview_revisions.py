@@ -123,7 +123,7 @@ async def test_revisions_endpoint_404_unknown_zone(app):
 
 @pytest.mark.asyncio
 async def test_revisions_endpoint_returns_empty_when_no_overview_written(app, raids_tmp):
-    """Zone exists in zones.db but no overview PUT yet → 200 with empty revisions list."""
+    """Zone exists in the zones catalogue but no overview PUT yet → 200 with empty revisions list."""
     with patch("backend.server.api.raid_strategies.zones_db.find_by_name", return_value=_fake_zone()):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/zones/The Emerald Halls/overview/revisions")

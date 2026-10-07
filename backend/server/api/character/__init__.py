@@ -1,4 +1,4 @@
-"""Route package — split from the original 933-line web/routes/character.py.
+"""Route package — split from the former single-file character module.
 
 Sub-modules:
   - views   — GET /character/{name}, _build_char_response, equipment helpers
@@ -26,7 +26,7 @@ from backend.server.api.character import views as _views  # noqa: E402,F401
 # Re-export equipment response types used by tests and external consumers.
 # Re-export private helpers imported by external consumers (guild.py, guild_officer.py,
 # parses/ingest.py, census_refresh.py) and by the test suite.
-# prewarm_character_cache is called from web/app.py startup.
+# prewarm_character_cache is called from backend/server/app.py startup.
 from backend.server.api.character.views import (  # noqa: E402
     AdornSlotResponse,
     CharacterResponse,

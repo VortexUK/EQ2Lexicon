@@ -1,11 +1,11 @@
 """Guild cache orchestration helpers.
 
-Extracted from ``web/routes/guild.py`` (BE-054). These functions are
+Extracted from ``backend/server/api/guild.py`` (BE-054). These functions are
 shared infrastructure used by multiple callers that previously imported
 them lazily to avoid circular imports:
 
-  * ``web/census_refresh.py``   — calls _persist_and_publish_guild
-  * ``web/routes/parses/ingest.py`` — calls _fetch_and_cache_guild
+  * ``backend/server/census_refresh.py``   — calls _persist_and_publish_guild
+  * ``backend/server/api/parses/ingest.py`` — calls _fetch_and_cache_guild
 
 Moving them here breaks the circular-import chain (guild.py → character.py
 → guild.py) at the module level, so all callers can switch from lazy
@@ -13,7 +13,7 @@ in-function imports to module-level imports.
 
 The ``_officer_chars`` / ``_roster_rank_map`` / ``_OFFICER_RANKS`` helpers
 that are also shared with guild_officer.py, item_watch.py, etc. remain in
-``web/routes/guild.py`` because they depend on ``current_world()`` at
+``backend/server/api/guild.py`` because they depend on ``current_world()`` at
 request time and are closer to route logic than cache orchestration.
 """
 
@@ -279,7 +279,7 @@ def _prewarm_spell_cache(
 def _finish_guild_fetch(guild_name: str, world: str, full) -> tuple | None:
     """The post-census half of a guild refresh: spell/adorn/ilvl
     derivations and cache writes over the WHOLE roster — synchronous
-    CPU + local-SQLite work that takes tens of seconds for a big guild.
+    CPU + store/DB work that takes tens of seconds for a big guild.
     Runs in the executor (run_sync): on the event loop it froze every
     request and blocked the Discord heartbeat (the "Shard ID None
     heartbeat blocked" dumps pointed exactly here). ``world`` is passed
@@ -414,8 +414,8 @@ async def _fetch_and_cache_guild(
         if not full or not full[0].members:
             return None
 
-        # Everything past the census fetch is synchronous CPU + local-
-        # SQLite work over the whole roster — executor, never the loop.
+        # Everything past the census fetch is synchronous CPU + store/DB
+        # work over the whole roster — executor, never the loop.
         return await run_sync(_finish_guild_fetch, guild_name, world, full)
 
     task: asyncio.Task = asyncio.create_task(_do_fetch())

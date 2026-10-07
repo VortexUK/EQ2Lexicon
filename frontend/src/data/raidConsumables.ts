@@ -3,7 +3,7 @@
 // flipping the server to TSO switches the page the moment a TSO sheet is
 // curated here — until then the newest curated sheet shows with a note.
 //
-// itemIds come from items.db (data/items/items.db, displayname lookup) and
+// itemIds come from the items catalogue (displayname lookup) and
 // drive the hover tooltips + /item links. Tags are the raid-caller shorthand
 // (duration · stats), deliberately terse — the tooltip carries the details.
 

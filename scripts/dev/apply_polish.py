@@ -1,4 +1,4 @@
-"""Apply polished strategy markdown back into ``raids.db``.
+"""Apply polished strategy markdown back into the raids schema.
 
 Reads every JSON file in ``data/raids/polish_outbox/`` (or a single file via
 ``--in <path>``) and writes each entry's ``polished_md`` into the matching
@@ -49,10 +49,10 @@ def _load_entries(path: Path) -> list[dict]:
 
 
 def apply_entries(entries: list[dict], *, dry_run: bool = False) -> dict:
-    """Write each ``polished_md`` into raids.db keyed by ``(zone_name, mob_name)``.
+    """Write each ``polished_md`` into the raids catalogue keyed by ``(zone_name, mob_name)``.
 
     Returns counts for the CLI summary. ``zones_unknown`` / ``encs_unknown``
-    catch mismatches where an agent kept a name that doesn't exist in raids.db
+    catch mismatches where an agent kept a name that doesn't exist in the raids catalogue
     (rename typo, dropped row, etc) so they're visible in the report rather
     than silently lost."""
     n_applied = 0
@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Single JSON file to apply. If omitted, applies every chunk_*.json in data/raids/polish_outbox/.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Don't write to raids.db.")
+    parser.add_argument("--dry-run", action="store_true", help="Don't write to the raids schema.")
     args = parser.parse_args(argv)
 
     if args.path:

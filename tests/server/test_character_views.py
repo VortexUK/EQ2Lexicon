@@ -1,4 +1,4 @@
-"""Additional tests for web/routes/character/views.py — COV-026.
+"""Additional tests for backend/server/api/character/views.py — COV-026.
 
 Scenarios added here complement the existing test_character.py coverage.
 Focus on the _f()/_i() stat-extraction helpers, the secondary-weapon

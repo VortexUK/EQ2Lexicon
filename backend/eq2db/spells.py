@@ -329,11 +329,11 @@ class SpellCatalogue(PgCatalogue):
             "cast_secs": cast_h / 100.0 if cast_h is not None else None,
             "recast_secs": _float(spell.get("recast_secs")),
             # DELIBERATELY ÷10 even though the census field actually carries
-            # hundredths: every deployed spells.db (local + the prod volume)
+            # hundredths: every loaded spells catalogue row
             # stores this 10×-inflated value and the ONLY consumer (the
             # rotation endpoint) normalises with spell_effects.RECOVERY_DIVISOR
             # at serve time. Changing this to ÷100 requires removing that
-            # divisor AND rebuilding/re-uploading every spells.db in lockstep
+            # divisor AND rebuilding/re-uploading the spells catalogue in lockstep
             # — do not "fix" it in isolation.
             "recovery_secs": rec_t / 10.0 if rec_t is not None else None,
             "target_type": _str(spell.get("target_type")),
@@ -385,7 +385,7 @@ class SpellCatalogue(PgCatalogue):
         highest-level rank per base line (Rousing Tune VII beats VI)."""
         if not names:
             return []
-        # One `= ANY` query — the SQLite 500-name chunking is gone.
+        # One `= ANY` query for the whole name list.
         fetched = self._fetchall(
             _SQL["beneficial_group_by_names"].format(cols=_SELECT_COLS),
             (list(names), max_level),

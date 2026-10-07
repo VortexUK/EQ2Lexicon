@@ -24,7 +24,7 @@ So a per-test-loop rebuild is necessary for the tests to stay green. In prod
 the loop is created once at startup and never closed mid-process, so the
 rebuild path is effectively dead.
 
-Shutdown: the FastAPI lifespan (web/app.py) calls ``aclose_all()`` so the
+Shutdown: the FastAPI lifespan (backend/server/app.py) calls ``aclose_all()`` so the
 process exits cleanly without aiohttp's "Unclosed client session" warning.
 """
 

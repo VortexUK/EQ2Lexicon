@@ -65,7 +65,7 @@ class ZoneAllStars(BaseModel):
 class ZoneRankings(BaseModel):
     zone: str
     scope: str  # "raid" | "group"
-    expansion: str | None = None  # short code from zones.db ("EoF", "RoK")
+    expansion: str | None = None  # short code from the zones catalogue ("EoF", "RoK")
     bosses: list[BossRankingRow]
     dps_allstars: ZoneAllStars | None = None
     hps_allstars: ZoneAllStars | None = None
@@ -86,11 +86,11 @@ class CharacterRankingsResponse(BaseModel):
 
 
 def _curated_content() -> tuple[dict[tuple[str, str], tuple[str | None, frozenset[str]]], dict[str, str], list[str]]:
-    """The curated (zone → bosses) universe from zones.db — the exact set the
+    """The curated (zone → bosses) universe from the zones catalogue — the exact set the
     rankings page dropdowns show. Returns (curated, expansion_names, order):
       * curated: (scope, zone) → (expansion_short, frozenset(boss names))
       * expansion_names: short → display name
-      * order: distinct expansion shorts, newest first (zones.db ordering)
+      * order: distinct expansion shorts, newest first (the zones catalogue ordering)
     """
     _, raid_tree, dungeon_tree, _ = _cached_zones_data()
     curated: dict[tuple[str, str], tuple[str | None, frozenset[str]]] = {}

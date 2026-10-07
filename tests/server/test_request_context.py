@@ -1,4 +1,4 @@
-"""Tests for web/lib/request_context — contextvar + adapter + filter shape."""
+"""Tests for backend/server/core/request_context — contextvar + adapter + filter shape."""
 
 from __future__ import annotations
 

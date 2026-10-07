@@ -1,4 +1,4 @@
-"""Tests for web/db.py helpers — focused on get_display_names_for_discord_ids."""
+"""Tests for backend/server/db/ helpers — focused on get_display_names_for_discord_ids."""
 
 from __future__ import annotations
 

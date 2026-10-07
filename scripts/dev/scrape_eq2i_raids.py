@@ -7,7 +7,7 @@ review.
 This is the PoC — runs against 2-3 hand-picked zones by default. After
 you've eyeballed the JSON and approved the shape, the next phase will
 extend it to the full 60-zone in-scope list (Vanilla through RoK
-raids) and load the results into ``data/raids/raids.db`` via the
+raids) and load the results into the raids schema via the
 helpers in ``census/raids_db.py``.
 
 Usage:
@@ -460,7 +460,7 @@ def scrape_zone(title: str) -> dict | None:
 
 
 def _list_in_scope_raid_zones() -> list[str]:
-    """Query zones.db for every raid zone in the in-scope expansions.
+    """Query the zones catalogue for every raid zone in the in-scope expansions.
 
     Skips deprecated/pseudo-zones; includes both instanced raids and
     open-world contested-raid zones.
@@ -486,7 +486,7 @@ def main() -> int:
     parser.add_argument(
         "--all-raids",
         action="store_true",
-        help="Read in-scope raid zone list from zones.db "
+        help="Read in-scope raid zone list from the zones schema "
         f"(expansions: {', '.join(IN_SCOPE_EXPANSIONS)}) and scrape all of them. "
         "Output goes to scripts/dev/eq2_raid_data.json by default. "
         "Takes ~5-15 minutes due to polite 1s API delay.",

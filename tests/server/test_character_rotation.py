@@ -29,7 +29,7 @@ def _row(
     beneficial: int = 0,
     cast: float = 2.0,
     recast: float = 8.0,
-    recovery: float = 5.0,  # raw spells.db value (10x inflated)
+    recovery: float = 5.0,  # raw spells catalogue value (10x inflated)
     effects: list[dict] | None = None,
     crc: int | None = None,
 ) -> dict:
@@ -256,8 +256,8 @@ async def test_rotation_unparsed_damage_flagged_and_dot_estimated(app):
 
 @pytest.mark.asyncio
 async def test_rotation_prefers_scaled_item_effect_text(app):
-    """The spellscroll's effect_list (items.db) carries the properly
-    scaled damage numbers; the spells.db spell-record text is unscaled
+    """The spellscroll's effect_list (the items catalogue) carries the properly
+    scaled damage numbers; the spells catalogue's spell-record text is unscaled
     for some spells (Smite Corruption '1 - 2'). When the items join has
     effects, they win — including base-indentation normalisation (scroll
     lines sit at indentation 1) and relative conditional attachment."""
@@ -367,7 +367,7 @@ _SMITE_AA_ROW = {
 
 @pytest.mark.asyncio
 async def test_rotation_aa_passives_and_castables(app):
-    """Spent AA nodes resolve via aas.db spellcrc → spells.db at the spent
+    """Spent AA nodes resolve via the aas catalogue spellcrc → the spells catalogue at the spent
     rank: proc innates (Bolt of Power) surface as passives with parsed
     proc streams; hostile castable AAs join the ability palette."""
     from backend.server.api.character import rotation as mod
@@ -1057,7 +1057,7 @@ async def test_rotation_derived_modifiers(app):
             "effect_lines_for_ids",
             lambda ids: [
                 (123, "Bloodthirsty Choker", "Increases base damage of spells and combat arts by 25%.", 0),
-                # Wand of Crystallized Plasma (real items.db text): the +8%
+                # Wand of Crystallized Plasma (real items catalogue text): the +8%
                 # is nested under a rated proc → a TEMP buff window, never
                 # folded into the always-on base_damage_bonus_pct.
                 (124, "Wand of Crystallized Plasma", "When Equipped:", 0),

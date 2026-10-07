@@ -900,7 +900,7 @@ async def test_admin_unaffected_when_guild_disables_officer_deletes(app):
 @pytest.mark.asyncio
 async def test_officer_allowed_when_guild_setting_is_default(app):
     """The default (no guild_settings row) keeps today's behaviour — read
-    from the real users.db store rather than a mock."""
+    from the real users schema store rather than a mock."""
     enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:OTHER", "title": "a rat", "hidden_at": None}
     delete_mock = MagicMock(return_value=True)
     with (

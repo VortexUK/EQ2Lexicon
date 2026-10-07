@@ -1,6 +1,6 @@
 """GET /character/{name}/spells — per-character scribed-spells tier rollup.
 
-Carved out of the original 933-line web/routes/character.py.
+Carved out of the former single-file character module.
 """
 
 from __future__ import annotations

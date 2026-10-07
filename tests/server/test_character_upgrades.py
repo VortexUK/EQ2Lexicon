@@ -1,4 +1,4 @@
-"""HTTP-layer tests for web/routes/character/upgrades.py — COV-006.
+"""HTTP-layer tests for backend/server/api/character/upgrades.py — COV-006.
 
 Covers:
   GET /api/character/{name}/upgrade-materials
@@ -396,7 +396,7 @@ class TestLookupItemsByName:
 
     def test_returns_empty_when_items_db_absent(self, items_schema):
         """An EMPTY leased items schema reads as not-ready → empty dict (the
-        Postgres analog of the old missing items.db file)."""
+        Postgres analog of the old missing-catalogue-file case)."""
         from backend.server.api.character.upgrades import _lookup_items_by_name
 
         result = _lookup_items_by_name(["Lead Cluster"])

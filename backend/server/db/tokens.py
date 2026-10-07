@@ -1,6 +1,6 @@
 """users-schema api_tokens table helpers (psycopg).
 
-Carved out of the original 1309-line web/db.py. Async helpers for the API
+Carved out of the former single-file db module. Async helpers for the API
 token domain. Methods check out pooled connections via the shared
 ``PgStoreBase._db()``; tests re-point ``store.schema``.
 
@@ -134,7 +134,7 @@ class TokensStore(PgStoreBase):
                 # auth path. A transient connection fault or lock contention
                 # under a raid-night upload burst costs a lost last-used bump,
                 # which is nothing; a 500 here fails the whole upload (seen
-                # live 2026-09-12 on /attendance/ingest, SQLite era).
+                # live 2026-09-12 on /attendance/ingest).
                 try:
                     await db.execute(
                         _SQL["update_last_used_at"],

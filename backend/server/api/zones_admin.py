@@ -1,6 +1,6 @@
 """Write endpoints for the per-zone raid boss roster — add/edit/delete/reorder
 encounters and add/edit/promote/delete mobs within an encounter. All gated by
-require_editor (admin OR contributor). Reads still live in web/routes/zones.py;
+require_editor (admin OR contributor). Reads still live in backend/server/api/zones.py;
 this sibling file keeps the read/write split clean."""
 
 from __future__ import annotations
@@ -277,7 +277,7 @@ async def list_raid_expansions() -> list[dict]:
     dependencies=[Depends(require_admin)],
 )
 async def list_raid_expansions_available() -> list[dict]:
-    """Admin-only: expansions in zones.db NOT yet featured. For the
+    """Admin-only: expansions in the zones catalogue NOT yet featured. For the
     'Add expansion' picker."""
     return await run_sync(zones_db.list_available_raid_expansions)
 
@@ -293,7 +293,7 @@ async def add_raid_expansion(expansion_short: str) -> dict:
     if not ok:
         raise HTTPException(
             status_code=404,
-            detail=f"Expansion {expansion_short!r} not found in zones.db",
+            detail=f"Expansion {expansion_short!r} not found in the zones catalogue",
         )
     invalidate_zones_cache(reclassify=False)
     return {"expansion_short": expansion_short}
@@ -338,7 +338,7 @@ async def list_raid_zones_available(expansion: str) -> list[dict]:
 )
 async def add_raid_zone(zone_name: str) -> dict:
     """Admin-only: mark a raid zone as featured for /raids. Requires the
-    zone to be tagged raid_x4 or raid_x2 in zones.db."""
+    zone to be tagged raid_x4 or raid_x2 in the zones catalogue."""
     zone = await run_sync(zones_db.add_featured_raid_zone, zone_name)
     if zone is None:
         raise HTTPException(

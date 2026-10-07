@@ -1,4 +1,4 @@
-"""Tests for web/lib/executor.run_sync."""
+"""Tests for backend/server/core/executor.run_sync."""
 
 from __future__ import annotations
 

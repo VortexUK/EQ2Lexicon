@@ -4,7 +4,7 @@
  *   - <ZonePickerModal> — pick from raid_x4/raid_x2 zones in an expansion
  *     that are NOT yet featured. Backed by GET /api/raids/zones/available.
  *
- *   - <ExpansionPickerModal> — pick from expansions in zones.db that are
+ *   - <ExpansionPickerModal> — pick from expansions in the zones catalogue that are
  *     NOT yet featured. Backed by GET /api/raids/expansions/available.
  *
  * Both use the same lightweight overlay pattern: fixed-position dim
@@ -95,7 +95,7 @@ export function ExpansionPickerModal({ onPick, onClose }: ExpansionPickerProps) 
         {fetch.error && <p className="text-danger text-sm">Failed to load: {fetch.error}</p>}
         {!fetch.loading && !fetch.error && expansions.length === 0 && (
           <p className="text-text-muted text-sm">
-            Every expansion in zones.db is already featured (or implicitly
+            Every expansion in the zone catalogue is already featured (or implicitly
             featured via a curated raid zone).
           </p>
         )}

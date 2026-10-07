@@ -7,7 +7,7 @@ pipeline so a re-scrape can't overwrite admin/officer-edited zone overviews.
 Postgres edition: each test leases an isolated scratch raids schema via the
 ``raids_schema`` fixture and opens a schema-scoped pooled connection with
 ``RaidCatalogue(raids_schema).init_db()`` (the analog of the old
-``RaidCatalogue(tmp_path / 'raids.db').init_db()``). Rows are dicts.
+``RaidCatalogue(tmp_path / 'the raids catalogue').init_db()``). Rows are dicts.
 """
 
 from __future__ import annotations

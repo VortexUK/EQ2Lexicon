@@ -28,7 +28,7 @@ copy follows the reviewed PG schemas; transforms applied by type:
     is stamped detail_pruned_at at load (this is what shrinks 6.8GB of
     SQLite to a Postgres footprint the tier gate measures).
 
-FK orphans (users.db never enforced its FKs): each child table is
+FK orphans (the users schema never enforced its FKs): each child table is
 anti-joined against its parent IN SQLITE first; offending rows are written
 to reports/orphans_<schema>.<table>.jsonl and EXCLUDED from the copy. Any
 orphan fails the run unless --allow-orphans. Duplicate APPROVED claims per
@@ -255,7 +255,7 @@ def copy_family(
         fk_by_child.setdefault(child, []).append((child_col, parent, parent_col))
 
     # Parses detail tiers: compute once which encounter ids are past their
-    # tier (classification needs zones.db via the app's classifier).
+    # tier (classification needs the zones catalogue via the app's classifier).
     pruned_encounters: set[int] = set()
     if schema == "parses" and prune_detail and sqlite_table_exists(sconn, "encounters"):
         from backend.server.parses.cleanup import detail_retention_days  # noqa: PLC0415

@@ -1,4 +1,4 @@
-"""OAuth callback error-path tests for web/routes/auth.py — COV-033.
+"""OAuth callback error-path tests for backend/server/api/auth.py — COV-033.
 
 Covers the branches not exercised by test_auth.py's happy-path flow:
   callback state mismatch         → 400

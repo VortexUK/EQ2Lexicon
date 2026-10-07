@@ -1,23 +1,20 @@
 """Shared Postgres test plumbing for the migrated users family.
 
-Two isolation tiers, mirroring the old SQLite arrangement:
+Two isolation tiers:
 
 - SESSION schema: ``pytest_configure`` (conftest) calls
   :func:`provision_for_session`, which points ``pg.dsn()`` at the local
   TEST database (never the developer's .env Supabase DSN), rebuilds the
   production-named schemas from the migration files, and leaves them
-  shared for the whole run — the analog of the old shared tmpdir
-  users.db that route tests ran against.
+  shared for the whole run (the schema route tests run against).
 - SCRATCH schemas: the :data:`leaser` hands out ``users_s<pid>_N``
   schemas built by retargeting the SAME migration file (header
   substitution — one source of truth), reset on release with one
   ``TRUNCATE … RESTART IDENTITY CASCADE`` + a re-run of the idempotent
   ``-- seeds`` section. The :func:`users_schema` fixture leases one and
-  points every store at it — the analog of ``init_db(tmp_path)`` +
-  ``point_users_db_at``.
+  points every store at it.
 
-:func:`pg_conn` is the seeding/assertion replacement for the old raw
-``sqlite3.connect(users_db)`` blocks.
+:func:`pg_conn` is the seeding/assertion connection for tests.
 """
 
 from __future__ import annotations
@@ -139,7 +136,7 @@ def provision_for_session() -> None:
 @contextmanager
 def pg_conn(schema: str = "users") -> Iterator[Any]:
     """Dict-row sync connection with ``search_path`` set — the test
-    seeding / assertion replacement for ``sqlite3.connect(users_db)``.
+    seeding / assertion connection.
     Commits on clean exit; ``%s`` params, rows are dicts."""
     with pg.connection() as conn:
         conn.execute(pg.search_path_sql(schema))
@@ -228,8 +225,7 @@ leaser = SchemaLeaser()
 @pytest.fixture
 def users_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     """A leased scratch users-family schema with every store pointed at
-    it — the per-test-isolated replacement for ``init_db(tmp_path /
-    'users.db')`` + ``point_users_db_at(monkeypatch, path)``."""
+    it — per-test isolated."""
     from tests.fixtures.users_db import point_users_db_at
 
     name = leaser.acquire()

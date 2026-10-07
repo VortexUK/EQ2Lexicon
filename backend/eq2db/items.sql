@@ -1,9 +1,7 @@
 -- SQL for backend/eq2db/items.py (Postgres `items` schema; unqualified —
 -- the catalogue's connections set search_path). Schema DDL lives in
--- db/migrations/0007_items.sql; this file is DML only. The old startup
--- backfill blocks are gone: item_to_row computes flag_pvp /
--- classification_list / effect stats at write time, and historic rows
--- arrived pre-backfilled via the bulk copy.
+-- db/migrations/0007_items.sql; this file is DML only. item_to_row computes
+-- flag_pvp / classification_list / effect stats at write time.
 
 -- :name upsert
 INSERT INTO items (
@@ -128,8 +126,8 @@ WHERE id = ANY(%s) AND setbonus_name IS NOT NULL;
 
 -- find_by_name composes one of these depending on SERVER_MAX_LEVEL +
 -- exact-vs-LIKE. {where} is the column condition: 'displayname_lower = %s'
--- or 'displayname_lower LIKE %s ESCAPE ''\'''. NULLS LAST keeps SQLite's
--- NULL ordering (ASC-first/DESC-last) for the nullable sort columns.
+-- or 'displayname_lower LIKE %s ESCAPE ''\'''. NULLS LAST puts
+-- NULLs after real values for the nullable sort columns.
 
 -- :name find_by_name_level_capped
 SELECT raw_json FROM items WHERE {where}

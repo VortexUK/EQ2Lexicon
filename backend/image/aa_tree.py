@@ -134,7 +134,7 @@ def _tree_nodes(tree_id: int) -> list[dict]:
     """The tree's node rows; raises like the old missing-JSON open() did."""
     tree = catalogue.get_tree(tree_id)
     if tree is None:
-        raise FileNotFoundError(f"AA tree {tree_id} not found in aas.db")
+        raise FileNotFoundError(f"AA tree {tree_id} not found in the AA catalogue")
     return tree["nodes"]
 
 
@@ -324,7 +324,7 @@ def render_tree(
     """Render any AA tree, returning (image, tree_type_key)."""
     tree = catalogue.get_tree(tree_id)
     if tree is None:
-        raise FileNotFoundError(f"AA tree {tree_id} not found in aas.db")
+        raise FileNotFoundError(f"AA tree {tree_id} not found in the AA catalogue")
     tree_type = tree["tree_type"]
     renderer = _RENDERERS.get(tree_type, render_subclass_tree)
     return renderer(tree_id, aa_data), tree_type

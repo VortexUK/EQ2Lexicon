@@ -63,8 +63,8 @@ def test_unique_constraint_includes_world(users_db):
     """The UNIQUE constraint on item_watch must cover (world, guild_name, character_name, item_id).
 
     We verify this against pg_index (which covers both UNIQUE constraints and
-    unique indexes) — the old SQLite constraint was (guild_name,
-    character_name, item_id) only.
+    unique indexes) — it covers (guild_name,
+    character_name, item_id) plus the world column.
     """
     with pg_conn(users_db) as conn:
         # search_path is the leased schema, so the regclass resolves there.

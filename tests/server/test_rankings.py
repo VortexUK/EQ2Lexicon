@@ -311,7 +311,7 @@ class TestFilters:
             # Non-curated group kill — should NOT create a 'group' scope.
             {"scope": "group", "zone": "Crypt", "title": "Bonebreaker"},
         ]
-        # Empty zones.db state: no curated raids or dungeons. With nothing
+        # Empty zones catalogue state: no curated raids or dungeons. With nothing
         # curated, the group dropdown should be absent entirely (not just
         # empty) — curation is the only source of dungeon entries now.
         with patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())):
@@ -323,7 +323,7 @@ class TestFilters:
         assert {s["key"] for s in tree["scopes"]} == {"raid"}
 
     def test_tree_includes_dungeons_from_curated_overlay(self):
-        """Dungeons come from the zones.db 'dungeon' type overlay, with
+        """Dungeons come from the zones catalogue 'dungeon' type overlay, with
         ALL curated zones appearing even when no group-scope kills exist
         yet (so the rankings UI shows what's being tracked, not what's
         been farmed)."""
@@ -357,7 +357,7 @@ class TestFilters:
     def test_raid_tree_comes_from_zones_db_with_kills_appended(self):
         from unittest.mock import patch
 
-        # zones.db supplies the full raid structure (wing order preserved);
+        # the zones catalogue supplies the full raid structure (wing order preserved);
         # group + unpopulated raid kills are merged on top.
         raid_tree = [{"zone": "Veeshan's Peak", "expansion": "RoK", "bosses": ["Kluzen", "Nexona", "Phara Dar"]}]
         kills = [
@@ -367,7 +367,7 @@ class TestFilters:
         with patch("backend.server.api.rankings._cached_zones_data", return_value=({}, raid_tree, [], set())):
             tree = _build_filters(kills)
         raid = next(s for s in tree["scopes"] if s["key"] == "raid")
-        # zones.db zone first, bosses in wing order (not alphabetical).
+        # the zones catalogue zone first, bosses in wing order (not alphabetical).
         assert raid["zones"][0]["zone"] == "Veeshan's Peak"
         assert raid["zones"][0]["bosses"] == ["Kluzen", "Nexona", "Phara Dar"]
         assert raid["zones"][0]["expansion"] == "RoK"
@@ -422,13 +422,13 @@ class TestFilters:
             "d'lizta cheroon": [("The Poet's Palace", "D'Lizta Cheroon")],
         }
         with patch("backend.server.api.rankings._cached_zones_data", return_value=(index, [], [], set())):
-            # Raid: matches zones.db → canonical zone + encounter.
+            # Raid: matches the zones catalogue → canonical zone + encounter.
             assert _resolve_boss("Phara Dar", "ACT Zone Name", "raid") == (True, "Veeshan's Peak", "Phara Dar")
-            # Raid, unknown to zones.db → heuristic fallback keeps ACT zone/title.
+            # Raid, unknown to the zones catalogue → heuristic fallback keeps ACT zone/title.
             assert _resolve_boss("Tarinax", "Vetrovia", "raid") == (True, "Vetrovia", "Tarinax")
             # Heuristic correctly rejects trash ("a "/"an " prefixes).
             assert _resolve_boss("a decaying skeleton", "Vetrovia", "raid")[0] is False
-            # Group scope now consults zones.db too; "Phara Dar" IS in the index
+            # Group scope now consults the zones catalogue too; "Phara Dar" IS in the index
             # but its canonical zone is "Veeshan's Peak", not "Crypt" — so the
             # index resolves it (zone mismatch means candidates[0] is used).
             assert _resolve_boss("Phara Dar", "Crypt", "group") == (True, "Veeshan's Peak", "Phara Dar")

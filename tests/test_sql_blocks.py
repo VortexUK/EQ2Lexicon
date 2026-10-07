@@ -40,14 +40,12 @@ def test_every_sql_reference_resolves(py_path: Path, sql_path: Path) -> None:
     assert not missing, f"{py_path.name} references missing SQL blocks: {sorted(missing)}"
 
 
-#: SQLite-dialect sidecars (families not yet on Postgres) — sqlite parses
-#: comments server-side, so a format field inside a comment is harmless
-#: there. Shrink this set as P2/P3 convert each family.
+#: Sidecar directories outside the scoped format-field check below.
 _SQLITE_FAMILIES = {
     "backend/eq2db",
     "backend/census",
     "backend/server/parses",
-    "backend/server/api",  # parses/zones route sidecars still ? dialect
+    "backend/server/api",
     "backend/image",
     "backend/bot",
 }

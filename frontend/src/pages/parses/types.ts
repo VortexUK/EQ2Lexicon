@@ -3,7 +3,7 @@
  *
  * `ParseEncounterSummary` / `ParseUploadSummary` / `ParsePermissions` /
  * `ParsesListResponse` mirror the FastAPI Pydantic models in
- * web/routes/parses/models.py — keep them in sync.
+ * backend/server/api/parses/models.py — keep them in sync.
  *
  * `Category` / `ZoneDayBucket` / `GuildBucket` are frontend-only shapes
  * produced by groupEncounters() in ParsesPage.tsx and consumed by
@@ -43,7 +43,7 @@ export interface ParseEncounterSummary {
   combatant_count: number
   player_count: number
   // Backend-computed Raid / Dungeon / Other bucket (see
-  // web/routes/parses/list.py:_classify_zone). Drives the Guild → Category
+  // backend/server/api/parses/list.py:_classify_zone). Drives the Guild → Category
   // hierarchy on this page.
   category: 'raid' | 'dungeon' | 'other'
   uploaded_by: string                       // canonical upload's character name

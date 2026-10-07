@@ -7,7 +7,7 @@ Postgres edition: tests lease an isolated scratch schema via the
 ``pg_conn(schema)`` (dict rows, %s params).
 
 Note on the two former init_db data-normalization tests: the one-time
-SQLite fixups (comma-joined encounter_name collapse, " (Zone)" suffix
+fixups (comma-joined encounter_name collapse, " (Zone)" suffix
 strip) were retired in the Postgres cutover — ``PgCatalogue.init_db()``
 creates and mutates nothing (DDL is owned by db/migrations/; prod data
 crossed over already normalized). The descendants below pin that new
@@ -51,8 +51,7 @@ def _seed_legacy_zone(schema: str) -> tuple[int, int]:
 
 
 def test_init_db_is_schema_passive_no_data_normalization(zones_schema):
-    """Descendant of the SQLite comma-joined-encounter-name normalization
-    test: on Postgres ``init_db()`` is a pooled-connection handle, NOT a
+    """``init_db()`` is a pooled-connection handle, NOT a
     schema/data fixup pass — a legacy-shaped row passes through untouched
     (the one-time normalization was retired at cutover; the copied prod
     data was already normalized). Pins the "init_db never mutates data"
@@ -82,8 +81,7 @@ def test_init_db_is_schema_passive_no_data_normalization(zones_schema):
 
 
 def test_paren_zone_alias_resolves_to_canonical(zones_schema):
-    """Descendant of the SQLite " (Zone)" suffix-strip normalization test:
-    the rewrite itself was retired at cutover (prod data crossed over
+    """The " (Zone)" suffix-strip rewrite itself was retired at cutover (prod data crossed over
     already stripped, with the old suffixed name preserved as an alias) —
     what survives is the alias contract: find_by_name resolves BOTH the
     clean name and the historical parenthesised form to the same canonical

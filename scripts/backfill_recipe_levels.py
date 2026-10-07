@@ -73,7 +73,7 @@ def run(rebuild: bool = False) -> tuple[int, int]:
     (rows_processed, rows_with_level).
 
     Returns (0, 0) when the items catalogue holds no rows yet (the Postgres
-    analogue of the old "items.db file is absent" soft exit) — never wipes
+    analogue of the old "catalogue file absent" soft exit) — never wipes
     existing out_level values against an unloaded items schema.
     """
     if not items_catalogue.ready():

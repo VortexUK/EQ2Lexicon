@@ -35,7 +35,7 @@ def users_db(users_schema: str) -> str:
 
 @pytest.fixture
 def parses_db(parses_db_path: str) -> str:
-    """Leased parses schema — erasure reads ``parses.db.SCHEMA`` at call
+    """Leased parses schema — erasure reads the parses ``SCHEMA`` at call
     time, and the ``parses_db_path`` fixture already re-points it."""
     return parses_db_path
 

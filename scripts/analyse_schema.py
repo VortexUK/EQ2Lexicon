@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RETIRED — SQLite-era dev one-off (opened items.db directly).
+"""RETIRED — SQLite-era dev one-off (opened the items catalogue directly).
 
 Sampled ``raw_json`` rows and reported which top-level / typeinfo keys the
 flat column schema did or didn't cover, to guide schema extensions. The

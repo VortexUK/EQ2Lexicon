@@ -1,7 +1,7 @@
-"""Tests for CensusClient._resolve_item_meta — the items.db → Census → cache
+"""Tests for CensusClient._resolve_item_meta — the items catalogue → Census → cache
 fallback path used by _parse_equipment.
 
-Before the fix this was items.db-only, which meant a cold items.db at character-
+Before the fix this was items-catalogue-only, which meant a cold items catalogue at character-
 fetch time caused the equipment rows to be cached forever with the literal
 "Item #<id>" placeholder (PR #21's persistent cache then served that placeholder
 indefinitely). The fallback prevents new cache rows from ever being born stale.
@@ -36,7 +36,7 @@ async def client() -> AsyncGenerator[CensusClient]:
 
 @pytest.mark.asyncio
 async def test_resolve_item_meta_returns_items_db_row_on_hit(client, monkeypatch):
-    """Hot items.db → return the row directly, no Census fetch, no cache write."""
+    """Hot items catalogue → return the row directly, no Census fetch, no cache write."""
     from backend.eq2db.items import catalogue as item_db_module
 
     expected_row = {"displayname": "Hot Item", "tier": "FABLED", "iconid": 1234}
@@ -47,8 +47,8 @@ async def test_resolve_item_meta_returns_items_db_row_on_hit(client, monkeypatch
 
     monkeypatch.setattr(item_db_module, "find_by_id", _fake_find)
 
-    client._fetch = AsyncMock(side_effect=AssertionError("_fetch must NOT fire on items.db hit"))
-    client._cache_item = MagicMock(side_effect=AssertionError("_cache_item must NOT fire on items.db hit"))
+    client._fetch = AsyncMock(side_effect=AssertionError("_fetch must NOT fire on items catalogue hit"))
+    client._cache_item = MagicMock(side_effect=AssertionError("_cache_item must NOT fire on items catalogue hit"))
 
     got = await client._resolve_item_meta(42)
     assert got is expected_row
@@ -56,13 +56,13 @@ async def test_resolve_item_meta_returns_items_db_row_on_hit(client, monkeypatch
 
 @pytest.mark.asyncio
 async def test_resolve_item_meta_falls_back_to_census_and_caches(client, monkeypatch):
-    """items.db miss → single Census fetch → result persisted to items.db via
+    """the items catalogue miss → single Census fetch → result persisted to the items catalogue via
     _cache_item → returned to the caller. This is the path that prevents the
     'Item #<id>' placeholder from getting baked into the persistent cache."""
     from backend.eq2db.items import catalogue as item_db_module
 
     async def _fake_find(item_id, *args, **kwargs):
-        return None  # items.db cold for this ID
+        return None  # the items catalogue cold for this ID
 
     monkeypatch.setattr(item_db_module, "find_by_id", _fake_find)
 
@@ -85,7 +85,7 @@ async def test_resolve_item_meta_falls_back_to_census_and_caches(client, monkeyp
 
 @pytest.mark.asyncio
 async def test_resolve_item_meta_returns_none_when_census_also_misses(client, monkeypatch):
-    """items.db miss + Census miss → return None so the caller can render
+    """the items catalogue miss + Census miss → return None so the caller can render
     the 'Item #<id>' placeholder rather than crash. No cache write — we
     don't want to memoise 'unknown' against the ID."""
     from backend.eq2db.items import catalogue as item_db_module

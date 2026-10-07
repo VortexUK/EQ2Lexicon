@@ -152,13 +152,10 @@ UPDATE encounters SET guild_name = %s WHERE id = %s;
 SELECT * FROM combatants WHERE encounter_id = %s ORDER BY damage DESC;
 
 -- Batched form of get_combatants_for_encounter: the rankings rebuild fetches
--- every primary kill's combatants in ONE query (= ANY replaced the SQLite
--- 500-id IN-list chunking). Narrowed to exactly the columns the rankings /
--- export / character-rankings pipelines read, and shaped to be COVERED by
--- idx_combatants_rankings_cover: on the Railway network volume, SELECT *
--- random-paged ~150k wide rows and turned the Wuoshi kills rebuild into a
--- 14-minute grind (combatants=837s, 2026-09-12); the covering index turns it
--- into dense index-only scans.
+-- every primary kill's combatants in ONE query (= ANY). Narrowed to exactly
+-- the columns the rankings / export / character-rankings pipelines read, and
+-- shaped to be COVERED by idx_combatants_rankings_cover so the rankings read
+-- is index-only (SELECT * would random-page ~150k wide rows).
 -- :name get_combatants_for_encounters
 SELECT encounter_id, name, ally, is_player, cls, level, ilvl, guild_name,
        encdps, enchps, damage, healed, deaths

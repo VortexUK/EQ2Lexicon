@@ -1,4 +1,4 @@
-"""Unit tests for the zone classifier in web/routes/parses/list.py.
+"""Unit tests for the zone classifier in backend/server/api/parses/list.py.
 
 The classifier mirrors the rankings page's leaderboard predicate exactly:
 a zone is 'on the leaderboard' iff (a) its type token is 'raid_x4' or
@@ -49,7 +49,7 @@ def test_classify_returns_dungeon_for_dungeon_with_bosses():
 
 def test_classify_returns_other_for_unlisted_zone():
     # 'Antonica' is an open-world overland and has neither a raid_x4 nor
-    # dungeon type — must classify Other regardless of what's in zones.db.
+    # dungeon type — must classify Other regardless of what's in the zones catalogue.
     with patch(
         "backend.server.api.parses.list._cached_zones_data",
         return_value=_fake_trees(["Castle Mistmoore"], ["Halls of Fate"]),
@@ -148,7 +148,7 @@ def test_classifier_cache_clear_picks_up_new_trees():
 def test_invalidate_zones_cache_also_clears_classifier_map():
     """The Phase 2 spec wires _classifier_cache_clear into
     rankings.invalidate_zones_cache so the 8 admin call sites in
-    web/routes/zones_admin.py don't each need their own hook. Verify by
+    backend/server/api/zones_admin.py don't each need their own hook. Verify by
     populating the map, calling invalidate_zones_cache, repopulating with
     a different fake, and checking the new result wins."""
     from backend.server.api.rankings import invalidate_zones_cache

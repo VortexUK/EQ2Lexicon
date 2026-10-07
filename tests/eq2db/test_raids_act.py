@@ -8,8 +8,7 @@ Postgres edition: each test leases an isolated scratch raids schema (the
 - delete_act_trigger returns True/False
 - Spell-timer helpers (same shape)
 - upsert_act_spell_timer name_lower UNIQUE collision
-- the migrations-owned enrichment DDL (descendants of the SQLite
-  migration/backfill tests)
+- the migrations-owned enrichment DDL (no runtime ALTER/backfill path)
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ delete_act_spell_timer = RaidCatalogue.delete_act_spell_timer
 @pytest.fixture
 def db(raids_schema: str) -> str:
     """A fresh scratch raids schema with one zone + encounter seeded —
-    the analog of the old tmp_path raids.db fixture. Returns the schema name."""
+    the analog of the old tmp_path the raids catalogue fixture. Returns the schema name."""
     with pg_conn(raids_schema) as conn:
         zone_id = conn.execute(
             "INSERT INTO raid_zones (zone_name, zone_name_lower, expansion_short, source) "
@@ -61,7 +60,7 @@ def db_conn(db: str):
 #: An unprovisioned schema name — the Pg analog of the old "missing path".
 #: SchemaBound documents no exists-degrade: migrations run before the app
 #: serves, so a missing relation is a real fault (raises), never a soft
-#: empty result the way the SQLite catalogues degraded.
+#: empty result.
 _MISSING = "raids_pytest_never_provisioned"
 
 
@@ -253,8 +252,7 @@ class TestEnrichment:
         assert (row["damage_type"], row["control_effect"]) == ("", "")
 
     def test_enrichment_columns_in_migrations_owned_ddl(self, db: str, enc_id: int):
-        """Descendant of the SQLite pre-enrichment migration test (init_db
-        _apply_migrations ALTERs): on Postgres the enrichment columns are
+        """The enrichment columns are
         part of the migrations-owned DDL outright (db/migrations/
         0005_raids.sql). A raw INSERT that omits them — the shape a
         pre-enrichment writer produced — reads back the defaults the old
@@ -296,10 +294,7 @@ class TestEnrichment:
 
 class TestEditorParityBackfill:
     def test_init_db_never_mutates_rows(self, db: str, db_conn, enc_id: int):
-        """Descendant of the SQLite one-time editor-parity backfill test
-        (meta-guarded flip of pre-parity 'stripped' rows): the backfill was
-        retired at the Postgres cutover — its repair crossed over in the
-        copied data, and ``PgCatalogue.init_db()`` is a pooled-connection
+        """``PgCatalogue.init_db()`` is a pooled-connection
         handle that never rewrites rows. The surviving contract is the
         second half of the old test's intent: a curator's deliberate
         zeros/blanks survive any number of re-inits verbatim."""

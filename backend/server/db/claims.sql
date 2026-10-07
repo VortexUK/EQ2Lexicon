@@ -69,7 +69,7 @@ SELECT discord_id, world, character_name, status FROM character_claims WHERE id 
 
 -- A user cannot favourite their own character; when a claim is approved the
 -- new owner's existing favourite of that character (if any) is removed in the
--- same transaction. LOWER() on both sides (was SQLite COLLATE NOCASE) because
+-- same transaction. LOWER() on both sides because
 -- the favourites row is stored capitalised while a claim may carry different
 -- casing.
 -- :name remove_new_owners_favorite

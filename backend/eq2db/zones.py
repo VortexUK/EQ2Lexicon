@@ -63,7 +63,7 @@ _SELECT_COLS = _SQL["select_zone_cols"]
 
 def _connect(schema: str) -> PgConnProxy:
     """One pooled, schema-scoped connection — the model classmethods' analog
-    of the old ``sqlite3.connect(path)``. ``with _connect(schema) as conn:``
+    of a plain connect. ``with _connect(schema) as conn:``
     commits on clean exit, rolls back on exception, then returns the
     connection to the pool."""
     return PgConnProxy(schema)
@@ -361,7 +361,7 @@ def _mirror_primary_rename_in_raids_db(zone_id: int, old_name: str, new_name: st
         return
     from backend.eq2db.raids import catalogue as _raids_db
 
-    # init_db is idempotent and self-heals a fresh raids.db (CI/test env).
+    # init_db returns a pooled raids-schema connection.
     with _raids_db.init_db() as rconn:
         _raids_db.rename_raid_encounter_if_exists(
             rconn,

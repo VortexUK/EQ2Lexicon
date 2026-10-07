@@ -12,7 +12,7 @@ classes and would pollute detection; class-identifying channels are kept
 Effect-cast mining: combat logs record the TRIGGERED effect's name, not the
 knowledge-book spell — "Holy Intercession V" logs as "Divine Prayer" ("When
 any damage is received this spell will cast Divine Prayer on target."). The
-effect names live in spells.db effect text; each mined name is attributed to
+effect names live in the spells catalogue effect text; each mined name is attributed to
 the classes whose reference spells trigger it.
 
 Usage:
@@ -58,7 +58,7 @@ def strip_roman(name: str) -> str:
 
 
 def effect_casts_by_base(spells_db: Path) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """spells.db base_name_lower → the effect names that spell line casts,
+    """the spells catalogue base_name_lower → the effect names that spell line casts,
     plus effect name → the target types of EVERY parent spell casting it
     (used to decide vote-safety: self/selfpet parents only fire for their
     owner; group parents fire on recipients)."""

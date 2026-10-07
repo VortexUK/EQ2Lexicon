@@ -22,7 +22,7 @@ def get_primary_claim(claims_payload: dict) -> dict[str, Any] | None:
 
     Replaces three independent ``next((c for c in claims["approved"] if
     c.get("is_primary")), None)`` comprehensions. The payload shape comes
-    from ``web/db.get_active_claims`` which returns a dict with an
+    from ``backend/server/db get_active_claims`` which returns a dict with an
     ``approved`` list."""
     for claim in claims_payload.get("approved") or []:
         if claim.get("is_primary"):
@@ -41,7 +41,7 @@ async def cached_primary_guild(
     None (no primary claim, or primary character not in cache).
 
     Callers that need a fallback (e.g. "most recent parsed guild") apply
-    it themselves after this returns ``(_, None)`` — see web/routes/zones.py
+    it themselves after this returns ``(_, None)`` — see backend/server/api/zones.py
     for the canonical pattern.
     """
     claims = await get_active_claims(discord_id, world=world)

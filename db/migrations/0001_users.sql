@@ -3,7 +3,7 @@ set search_path to users, public;
 
 -- ============================================================================
 -- users family — translated AND REVIEWED from backend/server/db/schema.sql
--- (the SQLite users.db), not a mechanical port. Type policy: identity
+-- (the SQLite users schema), not a mechanical port. Type policy: identity
 -- bigints; unix-epoch bigints (NOT timestamptz — Python arithmetic + the
 -- JSON contract use raw ints); 0/1 flags stay integers (frontend contract);
 -- ISO day strings stay text. Review decisions are annotated per table;
@@ -12,7 +12,7 @@ set search_path to users, public;
 -- FK policy: every reference to users(discord_id) is DEFERRABLE INITIALLY
 -- IMMEDIATE so the erasure sweep runs as ONE transaction under
 -- SET CONSTRAINTS ALL DEFERRED (replaces SQLite's PRAGMA foreign_keys=OFF).
--- Unlike SQLite (where users.db never enabled the pragma), these are
+-- Unlike SQLite (where the users schema never enabled the pragma), these are
 -- actually enforced.
 -- ============================================================================
 

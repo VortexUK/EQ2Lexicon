@@ -302,7 +302,7 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
         return {}
 
     # Build a mob_lower → (zone, encounter) map for every mob we actually
-    # need — one = ANY(array) query (no SQLite variable-limit chunking).
+    # need — one = ANY(array) query (no chunking).
     title_set = {t for _, t, _ in kills}
     mob_to_enc: dict[str, tuple[str, str]] = {}
     zconn = zones_db.init_db()

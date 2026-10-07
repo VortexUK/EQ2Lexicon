@@ -1,7 +1,7 @@
 """RETIRED — SQLite-era scratch test of the item search query logic.
 
 Exercised the /api/items search SQL (stat joins + sort) directly over the
-local items.db via aiosqlite, bypassing FastAPI. Superseded by the Postgres
+local items catalogue via aiosqlite, bypassing FastAPI. Superseded by the Postgres
 ``items`` schema (db/migrations/0007_items.sql) — the search SQL now lives
 in ``backend/server/api/item.py`` against pooled psycopg connections, and
 the route tests cover it.

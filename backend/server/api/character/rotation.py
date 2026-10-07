@@ -1,14 +1,14 @@
 """GET /character/{name}/rotation-data — the rotation simulator's payload.
 
 Everything the frontend engine needs per owned ability: cast/recast/
-recovery timing (spells.db), parsed damage components (effect-text parser
+recovery timing (the spells catalogue), parsed damage components (effect-text parser
 in backend.eq2db.spell_effects), spell duration + power cost + scaled
-effect text (items.db spellscroll join — preferred over the spells.db
+effect text (the items catalogue spellscroll join — preferred over the spells catalogue
 effect text, which is unscaled for some spells). Mirrors
 character/spells.py plumbing: cache-first character resolution, census
 fallback, sync DB reads via run_sync.
 
-Recovery normalisation: spells.db ``recovery_secs`` is 10× inflated
+Recovery normalisation: the spells catalogue ``recovery_secs`` is 10× inflated
 (census units bug — see spell_effects.RECOVERY_DIVISOR); divided here so
 the wire value is real seconds (0.5 for virtually every combat ability).
 """
@@ -63,7 +63,7 @@ from backend.server.server_context import current_server
 
 _log = logging.getLogger(__name__)
 
-#: aas.db uses this sentinel for "node has no spell".
+#: the aas catalogue uses this sentinel for "node has no spell".
 _NO_SPELL_CRC = 4294967295
 
 
@@ -120,7 +120,7 @@ class RotationAbilityResponse(BaseModel):
     target_type: str | None = None
     icon_id: int | None = None
     icon_backdrop: int | None = None
-    duration_s: float | None = None  # items.db spell duration, seconds
+    duration_s: float | None = None  # items catalogue spell duration, seconds
     power_cost: int | None = None  # carried for later; v1 engine ignores it
     components: list[DamageComponentResponse] = []
     procs: list[ProcResponse] = []
@@ -307,7 +307,7 @@ def _build_aa_entries_sync(
     """SYNC: spent AA nodes → (castable AA abilities, proc passives,
     class-wide base-damage sources).
 
-    Node → aas.db spellcrc → spells.db row at the SPENT rank (tier ==
+    Node → the aas catalogue spellcrc → the spells catalogue row at the SPENT rank (tier ==
     rank; find_by_crc prefers the lowest real-level variant — the era
     row on a TLE server). Proc-carrying beneficials/innates (Bolt of
     Power) become passives; hostile castables join the rotation palette.
@@ -644,7 +644,7 @@ def _build_abilities_sync(
     char_level: int,
 ) -> tuple[list[RotationAbilityResponse], list[RotationAbilityResponse], DerivedModifiersResponse]:
     """SYNC (executor): resolve the rotation universe (owned spells + spent
-    AA abilities), parse effects, join the items.db spell meta, and derive
+    AA abilities), parse effects, join the items catalogue's spell meta, and derive
     the hidden gear/set/AA modifiers — all catalogue reads in one hop."""
     import json  # noqa: PLC0415
 
@@ -658,8 +658,8 @@ def _build_abilities_sync(
     for r in rows:
         m = meta.get(f"{r.get('name')} ({r.get('tier_name')})") or {}
 
-        # Effect text: prefer the spellscroll's (items.db) — it carries the
-        # properly SCALED numbers the live tooltip shows; the spells.db
+        # Effect text: prefer the spellscroll's (the items catalogue) — it carries the
+        # properly SCALED numbers the live tooltip shows; the spells catalogue
         # spell-record text is unscaled for some spells (Smite Corruption
         # reads "1 - 2" where the scroll says "132 - 161"). Scroll lines are
         # uniformly base-indented (typically 1) — shift to base 0 so the
@@ -861,7 +861,7 @@ class ClassBuffResponse(BaseModel):
     orig_recast_s: float | None = None
     procs: list[ProcResponse] = []
     effect_lines: list[str] = []
-    # Set ⇒ a TEMP buff (items.db duration / "Lasts for") the group member
+    # Set ⇒ a TEMP buff (the items catalogue duration / "Lasts for") the group member
     # rotates (duration + recast drive its windows); None ⇒ permanent.
     duration_s: float | None = None
     recast_s: float = 0.0
@@ -938,7 +938,7 @@ def _is_relevant_group_buff(mods: dict, procs: list[ProcResponse], lines: list[s
 
 def _buff_rows_to_responses(rows: list[SpellRow]) -> list[ClassBuffResponse]:
     """Beneficial group-scope spell rows → buff responses: stat mods +
-    procs parsed from the effect text, items.db duration join, relevance
+    procs parsed from the effect text, the items catalogue duration join, relevance
     filter applied."""
     import json  # noqa: PLC0415
 
@@ -998,8 +998,8 @@ def _buff_rows_to_responses(rows: list[SpellRow]) -> list[ClassBuffResponse]:
 
 def _class_buffs_sync(cls: str, max_level: int) -> list[ClassBuffResponse]:
     """SYNC (executor): a class's GENERIC group/raid/ally buff book —
-    scroll universe (items.db classes_json) joined to beneficial
-    group-scope spells.db rows at the era's best assumed tiers."""
+    scroll universe (the items catalogue classes_json) joined to beneficial
+    group-scope spells catalogue rows at the era's best assumed tiers."""
     names = _items.class_spell_names(cls)
     rows = _spells.beneficial_group_spells(sorted(names), max_level)
     return _buff_rows_to_responses(rows)
@@ -1100,7 +1100,7 @@ def _member_aa_buff_rows_sync(aa_trees: list[tuple[int, dict[str, int]]]) -> lis
             # spent rank (and the node's max) so the UI can label
             # "4/5" instead of a meaningless "Apprentice"/"Grandmaster".
             # cast: the rank annotations are rotation-private keys, not
-            # spells.db columns — SpellRow deliberately doesn't know them.
+            # the spells catalogue columns — SpellRow deliberately doesn't know them.
             out.append(cast(SpellRow, {**row, "_aa_rank": rank, "_aa_max_rank": int(node.get("maxtier") or 0) or None}))
     return out
 

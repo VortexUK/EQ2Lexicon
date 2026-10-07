@@ -1,7 +1,7 @@
-"""Ingest scraped EQ2i raid JSON into ``data/raids/raids.db``.
+"""Ingest scraped EQ2i raid JSON into the raids schema.
 
 Sibling of ``scrape_eq2i_raids.py`` — that one produces a JSON snapshot of
-zone + encounter pages; this one writes that snapshot into the SQLite store
+zone + encounter pages; this one writes that snapshot into the raids schema
 via the existing ``raids_db.upsert_raid_zone`` / ``upsert_raid_encounter``
 helpers.
 
@@ -47,10 +47,10 @@ _DEFAULT_IN = _REPO / "scripts" / "dev" / "eq2i_raids.sample.json"
 
 
 def _resolve_expansion_short(zone_name: str, default: str = "Unknown") -> str:
-    """Look up the canonical zone in zones.db to pull its expansion_short.
+    """Look up the canonical zone in the zones catalogue to pull its expansion_short.
 
     The scrape JSON doesn't carry expansion (it's a wiki concept, not an EQ2i
-    template field). We sync against zones.db so the raid_zones row mirrors
+    template field). We sync against the zones catalogue so the raid_zones row mirrors
     the canonical record."""
     z = zones_db.catalogue.find_by_name(zone_name)
     if z is None:
@@ -115,7 +115,7 @@ def _dedupe_encounters_for_zone(encounters: list[dict]) -> list[dict]:
 
 
 def ingest(json_path: Path, *, dry_run: bool = False) -> dict:
-    """Read the scrape JSON and write rows into raids.db.
+    """Read the scrape JSON and write rows into the raids catalogue.
 
     Returns a counts dict for the CLI summary."""
     data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -210,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Parse + summarise without writing anything to raids.db.",
+        help="Parse + summarise without writing anything to the raids schema.",
     )
     args = parser.parse_args(argv)
 

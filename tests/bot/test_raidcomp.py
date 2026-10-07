@@ -19,7 +19,7 @@ def test_build_groups_orders_by_slot_and_splits_sitout():
     groups, sitout = build_groups(placements, cls_by_char)
     assert [m["name"] for m in groups[0]] == ["First", "Second"]
     assert groups[0][0]["cls"] == "Templar"
-    assert groups[0][0]["colour"]  # classes.db colour resolved
+    assert groups[0][0]["colour"]  # the classes catalogue colour resolved
     assert groups[0][1]["cls"] is None and groups[0][1]["colour"] is None
     assert [m["name"] for m in groups[1]] == ["Grouptwo"]
     assert groups[2] == [] and groups[3] == []

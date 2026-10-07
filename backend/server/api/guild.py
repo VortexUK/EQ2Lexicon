@@ -50,7 +50,7 @@ _OFFICER_RANKS = frozenset({0, 1})  # rank_ids that count as "officer"
 def _validate_guild_name(guild_name: str) -> None:
     """Raise 400 if guild_name looks malformed or dangerously long.
 
-    Wraps web.lib.validation.validate_guild_name so call sites are unchanged."""
+    Wraps backend.server.core.validation.validate_guild_name so call sites are unchanged."""
     if _validate_guild_name_lib(guild_name) is None:
         raise HTTPException(
             status_code=400,

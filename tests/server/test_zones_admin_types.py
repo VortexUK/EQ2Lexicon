@@ -5,9 +5,9 @@ Endpoints covered:
   - POST   /api/zones/{zone_name}/types        body: {"type": "dungeon"}
   - DELETE /api/zones/{zone_name}/types/{type}
 
-Mirrors the patching style of tests/web/test_zones_admin.py — every
+Mirrors the patching style of tests/server/test_zones_admin.py — every
 zones_db call is mocked so the tests are pure route/auth/validation
-exercises, independent of any on-disk SQLite DB."""
+exercises, independent of any database."""
 
 from __future__ import annotations
 

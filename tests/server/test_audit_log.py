@@ -1,4 +1,4 @@
-"""Tests for web/lib/audit_log.audit_log."""
+"""Tests for backend/server/core/audit_log.audit_log."""
 
 from __future__ import annotations
 

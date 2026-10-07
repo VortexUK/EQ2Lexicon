@@ -9,7 +9,7 @@ GET  /api/zones/{zone}/overview/revisions                         (history)
 Read-write surface for raid strategy markdown — per-encounter strategies and
 zone-level overview. Bodies live in ``backend/eq2db/raids.py`` (the raids
 Postgres schema). Write gate is ``require_editor`` from
-``web/auth_deps.py`` (admin / contributor — see that module's
+``backend/server/auth_deps.py`` (admin / contributor — see that module's
 docstring for the role model).
 
 For encounters, the revision history is recorded automatically by
@@ -22,12 +22,12 @@ in the same transaction before returning the updated row.
 
 Key translation: the URL identifies a curator encounter by ``(zone_name,
 position)`` (matches the sidebar URLs in the React app). We resolve those via
-``zones.db`` → ``zone_encounters.encounter_name`` and use that string as the
+the zones catalogue → ``zone_encounters.encounter_name`` and use that string as the
 raids_db row's ``mob_name`` — one strategy per curator encounter, keyed by the
 display name. Group encounters get a single strategy under their joined name.
 
 Lazy zone creation: a PUT for a zone not yet known to raids_db creates the
-``raid_zones`` row on the fly, pulling ``expansion_short`` from zones.db.
+``raid_zones`` row on the fly, pulling ``expansion_short`` from the zones catalogue.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ router = APIRouter(tags=["raid_strategies"])
 
 
 # ---------------------------------------------------------------------------
-# Primary-guild resolution (shared with web/auth_deps.require_editor)
+# Primary-guild resolution (shared with backend/server/auth_deps.require_editor)
 # ---------------------------------------------------------------------------
 
 
@@ -69,7 +69,7 @@ async def _primary_guild_from_cache(discord_id: str) -> str | None:
     A cold cache returns None and the caller 403s; visiting the character
     page once warms it. Mirrors the cheap branch of zones.py's resolver.
 
-    Lives here rather than in web/auth_deps.py because raids_db isn't an auth
+    Lives here rather than in backend/server/auth_deps.py because raids_db isn't an auth
     concept — auth_deps imports this lazily inside ``require_editor`` to skirt
     the routes→auth circular dependency."""
     _, guild_name = await cached_primary_guild(discord_id, _current_world())
@@ -152,7 +152,7 @@ class ZoneRevisionListResponse(BaseModel):
 
 def _resolve_curator_encounter(zone_name: str, position: int) -> tuple[str, str] | None:
     """Map ``(zone_name, position)`` → ``(canonical_zone_name, encounter_name)``
-    via zones.db. Returns None if the zone is unknown or has no encounter at
+    via the zones catalogue. Returns None if the zone is unknown or has no encounter at
     that position.
 
     Canonicalising the zone name (rather than echoing whatever the URL had)
@@ -355,7 +355,7 @@ def _write_strategy_sync(
     """Upsert a strategy row. Auto-creates the raid_zones parent on first write.
 
     Returns the fresh row as a dict (same shape as ``_read_strategy_sync``)."""
-    # init_db returns a pooled connection scoped to the raids schema.
+    # Pooled connection scoped to the raids schema.
     conn = raids_db.init_db()
     try:
         zone_id = raids_db.upsert_raid_zone(
@@ -461,7 +461,7 @@ async def put_strategy(
         raise HTTPException(status_code=404, detail="Encounter not found")
     canonical_zone, encounter_name = resolved
 
-    # Pull expansion_short from zones.db for the lazy raid_zones row creation.
+    # Pull expansion_short from the zones catalogue for the lazy raid_zones row creation.
     z = await run_sync(zones_db.find_by_name, canonical_zone)
     expansion_short = z["expansion_short"] if z else "Unknown"
 
@@ -561,7 +561,7 @@ def _read_zone_revisions_sync(zone_name: str) -> list[dict]:
 
 async def _resolve_canonical_zone_name(zone_name: str) -> str | None:
     """Resolve an URL zone name (possibly an alias) to its canonical form via
-    zones.db. Returns None when the zone is unknown — caller 404s."""
+    the zones catalogue. Returns None when the zone is unknown — caller 404s."""
     z = await run_sync(zones_db.find_by_name, zone_name)
     return z["name"] if z else None
 

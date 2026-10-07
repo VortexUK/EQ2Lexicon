@@ -1,7 +1,7 @@
 """
 GET /api/classes — the static class catalogue (archetype, subclass, role,
 colour, display order, icon URL). Public (non-sensitive reference data used by
-pre-login pages). Served from classes.db (committed at data/classes/classes.db).
+pre-login pages). Served from the Postgres ``classes`` schema (seeded by migration 0011).
 Cached in-memory (the data never changes at runtime).
 """
 
@@ -30,7 +30,7 @@ _cache: list[ClassResponse] | None = None
 
 
 def _rows() -> list[dict]:
-    # Adventure classes only — crafter rows exist in classes.db for the
+    # Adventure classes only — crafter rows exist in the classes catalogue for the
     # item-restriction lookup but aren't characters you create as in the
     # claim/character-picker UIs this endpoint feeds.
     return [r for r in classes_db.list_all() if r["archetype"] != "Crafter"]

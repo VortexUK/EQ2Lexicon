@@ -95,8 +95,7 @@ def parses_conn(parses_db_path):
     _insert_encounter_rows_sync (caller-supplied conn, commits at the end)
     and _update_snapshots_sync (checks out + closes its own connection via
     parses_db.store.init_db()) both target the same schema; committed writes
-    are visible across connections (READ COMMITTED), so the old SQLite
-    shared-connection/_NoCloseConn trick is no longer needed.
+    are visible across connections (READ COMMITTED).
     """
     conn = parses_db.store.init_db()
     try:

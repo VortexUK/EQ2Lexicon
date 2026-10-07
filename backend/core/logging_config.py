@@ -12,7 +12,7 @@ Audit recommendations C + LOG-048, LOG-049, LOG-051, LOG-070:
     that's active without grepping env vars.
 
 Called twice in the deployment:
-  - web/app.py:lifespan startup — once per web process.
+  - backend/server/app.py:lifespan startup — once per web process.
   - bot/bot.py:setup_hook — once per bot process.
 Both use force=True semantics — re-applies even if uvicorn or another
 library already touched the root logger.

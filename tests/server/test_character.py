@@ -121,18 +121,18 @@ def test_ilvl_from_gear_folds_adorn_into_host_item():
 # ---------------------------------------------------------------------------
 # Equipment self-heal: legacy "Item #<id>" placeholders → resolved names
 # ---------------------------------------------------------------------------
-# Pre-fix, a cold items.db at character-fetch time meant the equipment slot
+# Pre-fix, a cold items catalogue at character-fetch time meant the equipment slot
 # got cached with item_name="Item #12345". The persistent census_store
 # refactor (PR #21) then served that placeholder forever. The fix has two
 # halves: (a) census/client._resolve_item_meta does a Census fallback so
 # new cache rows are born resolved, and (b) the route's
 # _heal_equipment_placeholders re-resolves leftover placeholders from
-# items.db on the serve path.
+# the items catalogue on the serve path.
 
 
 @pytest.mark.asyncio
 async def test_heal_equipment_placeholders_resolves_from_items_db(monkeypatch):
-    """Placeholder name + items.db hit → name/tier/icon all replaced."""
+    """Placeholder name + the items catalogue hit → name/tier/icon all replaced."""
     import backend.server.api.character.views as charmodule
     from backend.server.api.character import (
         AdornSlotResponse,
@@ -165,7 +165,7 @@ async def test_heal_equipment_placeholders_resolves_from_items_db(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_heal_equipment_placeholders_skips_real_names(monkeypatch):
-    """Already-resolved slot → untouched, items.db never consulted."""
+    """Already-resolved slot → untouched, the items catalogue never consulted."""
     import backend.server.api.character.views as charmodule
     from backend.server.api.character import EquipmentSlotResponse, _heal_equipment_placeholders
 
@@ -190,20 +190,20 @@ async def test_heal_equipment_placeholders_skips_real_names(monkeypatch):
     assert slot.name == "Robe of the Wise"
     assert slot.tier == "LEGENDARY"
     assert slot.icon_id == "111"
-    # No items.db lookup should have happened.
+    # No items catalogue lookup should have happened.
     assert calls == []
 
 
 @pytest.mark.asyncio
 async def test_heal_equipment_placeholders_keeps_placeholder_on_db_miss(monkeypatch):
-    """Items.db still doesn't know this ID → leave the placeholder so the
+    """The items catalogue still doesn't know this ID → leave the placeholder so the
     frontend still renders the slot. The next character refresh (via the
     new Census fallback in _parse_equipment) will resolve it for real."""
     import backend.server.api.character.views as charmodule
     from backend.server.api.character import EquipmentSlotResponse, _heal_equipment_placeholders
 
     async def _fake_find(item_id, *args, **kwargs):
-        return None  # cold items.db
+        return None  # cold items catalogue
 
     monkeypatch.setattr(charmodule._items, "find_by_id", _fake_find)
 
@@ -219,8 +219,8 @@ async def test_heal_equipment_placeholders_keeps_placeholder_on_db_miss(monkeypa
 
 @pytest.mark.asyncio
 async def test_heal_equipment_placeholders_fills_empty_adorn_names(monkeypatch):
-    """Adornments with adorn_id set but adorn_name=None (the items.db-cold
-    shape) get resolved from items.db too. Adornments with a name already
+    """Adornments with adorn_id set but adorn_name=None (cold-items-catalogue
+    shape) get resolved from the items catalogue too. Adornments with a name already
     set are left alone."""
     import backend.server.api.character.views as charmodule
     from backend.server.api.character import (
@@ -257,14 +257,14 @@ async def test_heal_equipment_placeholders_fills_empty_adorn_names(monkeypatch):
     assert slot.adorn_slots[1].adorn_name == "Already Named"  # untouched
     assert slot.adorn_slots[2].adorn_name is None  # nothing to look up
     # Only the named-missing adorn should have been queried; the empty slot
-    # and the already-named one must NOT trigger items.db lookups.
+    # and the already-named one must NOT trigger the items catalogue lookups.
     assert resolved_ids == [500, 600] or resolved_ids == [500]
 
 
 @pytest.mark.asyncio
 async def test_serve_path_self_heals_stored_placeholder(app, census_schema, monkeypatch):
     """End-to-end: stored character with 'Item #<id>' in equipment →
-    response carries the resolved name + tier + icon from items.db."""
+    response carries the resolved name + tier + icon from the items catalogue."""
     import backend.server.api.character.views as charmodule
     from backend.census import store as census_store
     from backend.server.cache import character_cache

@@ -26,7 +26,7 @@ pytestmark = pytest.mark.asyncio
 def users_db(users_schema: str) -> str:
     """Isolated leased schema per test (conftest ``users_schema``), aliased
     so tests can keep naming it ``users_db``. Seeds the user rows the FK on
-    aa_plans.discord_id now actually enforces (SQLite never did)."""
+    aa_plans.discord_id enforces."""
     with pg_conn(users_schema) as conn:
         for uid in ("disc1", "disc2", "disc-1", "disc-2"):
             conn.execute(

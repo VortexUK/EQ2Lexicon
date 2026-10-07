@@ -102,7 +102,7 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
     setResult(null)
     try {
       // current_xpac: use selected short if expansions available; else keep
-      // server's existing value unchanged (don't null it when zones.db absent)
+      // server's existing value unchanged (don't null it when the zones catalogue is empty)
       const current_xpac = expansions.length > 0
         ? (xpacShort || null)
         : server.current_xpac
@@ -201,7 +201,7 @@ function ServerRow({ server, expansions, defaultWorld, onDefaultChange, onSaved 
                 {server.current_xpac ?? '—'}
               </div>
               <p className="text-[0.7rem] text-text-muted mt-1 italic">
-                Expansion list unavailable (zones.db not loaded)
+                Expansion list unavailable (zone catalogue not loaded)
               </p>
             </div>
           ) : (

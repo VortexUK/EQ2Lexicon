@@ -125,7 +125,7 @@ async def test_put_strategy_session_but_no_role_is_403(app):
     """Signed in, but not admin, contributor, or officer → 403.
 
     ``require_editor`` calls ``require_user_session(request)`` directly (not
-    via ``Depends``), so we patch the imported symbol on web.auth_deps where
+    via ``Depends``), so we patch the imported symbol on backend.server.auth_deps where
     the dep now lives. The capability primitives are stubbed so the dep
     falls through to the dynamic officer branch, which finds no primary
     guild and 403s."""

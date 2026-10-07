@@ -103,7 +103,7 @@ SELECT {cols} FROM spells WHERE crc = %s AND tier = %s
 ORDER BY CASE WHEN level = 0 THEN 9999 ELSE level END ASC LIMIT 1;
 
 -- :name find_by_crc_highest_tier
--- NULLS LAST: SQLite sorted NULL tiers last on DESC; PG defaults them first.
+-- NULLS LAST: untiered rows sort after tiered ones (Postgres DESC puts NULLs first).
 SELECT {cols} FROM spells WHERE crc = %s
 ORDER BY tier DESC NULLS LAST, CASE WHEN level = 0 THEN 9999 ELSE level END ASC LIMIT 1;
 

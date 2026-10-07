@@ -1,4 +1,4 @@
-"""Typed shape for the session-user dict returned by web/auth_deps.
+"""Typed shape for the session-user dict returned by backend/server/auth_deps.
 
 The two auth-dep flavours produce slightly different dicts:
 

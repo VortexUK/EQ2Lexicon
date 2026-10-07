@@ -24,7 +24,7 @@ inside `require_editor`:
                       without a schema change.
   * **officer**     — dynamic. Computed at request time from the user's
                       primary character's guild rank against
-                      ``_OFFICER_RANKS`` (see ``web/routes/guild.py``).
+                      ``_OFFICER_RANKS`` (see ``backend/server/api/guild.py``).
                       Never persisted — Census is the source of truth.
                       Officers used to hold edit_content; that grant was
                       removed on 2026-05-29 so editing is admin/contributor
@@ -38,7 +38,7 @@ Capabilities + the role → capability map
 ----------------------------------------
 
 Routes don't gate on roles directly — they gate on **capabilities** via
-`require_capability(...)`. The `role_permissions` table (web/db.py) maps
+`require_capability(...)`. The `role_permissions` table (backend/server/db/) maps
 each persistent role to the capabilities it grants. Admin is the synthetic
 "all capabilities" branch (so it never appears in the table); officer is
 dynamic but does appear in the table so adding a new capability for officer
@@ -50,7 +50,7 @@ raises if the capability isn't registered here).
 
 Adding a new capability is two lines: register the string in
 `KNOWN_CAPABILITIES` and seed any `role_permissions` rows in
-`web/db.py:init_db`.
+a `db/migrations/NNNN_users.sql` migration.
 """
 
 from __future__ import annotations
@@ -176,13 +176,13 @@ def require_admin(request: Request) -> SessionUser:
 
 # ---------------------------------------------------------------------------
 # DB-driven roles + capabilities
-# (see `user_roles` + `role_permissions` schema in web/db.py)
+# (see `user_roles` + `role_permissions` schema in backend/server/db/)
 # ---------------------------------------------------------------------------
 
 # Allowlist for grant/revoke routes. Routes reject unknown role names with a
 # 400 — keeps the table free of typo'd "Contibutor" rows that'd silently grant
 # nothing. Add a new role here AND seed its role_permissions rows in
-# web/db.py:init_db (only if the role gates a capability — purely cosmetic
+# a users-schema migration (only if the role gates a capability — purely cosmetic
 # roles like "supporter" don't need role_permissions entries).
 #
 # Roles:
@@ -205,7 +205,7 @@ KNOWN_ROLES: frozenset[str] = frozenset({"contributor", "supporter", "subscriber
 # Programmer-facing capability allowlist. `require_capability` raises at
 # route-definition time if a typo'd string is used, so a misnamed capability
 # can never silently authorize nothing. Adding a new capability is two lines:
-# add the string here AND seed its role_permissions rows in db.init_db.
+# add the string here AND seed its role_permissions rows in a users-schema migration.
 KNOWN_CAPABILITIES: frozenset[str] = frozenset({"edit_content"})
 
 
@@ -239,7 +239,7 @@ def require_capability(capability: str):
         # rather than at request time. Programmer error, never user-facing.
         raise ValueError(
             f"Unknown capability {capability!r}. Add it to KNOWN_CAPABILITIES "
-            f"and seed role_permissions rows in web/db.py:init_db first."
+            f"and seed role_permissions rows in a users-schema migration first."
         )
 
     async def dep(request: Request) -> SessionUser:

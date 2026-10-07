@@ -8,7 +8,7 @@ with an ``X-Lexicon-Tamper-Reason`` header. We persist the row in the
 
 Crucially this endpoint NEVER writes to ``encounters`` — the parse must
 not appear on public leaderboards. Admins read these rows via
-``GET /api/admin/tamper-reports`` (see web/routes/admin.py).
+``GET /api/admin/tamper-reports`` (see backend/server/api/admin.py).
 
 Plugin contract (mirror CLAUDE.md "/api/parses/tamper-report (POST)"):
   * Headers: Authorization Bearer, X-Lexicon-Tamper-Reason (one code),
@@ -93,7 +93,7 @@ def _insert_tamper_report_sync(
     payload_json: str,
 ) -> int:
     """Synchronous wrapper around the DB insert. Runs on the executor pool
-    (via run_sync) so the async event loop isn't blocked by sqlite I/O —
+    (via run_sync) so the async event loop isn't blocked by sync DB I/O —
     matches the pattern used by ``_ingest_payload_sync``."""
     conn = parses_db.init_db()
     try:

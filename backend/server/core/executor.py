@@ -36,7 +36,7 @@ async def run_sync(fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) ->
     The function executes inside a copy of the caller's
     ``contextvars.Context``. This matches ``asyncio.to_thread``'s
     documented behaviour (Python 3.9+) and is REQUIRED because the
-    per-request middleware in ``web/server_context.py`` populates an
+    per-request middleware in ``backend/server/server_context.py`` populates an
     ``_active_server`` ContextVar that ``current_world()`` reads. Without
     propagation, any DB helper dispatched via ``run_sync`` would see
     ``default_server()`` instead of the request's actual server — a
@@ -46,7 +46,6 @@ async def run_sync(fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) ->
     default server, not Varsoon.
 
     Example:
-        result = await run_sync(parses_db.init_db)
         rows = await run_sync(parses_db.list_encounters, world="Varsoon")
     """
     loop = asyncio.get_running_loop()

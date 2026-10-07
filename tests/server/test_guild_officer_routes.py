@@ -1,4 +1,4 @@
-"""HTTP-layer tests for web/routes/guild_officer.py — COV-008.
+"""HTTP-layer tests for backend/server/api/guild_officer.py — COV-008.
 
 Covers:
   GET  /guild/{name}/officer-status — unauthenticated returns false; officer returns true.

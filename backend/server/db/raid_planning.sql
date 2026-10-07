@@ -28,8 +28,8 @@ DELETE FROM raid_placements
 WHERE world = %s AND guild_name = %s AND LOWER(character_name) = LOWER(%s);
 
 -- :name select_placements
--- NULLS FIRST preserves the SQLite ordering (benched rows with NULL
--- group_num/slot sorted before placed ones); Postgres defaults NULLS LAST.
+-- NULLS FIRST: benched rows (NULL group_num/slot) sort before placed ones;
+-- Postgres defaults to NULLS LAST.
 SELECT character_name, group_num, slot, sitout
 FROM raid_placements
 WHERE world = %s AND guild_name = %s AND team_index = %s

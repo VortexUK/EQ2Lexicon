@@ -1,5 +1,5 @@
 // Ability Rotation Simulator — pick a character, build a priority-ordered
-// rotation from their real abilities (spells.db timings + parsed damage),
+// rotation from their real abilities (the spells catalogue timings + parsed damage),
 // and simulate a boss-dummy fight with their sheet stats. v1 scope:
 // single target, AA/ascension abilities excluded, power ignored,
 // proc/conditional damage badged rather than modeled, auto-attack as a

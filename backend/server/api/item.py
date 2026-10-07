@@ -18,9 +18,9 @@ from backend.server.server_context import current_server
 router = APIRouter(tags=["item"])
 
 # Class-group membership for _format_classes is OWNED by the committed
-# classes.db (accessed via backend.eq2db.classes); the ordered decomposition
+# the classes catalogue (accessed via backend.eq2db.classes); the ordered decomposition
 # list lives in census.constants.ARCHETYPES (derived from the same DB rows).
-# Don't redefine archetype or subclass groups in this file — edit classes.db.
+# Don't redefine archetype or subclass groups in this file — edit the classes catalogue.
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ class CraftingIngredient(BaseModel):
 
 class CraftingInfo(BaseModel):
     """Who makes this item and from what — present only for craftable
-    items (a recipe in recipes.db outputs this item id)."""
+    items (a recipe in the recipes catalogue outputs this item id)."""
 
     recipe_name: str
     crafter_classes: list[str] = []
@@ -410,8 +410,7 @@ async def search_items(
 
         # Total count. Every stat JOIN hits item_stats on its (item_id, stat)
         # PRIMARY KEY, so joins can never fan an item out into multiple rows —
-        # plain COUNT(*) is exact (and the old SQLite GROUP BY i.id, which PG
-        # rejects when joined columns are selected, is unnecessary).
+        # plain COUNT(*) is exact (no GROUP BY needed).
         count_sql = f"SELECT COUNT(*) AS n FROM items i{stat_joins} WHERE {where}"
         cur = await db.execute(count_sql, params)
         count_row = await cur.fetchone()
@@ -556,7 +555,7 @@ async def get_spell_scroll(name: str, tier: str) -> SpellScrollResult:
 def _crafting_for_item_sync(item_id: int) -> CraftingInfo | None:
     """SYNC (executor): the recipe that outputs this item, its crafter
     class(es) and component list. None for non-craftable items or when
-    recipes.db is absent (dev)."""
+    the recipes catalogue is absent (dev)."""
     try:
         recipes = _recipes.find_by_output_id(item_id)
     except Exception:
@@ -586,9 +585,8 @@ def _crafting_for_item_sync(item_id: int) -> CraftingInfo | None:
     )
 
 
-# Item detail is immutable reference data yet was rebuilt from the (network-
-# volume) DB on every tooltip hover — 481k requests and 24.5 CUMULATIVE HOURS
-# of user wait in one week (live metrics 2026-09-22). Two layers fix it:
+# Item detail is immutable reference data yet tooltip hovers generate hundreds
+# of thousands of requests a week. Two layers absorb them:
 # an in-process response cache, and Cache-Control so browsers (and the
 # Cloudflare edge, once a cache rule covers /api/item/*) absorb repeats.
 _ITEM_CACHE = TTLCache(ttl=6 * 3600, max_age=24 * 3600, name="item", maxsize=4096)

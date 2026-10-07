@@ -31,8 +31,8 @@ WHERE t.type IN ('raid_x4', 'raid_x2');
 
 -- :name list_zones_by_type_with_encounters
 -- Zones tagged with a given zone-type token that have at least one
--- encounter. Ordered newest-expansion-first within type (NULLS LAST keeps
--- SQLite's DESC ordering for unknown-year rows).
+-- encounter. Ordered newest-expansion-first within type (NULLS LAST sinks
+-- unknown-year rows).
 SELECT z.id, z.name, z.expansion_short, z.expansion_name
 FROM zones z
 JOIN zone_types t ON t.zone_id = z.id

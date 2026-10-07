@@ -445,7 +445,7 @@ async def test_get_expansions_is_admin_gated(app):
 
 @pytest.mark.asyncio
 async def test_get_expansions_returns_list(app):
-    """GET /api/admin/expansions returns a list (may be empty when zones.db absent)."""
+    """GET /api/admin/expansions returns a list (may be empty when the zones catalogue is empty)."""
     mock_list = MagicMock(return_value=[])
     with (
         patch("backend.server.api.admin._require_admin", _fake_admin),
@@ -460,7 +460,7 @@ async def test_get_expansions_returns_list(app):
 
 @pytest.mark.asyncio
 async def test_get_expansions_returns_expansion_data_when_zones_db_available(app):
-    """When zones.db is available, the endpoint returns expansion dicts."""
+    """When the zones catalogue is available, the endpoint returns expansion dicts."""
     expansions = [
         {"short": "AoD", "name": "Age of Discovery"},
         {"short": "DoV", "name": "Destiny of Velious"},

@@ -67,7 +67,7 @@ CREATE TABLE aa_limits (
 );
 
 -- seeds
--- FULL DATA SEEDS, machine-generated from the final SQLite aas.db build
+-- FULL DATA SEEDS, machine-generated from the final SQLite aas catalogue build
 -- (2026-07-10) — never hand-edit. They make every environment (prod, CI,
 -- scratch leases, fresh dev) data-complete from migrations alone; future AA
 -- updates flow through scripts/build_aas_db.py upserts against the DB.

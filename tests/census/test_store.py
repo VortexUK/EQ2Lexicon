@@ -17,7 +17,7 @@ def conn(census_schema):
 
 
 def test_schema_has_tables(census_schema):
-    """Descendant of the SQLite init_db schema test: the migration-owned
+    """The migration-owned
     census schema (db/migrations/0003_census.sql) carries the tables and
     character columns the store relies on."""
     with pg_conn(census_schema) as conn:
@@ -177,8 +177,7 @@ def _write(conn, now: int, level: int = 300, name: str = "Exordium", retention_d
 
 
 def test_schema_has_guild_history(census_schema):
-    """Descendant of the SQLite init_db guild_history column check, against
-    the migration-owned schema."""
+    """guild_history columns exist in the migration-owned schema."""
     with pg_conn(census_schema) as conn:
         rows = conn.execute(
             "SELECT column_name FROM information_schema.columns"

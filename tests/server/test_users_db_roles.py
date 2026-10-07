@@ -1,4 +1,4 @@
-"""Tests for web.db.users role + role_request helpers — COV-012.
+"""Tests for backend.server.db.users role + role_request helpers — COV-012.
 
 Runs against an isolated leased users schema (conftest ``users_schema``).
 Covers: grant_role, revoke_role, list_roles_for_user, has_role,
@@ -6,7 +6,7 @@ create_role_request, list_role_requests, review_and_grant_role,
 withdraw_role_request, user_has_capability_via_db, role_has_capability,
 set_user_access, list_all_users.
 
-Target: ≥ 75% on web.db.users.
+Target: ≥ 75% on backend.server.db.users.
 """
 
 from __future__ import annotations

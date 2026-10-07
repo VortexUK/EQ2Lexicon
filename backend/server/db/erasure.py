@@ -117,7 +117,7 @@ def erase_user_sync(
     """Erase one Discord account from both schemas. Idempotent: a second
     call finds nothing and reports ``found=False``. The tombstone id itself
     can never be erased. The WHOLE erasure is one Postgres transaction with
-    users constraints deferred (replacing SQLite's PRAGMA foreign_keys=OFF),
+    users constraints deferred,
     so a crash mid-way leaves nothing half-erased; migrations guarantee
     every table exists, so the per-table existence probes are gone."""
     if not discord_id or discord_id == DELETED_USER_ID:
@@ -162,8 +162,7 @@ def erase_user_sync(
 
         # ---- parses half: SAME transaction, schema switched in place.
         # SET search_path is transactional, so the whole erasure commits or
-        # rolls back as one unit — the old users.db/parses.db split could
-        # crash between the halves and leave a half-erased account.
+        # rolls back as one unit, so a crash can't leave a half-erased account.
         conn.execute(pg.search_path_sql(parses_schema if parses_schema is not None else _parses_db.SCHEMA))
         dsn = f"plugin:{discord_id}"
         cur = conn.execute("UPDATE encounters SET source_dsn = %s WHERE source_dsn = %s", (DELETED_SOURCE_DSN, dsn))

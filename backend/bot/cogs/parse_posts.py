@@ -92,8 +92,8 @@ def collect_new_fights(
         _group_into_fights,
     )
 
-    # lower(e.guild_name) = lower(%s) rides idx_encounters_world_guild_lower —
-    # the Postgres replacement for SQLite's `COLLATE NOCASE` comparison.
+    # lower(e.guild_name) = lower(%s) rides idx_encounters_world_guild_lower
+    # (case-insensitive guild match).
     base = (
         f"SELECT e.*, ({_PLAYER_COUNT_SQL}) AS player_count FROM encounters e "
         "WHERE e.world = %s AND lower(e.guild_name) = lower(%s) AND e.hidden_at IS NULL "
