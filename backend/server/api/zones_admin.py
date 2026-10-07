@@ -95,7 +95,7 @@ async def create_encounter(zone_name: str, body: EncounterCreateBody) -> dict:
             wiki_url=body.wiki_url,
         ),
     )
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
     return result
 
 
@@ -113,7 +113,7 @@ async def reorder_zone_encounters(zone_name: str, body: ReorderBody) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     z = await run_sync(zones_db.find_by_name, zone_name)
     return z or {}
 
@@ -140,7 +140,7 @@ async def edit_encounter(zone_name: str, encounter_id: int, body: EncounterUpdat
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
     return result
 
 
@@ -154,7 +154,7 @@ async def remove_encounter(zone_name: str, encounter_id: int) -> None:
     ok = await run_sync(zones_db.delete_encounter, encounter_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Encounter not found")
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
 
 
 @router.post(
@@ -170,7 +170,7 @@ async def create_mob(zone_name: str, encounter_id: int, body: MobCreateBody) -> 
             make_primary=body.make_primary,
         ),
     )
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
     return result
 
 
@@ -184,7 +184,7 @@ async def edit_mob(zone_name: str, encounter_id: int, mob_id: int, body: MobUpda
         result = await run_sync(lambda: zones_db.update_mob(mob_id, mob_name=body.mob_name))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
     return result
 
 
@@ -198,7 +198,7 @@ async def promote_mob_route(zone_name: str, encounter_id: int, mob_id: int) -> d
         result = await run_sync(zones_db.promote_mob, mob_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
     return result
 
 
@@ -215,7 +215,7 @@ async def remove_mob(zone_name: str, encounter_id: int, mob_id: int) -> None:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not ok:
         raise HTTPException(status_code=404, detail="Mob not found")
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
 
 
 # --- zone-type tag endpoints (dungeon curation) -----------------------------
@@ -237,7 +237,7 @@ async def add_zone_type_route(zone_name: str, body: ZoneTypeBody) -> dict:
     result = await run_sync(zones_db.add_zone_type, zone_name, body.type)
     if result is None:
         raise HTTPException(status_code=404, detail=f"Zone {zone_name!r} not found")
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
     return result
 
 
@@ -254,7 +254,7 @@ async def remove_zone_type_route(zone_name: str, type_token: str) -> dict:
     result = await run_sync(zones_db.remove_zone_type, zone_name, type_token)
     if result is None:
         raise HTTPException(status_code=404, detail=f"Zone {zone_name!r} not found")
-    invalidate_zones_cache()
+    await run_sync(invalidate_zones_cache, zone_name)
     return result
 
 
@@ -295,7 +295,7 @@ async def add_raid_expansion(expansion_short: str) -> dict:
             status_code=404,
             detail=f"Expansion {expansion_short!r} not found in zones.db",
         )
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return {"expansion_short": expansion_short}
 
 
@@ -308,7 +308,7 @@ async def remove_raid_expansion(expansion_short: str) -> dict:
     featured raid zones under it. The underlying zone_encounters (curated
     bosses) are preserved — re-adding the expansion + zones restores them."""
     removed = await run_sync(zones_db.remove_featured_raid_expansion, expansion_short)
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return {"expansion_short": expansion_short, "removed": removed}
 
 
@@ -345,7 +345,7 @@ async def add_raid_zone(zone_name: str) -> dict:
             status_code=400,
             detail=f"Zone {zone_name!r} not found or not tagged raid_x4/raid_x2",
         )
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return zone
 
 
@@ -357,7 +357,7 @@ async def remove_raid_zone(zone_name: str) -> dict:
     """Admin-only: remove a raid zone from featured. Underlying
     zone_encounters boss data is preserved."""
     removed = await run_sync(zones_db.remove_featured_raid_zone, zone_name)
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return {"zone_name": zone_name, "removed": removed}
 
 
@@ -412,7 +412,7 @@ async def reorder_raid_zones(body: ZonesReorderBody) -> dict:
             status_code=400,
             detail="One or more zones not found in featured set for this expansion",
         )
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return {"expansion": body.expansion, "reordered": len(body.zones)}
 
 
@@ -435,7 +435,7 @@ async def reorder_raid_categories(body: CategoriesReorderBody) -> dict:
             status_code=400,
             detail="One or more categories not found for this expansion",
         )
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return {"expansion": body.expansion, "reordered": len(body.categories)}
 
 
@@ -465,7 +465,7 @@ async def create_raid_category(expansion: str, body: CreateCategoryBody) -> dict
     created = await run_sync(zones_db.create_featured_raid_category, expansion, name)
     if not created:
         raise HTTPException(status_code=409, detail=f"Category {name!r} already exists in {expansion}")
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return {"expansion": expansion, "name": name}
 
 
@@ -475,5 +475,5 @@ async def delete_raid_category(expansion: str, name: str) -> dict:
     are moved to the Uncategorised lane (category=NULL) — their boss data
     and featured status are preserved."""
     removed = await run_sync(zones_db.delete_featured_raid_category, expansion, name)
-    invalidate_zones_cache()
+    invalidate_zones_cache(reclassify=False)
     return {"expansion": expansion, "name": name, "removed": removed}

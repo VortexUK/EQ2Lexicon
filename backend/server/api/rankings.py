@@ -294,19 +294,23 @@ def _build_speed_board_character(
     return sorted(best.values(), key=lambda r: (r["duration_s"], r["name"]))
 
 
-def invalidate_zones_cache() -> None:
-    """Clear the _cached_zones_data lru_cache AND the parses
-    classifier's leaderboard map AND mark every combatant for
-    re-classification.
+def invalidate_zones_cache(zone_name: str | None = None, *, reclassify: bool = True) -> None:
+    """Clear the _cached_zones_data lru_cache AND the parses classifier's
+    leaderboard map AND (when ``reclassify``) mark combatants for
+    re-classification — only ``zone_name``'s encounters when given, every
+    encounter otherwise.
 
     Call this after any mutation to zones / zone_encounters /
     zone_encounter_mobs so:
       * the next /api/rankings/filters rebuilds the dropdown tree
       * the next /api/parses request rebuilds the classifier map
-      * existing parses re-classify against the updated zone trees
-        on first read (the brute-force is_player NULL reset is fine
-        at current data size — flagged as a scalability concern in
-        the pet-detection-pipeline spec)
+      * existing parses re-classify against the updated zone trees on
+        first read
+
+    The reset is a real UPDATE over combatant rows (seven indexes each), so
+    curator edits pass their zone and run this via ``run_sync``; edits that
+    cannot change classification (reorders, featured-raid curation) pass
+    ``reclassify=False``.
     """
     global _zone_xpac_cache
     _zone_xpac_cache = None  # era-lock zone→xpac map rebuilds on next read
@@ -318,7 +322,8 @@ def invalidate_zones_cache() -> None:
     from backend.server.parses.db import store as parses_db
 
     _classifier_cache_clear()
-    parses_db.invalidate_is_player_cache()
+    if reclassify:
+        parses_db.invalidate_is_player_cache(zone_name)
     _encounter_required_mobs.cache_clear()
     _raid_boss_names.cache_clear()
     _zone_canonical_map.cache_clear()

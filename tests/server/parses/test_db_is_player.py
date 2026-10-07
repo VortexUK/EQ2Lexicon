@@ -107,3 +107,34 @@ def test_invalidate_is_player_cache_with_conn_sets_every_row_to_null(conn):
     parses_db.store.invalidate_is_player_cache_with_conn(conn)
     rows = conn.execute("SELECT is_player FROM combatants").fetchall()
     assert all(r["is_player"] is None for r in rows), rows
+
+
+def _insert_encounter_in_zone(conn: Any, encid: str, zone: str) -> int:
+    row = conn.execute(
+        """
+        INSERT INTO encounters (
+            act_encid, title, zone, started_at, ended_at, duration_s,
+            total_damage, encdps, kills, deaths, source_dsn, ingested_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (encid, "Test", zone, 1000, 1100, 100, 50000, 500.0, 1, 0, "test", 1100),
+    ).fetchone()
+    return int(row["id"]) if row else 0
+
+
+def test_invalidate_is_player_cache_scoped_to_one_zone(conn):
+    """A curator edit to one zone must not rewrite every combatant row in
+    the table — only that zone's classified ally rows are reset."""
+    enc_a = _insert_encounter_in_zone(conn, "zoneA001", "Sanctum of Fear")
+    enc_b = _insert_encounter_in_zone(conn, "zoneB001", "Veeshan's Peak")
+    a1 = _insert_combatant(conn, enc_a, "Alpha")
+    a2 = _insert_combatant(conn, enc_a, "AlreadyNull")
+    b1 = _insert_combatant(conn, enc_b, "Bravo")
+    parses_db.store.update_combatant_is_player(conn, {a1: True, b1: True})
+
+    reset = parses_db.store.invalidate_is_player_cache_with_conn(conn, "sanctum of fear")  # case-insensitive
+
+    assert reset == 1  # a2 was already NULL, b1 is another zone
+    rows = {r["id"]: r["is_player"] for r in conn.execute("SELECT id, is_player FROM combatants").fetchall()}
+    assert rows[a1] is None and rows[a2] is None and rows[b1] == 1

@@ -171,24 +171,31 @@ class ParsesStore(PgCatalogue):
         )
 
     @staticmethod
-    def invalidate_is_player_cache_with_conn(conn: Any) -> None:
-        """Mark every combatant row for lazy re-classification on next read.
-        Variant that accepts an existing connection (used by tests + by the
-        rankings cache-invalidation hook to share the parses connection)."""
-        conn.execute(_SQL["invalidate_is_player_cache"])
+    def invalidate_is_player_cache_with_conn(conn: Any, zone: str | None = None) -> int:
+        """Mark classified ally rows for lazy re-classification on next read —
+        every encounter when ``zone`` is None, else only that zone's. Returns
+        the number of rows reset. Variant that accepts an existing connection
+        (tests + the rankings cache-invalidation hook)."""
+        if zone is None:
+            cur = conn.execute(_SQL["invalidate_is_player_cache"])
+        else:
+            cur = conn.execute(_SQL["invalidate_is_player_for_zone"], (zone,))
+        return int(cur.rowcount or 0)
 
-    def invalidate_is_player_cache(self) -> None:
-        """Mark every combatant row for lazy re-classification on next read.
+    def invalidate_is_player_cache(self, zone: str | None = None) -> int:
+        """Mark combatant rows for lazy re-classification on next read.
         Production caller (checks out its own connection).
 
-        Called by web/routes/rankings.py:invalidate_zones_cache so that a
-        curator zone-edit propagates to the existing parses without a
-        separate backfill — the next read of each encounter re-classifies
-        against the updated zone trees."""
+        Called by api/rankings.py:invalidate_zones_cache so that a curator
+        zone-edit propagates to the existing parses without a separate
+        backfill — the next read of each affected encounter re-classifies
+        against the updated zone trees. Scope to ``zone`` whenever the edit
+        names one: the unscoped form rewrites the whole table."""
         conn = self.init_db()
         try:
-            self.invalidate_is_player_cache_with_conn(conn)
+            n = self.invalidate_is_player_cache_with_conn(conn, zone)
             conn.commit()
+            return n
         finally:
             conn.close()
 

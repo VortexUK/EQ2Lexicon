@@ -52,8 +52,17 @@ WHERE encounter_id = %s AND name = %s;
 -- :name update_combatant_is_player
 UPDATE combatants SET is_player = %s WHERE id = %s;
 
+-- Only ally rows carry a classification (enemies are NULL by design), and
+-- rows already NULL need no write — every skipped row is a heap tuple plus
+-- seven index entries not rewritten.
 -- :name invalidate_is_player_cache
-UPDATE combatants SET is_player = NULL;
+UPDATE combatants SET is_player = NULL
+WHERE ally = 1 AND is_player IS NOT NULL;
+
+-- :name invalidate_is_player_for_zone
+UPDATE combatants SET is_player = NULL
+WHERE ally = 1 AND is_player IS NOT NULL
+  AND encounter_id IN (SELECT id FROM encounters WHERE lower(zone) = lower(%s));
 
 -- :name insert_damage_type
 INSERT INTO damage_types (
