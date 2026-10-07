@@ -99,11 +99,15 @@ _SCOPE_LABELS = {"group": "Group", "raid": "Raid"}
 _METRIC_FIELD = {"dps": "encdps", "hps": "enchps"}  # speed handled separately
 
 # Short-lived cache of the expensive load+group step (boards are cheap on top).
-# ttl=60 keeps boards fresh-ish; max_age=6h means a stale board SERVES
-# instantly (with a background rebuild) rather than blocking a visitor on
-# the full parses scan — only a completely cold cache (deploy, 6h idle)
-# builds inline.
-rankings_cache: TTLCache = TTLCache(ttl=60, max_age=6 * 3600, name="rankings", maxsize=4)
+# ttl=600 (user decision 2026-10-07): each rebuild reads every winning
+# kill's combatants from Postgres — ~40 MB of Supabase egress per rebuild
+# on 2026-10 data — so a 60s ttl under constant traffic could blow the Pro
+# plan's 250 GB/month; at 10 min the worst case is ~175 GB and realistic
+# usage ~30-60 GB. Fresh uploads reach the boards within ≤10 min.
+# max_age=6h means a stale board SERVES instantly (with a background
+# rebuild) rather than blocking a visitor on the full parses scan — only
+# a completely cold cache (deploy, 6h idle) builds inline.
+rankings_cache: TTLCache = TTLCache(ttl=600, max_age=6 * 3600, name="rankings", maxsize=4)
 _KILLS_KEY = "primary_boss_kills"
 
 
