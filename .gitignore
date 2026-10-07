@@ -352,3 +352,7 @@ scripts/dev/.epics_wikitext_cache.json
 # review write-ups and superpowers plans/specs — local working docs, never committed
 /docs/reviews/
 /docs/superpowers/
+
+# local tooling state and personal VS Code workspace — never committed
+/.bobbit/
+*.code-workspace
