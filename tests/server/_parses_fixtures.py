@@ -1,12 +1,5 @@
-"""Shared fake DB data for parses-related web tests.
-
-Extracted from test_parses.py:16-185 per TEST-004 / Phase 2b.1.
-These constants mirror what parses_db.recent_encounters /
-get_combatants_for_encounter / get_top_attacks_for_combatant return
-(dict rows).
-
-Imported by: test_parses_list.py, test_parses_delete.py,
-             test_parses_uploader_identity.py.
+"""Shared fake DB data for parses-related web tests — dict rows shaped like
+parses_db.recent_encounters / get_combatants_for_encounter / get_top_attacks_for_combatant.
 """
 
 from __future__ import annotations

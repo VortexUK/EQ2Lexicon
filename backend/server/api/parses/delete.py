@@ -4,12 +4,9 @@ Soft-delete (hidden_at set) is the default for boss kills; admins can
 purge=true for a hard delete. Auth: admin sees all; officer of an encounter's
 guild or the original uploader can soft-delete their own.
 
-There is deliberately NO filter-based bulk delete any more. The former
-``DELETE /parses?guild=`` route matched every parse a guild had ever
-uploaded while the page's confirm dialog quoted only the rows visible under
-the current filters — on 2026-09-27 that wiped a guild's whole history from a
-"clear this view" click. Every deletion now names its ids explicitly, and
-each id is authorised on its own row.
+There is deliberately NO filter-based bulk delete: a filter can match far
+more than the confirm dialog shows. Every deletion names its ids
+explicitly, and each id is authorised on its own row.
 """
 
 from __future__ import annotations
@@ -230,8 +227,7 @@ async def delete_parse(
 @limiter.limit("30/minute")
 async def unhide_parses_batch(request: Request, ids: str) -> dict:
     """Restore an explicit set of soft-deleted encounters in one action — the
-    undo for a mistaken guild-wide delete (the 2026-09-27 incident hid a
-    guild's whole boss history). Same per-id authorisation as the batch
+    undo for a mistaken bulk delete. Same per-id authorisation as the batch
     delete: admin, the uploader, or an officer of the encounter's guild
     (subject to the guild's officer-delete switch); ids the caller may not
     touch are skipped, 403 only when none are permitted. Already-visible

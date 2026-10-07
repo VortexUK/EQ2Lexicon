@@ -3,11 +3,7 @@
  * frontend. Item quality names, recipe tiers, and the in-game-style tooltips
  * all resolve through here. The actual hex values live as `--rarity-*` CSS
  * tokens in index.css; this module just maps the various name spellings onto
- * them.
- *
- * Previously each page carried its own divergent `TIER_COLOUR` map (Fabled was
- * #ff99ff on the list pages but #ff939d in the tooltip, etc.). Resolve
- * everything here so a given rarity looks identical wherever it appears.
+ * them. Never define a per-page colour map.
  */
 
 const COMMON = 'var(--rarity-common)'

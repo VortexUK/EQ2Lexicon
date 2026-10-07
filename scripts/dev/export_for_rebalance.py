@@ -1,55 +1,10 @@
-"""Export zones (with their encounters + current overview) into N balanced
-chunks for the rebalance audit.
+"""Export raid zones (overview + encounter strategies) into N balanced chunks for the rebalance pass.
 
-The previous audit pulled per-boss content OUT of zone overviews. This one
-goes the other way: it pulls zone-level content OUT of encounter
-strategies (a "Zone Layout" section that crept into a single-encounter
-zone's boss strategy is the classic offender) and asks the agent to merge
-it into the zone overview.
+    uv run python scripts/dev/export_for_rebalance.py [--chunks 4]
 
-Chunking is by **zone**, not by encounter — each agent must see all
-encounters in a zone at once to intelligently merge zone-level content
-without duplicating across overview + strategies.
-
-Input chunk shape::
-
-    {
-      "chunk_id": 1,
-      "total_chars": 18234,
-      "zones": [
-        {
-          "zone_name": "Trakanon's Lair",
-          "expansion_short": "RoK",
-          "current_overview_md": "...",      # may be empty / null
-          "encounters": [
-            {
-              "mob_name": "Trakanon",
-              "position": 1,
-              "wiki_url": "...",
-              "current_strategy_md": "..."
-            },
-            ...
-          ]
-        },
-        ...
-      ]
-    }
-
-Output chunk shape (the apply script consumes this verbatim)::
-
-    {
-      "zones": [
-        {
-          "zone_name": "Trakanon's Lair",
-          "updated_overview_md": "...",      # may be empty -> null the field
-          "encounters": [
-            { "mob_name": "Trakanon", "updated_strategy_md": "..." },
-            ...
-          ]
-        },
-        ...
-      ]
-    }
+Reads the raids schema; writes data/raids/rebalance_inbox/chunk_<n>.json. Chunked by
+zone so an agent sees every encounter of a zone at once. Workflow and chunk shapes:
+docs/runbooks/raid-strategy-agent-polish.md.
 """
 
 from __future__ import annotations

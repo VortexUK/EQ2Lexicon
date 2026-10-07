@@ -212,7 +212,7 @@ class DeleteAccountRequest(BaseModel):
 
 @router.delete("/auth/me")
 async def delete_my_account(body: DeleteAccountRequest, request: Request) -> JSONResponse:
-    """Self-service right-to-erasure (privacy policy, 2026-09-28). The
+    """Self-service right-to-erasure (privacy policy). The
     caller types their Discord username to confirm. Everything keyed to the
     account goes, their uploads lose the Discord identity, the session is
     cleared. Logging in again later creates a fresh, pending account. See

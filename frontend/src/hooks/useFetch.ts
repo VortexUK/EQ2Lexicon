@@ -1,27 +1,7 @@
 /**
- * useFetch — generic data-fetching hook.
- *
- * Replaces the load/error/data triplet repeated in 14+ pages. Cancellation
- * via AbortController so re-renders / unmounts cancel the in-flight request
- * cleanly (no setState-after-unmount warnings, no stale-data races).
- *
- * Two flavours:
- *   - `useFetch(url, opts)` — auto-fetch on mount; refetches when `url`
- *     changes; returns null `data` until the first response.
- *   - `useLazyFetch<T>()` — returns a `run()` trigger function the caller
- *     invokes on user action (tab open, button click). Used by pages whose
- *     fetches are gated on tab selection or a search button.
- *
- * Both always send `credentials: 'include'` — every API call in this app is
- * session-authenticated and the bug in P0-1 (GuildPage spell-check fetch
- * missing credentials) was caused by hand-rolled fetch missing this option.
- * The hook enforces it by construction.
- *
- * Errors:
- *   - Non-2xx responses produce an `Error` whose `message` is the response's
- *     `detail` field (if present), else `HTTP {status}`.
- *   - Network errors / abort are surfaced as the underlying error message
- *     except for AbortError which is swallowed (it's the intended cancel).
+ * useFetch (auto, refetch on url change) / useLazyFetch (caller-triggered run()).
+ * Always sends `credentials: 'include'`; aborts in-flight requests on url change
+ * or unmount (AbortError is swallowed). Non-2xx → Error(`detail` ?? `HTTP {status}`).
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 

@@ -1,11 +1,7 @@
 """Tests for backend.eq2db.spells — pure-logic helpers and DB operations.
 
-Postgres edition: DB tests lease an isolated scratch schema via the
-``spells_schema`` fixture (tests/fixtures/catalogues_db.py) and construct
-``SpellCatalogue(spells_schema)`` — the analog of the old
-``SpellCatalogue(tmp_db)``. The former "missing DB file" cases now assert
-the EMPTY-schema behaviour (lookups degrade to None/empty and
-``ready()`` is False) — a nonexistent file is no longer a concept.
+An EMPTY leased schema is the "nothing loaded" state: lookups degrade to
+None/empty and ``ready()`` is False.
 """
 
 from __future__ import annotations
@@ -293,8 +289,7 @@ class TestLoadBlocklist:
 
 @pytest.fixture
 def db(spells_schema):
-    """A SpellCatalogue over an isolated leased scratch schema — the analog
-    of the old ``SpellCatalogue(tmp_path / "the spells catalogue")``. A fresh instance
+    """A SpellCatalogue over an isolated leased scratch schema. A fresh instance
     per test, so the per-instance crc cache can't bleed between tests."""
     return SpellCatalogue(spells_schema)
 
@@ -337,8 +332,6 @@ class TestUpgradeableCrcs:
         assert db.upgradeable_crcs({200, 300}) == {200}
 
     def test_empty_input_and_empty_schema(self, db):
-        # (was test_empty_input_and_missing_db — a nonexistent DB file is no
-        # longer a concept; the equivalent is an EMPTY leased schema.)
         assert db.upgradeable_crcs(set()) == set()
         assert db.upgradeable_crcs({1, 2}) == set()
         assert db.ready() is False  # empty schema reads as not-loaded
@@ -404,16 +397,13 @@ class TestCharacterUpgradeableSpells:
         assert rows[0]["level"] == 20  # highest owned rank kept
 
     def test_empty_and_empty_schema(self, spells_schema):
-        # (was test_empty_and_missing_db — the missing-file case became the
-        # empty-leased-schema case.)
         assert SpellCatalogue(spells_schema).character_upgradeable_spells([]) == []
         assert SpellCatalogue(spells_schema).character_upgradeable_spells([1]) == []
 
 
 class TestFindById:
     def test_returns_none_when_schema_empty(self, spells_schema):
-        # (was test_returns_none_when_db_missing — empty leased schema is the
-        # new "nothing loaded" state; ready() carries the route-level guard.)
+        # ready() is the route-level guard for the empty "nothing loaded" state.
         empty = SpellCatalogue(spells_schema)
         assert empty.find_by_id(9999) is None
         assert empty.ready() is False
@@ -441,7 +431,6 @@ class TestFindById:
 
 class TestFindByIds:
     def test_returns_empty_dict_when_schema_empty(self, spells_schema):
-        # (was test_returns_empty_dict_when_db_missing — see TestFindById.)
         empty = SpellCatalogue(spells_schema)
         assert empty.find_by_ids([1, 2, 3]) == {}
         assert empty.ready() is False
@@ -509,7 +498,6 @@ class TestFindByCrc:
     # per-instance crc cache can't bleed between tests — no cache_clear needed.
 
     def test_returns_none_when_schema_empty(self, spells_schema):
-        # (was test_returns_none_when_db_missing — see TestFindById.)
         assert SpellCatalogue(spells_schema).find_by_crc(crc=999, tier=3) is None
 
     def test_returns_exact_tier(self, db):

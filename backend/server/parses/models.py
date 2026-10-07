@@ -12,12 +12,6 @@ Field naming is snake_case throughout, `*_s` for second-based durations,
 and percentage strings (e.g. '93%' or '--') are parsed to floats via
 ``_to_perc``. The coercion helpers handle the looseness of the wire
 shape: missing values, empty strings, ACT's 'T'/'F' bool encoding.
-
-The shape itself predates the HTTP ingest path — these dataclasses
-originally mirrored ACT's ODBC export at AttackType depth, used
-by the now-removed ``parses.act_reader`` + ``parses.ingest`` CLIs. The
-plugin's JSON payload carries the same shape forward so the dataclasses
-serve the v0.1.8+ upload path unchanged.
 """
 
 from __future__ import annotations
@@ -37,8 +31,7 @@ _INT64_MAX = 2**63 - 1
 def _to_unix(dt: datetime | None) -> int:
     """Convert a datetime to unix-seconds for storage.
 
-    Naive datetimes are treated as UTC (legacy plugin-v0.1.0 behaviour —
-    see :func:`_to_ts`). ``None`` becomes 0 since the storage columns are
+    Naive datetimes are treated as UTC (see :func:`_to_ts`). ``None`` becomes 0 since the storage columns are
     ``INTEGER NOT NULL DEFAULT 0`` for the started_at/ended_at columns.
     """
     if dt is None:
@@ -114,13 +107,11 @@ def _to_ts(v) -> datetime | None:
     """Parse a timestamp string into a datetime.
 
     Two input shapes:
-      * Plugin v0.1.1+ → ``"YYYY-MM-DDTHH:MM:SSZ"`` — explicit UTC, returns
-        a tz-aware datetime.
-      * Plugin v0.1.0 (now well below the version gate) → ``"YYYY-MM-DD HH:MM:SS"``
-        — naive (represents the player's local clock). ``_to_unix`` later
-        treats naive datetimes as UTC, which is the legacy behaviour:
-        off by the local-vs-UTC offset for cross-timezone viewers, but
-        self-consistent for a single user.
+      * ``"YYYY-MM-DDTHH:MM:SSZ"`` — explicit UTC, returns a tz-aware
+        datetime (what the plugin sends).
+      * ``"YYYY-MM-DD HH:MM:SS"`` (and close variants) — naive, the
+        player's local clock. ``_to_unix`` treats naive datetimes as UTC:
+        off by the local-vs-UTC offset, but self-consistent for one user.
     """
     if v is None or v == "":
         return None
@@ -133,7 +124,7 @@ def _to_ts(v) -> datetime | None:
             return datetime.fromisoformat(s)
         except ValueError:
             pass
-    # Legacy naive shapes from older plugin / local ingest.
+    # Naive shapes (no timezone).
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
         try:
             return datetime.strptime(s, fmt)
@@ -163,8 +154,7 @@ class Encounter:
     kills: int
     deaths: int
     # ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=loss, 3=mixed.
-    # Defaults to 0 so the local-ingest reader (which can't compute it) and
-    # existing tests don't need to thread it through.
+    # Defaults to 0 (unknown) for callers that can't compute it.
     success_level: int = 0
 
     def as_db_params(

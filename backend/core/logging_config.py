@@ -1,21 +1,8 @@
-"""Centralised logging configuration.
+"""Centralised logging configuration (LOG_LEVEL, LOG_FORMAT=text|json).
 
-Audit recommendations C + LOG-048, LOG-049, LOG-051, LOG-070:
-  - Reads LOG_LEVEL from env (default INFO) — no more hardcoded basicConfig.
-  - Reads LOG_FORMAT from env: "text" (default, human-readable) or "json"
-    (one record per line, for Railway / structured aggregators).
-  - Pins third-party logger levels so discord.py / aiohttp / uvicorn don't
-    flood logs on a future library upgrade default change.
-  - Installs RequestContextFilter on the root handler so every record gets
-    request_id / user_id / world fields (the format string references them).
-  - Emits one INFO at the end so the operator can confirm the level/format
-    that's active without grepping env vars.
-
-Called twice in the deployment:
-  - backend/server/app.py:lifespan startup — once per web process.
-  - bot/bot.py:setup_hook — once per bot process.
-Both use force=True semantics — re-applies even if uvicorn or another
-library already touched the root logger.
+Installs one root handler carrying RequestContextFilter, replacing any
+handlers a framework already installed, so it is safe to call more than once
+(main.py, the app lifespan and the bot's setup_hook all call it).
 """
 
 from __future__ import annotations
@@ -121,7 +108,7 @@ def configure_logging() -> None:
     # Wipe any handlers a framework already installed (force=True semantics).
     root.handlers[:] = [handler]
 
-    # Third-party logger levels — LOG-070 + LOG-048. Pin to WARNING so a
+    # Third-party logger levels. Pin to WARNING so a
     # future library default change doesn't silently flood logs.
     logging.getLogger("discord").setLevel(logging.WARNING)
     logging.getLogger("discord.gateway").setLevel(logging.WARNING)
@@ -133,7 +120,7 @@ def configure_logging() -> None:
     # client per minute instead.
     logging.getLogger("slowapi").setLevel(logging.ERROR)
 
-    # LOG-051: announce the config so operators don't have to grep env.
+    # Announce the config so operators don't have to grep env.
     logging.getLogger("eq2.startup").info(
         "Logging configured: level=%s format=%s",
         level_name,

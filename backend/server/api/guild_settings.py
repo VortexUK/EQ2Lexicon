@@ -1,17 +1,8 @@
 """Guild settings API — public read, LEADER-or-admin write.
 
-The only switch today is ``officers_can_delete_parses``. It exists because
-guilds have drama: an officer who leaves in a huff (or, on 2026-09-27, one
-who just mis-read a delete button) could remove the guild's whole parse
-history. The guild leader — Census rank_id 0, distinct from the other
-officer ranks for the first time here — decides whether officers get that
-power at all. Uploaders can always delete their OWN uploads; admins are
-never gated.
-
-Read is public: the value is not sensitive (it is already observable from
-which trash buttons /parses renders) and the raid-schedule GET set the
-precedent. Write mirrors raid_schedule's officer-gated PUT, one rank
-stricter.
+Leader means Census rank_id 0 (stricter than the officer ranks). The only
+switch is ``officers_can_delete_parses``; it gates officer parse deletion only —
+uploaders can always delete their own uploads and admins are never gated.
 """
 
 from __future__ import annotations

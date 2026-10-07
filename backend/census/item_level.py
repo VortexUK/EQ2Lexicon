@@ -1,18 +1,11 @@
 """Item level ("ilvl") — a single WoW-style power number for wearable gear.
 
-Single source of the ilvl formula. Pure and dependency-free so it can be reused
-by the item parser (live tooltip), the DB upsert path (materialised column), and
-the backfill script, all guaranteeing the same result.
+Single source of the ilvl formula, shared by the item parser, the DB upsert
+path (materialised column) and the backfill script so all agree:
 
     ilvl = (L^2 / REF^2) * (LVL_W + TIER_W * Tier) + POT_W * ln(Potency)
 
-Tier is an additive contributor to the level base (a modest per-quality step),
-not a whole-formula multiplier. Potency is on a natural-log curve: equal
-*percentage* changes produce equal ilvl steps at any scale, so single-digit TLE
-potencies and tens-of-thousands live potencies both behave sensibly. Potency <= 1
-(including the ~37% of gear with none) contributes 0.
-
-See docs/superpowers/specs/2026-05-26-item-ilvl-design.md for the rationale.
+Potency <= 1 (including gear with none) contributes 0.
 """
 
 from __future__ import annotations

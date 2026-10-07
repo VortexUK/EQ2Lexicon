@@ -49,17 +49,7 @@ class EquipmentSlotResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Equipment self-heal
 # ---------------------------------------------------------------------------
-# When a character was fetched while the items catalogue was cold for some item ID, the
-# census client's _parse_equipment fell back to the literal "Item #<id>"
-# placeholder and that placeholder got baked into the cached character row
-# inside census_store (PR #21). The fix in census.client._resolve_item_meta
-# prevents NEW cache rows from being born stale, but existing rows hold the
-# placeholder until they next refresh. Most of those items have since been
-# resolved into the items catalogue (every tooltip click upserts), so a fast items catalogue
-# lookup at serve time will recover the correct display values without
-# needing a Census round-trip. Items still missing from the items catalogue stay as
-# the placeholder; the next character refresh (≥ STALE_S seconds later)
-# will resolve them via the new Census fallback path.
+# Heal placeholder equipment names from the items catalogue only (no Census call on the serve path).
 
 _ITEM_PLACEHOLDER_RE = re.compile(r"^Item #(-?\d+)$")
 
@@ -473,9 +463,6 @@ async def prewarm_character_cache() -> None:
     registered server. Runs as a background task so it never blocks the server
     coming up. Uses a shared semaphore to avoid hammering Census with too many
     parallel requests across all servers combined.
-
-    BE-116: iterates the server registry so Wuoshi (and any future server)
-    pre-warms at boot, not just the default server.
     """
     from backend.server.core.executor import run_sync
     from backend.server.db.servers import store as _servers_db
@@ -549,17 +536,12 @@ async def resolve_character_store_first(name: str) -> CharacterResponse:
                 "refreshing": refreshing,
             }
         )
-        # Self-heal any "Item #<id>" placeholders left over from a cold
-        # the items catalogue at fetch time (see _heal_equipment_placeholders above
-        # for the full backstory). an items-catalogue-only lookup so this stays
-        # fast on the hot serve path; the new client-side Census fallback
-        # in census/client.py handles whatever the items catalogue still doesn't
-        # know on the next refresh.
+        # Self-heal "Item #<id>" placeholders from the items catalogue only;
+        # anything still unknown resolves via Census on the next refresh.
         healed = await _heal_equipment_placeholders(resp.equipment)
         # Write the healed response back to the durable store ONLY when a
-        # placeholder was actually resolved — the unconditional write-back
-        # used to cost a pooled round trip on every store-served view.
-        # Preserves last_resolved_at so the staleness window doesn't reset —
+        # placeholder was actually resolved (avoids a pooled round trip on
+        # every store-served view). Preserves last_resolved_at so the staleness window doesn't reset —
         # this is a name-fixup, not a refresh. Best-effort; the user already
         # has a correct response in hand.
         if healed:

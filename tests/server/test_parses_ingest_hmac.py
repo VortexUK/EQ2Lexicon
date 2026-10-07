@@ -1,17 +1,6 @@
-"""Regression: HMAC validation must survive a body-rewriting middleware
-between SessionMiddleware and the ingest route.
-
-The strict-mode HMAC check (backend/server/api/parses._validate_payload_signature)
-reads ``request.body()`` after FastAPI has already injected the body into the
-handler signature. Starlette caches the wire bytes so the second read is
-free — but if any future middleware reads the body via the ASGI receive()
-loop without preserving the cache, the bytes the HMAC hashes diverge from
-the bytes the body model parsed, and every upload 401s.
-
-This test inserts a no-op BaseHTTPMiddleware that calls ``await
-request.body()`` and re-emits a response, then exercises the happy-path
-ingest. If the test breaks, the middleware-ordering assumption documented
-at parses.py:1324-1326 needs revisiting.
+"""HMAC validation survives a body-reading middleware between SessionMiddleware and the
+ingest route: if a middleware consumes receive() without preserving Starlette's body
+cache, the HMAC hashes different bytes from the parsed model and every upload 401s.
 """
 
 from __future__ import annotations

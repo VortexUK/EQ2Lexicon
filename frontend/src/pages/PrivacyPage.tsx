@@ -1,8 +1,8 @@
 /**
  * /privacy — the privacy policy. Readable without a login (App.tsx
  * PUBLIC_PATHS). The text is derived from a code-level inventory of what
- * the site, the Discord bot and the two upload clients actually collect
- * (2026-09-28); keep it in step with the code, not the other way round.
+ * the site, the Discord bot and the two upload clients actually collect;
+ * keep it in step with the code, not the other way round.
  * The hosting-log retention figure is Railway's documented Pro-plan value
  * (docs.railway.com/guides/logs) — revisit it if the plan changes.
  */

@@ -1,7 +1,6 @@
 """users `users` domain (async psycopg).
 
-Carved out of the former single-file db module. Async helpers for the
-users + role / role_request / role_permission domain. Per-call pooled
+Covers users + role / role_request / role_permission. Per-call pooled
 connections via the shared ``PgStoreBase._db()``; tests re-point
 ``store.schema``.
 """

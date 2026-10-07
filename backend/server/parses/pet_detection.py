@@ -1,18 +1,12 @@
 """Pet detection pipeline for parses.
 
-Replaces the legacy `ally=1 AND single-word AND name != 'Unknown'` SQL
-heuristic with a 6-stage classifier that better separates real players
-from EQ2 auto-named pets, multi-word pet names, and unresolved-by-Census
-combatants. The output is persisted as `combatants.is_player` and is the
-authoritative signal used by every reader (parses list, individual parse
-detail, rankings scope, Phase 4 merger top-N).
+A 6-stage classifier separating real players from EQ2 auto-named pets,
+multi-word pet names and Census-unresolved combatants. Its output,
+``combatants.is_player``, is the authoritative player signal for every
+reader (parses list, parse detail, rankings scope, mirror-merge top-N).
 
-The classifier is a pure function — no DB access, no side effects.
-Callers fetch the combatant rows + the zone category and the helpers in
-``parses/db.py`` (``update_combatant_is_player`` etc.) persist the result.
-
-See docs/superpowers/specs/2026-05-30-pet-detection-pipeline-design.md
-for the full design rationale and the bucket-fill rule table.
+Pure function — no DB access. Callers fetch the rows + zone category and
+``parses/db.py`` (``update_combatant_is_player``) persists the result.
 """
 
 from __future__ import annotations
@@ -88,7 +82,7 @@ def classify_combatants(
       5. cls is truthy → player (Census-resolved at ingest or async fill)
       6. survived 1-5 → unconfirmed. Bucket-fill applies (see below).
 
-    Bucket-fill (per the spec's rule table):
+    Bucket-fill:
 
       raid    : fill confirmed up to 24, then trim if final > 24
       dungeon : fill confirmed up to 6 (additive only — no trim)

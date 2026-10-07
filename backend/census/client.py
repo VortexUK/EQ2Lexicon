@@ -297,14 +297,9 @@ class CensusClient:
         leaves the caller free to fall back to the ``"Item #<id>"``
         placeholder.
 
-        Why this exists: pre-fix, :meth:`_parse_equipment` consulted only
-        the items catalogue. A cold items catalogue meant every equipped slot fell through
-        to the ``"Item #<id>"`` placeholder, which the persistent census
-        store (PR #21) then cached as if it were the canonical answer —
-        meaning the character page kept rendering placeholders for the
-        full STALE_S window even after the items catalogue warmed up. Doing the
-        Census fallback here means the cached character data is born
-        already-resolved.
+        The Census fallback matters because the census store persists the
+        parsed character: an ``"Item #<id>"`` placeholder written there would
+        be served as the real answer until the next refresh.
         """
         db_row = await item_db.find_by_id(item_id)
         if db_row:
@@ -773,7 +768,7 @@ class CensusClient:
         login recency, so this preserves names+ranks of offline members that the
         resolved 'members'/'overviews' lists drop (those keep the type-dict filter).
         Spell IDs are raw integers stored in CharacterOverview.spell_ids; callers
-        should resolve them against the local spells DB rather than making
+        should resolve them against the spells catalogue rather than making
         per-character Census calls.
         """
         params = {

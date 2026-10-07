@@ -1,13 +1,5 @@
-"""Tests for backend/eq2db/aas.py — the AA-tree catalogue (Postgres ``aas`` schema).
-
-Round-trip tests lease an isolated scratch schema via the ``aas_schema``
-fixture (tests/fixtures/catalogues_db.py) and go through the real build path
-(upsert_tree / upsert_limits); the ``cat`` fixture empties the lease first so
-every assertion controls its own data, like the old tmp-file db. The
-seeded-data tests assert invariants of the migration seeds in
-db/migrations/0012_aas.sql — every environment is data-complete from
-migrations alone (mirroring tests/eq2db/test_classes.py's approach to
-seeded reference data), so there is no "not built locally" skip anymore.
+"""Tests for backend/eq2db/aas.py — round-trips through upsert_tree/upsert_limits on an
+emptied scratch schema, plus invariants of the db/migrations/0012_aas.sql seeds.
 """
 
 from __future__ import annotations
@@ -55,11 +47,9 @@ def _node(node_id: int, **over) -> dict:
 
 @pytest.fixture
 def cat(aas_schema):
-    """A fresh AACatalogue on an EMPTIED leased schema — the analog of the
-    old tmp-file db built via init_db. The lease arrives fully seeded
-    (157 trees / 12 limits); wiping lets every round-trip assertion own
-    the whole table (e.g. total_max_points sums globally per type). The
-    leaser re-seeds on release."""
+    """A fresh AACatalogue on an EMPTIED leased schema. The lease arrives fully
+    seeded; wiping lets every round-trip assertion own the whole table (e.g.
+    total_max_points sums globally per type). The leaser re-seeds on release."""
     c = aas.AACatalogue(aas_schema)
     conn = c.init_db()
     try:
@@ -263,9 +253,8 @@ def test_seeded_db_limits():
 
 
 def test_seeded_db_era_visible_rows():
-    """The 2026-07 era curation: pre-Sentinel's-Fate xpacs hide the class
-    tree's rows 5-6 and the subclass rows 16/19 (verified against live
-    Wuoshi census data, boundary user-confirmed); SF+ show everything."""
+    """Era curation: pre-Sentinel's-Fate xpacs hide the class tree's rows 5-6 and
+    the subclass rows 16/19 (matches live census data); SF+ show everything."""
     kos = aas.catalogue.xpac_limits("Kingdom of Sky")
     assert kos is not None and kos["visible_rows"] == {"class": [0, 1, 2, 3, 4]}
     for xpac in ("Echoes of Faydwer", "Rise of Kunark", "The Shadow Odyssey"):

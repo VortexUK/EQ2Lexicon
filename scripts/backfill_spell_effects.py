@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""RETIRED — one-time SQLite-era backfill (the spells catalogue).
+"""RETIRED — do not run (one-time spells backfill).
 
-Fetched spells whose ``effects`` column was NULL from Census (batches of 50
-ids) and filled just that column — needed once when ``effects`` was added
-after the initial download. Superseded by the Postgres ``spells`` schema
-(db/migrations/0008_spells.sql): ``SpellCatalogue.spell_to_row`` always
-writes ``effects`` ('[]' when Census has none, never NULL), and historic
-rows arrived pre-backfilled via the one-time bulk copy. A full refresh is
-scripts/download_spells.py.
-
-Kept as a stub so the implementation stays reachable in git history.
+``SpellCatalogue.spell_to_row`` always writes ``effects`` ('[]' when Census has none, never
+NULL). A full refresh is scripts/download_spells.py.
 """
 
 from __future__ import annotations

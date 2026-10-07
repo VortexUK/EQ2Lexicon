@@ -39,9 +39,8 @@ async def test_probe_marks_down_on_failure(monkeypatch):
 
 # ---------------------------------------------------------------------------
 # _body_looks_healthy — validates the JSON envelope rather than just status
-# code. During Census outages we observed 200 OK with a body like
-# {"errorCode":"SERVER_ERROR"}, which the old status-code-only check
-# incorrectly reported as healthy.
+# code: during outages Census can return 200 OK with a body like
+# {"errorCode":"SERVER_ERROR"}.
 # ---------------------------------------------------------------------------
 
 

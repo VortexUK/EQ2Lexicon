@@ -1,36 +1,9 @@
 """Build the recipe_classes mapping in the recipes schema.
 
-A recipe's tradeskill class is NOT in the recipe JSON (recipes only carry a
-shared crafting `bench`). Two sources, in priority order:
-
-1. AUTHORITATIVE — dedicated recipe-book items:
-   - A book tagged with exactly ONE primary tradeskill class in
-     `typeinfo.classes` (e.g. "Advanced Armorer Volume 20" → Armorer) maps
-     every recipe in its `recipe_list` to that class. 100% reliable.
-   - Secondary tradeskills (Tinkering, Adorning) have empty typeinfo.classes;
-     they're identified by the item's top-level `requiredskill.text`
-     ("tinkering"/"adorning") → Tinkerer / Adorner.
-   - Multi-class "Lore and Legend" books (tagged with all 9 classes at once)
-     are IGNORED here — they'd stamp every class onto every recipe (the bug
-     this rewrite fixes).
-   A recipe in two dedicated single-class books (rare) maps to both.
-
-2. ITEM-TYPE FALLBACK — for recipes that appear ONLY in multi-class books
-   (so step 1 never assigned them a class): classify from what the recipe
-   crafts. The signature→class map is *learned* from the step-1 ground truth
-   (so the rules are validated against real data, not hard-coded lore):
-   armour weight (Plate/Chain→Armorer, Leather/Cloth→Tailor), jewellery slot
-   →Jeweler, weapon→Weaponsmith/Woodworker, food→Provisioner,
-   house item→Carpenter, spell scroll→scholar by the spell's archetype.
-
-Output: rebuilt recipe_classes(recipe_id, class) in the Postgres recipes
-schema (DATABASE_URL). Both catalogue families live in the one database, so
-the old chunks-of-900 cross-DB stitch is now plain cross-schema SQL on a
-single recipes-schema connection, with the items table referenced qualified
-(`items.items`).
-
-Usage:
     uv run python scripts/build_recipe_classes.py
+
+Rebuilds recipes.recipe_classes from recipe-book items (authoritative) plus a learned
+item-type fallback; reads items.items. Rules and run order: docs/runbooks/catalogue-refresh.md.
 """
 
 from __future__ import annotations

@@ -1,13 +1,5 @@
-"""Tests for uploader Discord identity resolution in parses list/detail.
-
-Extracted from test_parses.py:542-562 (TestUploaderDiscordId) and
-test_parses.py:1223-1347 (uploader-identity resolution) per TEST-004 / Phase 2b.3.
-
-The plugin stamps source_dsn as "plugin:<discord_id>" on every upload;
-/api/parses and /api/parses/{id} should resolve that into a display name
-(joined from users.discord_name) so the frontend can render the supporter
-badge next to the uploader. Non-plugin uploads (source_dsn="eq2act" /
-"local") carry None for both fields.
+"""Uploader identity in parses list/detail: source_dsn "plugin:<discord_id>" resolves to
+users.discord_name; non-plugin uploads ("eq2act" / "local") carry None for both fields.
 """
 
 from __future__ import annotations

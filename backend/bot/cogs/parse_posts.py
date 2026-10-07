@@ -1,20 +1,10 @@
-"""Parse poster — new raid boss fights land in a configured Discord channel.
+"""Parse poster — new raid boss KILLS (never wipes) land in the channel set
+by ``/lexicon parses``, one post per mirror-grouped fight.
 
-Every ~minute, for each Discord guild with a parses channel set
-(``/lexicon parses``), pick up boss fights uploaded for the linked EQ2
-guild since the per-link watermark, mirror-group them (five uploaders
-still mean ONE post) and send a clean embed: outcome + duration, raid-wide
-DPS/HPS, top-5 DPS and HPS side by side, linked to the parse page.
-KILLS ONLY — wipes never post (explicit user request, 2026-09-21).
-
-Dedup model: a fight is posted only once its uploads have had ``SETTLE_S``
-to arrive, and only when its EARLIEST upload sits past the watermark — a
-late mirror attaching to an already-posted fight regroups with every earlier
-upload of a fight that started near it (``REGROUP_MARGIN_S`` on fight time,
-not upload time) and is skipped, whether it arrives ten minutes or ten days
-later. A fight older than ``MAX_FIGHT_AGE_S`` never posts at all, so a log
-replay or re-import can't re-announce a past raid. The watermark then
-advances to now-SETTLE_S, so a restart never re-posts either.
+A fight posts only after ``SETTLE_S`` and only when its EARLIEST upload is
+past the per-link watermark (grouping is by fight start time, so a late
+mirror rejoins its already-posted fight and is skipped); fights older than
+``MAX_FIGHT_AGE_S`` never post.
 """
 
 from __future__ import annotations
@@ -45,11 +35,10 @@ SETTLE_S = 180
 #: Regroup margin around a candidate upload's fight time (started_at): every
 #: earlier upload of a fight that STARTED within this margin is loaded so a
 #: straggler attaches to its already-posted fight whenever it turns up — the
-#: next morning, or a week later in a history replay. (Until 2026-09-28 the
-#: requery was 30 min of *upload* time, so any later mirror stood alone as a
-#: "new" fight and re-posted; a 593-upload EQ2Parser replay re-announced a
-#: whole raid night.) Mirrors chain within PARSE_MIRROR_WINDOW_S of each
-#: other; an hour is generous.
+#: next morning, or a week later in a history replay. Do not window on
+#: upload time instead: a later mirror would then stand alone and re-post.
+#: Mirrors chain within PARSE_MIRROR_WINDOW_S of each other; an hour is
+#: generous.
 REGROUP_MARGIN_S = 3600
 #: Raid bucket floor (matches the mirror-grouping's raid threshold) — group
 #: content stays out of the channel.

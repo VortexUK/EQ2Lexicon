@@ -1,4 +1,4 @@
-"""Tests for the metrics cardinality guards (2026-07 Grafana free-tier overrun).
+"""Tests for the metrics cardinality guards.
 
 The failure mode being guarded: prometheus_client never forgets a label combo,
 so any unbounded label value (raw URL paths from bot probes, garbage HTTP

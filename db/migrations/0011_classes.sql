@@ -1,12 +1,9 @@
 create schema if not exists classes;
 set search_path to classes, public;
 
--- Phase 3: the last SQLite reference data moves to Postgres. classes was a
--- hand-maintained committed file with no build script, so THE SEEDS BELOW
--- ARE the canonical data (generated from data/classes/classes.db at
--- migration time; the 2026-09-22 Coercer/Illusionist icon fix included).
--- Future edits: change rows in the DB and add a new migration for
--- reproducibility — this file is immutable once applied.
+-- There is no build script for classes: THE SEEDS BELOW ARE the canonical
+-- data. To change a row, add a new migration — this file is immutable once
+-- applied.
 
 CREATE TABLE classes (
     name          text    PRIMARY KEY,
@@ -18,8 +15,8 @@ CREATE TABLE classes (
     icon_id        integer NOT NULL,  -- EQ2wire sprite-sheet icon id
     -- Census type.classid. Seeded identical to icon_id because both come
     -- from the same game enumeration (Templar=13, Mystic=19 — verified
-    -- against live type.classid), but they are DIFFERENT CONCEPTS: the
-    -- 2026-08 Coercer/Illusionist prod bug was exactly this conflation.
+    -- against live type.classid), but they are DIFFERENT CONCEPTS — never
+    -- use one where the other is meant (conflating them swaps classes).
     census_classid integer NOT NULL
 );
 

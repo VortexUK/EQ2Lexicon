@@ -1,4 +1,4 @@
-"""Request_id surfaces in 4xx/5xx JSON responses (Phase 3.3)."""
+"""Request_id surfaces in 4xx/5xx JSON responses."""
 
 from __future__ import annotations
 

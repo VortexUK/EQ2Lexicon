@@ -1,28 +1,6 @@
-"""Per-client-application flood protection for the parse ingest endpoint.
-
-The generic ingest limit (``@limiter.limit`` keyed on the bearer token) is
-sized for a raid parser: one upload per finished fight. On 2026-09-27 a
-third-party client (``User-Agent: EQ2AdvancedDesktop/1.25.77``) re-sent a
-rejected payload every one to two seconds for nine hours — ~3,600 requests
-an hour, each one a 500 with a full traceback, and it never backed off on
-the 429s the generic limit produced.
-
-This module adds a second, much tighter budget keyed on the client
-application (the ``User-Agent`` product token) so a misbehaving app is
-throttled by name without touching the budget of the ACT plugin or
-EQ2Parser. Configuration is a list of ``<ua-prefix>=<limit>`` pairs in the
-``INGEST_CLIENT_LIMITS`` env var, e.g.::
-
-    INGEST_CLIENT_LIMITS=EQ2AdvancedDesktop=30/hour;SomeOtherApp=10/minute
-
-Matching is a case-insensitive prefix test on the User-Agent string, so a
-version bump (``EQ2AdvancedDesktop/1.26.0``) stays covered. Buckets are per
-(prefix, uploader identity) — the identity is the same hashed-token /
-session key the generic limit uses — so two people running the same app
-don't share a budget. A client with no configured prefix is untouched.
-
-Counters live in process memory (the same ``limits`` library slowapi uses),
-which matches the single-process deployment; a restart clears them.
+"""Per-User-Agent ingest budget from ``INGEST_CLIENT_LIMITS``
+(``<prefix>=<limit>;…``, case-insensitive UA prefix match), bucketed per
+(app, uploader). Counters are in-process; a restart clears them.
 """
 
 from __future__ import annotations
@@ -38,9 +16,8 @@ from limits.strategies import MovingWindowRateLimiter
 
 _log = logging.getLogger(__name__)
 
-# Default budget for the client that caused the 2026-09-27 flood. A raid
-# night is ~20-40 fights, so 30/hour still lets a *working* copy of the app
-# upload normally; a retry loop hits the wall inside a minute.
+# A raid night is ~20-40 fights, so 30/hour still lets a *working* copy of
+# the app upload normally; a retry loop hits the wall inside a minute.
 DEFAULT_CLIENT_LIMITS = "EQ2AdvancedDesktop=30/hour"
 
 

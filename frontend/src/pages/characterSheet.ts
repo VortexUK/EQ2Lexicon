@@ -1,10 +1,7 @@
 /**
  * characterSheet — shared character-sheet data model + display config.
- *
- * Extracted from CharacterPage so the compare page reuses the exact same
- * types, stat grouping, slot layout, and tier styling — a single source of
- * truth that can't drift between the two (the same lesson as the backend's
- * character_upgradeable_spells consolidation).
+ * Shared by the character page and the compare page so their types, stat
+ * grouping, slot layout and tier styling can't drift apart.
  */
 
 // ── Types (mirror backend CharacterResponse) ─────────────────────────────────

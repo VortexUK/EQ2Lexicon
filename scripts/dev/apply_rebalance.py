@@ -1,26 +1,10 @@
 """Apply the zone↔encounter rebalance back into the raids catalogue.
 
-Reads JSON files from ``data/raids/rebalance_outbox/`` (or one via
-``--in``). Each file's ``zones[*]`` entries get:
+    uv run python scripts/dev/apply_rebalance.py [--in <file>] [--dry-run]
 
-  * ``raid_zones.overview_md`` updated to ``updated_overview_md`` (or
-    NULL when empty), stamped ``source=manual``, ``last_edited_by='ai-rebalance'``.
-  * Each encounter's ``raid_encounters.strategy_md`` updated likewise
-    (or NULL when empty), via the same ``ai-rebalance`` identity so a
-    future audit can find this pass in the revision history.
-
-Per-entry shape::
-
-    {
-      "zone_name": "...",
-      "updated_overview_md": "...",
-      "encounters": [
-        { "mob_name": "...", "updated_strategy_md": "..." },
-        ...
-      ]
-    }
-
-Wrapped in ``{"zones": [...]}`` or a bare list — both accepted.
+Reads data/raids/rebalance_outbox/chunk_*.json; writes raid_zones.overview_md and
+raid_encounters.strategy_md (empty → NULL), stamped source=manual,
+last_edited_by='ai-rebalance'. Workflow: docs/runbooks/raid-strategy-agent-polish.md.
 """
 
 from __future__ import annotations

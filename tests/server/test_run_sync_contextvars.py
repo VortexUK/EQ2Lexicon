@@ -1,11 +1,5 @@
-"""Regression test for the 2026-05-31 production bug: run_sync was not
-propagating the caller's contextvars to the worker thread, so
-current_world() inside dispatched functions silently fell back to
-default_server() instead of the request's actual server.
-
-Fixed by wrapping the executor call in contextvars.copy_context().run(...).
-This test pins the contract so a future refactor of run_sync (e.g.
-swapping to a fresh executor) doesn't quietly regress it.
+"""run_sync propagates the caller's contextvars to the worker thread, so
+current_world() inside dispatched functions sees the request's server, not the default.
 """
 
 from __future__ import annotations

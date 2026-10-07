@@ -1,17 +1,10 @@
 """Apply the audited zone overviews back into the raids catalogue.
 
-Reads every JSON file in ``data/raids/zone_overview_outbox/`` (or one via
-``--in``). For each entry: updates ``raid_zones.overview_md`` and stamps
-``source=SOURCE_MANUAL`` + ``last_edited_by='ai-audit'`` so a future
-re-scrape can't bring the per-boss leakage back.
+    uv run python scripts/dev/apply_zone_overviews.py [--in <file>] [--dry-run]
 
-Per-entry shape::
-
-    {"zone_name": "...", "cleaned_md": "..."}
-
-``cleaned_md`` may be an empty string — interpret that as "the overview
-was entirely per-boss content; null the field so the UI falls back to no
-overview". Whitespace-only is treated the same.
+Reads data/raids/zone_overview_outbox/chunk_*.json; writes raid_zones.overview_md (empty →
+NULL) stamped source=manual, last_edited_by='ai-audit'. Workflow:
+docs/runbooks/raid-strategy-agent-polish.md.
 """
 
 from __future__ import annotations

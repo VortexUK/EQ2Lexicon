@@ -1,13 +1,7 @@
-"""Shared base classes for the Postgres catalogue/store families.
-
-Every data family lives in Supabase Postgres — one database, one schema per
-family (users / parses / census / zones / raids, plus the reference
-catalogues items / spells / recipes / classes / aas). Connections come from
-:mod:`backend.pg` (pooled under the app lifespan, direct otherwise) and
-select their family schema via ``SET search_path`` at checkout, so every
-query in the ``.sql`` sidecars stays unqualified. Schema DDL is owned by
-``db/migrations/`` via :mod:`backend.pg_migrate` — stores never create
-tables.
+"""Shared base classes for the Postgres catalogue/store families (one schema
+per family, selected via ``SET search_path`` at checkout so the ``.sql``
+sidecars stay unqualified). DDL is owned by ``db/migrations/`` — stores never
+create tables.
 
 Every data module exposes one catalogue/store class following the same
 convention:
@@ -198,7 +192,7 @@ class PgCatalogue(SchemaBound):
 
     def _find_exact_then_like(self, exact_sql: str, like_sql: str, name: str) -> list[dict]:
         """The shared name-search protocol: exact lowercased match first,
-        then a LIKE fallback with user wildcards escaped (BE-006) — both
+        then a LIKE fallback with user wildcards escaped — both
         queries on ONE connection."""
         from backend import pg
 

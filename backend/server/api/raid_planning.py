@@ -1,18 +1,10 @@
-"""Raid-planning API: officer-curated raid rosters + per-team group layouts
-plus the per-user availability calendar.
+"""Raid-planning API: officer-curated rosters + per-team group layouts, and the
+per-user availability calendar.
 
-Visibility model:
-  * GET planner data — guild members only (the viewer holds an approved
-    claim on a character in this guild's roster). Officers get the same
-    payload with ``is_officer: true`` so the UI enables saving.
-  * Writes (roles + placements) — officers only (same rank gate as the
-    item watch / raid schedule).
-  * ``/me/availability`` — any authenticated user reads/writes their own
-    calendar; the panel is only *shown* when ``is_raider`` is true.
-
-The planner is date-aware but the layout is date-less: one persistent
-grid per team, with availability for the requested date overlaid on it
-(AFK players grey out rather than being removed).
+Planner reads are guild-members-only (an approved claim on a roster
+character); writes are officer-only. ``/me/availability`` is the caller's own
+calendar. Layouts are date-less (one grid per team); availability for the
+requested date is overlaid on it.
 """
 
 from __future__ import annotations

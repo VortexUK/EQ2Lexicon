@@ -1,18 +1,7 @@
 /**
- * GuildProgressionTab — the RoK progression matrix for a guild.
- *
- * One row per census-known member (level 65+), columns for Epic / Mythical /
- * T1–T4 tier flags / Trakanon access. Cells show ✓ or a fraction; mousing
- * over shows the detail (missing bosses for a partial tier, "Step 5/11 —
- * Quest Name" for a partial epic) via the same fixed-position tooltip
- * pattern as the spell/adorn check tabs.
- *
- * Same member treatment as the other guild tables: the shared name/class
- * filter box, sortable columns (progression columns sort most-progressed
- * first), class-coloured "Class (Level)", and the ★ own-character marker.
- *
- * Data: GET /api/guild/{name}/progression (server-side census reduce,
- * SWR-cached ~15 min).
+ * GuildProgressionTab — the RoK progression matrix (level 65+ members ×
+ * Epic / Mythical / T1–T4 / Trakanon) from GET /api/guild/{name}/progression.
+ * Progression columns sort most-progressed first.
  */
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'

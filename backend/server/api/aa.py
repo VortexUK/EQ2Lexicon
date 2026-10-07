@@ -148,9 +148,8 @@ async def get_aa_config(xpac: str | None = None) -> AAConfigResponse:
 # ---------------------------------------------------------------------------
 # Census tree data names every shadows tree "Shadows" and every heroic tree
 # "Heroic" with no structured class field, so these mappings were mined
-# empirically from live Varsoon census characters (2026-07-20: 250 max-AA
-# chars, all 26 subclasses covered, zero conflicts). The shadows side is
-# cross-checked against the committed db's node classifications in
+# empirically from live Census characters (all 26 subclasses). The shadows
+# side is cross-checked against the aas catalogue's node classifications in
 # tests/server/test_aa_routes.py, which will catch a tree-id reshuffle on a
 # future aas catalogue rebuild.
 

@@ -1,28 +1,11 @@
 """
-Load zone metadata from ``scripts/dev/eq2_zones.cleaned.json`` into the
-Postgres ``zones`` schema (zones / zone_types / zone_aliases).
+Load scripts/dev/eq2_zones.cleaned.json into the Postgres zones schema
+(zones / zone_types / zone_aliases, plus the dungeon overlay). Never writes boss rosters.
 
-Idempotent — re-run after editing the source file. Each upsert replaces the
-zone row + its types + its aliases; zone ids are preserved across rebuilds
-(builder-assigned: existing name → existing id, new name → max+1), which is
-what keeps the curator-managed boss rosters attached. Zones that vanished
-from the source JSON are pruned (and their curator data cascades) — the
-prune count is printed so an unexpected removal is visible.
+    uv run python scripts/build_zones_db.py [--source <json>] [--schema <name>]
 
-Stamps these ``_meta`` keys on every build so the schema is self-describing:
-
-  * ``built_at``           — ISO-8601 UTC timestamp
-  * ``built_from``         — path of the cleaned JSON consumed
-
-Boss rosters (``zone_encounters`` / ``zone_encounter_mobs``) and the
-``featured_*`` curation tables are **not** written by this script — they are
-web-editable by admins and contributors via the per-zone editor in the
-raids UI, and a metadata rebuild never touches them.
-
-Usage (needs DATABASE_URL / SUPABASE_DB_URL in the environment):
-
-    .venv/Scripts/python scripts/build_zones_db.py
-    .venv/Scripts/python scripts/build_zones_db.py --source path/to/other.json
+Zones missing from the source are pruned and their curator rosters cascade — check the
+printed prune count. See docs/runbooks/catalogue-refresh.md.
 """
 
 from __future__ import annotations

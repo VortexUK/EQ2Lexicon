@@ -18,18 +18,9 @@ import type { Encounter, Zone } from './raids/types'
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 //
-// URL: /raids/:name                — defaults to the first encounter
-//      /raids/:name/:bossName      — opens the encounter with that encounter_name
-//
-// The :bossName segment is the URL-encoded encounter_name (e.g. "D'Lizta%20Cheroon").
-// Client-side resolution: look up zone.bosses by encounter_name === decodeURIComponent(bossName).
-// The API is still keyed by position (GET /api/zones/{zone}/encounters/{position}/strategy);
-// we carry `selected.position` for API calls while the URL carries the human-readable name.
-//
-// Layout: sidebar (encounter list, grouped by stage) + main pane (selected
-// encounter detail). Clicking a sidebar item updates the URL via navigate(),
-// which only changes useParams — the component stays mounted, so there's no
-// reload / data refetch.
+// URL: /raids/:name[/:bossName] — :bossName is the URL-encoded encounter_name
+// (first encounter when absent). The strategy API is keyed by position, so
+// API calls use `selected.position` while the URL carries the readable name.
 
 export default function RaidZonePage() {
   const { name = '', bossName } = useParams<{ name: string; bossName?: string }>()

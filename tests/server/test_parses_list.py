@@ -1,8 +1,5 @@
-"""Tests for GET /api/parses and GET /api/parses/{id} — list + detail endpoints.
-
-Extracted from test_parses.py:197-534 per TEST-004 / Phase 2b.3.
-Also includes TestUploaderDiscordId (test_parses.py:542-562) which tests a
-helper from backend.server.api.parses.list, and the SIZE_BUCKETS sanity check.
+"""Tests for GET /api/parses and GET /api/parses/{id} — list + detail endpoints,
+plus the SIZE_BUCKETS sanity check.
 """
 
 from __future__ import annotations

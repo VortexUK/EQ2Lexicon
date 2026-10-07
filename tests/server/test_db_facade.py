@@ -1,17 +1,6 @@
-"""Guards for the backend.server.db facade (bound-method re-exports).
-
-The facade re-exports each domain store's bound methods under the original
-free-function names. Two failure modes this file pins down:
-
-  1. Completeness drift — a new public store method that nobody remembers
-     to alias on the facade fails only at runtime, on the facade path.
-     ``test_facade_covers_every_public_store_method`` turns that into a
-     test failure with the missing name spelled out (intentionally
-     store-only names go in _FACADE_EXEMPT).
-
-  2. Alias integrity — every facade alias must be the bound method of the
-     store instance conftest re-points, or patches/repoints silently stop
-     covering production traffic.
+"""Guards for the backend.server.db facade: every public store method is aliased
+(store-only names go in _FACADE_EXEMPT), and every alias is the bound method of
+the store instance tests re-point — otherwise patches silently miss production traffic.
 """
 
 from __future__ import annotations

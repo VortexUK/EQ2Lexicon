@@ -1,12 +1,5 @@
-"""servers registry store (sync) + schema invariants.
-
-The leased scratch schema
-(conftest ``users_schema``) is built from db/migrations/0001_users.sql, whose
-``-- seeds`` section inserts the Varsoon (default) + Wuoshi rows. The old
-legacy-ALTER migration regressions survive here as assertions that the
-Postgres schema carries the per-server columns/indexes outright, and the
-"second init_db is a no-op" guarantee becomes "re-running the idempotent
-seeds never clobbers an admin edit".
+"""servers registry store (sync) + schema invariants: the 0001 migration seeds
+Varsoon (default) + Wuoshi, and re-running the seeds never clobbers an admin edit.
 """
 
 from __future__ import annotations
@@ -16,8 +9,7 @@ from tests.fixtures.pg import leaser, pg_conn
 
 
 def _rerun_seeds(schema: str) -> None:
-    """Re-apply the migration's idempotent ``-- seeds`` section — the redeploy
-    analog of the old "second init_db" call."""
+    """Re-apply the migration's idempotent ``-- seeds`` section, as a redeploy does."""
     with pg_conn(schema) as conn:
         conn.execute(leaser._seeds_sql())
 

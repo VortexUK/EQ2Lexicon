@@ -1,16 +1,6 @@
-"""HTTP-layer tests for backend/server/api/guild_officer.py — COV-008.
-
-Covers:
-  GET  /guild/{name}/officer-status — unauthenticated returns false; officer returns true.
-  GET  /guild/{name}/claims         — 401, 403, officer gets filtered list.
-  POST /guild/{name}/claims/{id}/approve — 401, 403, 404, self-approve 403, happy path.
-  POST /guild/{name}/claims/{id}/reject  — 401, 403, 404, self-reject 403, happy path.
-  GET  /admin/pending-users         — admin only.
-  POST /admin/users/{id}/approve    — admin only, 404 for unknown.
-  POST /admin/users/{id}/deny       — admin only, cannot self-deny, 404 for unknown.
-
-Session injection via signed itsdangerous cookie (same as test_notifications.py).
-Admin routes use the `_require_admin` dependency.
+"""HTTP-layer tests for backend/server/api/guild_officer.py — officer status, claim
+review (no self-approve/reject) and the admin pending-user routes. Sessions are
+injected via a signed itsdangerous cookie.
 """
 
 from __future__ import annotations

@@ -104,10 +104,9 @@ def _body_looks_healthy(body: dict) -> bool:
       * has a non-negative ``returned`` count (the standard envelope field
         for collection queries — present on every working response).
 
-    During Census outages we've observed `200 OK` with a body like
-    ``{"errorCode":"SERVER_ERROR"}`` (no ``returned`` field), so the
-    status-code-only check used to false-positive as healthy. This is the
-    minimum body validation needed to catch that.
+    During outages Census can answer ``200 OK`` with a body like
+    ``{"errorCode":"SERVER_ERROR"}`` (no ``returned`` field), so the status
+    code alone is not a health signal.
     """
     if not isinstance(body, dict):
         return False

@@ -106,8 +106,7 @@ async def _build_claims_response(discord_id: str, world: str) -> tuple[ClaimsRes
 
     # Durable store next — the roster sync stamps guild_name on every stored
     # member, so anyone seen before is answered without Census (this runs on
-    # every character page via FavoriteButton; a cold cache used to mean one
-    # inline 30 s Census call per claimed character).
+    # every character page via FavoriteButton, so it must not wait on Census).
     any_failed = False
     if need_census:
         stored = await run_sync(_stored_guilds_sync, need_census, world)

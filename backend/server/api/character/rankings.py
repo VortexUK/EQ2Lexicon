@@ -13,9 +13,8 @@ character's class** for that boss:
     The zone header aggregates: points summed over the zone's bosses, rank
     recomputed among class peers on that sum.
 
-Both metrics (dps + hps) are computed in one pass so the frontend toggle
-never refetches. A character with zero ranked kills gets ``zones: []`` —
-the character page uses that to hide the tab entirely.
+Both metrics (dps + hps) are returned in one response. A character with
+zero ranked kills gets ``zones: []``, which hides the tab.
 """
 
 from __future__ import annotations
@@ -119,8 +118,7 @@ def _rank_pct(score: float, pool: list[float]) -> int:
 def _build_character_rankings(name: str, world: str, kills: list[dict]) -> CharacterRankingsResponse:
     # ``kills`` arrives from the route via _kills_swr — this sync builder
     # must NOT call _cached_kills itself: bypassing the shared build task
-    # once ran a SECOND full 14-minute rebuild in parallel with the
-    # startup prewarm (2026-09-12, two concurrent Wuoshi rebuilds).
+    # starts a second full rebuild in parallel with any one in flight.
     target = name.strip().lower()
     curated, exp_names, exp_order = _curated_content()
 

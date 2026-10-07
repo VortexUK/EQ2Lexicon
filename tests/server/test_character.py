@@ -119,15 +119,10 @@ def test_ilvl_from_gear_folds_adorn_into_host_item():
 
 
 # ---------------------------------------------------------------------------
-# Equipment self-heal: legacy "Item #<id>" placeholders → resolved names
+# Equipment self-heal: "Item #<id>" placeholders → resolved names
 # ---------------------------------------------------------------------------
-# Pre-fix, a cold items catalogue at character-fetch time meant the equipment slot
-# got cached with item_name="Item #12345". The persistent census_store
-# refactor (PR #21) then served that placeholder forever. The fix has two
-# halves: (a) census/client._resolve_item_meta does a Census fallback so
-# new cache rows are born resolved, and (b) the route's
-# _heal_equipment_placeholders re-resolves leftover placeholders from
-# the items catalogue on the serve path.
+# _heal_equipment_placeholders re-resolves stored "Item #<id>" placeholders
+# from the items catalogue on the serve path.
 
 
 @pytest.mark.asyncio
@@ -197,8 +192,8 @@ async def test_heal_equipment_placeholders_skips_real_names(monkeypatch):
 @pytest.mark.asyncio
 async def test_heal_equipment_placeholders_keeps_placeholder_on_db_miss(monkeypatch):
     """The items catalogue still doesn't know this ID → leave the placeholder so the
-    frontend still renders the slot. The next character refresh (via the
-    new Census fallback in _parse_equipment) will resolve it for real."""
+    frontend still renders the slot; the next character refresh (Census
+    fallback in _parse_equipment) resolves it."""
     import backend.server.api.character.views as charmodule
     from backend.server.api.character import EquipmentSlotResponse, _heal_equipment_placeholders
 

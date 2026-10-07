@@ -1,9 +1,7 @@
 """Unit tests for the pet-detection classifier in parses/pet_detection.py.
 
 The classifier is a pure function that takes a list of combatant dicts
-plus a zone-category string and returns {combatant.id: is_player}. The
-6-stage pipeline + bucket-fill rules are the spec's source of truth — see
-docs/superpowers/specs/2026-05-30-pet-detection-pipeline-design.md.
+plus a zone-category string and returns {combatant.id: is_player}.
 """
 
 from __future__ import annotations

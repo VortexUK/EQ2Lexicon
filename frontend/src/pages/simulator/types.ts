@@ -23,8 +23,7 @@ export interface DamageComponent {
    * hp_fraction × caster max health — FLAT, outside the coefficient
    * chain (min/max_dmg are 0 on such components). */
   per_hp_rate?: number | null
-  /** Fraction of max health consumed per application ("roughly 25%" per
-   * tick — user-observed estimate pending a log). */
+  /** Fraction of max health consumed per application (an estimate). */
   hp_fraction?: number | null
   /** Auto-scaled class-granted ranks (Wrath): the tooltip is the BARE
    * chain — no ability mod, no school flat, no ½-flat constant. */
@@ -82,8 +81,7 @@ export interface RotationAbility {
   mods?: Record<string, number>
   /** Per-ability multiplier from the character's own Enhance AAs
    * ("Increases damage by 5%.") — multiplies the BASE-CHAIN part only,
-   * not the flat ability-mod/school-flat part (Soulrot VII + Lifeburn
-   * cross-validated). */
+   * not the flat ability-mod/school-flat part. */
   dmg_mod_pct?: number
   /** "Increases overtime damage by N%." — DOT components only. */
   dot_dmg_mod_pct?: number
@@ -199,14 +197,12 @@ export interface SimStats {
   primary_attr?: 'str' | 'agi' | 'wis' | 'int'
   potency?: number | null
   fervor?: number | null
-  /** Gear/AA "increases base damage" percentages (e.g. choker +25%,
-   * Pact of the Faithful +10%) — additive with the primary-stat bonus.
-   * Hidden from census sheets; user-entered. */
+  /** Gear/AA "increases base damage" percentages — additive with the
+   * primary-stat bonus. Hidden from census sheets. */
   base_damage_bonus_pct?: number | null
   /** School-specific FLAT damage from gear ("Increases disease damage
-   * done by spells by up to 30." — Spooky Bone Hoop), keyed by
-   * lowercased school. Behaves like ability mod but ONLY on components
-   * whose school matches — worthless without spells of that school. */
+   * done by spells by up to 30."), keyed by lowercased school. Behaves
+   * like ability mod but ONLY on components whose school matches. */
   school_damage_flat?: Record<string, number> | null
   /** Caster max health — drives Lifeburn's per-HP components. */
   max_health?: number | null

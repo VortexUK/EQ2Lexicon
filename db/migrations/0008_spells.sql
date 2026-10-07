@@ -1,10 +1,8 @@
 create schema if not exists spells;
 set search_path to spells, public;
 
--- Reviewed translation of backend/eq2db/spells.sql's schema blocks (Phase 2).
 -- spells.id and crc are CENSUS-ASSIGNED and reach ~4.29e9 (> int4) — bigint,
--- no identity. SQLite REAL timings become double precision. `effects`
--- existed as a SQLite ALTER migration — a real column here.
+-- no identity. Timings are double precision.
 
 CREATE TABLE _meta (
     key   text PRIMARY KEY,

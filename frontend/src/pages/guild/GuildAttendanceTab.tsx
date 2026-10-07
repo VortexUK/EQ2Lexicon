@@ -78,7 +78,7 @@ interface UserRow {
   display_name: string
   /** Raid-main character name (claimed raider, primary claim preferred). */
   main: string | null
-  /** Seen in the guild's raid voice channel during this session (Phase 3 bot). */
+  /** Seen in the guild's raid voice channel during this session (Discord bot). */
   in_voice: boolean
 }
 

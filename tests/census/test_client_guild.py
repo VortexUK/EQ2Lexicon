@@ -1,4 +1,4 @@
-"""Tests for census.client guild-related methods — COV-009 sub 2.
+"""Tests for census.client guild-related methods.
 
 Covers: get_guild (rank_map building, member filtering), get_guild_full
 (member + equipment parsing, roster stubs).

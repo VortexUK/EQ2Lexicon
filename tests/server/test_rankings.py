@@ -300,7 +300,7 @@ class TestGuildDpsBoard:
 class TestFilters:
     def test_tree_groups_raid_kills_drops_uncurated_group_kills(self):
         """Raid kills land under the 'raid' scope. Group-scope kills for
-        zones that aren't in the curated dungeon overlay (PR #34) are
+        zones that aren't in the curated dungeon overlay are
         silently dropped from the dropdown — they're still in the DB and
         queryable on a leaderboard, just not surfaced as a filter option."""
         from unittest.mock import patch
@@ -505,12 +505,9 @@ def _ins(conn, encid, title, *, success, players, guild, duration):
     ]
     snaps = {f"P{i}": CombatantSnapshot(level=95, guild_name=guild, cls="Wizard") for i in range(players)}
     pdb.store.insert_combatants_bulk(conn, eid, combs, snaps)
-    # Phase 4 (2026-05-30): the rankings loader's player_count subquery
-    # now filters on is_player=1, and insert_combatants_bulk doesn't
-    # populate that column (the classifier runs in the ingest path, not
-    # the DB layer). Stamp every ally as a player directly so the test
-    # data lands at the pre-classifier intent (all 8 are players, not
-    # 6 after the 'other' zone bucket-fill cap).
+    # The rankings loader's player_count subquery filters on is_player=1,
+    # which insert_combatants_bulk doesn't populate (the classifier runs in
+    # the ingest path). Stamp every ally as a player so all 8 count.
     conn.execute("UPDATE combatants SET is_player = 1 WHERE encounter_id = %s AND ally = 1", (eid,))
     conn.commit()
 
@@ -525,11 +522,10 @@ def rankings_db(parses_db_path):
     from backend.server.api import rankings as rk
     from backend.server.server_context import default_server
 
-    # Clear per-world cache keys so each test starts with a fresh board.
-    # The key format changed to "{_KILLS_KEY}:{world}" in Task 8.
+    # Clear per-world cache keys ("{_KILLS_KEY}:{world}") so each test starts with a fresh board.
     world = default_server().world
     rk.rankings_cache.delete(f"{rk._KILLS_KEY}:{world}")
-    # Also clear the legacy bare key in case it was left behind by an older run.
+    # Also clear the bare key.
     rk.rankings_cache.delete(rk._KILLS_KEY)
     return parses_db_path
 
@@ -666,16 +662,8 @@ async def test_rankings_default_xpac_per_server(app, users_schema):
 
 @pytest.mark.asyncio
 async def test_rankings_leaderboard_is_world_scoped(app, users_schema, parses_db_path):
-    """The /rankings leaderboard endpoint must return per-world data via the
-    executor call path.
-
-    This is the regression test for the contextvar-in-thread bug:
-    ``_cached_kills`` was called with no args inside run_in_executor, causing
-    it to fall back to default_server().world (Varsoon) regardless of the
-    active-server contextvar, so wuoshi.eq2lexicon.com served Varsoon data.
-
-    The fix: resolve ``world = current_world()`` in the async handler and pass
-    it explicitly to ``_cached_kills`` before the executor call.
+    """The /rankings leaderboard returns per-world data through the executor path:
+    ``world`` is resolved in the async handler and passed to ``_cached_kills`` explicitly.
     """
     from backend.server import db, server_context
     from backend.server.api import rankings as rk
@@ -756,7 +744,7 @@ async def test_rankings_leaderboard_is_world_scoped(app, users_schema, parses_db
         ],
         {f"W{i}": CombatantSnapshot(level=95, guild_name="DragonSlayers", cls="Wizard") for i in range(8)},
     )
-    # Phase 4 (2026-05-30): mark all 8 Wuoshi allies as players so the
+    # Mark all 8 Wuoshi allies as players so the
     # rankings loader's is_player=1 player_count subquery yields 8
     # (raid scope), not 6 after the 'other' zone bucket-fill cap.
     # Mirrors the same UPDATE in the _ins helper above.
@@ -796,7 +784,7 @@ async def test_rankings_leaderboard_is_world_scoped(app, users_schema, parses_db
     assert any(n.startswith("W") for n in wuoshi_bosses), "Wuoshi board missing Wuoshi players"
     assert not any(n.startswith("P") for n in wuoshi_bosses), "Wuoshi board leaked Varsoon players"
 
-    # The two boards must differ: before the fix, both returned Varsoon data.
+    # The two boards must differ.
     assert r_v.json()["total"] > 0, "Varsoon board is empty — Varsoon kill not loaded"
     assert r_w.json()["total"] > 0, "Wuoshi board is empty — Wuoshi kill not loaded"
 
@@ -854,7 +842,7 @@ def test_resolve_boss_raid_still_uses_curated_lookup():
 
 
 def test_resolve_boss_curated_zone_rejects_unmatched_titles():
-    """The Ripclaw regression: inside a CURATED zone the roster is
+    """Inside a CURATED zone the roster is
     authoritative — a player-shaped kill title (article-less, exactly what
     the is_boss heuristic waves through) must not rank or reach the boss
     dropdown. Uncurated zones keep the heuristic fallback."""

@@ -19,14 +19,6 @@ Python side::
     SQL = load_sql(__file__)
     conn.execute(SQL["list_by_type"], (zone_type,))
 
-Why a custom loader and not aiosql/yesql:
-  - Zero new dependencies. The parser is ~25 lines of boring Python.
-  - We don't need the auto-generated function bindings aiosql provides;
-    the project uses bare ``conn.execute(SQL[...], params)`` everywhere.
-  - F-string composition (``f\"... {SQL['fragment']} ...\"``) for dynamic
-    identifiers/ORDER BY/LIMIT stays first-class — load the fragment and
-    interpolate where needed.
-
 Conventions:
   - One ``.sql`` file per Python module that has DML. Path mirrors the
     module: ``backend/eq2db/zones.py`` <-> ``backend/eq2db/zones.sql``.
@@ -34,6 +26,9 @@ Conventions:
     and applied by ``backend/pg_migrate.py``. Sidecars hold DML only.
   - Block names are valid Python identifiers ([a-z_][a-z0-9_]*). The
     loader raises on duplicates so a typo can't silently shadow.
+  - Comment lines between blocks are trimmed from the preceding block, but a
+    comment INSIDE a block is part of the statement: psycopg treats any
+    percent sign in it as a placeholder.
 """
 
 from __future__ import annotations

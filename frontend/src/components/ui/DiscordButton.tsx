@@ -4,10 +4,7 @@ import type { ReactNode } from 'react'
  * DiscordButton — the standard Discord-blurple link button. Used by the
  * login gate, the user widget when signed out, the claim flow, and the
  * "Join our Discord community" call to action.
- *
- * Three copies of this previously existed with subtle text-colour drift
- * (#fff in two, var(--text) in one). This is the canonical version — and
- * the ONLY place the Discord colour token is used.
+ * The ONLY place the Discord colour token is used.
  */
 interface DiscordButtonProps {
   href?: string

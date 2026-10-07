@@ -1,6 +1,5 @@
 """Tests for /api/supporters — the supporter list that drives the 👑 badge
-and the Support page wall. Session-gated since the 2026-09-28 privacy
-review (it used to publish raw Discord ids unauthenticated)."""
+and the Support page wall. Session-gated; returns display names, never raw Discord ids."""
 
 from __future__ import annotations
 

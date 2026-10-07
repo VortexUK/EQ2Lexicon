@@ -1,13 +1,10 @@
 create schema if not exists parses;
 set search_path to parses, public;
 
--- Reviewed translation of backend/server/parses/db.sql (SQLite) with the
--- post-ALTER columns folded in. Policy (plan unified-swimming-kazoo):
--- identity bigints, blanket bigint for epochs/counters (damage totals
--- exceed int4), double precision for REAL, 0/1 flags stay integers,
--- JSON-ish payloads stay text byte-exact. FKs are declared and enforced
--- (SQLite never enforced them here either, but the copy script audits
--- orphans before load).
+-- parses family. Type policy: identity bigints, blanket bigint for
+-- epochs/counters (damage totals exceed int4), double precision for
+-- floating-point values, 0/1 flags stay integers, JSON-ish payloads stay
+-- text byte-exact. FKs are declared and enforced.
 
 CREATE TABLE encounters (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -33,10 +30,10 @@ CREATE TABLE encounters (
     hidden_by       text,
     -- EQ2Parser client_warnings provenance stamps (JSON text, byte-exact).
     client_warnings text,
-    -- REVIEW (tiered detail retention, user decision 2026-10-04): set when
-    -- the cleanup sweep drops this encounter's attack_types/damage_types
-    -- rows (curated raid zones 30d, curated group-instance 14d, any other
-    -- kept fight 7d). encounters+combatants live forever; the parse detail
+    -- Tiered detail retention: set when the cleanup sweep drops this
+    -- encounter's attack_types/damage_types rows (curated raid zones 30d,
+    -- curated group-instance 14d, any other kept fight 7d).
+    -- encounters+combatants live forever; the parse detail
     -- page shows a "breakdown pruned" notice instead of empty tables.
     detail_pruned_at bigint,
     UNIQUE (world, act_encid)
@@ -182,24 +179,23 @@ CREATE TABLE tamper_reports (
     acknowledged_by         text
 );
 
--- Indexes (ported verbatim unless annotated) -------------------------------
+-- Indexes ------------------------------------------------------------------
 CREATE INDEX idx_encounters_started_desc  ON encounters (started_at DESC);
 CREATE INDEX idx_encounters_zone          ON encounters (zone);
 CREATE INDEX idx_encounters_world         ON encounters (world, started_at DESC);
 CREATE INDEX idx_encounters_uploaded_by   ON encounters (uploaded_by, started_at DESC);
--- REVIEW: replaces the SQLite "COLLATE NOCASE on guild_name" scans — the
--- attendance/list reads rewrite to lower(guild_name) = lower(%s).
+-- Case-insensitive guild match: the attendance/list reads filter on
+-- lower(guild_name) = lower(param).
 CREATE INDEX idx_encounters_world_guild_lower ON encounters (world, lower(guild_name), started_at DESC);
--- REVIEW: the tiered-retention sweep's candidate scan (old encounters whose
+-- The tiered-retention sweep's candidate scan (old encounters whose
 -- breakdown rows still exist). Partial: rows already pruned drop out.
 CREATE INDEX idx_encounters_detail_prune ON encounters (started_at) WHERE detail_pruned_at IS NULL;
 CREATE INDEX idx_combatants_encounter     ON combatants (encounter_id);
 CREATE INDEX idx_combatants_name          ON combatants (name);
 CREATE INDEX idx_combatants_ally          ON combatants (encounter_id, ally);
 CREATE INDEX idx_combatants_encounter_is_player ON combatants (encounter_id, is_player);
--- REVIEW: the rankings cover moves to key(encounter_id, damage DESC) +
--- INCLUDE payload — same index-only scan, smaller btree keys. Re-benchmark
--- the rankings rebuild on real data at rehearsal (837s-incident guard).
+-- Covering index for the rankings read: key (encounter_id, damage DESC) +
+-- INCLUDE payload keeps it index-only with small btree keys.
 CREATE INDEX idx_combatants_rankings_cover ON combatants (encounter_id, damage DESC)
     INCLUDE (name, ally, is_player, cls, level, ilvl, guild_name, encdps, enchps, healed, deaths);
 CREATE INDEX idx_damage_types_combatant   ON damage_types (combatant_id);

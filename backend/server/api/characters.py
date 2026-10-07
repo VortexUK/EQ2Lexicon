@@ -92,9 +92,8 @@ async def search_characters(request: Request, name: str = "") -> CharSearchRespo
         return CharSearchResponse(results=[], total=0)
 
     # Store-first: instant results from every character this server has
-    # ever seen (guild-roster merges pull whole guilds in) — the census
-    # round-trip averaged ~3s per keystroke (live metrics 2026-09-22).
-    # Census stays the fallback when the store knows too few matches
+    # ever seen (guild-roster merges pull whole guilds in) — a Census
+    # round-trip costs seconds per keystroke. Census stays the fallback when the store knows too few matches
     # (brand-new or obscure names keep their census-grade completeness).
     world = current_world()
     store_hits = await run_sync(_store_search_sync, q, world)

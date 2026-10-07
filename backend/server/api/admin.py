@@ -348,12 +348,8 @@ async def revoke_user_role(discord_id: str, role: str, request: Request) -> dict
 # Role-request review queue
 # ---------------------------------------------------------------------------
 #
-# The user-facing submit/withdraw endpoints live in backend/server/api/role_requests.py
-# — here we just add the admin queue + approve/reject actions.
-#
-# Imported here so admin.py owns the entire admin REST surface; the user-side
-# RoleRequestEntry shape happens to be identical so we reuse it rather than
-# duplicate.
+# The user-facing submit/withdraw endpoints live in backend/server/api/role_requests.py;
+# admin.py owns the admin queue + approve/reject actions.
 
 
 class ReviewRoleRequest(BaseModel):
@@ -529,19 +525,9 @@ async def list_tamper_reports_admin(
     reason: str | None = None,
     limit: int = 200,
 ) -> TamperReportListResponse:
-    """Audit channel for plugin-detected tamper attempts (see
-    backend/server/api/parses/tamper_report.py).
-
-    Defaults to ``status="pending"`` — the admin's working set of
-    unreviewed reports. ``reason`` filters to one specific code
-    (``title_enemy_mismatch`` / ``stale_encounter`` /
-    ``recent_import_activity``). The ``pending_count`` field on the
-    response is ALWAYS the count of unacknowledged reports regardless
-    of which filter the admin is currently viewing, so the panel can
-    show "N pending" in its header without a second request.
-
-    Scoped to the active server via ``current_world()``; pass
-    ``status="all"`` + ``reason=None`` to see everything for this world.
+    """Tamper reports for the active server, pending-only by default;
+    ``reason`` filters to one code. ``pending_count`` is ALWAYS the total
+    unacknowledged count, regardless of the filter in view.
     """
     _require_admin(request)
     limit = max(1, min(limit, ADMIN_PARSE_LIST_MAX_LIMIT))

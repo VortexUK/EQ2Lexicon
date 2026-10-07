@@ -8,8 +8,8 @@ export interface DropdownOption {
 }
 
 /**
- * Convert a legacy `{label, value}[]` list that used `value: '__hdr'` separator
- * rows + indented labels (the old grouped <select> pattern) into grouped
+ * Convert a flat `{label, value}[]` list that uses `value: '__hdr'` separator
+ * rows + indented labels into grouped
  * DropdownOptions. Header rows become the group for the options beneath them;
  * `──`/leading-space decoration is stripped from labels.
  */

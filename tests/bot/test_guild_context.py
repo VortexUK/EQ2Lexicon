@@ -26,7 +26,7 @@ async def test_dm_context_falls_back():
 async def test_unknown_guild_falls_back():
     ctx = await resolve_guild_context(123456789)
     assert (ctx.world, ctx.guild_name, ctx.linked) == (FALLBACK_WORLD, None, False)
-    assert FALLBACK_WORLD == "Wuoshi"  # explicit user decision, 2026-09-04
+    assert FALLBACK_WORLD == "Wuoshi"  # hardcoded by design
 
 
 @pytest.mark.asyncio

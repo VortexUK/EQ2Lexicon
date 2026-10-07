@@ -1,9 +1,5 @@
-"""Unit tests for the top-N ally encDPS helpers in backend/server/api/parses/list.py.
-
-These helpers are the building blocks for the Phase 4 merger augmentation:
-the top-N ally encDPS lists of two upload candidates must mutually contain
-each other (each side's top-N appears somewhere in the other side's full
-ally list) for the merger to treat them as the same fight.
+"""Unit tests for the top-N ally encDPS helpers in backend/server/api/parses/list.py,
+which feed the merger's mutual-containment gate.
 """
 
 from __future__ import annotations
@@ -19,24 +15,15 @@ from backend.server.api.parses.list import _all_ally_names, _top_n_ally_names
 def conn(parses_db_conn: Any) -> Any:
     """Scratch parses-schema connection (dict rows, ``%s`` params).
 
-    Postgres enforces the combatants → encounters FK, so ``_insert``
-    lazily creates a stub encounter row per encounter_id — the helpers
-    under test still only read the combatant columns.
-
-    Phase 4 (2026-05-30) switched the top-N helpers from the legacy
-    multi-word/Unknown predicate to ``is_player = 1``. The test
-    insertion helper now computes is_player using the same predicate
-    the legacy filter did — single-word, non-empty, not 'Unknown' —
-    so the test semantics ("regex/multi-word names don't count") are
-    preserved without changing every test body.
+    ``_insert`` stubs an encounter row per encounter_id (FK) and sets is_player
+    for single-word, non-empty, non-'Unknown' names.
     """
     return parses_db_conn
 
 
 def _insert(conn: Any, **kwargs) -> None:
-    # Derive is_player from the legacy predicate so existing test
-    # bodies that exercised the multi-word/Unknown filter still pass
-    # under the new is_player-based SQL helpers.
+    # Derive is_player from the name (single-word, non-empty, not 'Unknown')
+    # so the multi-word/Unknown test cases exercise the is_player-based SQL helpers.
     name = kwargs["name"]
     ally = kwargs["ally"]
     encounter_id = kwargs["encounter_id"]

@@ -191,9 +191,8 @@ async def test_spells_includes_all_upgradeable_excludes_aa_and_utility(app):
     scribed (spellscroll), trained (classtraining), or auto-granted at base tier
     (class). AA abilities and non-upgradeable single-tier utility casts are out.
 
-    This is the Restoration-VI regression: a trainer-granted (classtraining)
-    upgradeable spell must show instead of being dropped for the lower-rank
-    scroll the character happened to scribe.
+    A trainer-granted (classtraining) upgradeable spell must show instead of
+    being dropped for a lower-rank scribed scroll.
     """
     char = _fake_char(spell_ids=[3001, 3002, 3003, 3004, 3005])
     spell_rows = {

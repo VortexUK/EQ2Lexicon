@@ -72,9 +72,9 @@ ADMIN_PARSE_LIST_MAX_LIMIT: int = 1000
 
 # --- API tokens -----------------------------------------------------------
 
-# Per-token last_used_at coalescing window (BE-011). UPDATE only fires if
-# the existing value is older than this — sub-minute precision isn't
-# useful to the UI and the write storm during a raid was a real cost.
+# Per-token last_used_at coalescing window. UPDATE only fires if the
+# existing value is older than this — sub-minute precision isn't useful to
+# the UI, and it avoids a write per request during a raid upload burst.
 API_TOKEN_LAST_USED_COALESCE_S: int = 60
 
 

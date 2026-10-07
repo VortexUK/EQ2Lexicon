@@ -1,21 +1,6 @@
-"""Intent-marking context manager for "swallow + keep going" exception paths.
-
-Audit BE-080: 22 ``except Exception: pass`` sites. About half are intentional
-(metrics increments / cache-write best-effort), half are bugs hiding behind
-the silent swallow (a malformed row in a reference DB silently disappears
-from the index; a Pydantic error in _overview_to_char_response silently drops
-a guild member from the cache).
-
-The fix is two-step:
-  1. Phase 2a (this task): create a ``swallow(category)`` context manager so
-     the intentional sites have a named, log-emitting alternative.
-  2. Phase 2c.4: walk every existing ``except Exception: pass`` site, decide
-     whether it's intentional or bug-shaped, refactor accordingly.
-
-Even the "intentional" sites benefit — a real failure inside a metric-
-increment block today is completely invisible. ``swallow`` logs at DEBUG so
-``LOG_LEVEL=DEBUG`` surfaces it on demand.
-"""
+"""Context manager for intentional best-effort ``except Exception`` blocks;
+logs at DEBUG so ``LOG_LEVEL=DEBUG`` surfaces the swallowed failures. Use it
+instead of a bare ``except Exception: pass``."""
 
 from __future__ import annotations
 

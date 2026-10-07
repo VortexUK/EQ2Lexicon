@@ -6,16 +6,11 @@ no build script). It holds:
   - 26 adventure classes (archetype ∈ {Fighter, Priest, Scout, Mage})
   - 9 crafters (archetype = "Crafter")
 
-All access goes through :class:`ClassCatalogue` (the eq2db methodology: one
-class encapsulating the schema name + per-instance caches, with the shared
-module-level ``catalogue`` as the runtime entry point). Derived views —
-archetype colours, crafter names, subclass/archetype groups — are catalogue
-methods; ``backend.census.constants`` and ``backend.eq2db.items`` build
-their module-level tables from these AT IMPORT, so main.py applies
-migrations BEFORE importing the app and a missing/empty classes schema
-still fails fast at process start. To change a class's role, colour,
-icon_id, or subclass: edit the row in the DB and add a new migration for
-reproducibility.
+Derived views — archetype colours, crafter names, subclass/archetype groups —
+are catalogue methods; ``backend.census.constants`` builds its module-level
+tables from these AT IMPORT, so main.py applies migrations BEFORE importing
+the app and a missing/empty classes schema fails fast at process start. To
+change a class's role, colour, icon_id, or subclass, add a new migration.
 
 Keyed by class NAME: EQ2 has several unrelated class-id schemes (icon_id is
 the EQ2wire icon id; AA trees and Census type.classid use different ids), so

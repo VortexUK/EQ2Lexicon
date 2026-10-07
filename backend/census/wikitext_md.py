@@ -1,36 +1,7 @@
 """
-MediaWiki wikitext → Markdown converter.
-
-Used by the EQ2i raid-strategies scraper (``scripts/dev/scrape_eq2i_raids.py``)
-and later by the future editor's preview pane. Pure function — no
-network, no DB; given a wikitext string returns a markdown string.
-
-Scope is "best-effort for the EQ2 wiki" rather than "complete MediaWiki
-parser". Handles the constructs that actually appear in EQ2i raid
-pages, falls back to readable placeholders for anything unknown.
-
-Known constructs handled:
-
-  * **Headings**: ``==Sec==`` / ``===Sub===`` → ``## Sec`` / ``### Sub``.
-  * **Wikilinks**: ``[[Foo]]`` and ``[[Foo|bar]]`` → ``[bar](URL)``
-    where URL is built from ``WIKI_BASE_URL`` + the target slug.
-  * **External links**: ``[https://x display]`` → ``[display](https://x)``.
-  * **Templates**: see ``_render_template`` — special-cased for the
-    EQ2-specific ones we see in raid pages (``{{Monster}}``, ``{{loc}}``,
-    ``{{IZoneInformation}}``, ``{{NPC}}``, etc.). Unknown templates
-    drop to plain-text on best-effort.
-  * **HTML-ish tags**: ``<br>``/``<br/>`` → newline; ``<small>``/``<big>``
-    strip the tag but keep content; ``<ref>...</ref>`` is dropped
-    (footnotes don't render usefully without the references list).
-  * **Lists**: ``* item`` and ``# item`` pass through as markdown
-    ``- item`` / ``1. item`` (mwparserfromhell leaves these in the
-    text stream, so the conversion happens line-by-line at the end).
-  * **Bold/italic**: ``'''bold'''`` → ``**bold**``, ``''italic''`` →
-    ``*italic*``.
-  * **HTML entities**: passed through (``&nbsp;`` etc.).
-  * **Comments**: dropped.
-  * **Images**: dropped — we can't render them inline and they'd just
-    clutter the markdown.
+MediaWiki wikitext → Markdown for EQ2i raid pages (used by
+``scripts/dev/scrape_eq2i_raids.py``). Pure — no network, no DB. Best-effort,
+not a complete MediaWiki parser: unknown templates degrade to plain text.
 """
 
 from __future__ import annotations

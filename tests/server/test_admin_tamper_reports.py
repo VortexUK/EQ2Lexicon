@@ -1,18 +1,5 @@
-"""Tests for the admin tamper-report endpoints.
-
-GET  /api/admin/tamper-reports — list reports for the working set
-POST /api/admin/tamper-reports/{id}/acknowledge — mark one reviewed
-
-Both routes gate on ``_require_admin``; non-admin callers hit 401/403.
-Covered cases:
-  * auth gate
-  * default ``status="pending"`` filter
-  * ``status="ack"`` / ``status="all"`` switches
-  * ``reason=...`` filter
-  * pending_count returns the actual unack count regardless of filter
-  * acknowledge flips one pending row + records the actor's discord_id
-  * acknowledge is a no-op on an already-acknowledged or missing id
-  * tamper-reports never appear on the public parses list (the whole point)
+"""Tests for the admin tamper-report list + acknowledge endpoints (admin-gated,
+status/reason filters, idempotent acknowledge); reports never reach the public parses list.
 """
 
 from __future__ import annotations
@@ -349,16 +336,8 @@ async def test_purge_deletes_only_acknowledged(app):
 
 
 def test_tamper_reports_never_touch_encounters_table():
-    """Pin the core invariant: a row inserted into ``tamper_reports`` must
-    not surface on ``encounters``. If this ever flips True the whole
-    "block from leaderboard" promise is broken.
-
-    Pinned at the DB layer rather than via GET /api/parses — the HTTP
-    list endpoint pulls in zone classification, mirror grouping, and
-    guild resolution, all of which would just confirm the same point
-    while introducing test-pollution risk via cached state across
-    other tests in the suite. The encounters table is the only place
-    the public list reads from, so absence here proves absence there.
+    """A row inserted into ``tamper_reports`` never surfaces on ``encounters`` —
+    the only table the public parses list reads from.
     """
     ids = _seed_tamper_reports()
     assert len(ids) > 0  # baseline: rows actually landed

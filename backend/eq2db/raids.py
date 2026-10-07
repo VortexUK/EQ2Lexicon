@@ -1,51 +1,6 @@
 """
-Postgres catalogue of EverQuest 2 raid strategies (the ``raids`` schema).
-
-Companion to ``backend/eq2db/zones.py`` — zones is read-only reference
-data rebuilt from JSON; this family accumulates strategy content sourced
-initially from the EQ2 wiki (EQ2i / Fandom) and then progressively
-hand-edited by guild officers.
-
-Scope (deliberate): Vanilla through Rise of Kunark only. Picked to
-align with the TLE-server content cycle. Live-expansion strategies are
-out of scope for the moment.
-
-Tables (schema DDL in db/migrations/0005_raids.sql):
-
-  * **raid_zones**            — one row per raid zone with zone-level
-                                metadata (access, level range, etc.).
-                                Loose FK by ``zone_name`` to the zones
-                                family (different schema — no enforced FK).
-  * **raid_encounters**       — one row per named boss within a raid
-                                zone. ``strategy_md`` is a single
-                                markdown blob (PoC simplicity; can
-                                split into structured fields later if
-                                a pattern emerges).
-  * **raid_encounter_revisions** — version history. Every UPDATE to
-                                   raid_encounters.strategy_md writes
-                                   a row here with before/after +
-                                   editor identity + timestamp.
-  * **raid_zone_revisions**   — the zone-overview counterpart.
-  * **act_triggers** / **act_spell_timers** — per-encounter ACT trigger
-                                and spell-timer rows (the /act editor).
-
-The `source` column on raid_zones / raid_encounters tracks where the
-content came from:
-  * 'eq2i_scrape' — auto-extracted from the wiki, untouched
-  * 'manual'      — added or edited by a human via the editor
-  * 'parse_data'  — derived from encounter parses (e.g. mechanic timing
-                    confirmed from log analysis; future feature)
-
-A row can transition: 'eq2i_scrape' → 'manual' on first hand-edit.
-The revision history preserves the original scrape for audit.
-
-All behaviour lives on :class:`RaidCatalogue` (the catalogue convention —
-see backend/db_catalogue.py): the shared module-level ``catalogue``
-instance is the runtime entry point (consumers alias it ``raids_db``);
-``init_db()`` returns a pooled schema-scoped connection proxy. The
-conn-taking write helpers (upserts, mirrors, ACT trigger/timer writes)
-are staticmethods — callers batch several writes per connection; the
-per-call read helpers open (and release) their own pooled checkout.
+Raid-strategy catalogue (the ``raids`` schema). ``source`` is eq2i_scrape |
+manual | parse_data; manual rows are never overwritten by a re-scrape.
 """
 
 from __future__ import annotations
@@ -101,9 +56,6 @@ _ACT_SPELL_TIMER_COLS = (
 class RaidCatalogue(PgCatalogue):
     """Read/write access to the raids schema.
 
-    The catalogue convention (see AACatalogue / SpellCatalogue / the other
-    Postgres families): the shared module-level ``catalogue`` is the runtime
-    entry point, and tests construct ``RaidCatalogue(scratch_schema)``.
     Write helpers take an open conn (callers batch several writes per
     transaction) and are staticmethods; the read helpers open a pooled
     checkout per call.
@@ -163,12 +115,10 @@ class RaidCatalogue(PgCatalogue):
             are left as-is. When the existing source is ``SOURCE_SCRAPE``, the
             markdown is refreshed with the latest scrape (so wiki edits
             propagate).
-          * **Existing row, called with SOURCE_MANUAL** — this helper isn't the
-            canonical write path for manual edits (the route layer uses targeted
-            UPDATEs that only touch the field the user edited — see
-            ``_write_overview_sync`` in backend/server/api/raid_strategies.py). Calling
-            this helper with SOURCE_MANUAL upserts every field passed and stamps
-            ``source='manual'`` — useful from migration scripts, not user-facing.
+          * **Existing row, called with SOURCE_MANUAL** — upserts every non-None
+            field passed and stamps ``source='manual'``. Human edits go through
+            the route's targeted UPDATEs (``_write_overview_sync`` in
+            backend/server/api/raid_strategies.py), not this helper.
 
         Doesn't touch ``last_edited_at`` — that's reserved for the route layer's
         targeted UPDATEs.
@@ -182,10 +132,7 @@ class RaidCatalogue(PgCatalogue):
 
         if existing and source == SOURCE_SCRAPE and existing["source"] == SOURCE_MANUAL:
             # Re-scrape against a human-edited row: refresh the wiki-owned
-            # metadata but leave the markdown blobs + source flag alone. The
-            # revision history (encounters only) doesn't apply at the zone
-            # level for now; future raid_zone_revisions table is the right
-            # home for tracking these.
+            # metadata but leave the markdown blobs + source flag alone.
             conn.execute(
                 _SQL["update_zone_wiki_fields"],
                 (
@@ -203,16 +150,10 @@ class RaidCatalogue(PgCatalogue):
             return int(existing["id"])
 
         # COALESCE on every nullable column so a caller that passes a column as
-        # None means "don't touch", not "clobber to NULL". The historical default
-        # (excluded.col) clobbered existing data — e.g. _write_strategy_sync calls
-        # upsert_raid_zone(... source=MANUAL) to auto-create the zone parent when
-        # a curator edits a boss strategy, passing overview_md=None (default).
-        # On ON CONFLICT that nulled the curator's existing overview_md. Reported
-        # by user "I am STILL losing raid zone overviews" — every encounter-
-        # strategy edit silently wiped the zone overview.
-        # If a caller genuinely wants to clear a column, they should use a
-        # targeted UPDATE (see _update_overview_sync) — that's the right code
-        # path for destructive writes.
+        # None means "don't touch", not "clobber to NULL": _write_strategy_sync
+        # auto-creates the zone parent with overview_md=None, and a plain
+        # excluded.col would wipe the existing overview. To clear a column,
+        # use a targeted UPDATE (see _update_overview_sync).
         conn.execute(
             _SQL["upsert_zone"],
             (
@@ -399,7 +340,7 @@ class RaidCatalogue(PgCatalogue):
         Each row: {id, edited_at, edited_by, before_md, after_md, edit_note}."""
         return self._fetchall(_SQL["list_zone_revisions"], (zone_id,))
 
-    # ── ACT trigger helpers (formerly backend/eq2db/raids_act.py) ────────────
+    # ── ACT trigger helpers ───────────────────────────────────────────────────
 
     def list_act_triggers_for_encounter(self, encounter_id: int) -> list[dict]:
         """Every ACT trigger row for an encounter, ordered by position then id."""
@@ -487,7 +428,7 @@ class RaidCatalogue(PgCatalogue):
         conn.commit()
         return cur.rowcount > 0
 
-    # ── ACT spell-timer helpers (formerly backend/eq2db/raids_act.py) ────────
+    # ── ACT spell-timer helpers ───────────────────────────────────────────────
 
     def list_act_spell_timers_for_encounter(self, encounter_id: int) -> list[dict]:
         """Every spell-timer row for an encounter, alphabetical by name."""

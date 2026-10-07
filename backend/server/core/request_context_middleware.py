@@ -1,22 +1,8 @@
 """Starlette middleware: mint request_id, set contextvars, echo X-Request-ID.
 
-Runs as early as possible in the middleware chain so every downstream
-handler (auth, server context, route handler) sees the context populated.
-
-Reads:
-  - Inbound `X-Request-ID` if the client sent one — useful for client-side
-    correlation (a frontend can stamp its own UUID and we honour it). Falls
-    back to minting a fresh UUID4.
-  - `request.session["user"]["id"]` if SessionMiddleware already populated
-    it. Falls back to None.
-  - `backend.server.server_context.current_world()` (read AFTER ServerContextMiddleware
-    has run — see Phase 2b for the install ordering).
-
-Writes:
-  - `X-Request-ID` on the response.
-  - Stamps a token onto each contextvar on entry; resets on exit so
-    background tasks spawned after the response don't inherit stale values
-    on the next request.
+An inbound ``X-Request-ID`` (<= 64 chars) is honoured, otherwise one is
+minted. The contextvars are reset on exit so later background tasks don't
+inherit stale values.
 """
 
 from __future__ import annotations

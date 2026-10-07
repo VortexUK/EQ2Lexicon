@@ -1,19 +1,4 @@
-"""backend/server/api/act — ACT triggers + spell timers package.
-
-Split from the former single-file act_triggers module (BE-052).
-
-Sub-modules:
-  _shared.py      — models (TriggerEntry, SpellTimerEntry) + encounter
-                    resolution helpers shared by both endpoint modules
-  triggers.py     — trigger CRUD + single/bulk XML export + paste-import
-  spell_timers.py — spell-timer CRUD + single XML export
-  xml_export.py   — ACT XML serialisation helpers (build_xml, safe_filename, ...)
-  xml_import.py   — ACT XML paste-import parser (parse_import_xml, ...)
-
-The combined ``router`` re-exported here is registered in backend/server/app.py
-(unchanged import: ``from backend.server.api.act_triggers import router``
-now resolves via the thin shim at backend/server/api/act_triggers.py).
-"""
+"""ACT triggers + spell timers routes; the combined ``router`` is registered via backend/server/api/act_triggers.py."""
 
 from __future__ import annotations
 

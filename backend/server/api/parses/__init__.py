@@ -1,15 +1,13 @@
-"""Route package — split from the former single-file parses module.
+"""Parses route package.
 
-Public API: the module exposes ``router`` (a single FastAPI APIRouter)
-plus the Pydantic models other modules consume. Sub-modules:
+Exposes ``router`` (a single FastAPI APIRouter) plus the Pydantic models
+other modules consume. Sub-modules:
 
-  - models       — Pydantic models (responses + ingest payloads)
-  - ingest       — POST /parses/ingest + HMAC validation + snapshot helpers
-  - list         — GET /parses + GET /parses/{id}
-  - delete       — DELETE /parses, DELETE /parses/{id}, DELETE /parses/batch
-
-The router itself is assembled here so external `app.include_router(parses_router)`
-calls keep working unchanged.
+  - models        — Pydantic models (responses + ingest payloads)
+  - ingest        — POST /parses/ingest + HMAC validation + snapshot helpers
+  - list          — GET /parses + GET /parses/{id}
+  - delete        — DELETE /parses/batch, DELETE /parses/{id} (+ unhide)
+  - tamper_report — plugin tamper reports
 """
 
 from __future__ import annotations
@@ -26,16 +24,13 @@ from backend.server.api.parses import list as _list  # noqa: E402,F401
 from backend.server.api.parses import tamper_report as _tamper_report  # noqa: E402,F401
 
 # Re-export the SQL helper + fight-grouping function used cross-module by
-# backend/server/api/rankings.py to compute primary-boss kills. Pre-split these
-# lived as private symbols in the monolithic parses.py and were imported
-# directly — preserve that import surface so consumers don't break.
+# backend/server/api/rankings.py to compute primary-boss kills.
 from backend.server.api.parses.list import (  # noqa: E402
     _PLAYER_COUNT_SQL,
     _group_into_fights,
 )
 
-# Re-export the models so existing `from backend.server.api.parses import IngestRequest`
-# imports keep working.
+# Re-export the models so `from backend.server.api.parses import IngestRequest` works.
 from backend.server.api.parses.models import (  # noqa: E402
     AttackSummary,
     CombatantSummary,

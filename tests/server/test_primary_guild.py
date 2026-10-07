@@ -1,4 +1,4 @@
-"""Tests for backend.server.core.primary_guild — COV-021.
+"""Tests for backend.server.core.primary_guild.
 
 Covers get_primary_claim (pure logic) and cached_primary_guild (async,
 stubs get_active_claims + character_cache).

@@ -1,8 +1,7 @@
-"""
-GET /api/recipes/search  — paginated recipe search with optional filters.
+"""Recipe search routes.
 
-Filters
--------
+Search filters
+--------------
 q           partial name match (case-insensitive)
 tier        crafting tier: T1 – T14  (T1 = levels 1-9, T2 = 10-19, … T14 = 130+)
             Derived from the crafted item's level (recipes.out_level), matched
@@ -11,7 +10,7 @@ bench       raw bench key (e.g. "work_desk", "forge") or the display label
             (e.g. "Sage", "Armorer") — both are accepted.
 class_name  adventure class name (lowercase) — matched against the
             class_label column of the output item in the items schema
-            (a cross-schema subquery; one database now).
+            (cross-schema subquery).
 page        1-based page index (default 1)
 """
 
@@ -43,8 +42,7 @@ router = APIRouter(tags=["recipes"])
 #
 # The tier is computed from the level of the item a recipe makes (resolved into
 # recipes.out_level by scripts/backfill_recipe_levels.py), NOT from the fuel
-# name. The old fuel-prefix heuristic was wrong for ~79% of recipes: the same
-# adjective (e.g. "Smoldering") appears across very different tiers depending on
+# name: the same adjective (e.g. "Smoldering") appears across very different tiers depending on
 # the fuel type ("Smoldering Kindling" is level 1, "Smoldering Coal" level 70).
 
 MAX_CRAFT_TIER = 14  # T14 is the top bracket (level 130+)
@@ -94,9 +92,8 @@ _LABEL_TO_BENCH: dict[str, str] = {v.lower(): k for k, v in BENCH_DISPLAY.items(
 # Adventure classes
 # ---------------------------------------------------------------------------
 
-# Sourced from the committed classes catalogue (read at import time via
-# backend.eq2db.classes.catalogue.adventure_class_names) — single source of truth.
-# BE-230: prevents the list drifting out of sync with the canonical class data.
+# Read from the classes catalogue at import time — single source of truth; never
+# hardcode the class list here.
 _ADVENTURE_CLASSES = _classes.adventure_class_names()
 
 # ---------------------------------------------------------------------------

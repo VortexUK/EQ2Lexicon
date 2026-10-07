@@ -1,12 +1,5 @@
-"""Tests for backend/server/api/aa.py — COV-016.
-
-Covers:
-  GET /aa/config — limits file missing → zero defaults; limits file present → values.
-  GET /aa/tree/{tree_id} — tree file missing → 404; tree file present → AATreeResponse.
-  GET /character/{name}/aas — hot cache hit; census_store hit; census down + no cache
-                               → 503; char not found → 404; live fetch → stores + caches.
-  GET /aa/spell/{spellcrc} — no row found → empty effects; row with effects → parses JSON;
-                              row with malformed effects JSON → empty list.
+"""Tests for backend/server/api/aa.py — /aa/config, /aa/tree/{id}, /character/{name}/aas
+and /aa/spell/{crc}, including the 404/503 and malformed-effects paths.
 """
 
 from __future__ import annotations
@@ -94,7 +87,7 @@ class TestGetAaConfig:
     """aa_limits live in the aas schema — each test seeds the leased scratch
     schema (aas_schema fixture) through the real build path (aas.upsert_limits).
     The lease's aa_trees stay fully migration-seeded, so total_max_points reads
-    the same real data as the old committed aas catalogue (tradeskill caps 45/116)."""
+    real data (tradeskill caps 45/116)."""
 
     def setup_method(self) -> None:
         _load_tree_for_response.cache_clear()

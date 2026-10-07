@@ -1,9 +1,5 @@
-"""Autouse fixture for supporters-cache isolation.
-
-Fixes TEST-040: each test in tests/server/test_supporters.py calls
-supporters_mod.invalidate() inline, but if a test fails before that
-line, the cache leaks. This fixture invalidates BEFORE every test
-regardless of subsequent failures.
+"""Autouse fixture: invalidate the supporters cache around every test, so a
+failing test can't leak cached state into the next one.
 """
 
 from __future__ import annotations

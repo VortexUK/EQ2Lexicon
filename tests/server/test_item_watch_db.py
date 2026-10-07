@@ -1,12 +1,5 @@
-"""Per-server item-watch isolation tests — DB-helper layer (COV-005).
-
-Tests call DB helpers directly with explicit ``world`` args so they run
-without a live HTTP layer and stay fast.  Each test runs against an
-isolated leased users schema (conftest ``users_schema``).
-
-HTTP-layer tests live in test_item_watch_routes.py.
-
-Mirrors the convention in test_claim_per_server.py.
+"""Per-server item-watch isolation at the DB-helper layer (explicit ``world`` args,
+leased users schema). HTTP-layer tests live in test_item_watch_routes.py.
 """
 
 from __future__ import annotations

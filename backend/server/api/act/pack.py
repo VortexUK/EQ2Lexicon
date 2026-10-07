@@ -5,12 +5,8 @@ one structured JSON pack.
 
 Era → zone → encounter → triggers + spell timers, including the
 enrichment fields (damage_type, control_effect, cooldown_seconds) that
-the ACT XML exports deliberately omit. The ``version`` stamp is derived
-from the newest edit + row counts, so a client can poll cheaply and
-re-sync only when it changes.
-
-Public + read-only: this is reference data, same visibility as the raid
-strategy pages themselves.
+the ACT XML exports omit. ``version`` is derived from the newest edit + row
+counts so a client can poll cheaply. Public + read-only.
 """
 
 from __future__ import annotations

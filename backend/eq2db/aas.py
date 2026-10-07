@@ -4,18 +4,10 @@ Condenses the AA JSONs (census tree downloads + ``aa_limits.json``) into
 ``aa_trees`` + ``aa_nodes`` + ``aa_limits``. ``tree_type`` (the structural
 detect_tree_type heuristic) and ``max_points`` (Σ maxtier × points_per_tier)
 are precomputed at build time by ``scripts/build_aas_db.py``, so runtime
-consumers do simple indexed reads. Schema DDL is owned by
-db/migrations/0012_aas.sql.
+consumers do simple indexed reads. Every instance carries its own caches.
 
-All access goes through the :class:`AACatalogue` class — one method call per
-question, so AA code elsewhere stays minimal. The module-level ``catalogue``
-is the shared default instance; tests lease a scratch schema and re-point
-``catalogue.schema`` — every instance carries its own caches.
-
-Rebuild flow (tree JSONs are LOCAL intermediates, gitignored — only the
-hand-curated aa_limits.json is committed):
-``scripts/download_aa_trees.py`` → ``scripts/build_aas_db.py`` (writes to
-the database at DATABASE_URL).
+Rebuild: ``scripts/download_aa_trees.py`` (tree JSONs are gitignored local
+intermediates) → ``scripts/build_aas_db.py`` (writes to DATABASE_URL).
 """
 
 from __future__ import annotations

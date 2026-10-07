@@ -1,18 +1,5 @@
-"""Tests for the admin-curated featured-raid endpoints.
-
-Endpoints covered:
-  - GET    /api/raids/expansions                 (public)
-  - GET    /api/raids/expansions/available       (admin)
-  - POST   /api/raids/expansions/{expansion}     (admin)
-  - DELETE /api/raids/expansions/{expansion}     (admin)
-  - GET    /api/raids/zones?expansion=X          (public)
-  - GET    /api/raids/zones/available?expansion= (admin)
-  - POST   /api/raids/zones/{zone_name}          (admin)
-  - DELETE /api/raids/zones/{zone_name}          (admin)
-
-Most tests mock the zones_db helpers and assert the route layer's auth +
-HTTP-status behaviour. The bottom section runs real end-to-end roundtrips
-against a leased scratch zones schema to verify the SQL contracts.
+"""Tests for the featured-raid expansion/zone endpoints (public reads, admin writes):
+route auth + status with zones_db mocked, then real round-trips against a scratch schema.
 """
 
 from __future__ import annotations

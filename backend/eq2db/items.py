@@ -1,14 +1,5 @@
 """
 Mirror of the Census /item/ collection (Postgres `items` schema).
-
-All behaviour lives on :class:`ItemCatalogue` (the eq2db data-interface
-convention — see AACatalogue / SpellCatalogue): DB lookups are instance
-methods (the async ``find_by_name`` / ``find_by_id`` pair included); the
-pure item-domain helpers (compute_class_label, extract_item_stats,
-extract_effect_stats, item_to_row) are staticmethods on the same class so
-consumers import ONE name — the shared ``catalogue`` instance. Module
-level holds only types (GearRow), constants (SCHEMA, SERVER_MAX_LEVEL),
-and the instance. Schema DDL is owned by db/migrations/0007_items.sql.
 """
 
 from __future__ import annotations
@@ -57,9 +48,9 @@ SERVER_MAX_LEVEL: int | None = _resolve_max_level()
 # ({"guardian": {...}}), so the tables below lowercase the canonical
 # TitleCase names from the DB rows.
 #
-# LAZY on purpose (Phase 3): class data is a network read now, and this
-# module is imported by conftest/scripts before migrations or env setup can
-# run — the first compute_class_label call builds the tables, cached forever.
+# LAZY on purpose: class data is a database read, and this module is
+# imported by conftest/scripts before migrations or env setup can run — the
+# first compute_class_label call builds the tables, cached forever.
 #
 # DO NOT redefine class groupings here — edit the classes schema.
 
@@ -98,8 +89,8 @@ def _class_tables() -> tuple[frozenset[str], frozenset[str], list[tuple[str, fro
 # Each entry is (compiled_regex, canonical_stat_name).  The regex must have
 # exactly one capture group that captures the numeric value.
 #
-# The stat name must match a key in STAT_MAP / an entry in item_stats so the
-# existing search machinery works unchanged.
+# The stat name must match a key in STAT_MAP / an entry in item_stats so
+# stat search finds it.
 
 _EFFECT_STAT_PATTERNS: list[tuple[re.Pattern, str]] = [
     # "Increases Attack Speed of caster by 25.0"
@@ -145,13 +136,6 @@ class GearRow(NamedTuple):
 
 class ItemCatalogue(PgCatalogue):
     """Read (and build) access to the items schema.
-
-    The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
-    the schema name lives on the instance; the shared module-level
-    ``catalogue`` is the runtime entry point, and tests lease a scratch
-    schema and re-point ``catalogue.schema``. The pure item-domain helpers
-    are staticmethods here so the class is the one interface for everything
-    item-shaped.
 
     ``item_to_row`` computes every derived column (pvp flag, effect stats,
     classification_list) at write time. A new effect-stat pattern means re-running
@@ -252,7 +236,7 @@ class ItemCatalogue(PgCatalogue):
         Complements extract_item_stats (which only reads the ``modifiers`` dict).
         Only extracts stats listed in _EFFECT_STAT_PATTERNS.  When both a modifier
         and an effect line exist for the same stat the modifier value takes
-        precedence (callers use INSERT OR IGNORE for these rows).
+        precedence (callers insert these rows with ON CONFLICT DO NOTHING).
         """
         result: dict[str, float] = {}
         for eff in raw.get("effect_list") or []:
@@ -595,10 +579,10 @@ class ItemCatalogue(PgCatalogue):
                   2. If nothing qualifies, fall back to the highest-level item overall
                      (so the user at least gets something rather than nothing).
                 When SERVER_MAX_LEVEL is not set:
-                  Order by tierid DESC, last_update DESC (original behaviour).
+                  Order by tierid DESC, last_update DESC.
                 """
                 if SERVER_MAX_LEVEL is not None:
-                    # Phase 1: valid for current expansion
+                    # 1. valid for current expansion
                     cur = await db.execute(
                         _SQL["find_by_name_level_capped"].format(where=where_clause),
                         params + (SERVER_MAX_LEVEL,),
@@ -606,7 +590,7 @@ class ItemCatalogue(PgCatalogue):
                     row = await cur.fetchone()
                     if row:
                         return row
-                    # Phase 2: nothing valid — return highest-level item anyway
+                    # 2. nothing valid — return highest-level item anyway
                     cur = await db.execute(
                         _SQL["find_by_name_any_level"].format(where=where_clause),
                         params,

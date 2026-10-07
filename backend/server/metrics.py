@@ -40,7 +40,7 @@ _SQL = load_sql(__file__)
 _log = logging.getLogger(__name__)
 
 # ── HTTP request metrics ──────────────────────────────────────────────────────
-# Cardinality discipline (2026-07 Grafana free-tier overrun): labels only ever
+# Cardinality discipline (series limits on the metrics backend): labels only ever
 # take bounded values — route templates via normalize_http_labels (never raw
 # URL paths, which bot scans mint by the thousand) and a fixed method
 # vocabulary. The latency histogram deliberately has NO method label: each
@@ -109,11 +109,8 @@ class _ActiveUsersCollector(Collector):
 # Labels: cache = character | guild | claim
 
 # How often parse DETAIL pages are opened, bucketed by the encounter's
-# age at view time. Gathered to decide whether the per-ability breakdown
-# tables (attack_types/damage_types) can take a rolling retention window
-# once parses live on Postgres — if the >90d bucket stays ~0, old detail
-# can be pruned and the DB fits a smaller tier. Buckets: <7d, 7-30d,
-# 30-90d, >90d.
+# age at view time — the evidence for the per-ability detail retention
+# windows (parses/cleanup.py). Buckets: <7d, 7-30d, 30-90d, >90d.
 PARSE_DETAIL_VIEWS = Counter(
     "parse_detail_views_total",
     "Parse detail page loads by encounter age at view time",
@@ -184,8 +181,7 @@ class _DBCollector(Collector):
     Custom collector that runs fast COUNT queries against the migrated
     Postgres family schemas each time Prometheus scrapes /metrics. Tiny
     COUNTs per scrape; a short-lived pooled checkout per family keeps the
-    collector simple. (The P2 metrics split replaces this with 60s-cached
-    counts.)
+    collector simple.
     """
 
     def collect(self):  # type: ignore[override]
@@ -268,8 +264,7 @@ class _DBCollector(Collector):
 
 class _PgSchemaSizeCollector(Collector):
     """Total relation size per Postgres family schema — the growth-trend
-    gauge behind the Databases dashboard (and the measurement behind the
-    Supabase tier decision)."""
+    gauge behind the Databases dashboard."""
 
     def collect(self):  # type: ignore[override]
         g_pg = GaugeMetricFamily(

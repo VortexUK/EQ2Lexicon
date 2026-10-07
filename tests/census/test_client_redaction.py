@@ -1,12 +1,7 @@
 """Tests for census.client URL redaction + TraceConfig + session lifecycle.
 
-Phase 1 shipped only _redact_url. Phase 3.5 extends to _build_trace_config
-(smoke test) and the _session_ lazy-creation + reopen-after-close lifecycle.
-
-Security contract: the SERVICE_ID segment of Census URLs (/s:<id>/) must
-never appear in log output at INFO or above. _redact_url is the single
-choke-point; these tests pin its behaviour so a refactor can't accidentally
-reintroduce the leakage.
+The SERVICE_ID segment of Census URLs (/s:<id>/) must never appear in logs at
+INFO or above; _redact_url is the single choke-point.
 """
 
 from __future__ import annotations

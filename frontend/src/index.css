@@ -67,10 +67,8 @@
   --z-tooltip:      9999;
 }
 
-/* Legacy aliases. The ~810 existing `var(--name)` usages keep resolving while
-   pages are migrated to utilities (Phase C); these get retired as each page
-   is converted. The font and radius tokens already match the @theme names,
-   so they need no alias here. */
+/* Short aliases for the @theme tokens, for dynamic `style={{}}` values that
+   reference `var(--name)`. Static styling uses the utilities instead. */
 :root {
   --bg:            var(--color-bg);
   --surface:       var(--color-surface);
@@ -90,7 +88,7 @@
   --warning-rgb:   251, 191, 36;
   --discord-brand: var(--color-discord);
   --accent:        var(--gold);
-  --accent-rgb:    var(--gold-rgb);  /* fixes 7 `rgba(var(--accent-rgb,99,210,130),α)` callsites that fell back to a wrong green */
+  --accent-rgb:    var(--gold-rgb);  /* must be defined, or `rgba(var(--accent-rgb,99,210,130),α)` callsites fall back to green */
   --accent-hover:  var(--gold-bright);
 
   --space-1: 0.25rem;

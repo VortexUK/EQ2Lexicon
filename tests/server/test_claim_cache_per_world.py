@@ -1,14 +1,6 @@
-"""Tests for the per-world claim cache fix.
+"""The claim cache is keyed per world, so one subdomain never serves another's claims.
 
-Before the fix, ``_claim_cache_key`` was just ``f"claims:{discord_id}"`` —
-no world component. With the per-subdomain split (varsoon.eq2lexicon.com /
-wuoshi.eq2lexicon.com), whichever subdomain a user hit first populated the
-cache, and any subsequent request from the other subdomain got back the
-wrong server's claim list (or nothing at all) for the full 5-minute TTL.
-
-These tests exercise the route via the real ASGI app + the X-Server header
-that ServerContextMiddleware honours in non-prod environments, so the cache
-key flows through current_world() the same way it would in production."""
+Driven through the real ASGI app + the X-Server header so the key flows through current_world()."""
 
 from __future__ import annotations
 
@@ -115,10 +107,8 @@ async def test_varsoon_subdomain_returns_only_varsoon_claims(app, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_wuoshi_subdomain_after_varsoon_hit_serves_own_data(app, monkeypatch):
-    """The exact bug from the screenshot: user hits Varsoon first (which
-    populates the cache), then visits Wuoshi. Pre-fix the Wuoshi response
-    was the cached Varsoon list. Post-fix the cache keys are distinct so
-    Wuoshi shows its own data."""
+    """A Varsoon hit populates the cache; a following Wuoshi request still
+    gets Wuoshi's own claims."""
     from backend.server.api import claim as claim_mod
 
     uid = "csu-crossover"

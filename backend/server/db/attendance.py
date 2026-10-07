@@ -40,9 +40,8 @@ ROLLOVER_S = 6 * 3600
 #: A merge only widens the session window when the snapshot shows a real
 #: raid in progress (at least this many raid members). Anything smaller
 #: (an overnight parser uploading online guildies, a stray 6-man) still
-#: merges its OBSERVATIONS but can no longer stretch a finished raid —
-#: a chain of online-only merges once walked a session from 19:02 all the
-#: way to 10:57 the next day (955 minutes, right at the runaway cap).
+#: merges its OBSERVATIONS but cannot stretch a finished raid — otherwise
+#: a chain of online-only merges walks a session up to the runaway cap.
 MIN_RAID_FOR_WINDOW = 12
 
 

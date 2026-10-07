@@ -1,14 +1,11 @@
 """Coalesce repeated log events so a flood produces one line per window.
 
-A misbehaving client on 2026-09-27 turned three log statements into ~15,000
-lines in an hour: slowapi's per-request "ratelimit exceeded" warning, our
-own 422 line, and a 250-line framework traceback per 500. None of the
-repeats carried new information. ``Coalescer.allow`` answers "should THIS
-occurrence be logged?" for a key, letting one line through per window and
-reporting how many were swallowed since, so the next logged line can say
-"(+N suppressed)". Process-local, unbounded only by distinct keys — callers
-must key on something with low cardinality (path + exception type, path +
-client identity), never on raw request data.
+``Coalescer.allow`` answers "should THIS occurrence be logged?" for a key,
+letting one line through per window and reporting how many were swallowed
+since, so the next logged line can say "(+N suppressed)". Process-local and
+unbounded except by distinct keys — callers must key on something with low
+cardinality (path + exception type, path + client identity), never on raw
+request data.
 """
 
 from __future__ import annotations

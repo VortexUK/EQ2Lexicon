@@ -1,18 +1,9 @@
-"""Character favourites — per-user bookmarks with a public count.
+"""Character favourites — per-user (character, world) bookmarks with a public count.
 
-A favourite is a bookmark of a (character, world) pair. It is NOT ownership and
-carries no guild or claim implications. Reads/writes are scoped to the active
-server's world (``current_world()``).
-
-Caching: the favourited-by-N count is cached (``favorite_count_cache``) because
-character pages are hot — a cache hit skips the count query and its Postgres
-round-trip entirely (an anonymous GET on a warm key does zero DB work). Writes
-invalidate the key exactly (single-process asyncio), so the TTL is only a
-backstop — it also self-heals the one write path that bypasses this module
-(a user deletion's ON DELETE CASCADE). ``favorited_by_me`` is never cached (a
-per-user point lookup on the UNIQUE index). ``GET /favorites`` is DB-direct —
-once per home-page load, enriched from the in-memory character cache and the
-local census store, never the network.
+A favourite is not ownership and carries no guild/claim implications. The
+favourited-by-N count is cached and invalidated exactly on writes
+(single-process); the TTL is a backstop for the ON DELETE CASCADE path on user
+deletion. ``favorited_by_me`` is never cached.
 """
 
 from __future__ import annotations

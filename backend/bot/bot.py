@@ -90,8 +90,8 @@ class EQ2Bot(commands.Bot):
             msg = "You don't have permission to use this command here."
         elif isinstance(error, app_commands.TransformerError) and error.type is discord.AppCommandOptionType.channel:
             # A picked channel that won't resolve = the bot can't see it
-            # (not in its cache without View Channel). Seen live 2026-09-05
-            # with a role-restricted raid voice channel.
+            # (not in its cache without View Channel), e.g. a role-restricted
+            # voice channel.
             msg = (
                 "I can't access that channel — give the bot **View Channel** permission "
                 "on it (channel → Permissions), then try again."
@@ -114,7 +114,7 @@ class EQ2Bot(commands.Bot):
             if self._bg_tasks:
                 await asyncio.gather(*self._bg_tasks, return_exceptions=True)
             # A failed login closes the bot BEFORE setup_hook ran — census
-            # may not exist yet (seen live 2026-09-05 with a bad token).
+            # may not exist yet (e.g. a bad token).
             if (census := getattr(self, "census", None)) is not None:
                 await census.close()
         finally:

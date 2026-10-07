@@ -1,5 +1,5 @@
 /**
- * Results visualizations — replaces the old single-strip timeline:
+ * Results visualizations:
  *
  *  1. CastLanes — a per-ability swimlane chart (one lane per rotation
  *     ability, casts as blocks at their sim times, the ability's dot

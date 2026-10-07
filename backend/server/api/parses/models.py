@@ -1,8 +1,7 @@
 """Pydantic models shared across the parses route sub-modules.
 
-Carved out of the former single-file parses module. NOTHING in this
-file imports from another parses sub-module — keep it that way to avoid
-circular-import pain.
+NOTHING in this file imports from another parses sub-module — keep it
+that way to avoid circular imports.
 """
 
 from __future__ import annotations
@@ -161,8 +160,7 @@ class CombatantSummary(BaseModel):
     # Pet-detection pipeline output (see parses/pet_detection.py).
     # Authoritative player/pet signal — drives the frontend Allies/Pets
     # split on the parse detail page. Bucket-fill-promoted combatants
-    # are visually identical to Census-resolved players (per the spec's
-    # "keep it clean" UX call).
+    # are deliberately indistinguishable from Census-resolved players.
     is_player: bool
     # Identity frozen at ingest time (resolved from character_cache). NULL for
     # pets/NPCs, unresolved players, and parses ingested before this existed —
@@ -376,10 +374,9 @@ class IngestRequest(BaseModel):
 
     logger_name: str = Field(min_length=1, max_length=64)
     # EQ2 server the upload came from (Varsoon, Kaladim, Butcherblock,
-    # …). Plugin v0.1.10+ detects this from the log file's parent
-    # directory and stamps it on every upload; older versions and the
-    # local-ingest path omit it and the route falls back to EQ2_WORLD.
-    # Optional so older plugins keep working through the rollout.
+    # …), detected by the plugin from the log file's parent directory.
+    # Optional in the model, but the ingest route rejects a missing value
+    # (400) and checks it against ALLOWED_SERVERS.
     logger_server: str | None = Field(default=None, max_length=64)
     encounter: IngestEncounter
     # Size caps mirror the plugin's own limits and sit far above any real
@@ -400,7 +397,7 @@ class IngestRequest(BaseModel):
     #
     # Caps mirror the plugin-side defensive limits (32 entries × 64 chars)
     # so a hostile/buggy client can't fill the column with megabytes of
-    # garbage. Old plugins never send the field; the column stays NULL.
+    # garbage. Absent field → the column stays NULL.
     client_warnings: list[str] | None = Field(default=None, max_length=32)
 
 

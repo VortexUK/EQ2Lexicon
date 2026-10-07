@@ -1,13 +1,5 @@
-"""Tests for the editor-gated zone-type tag endpoints (used by the
-Dungeons curation UI on /raids).
-
-Endpoints covered:
-  - POST   /api/zones/{zone_name}/types        body: {"type": "dungeon"}
-  - DELETE /api/zones/{zone_name}/types/{type}
-
-Mirrors the patching style of tests/server/test_zones_admin.py — every
-zones_db call is mocked so the tests are pure route/auth/validation
-exercises, independent of any database."""
+"""Tests for the editor-gated zone-type tag endpoints (POST/DELETE
+/api/zones/{zone_name}/types); every zones_db call is mocked."""
 
 from __future__ import annotations
 

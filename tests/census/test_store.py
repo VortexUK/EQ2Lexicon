@@ -17,9 +17,8 @@ def conn(census_schema):
 
 
 def test_schema_has_tables(census_schema):
-    """The migration-owned
-    census schema (db/migrations/0003_census.sql) carries the tables and
-    character columns the store relies on."""
+    """The migration-owned census schema carries the tables and character
+    columns the store relies on."""
     with pg_conn(census_schema) as conn:
         rows = conn.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",

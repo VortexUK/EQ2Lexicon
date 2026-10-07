@@ -2,8 +2,7 @@
 
 ``zones_schema`` / ``raids_schema`` lease isolated scratch schemas built
 from db/migrations/0004_zones.sql / 0005_raids.sql, re-point the shared
-catalogue instances, and yield the schema name — the analog of the old
-``XCatalogue(tmp_db)`` + ``catalogue.path`` re-point.
+catalogue instances, and yield the schema name.
 """
 
 from __future__ import annotations

@@ -127,10 +127,8 @@ export default function RankingsPage() {
   )
 
   // ── Filters fetch ────────────────────────────────────────────────────────
-  // One transient failure here used to become "No options" until a manual
-  // page refresh (the catch silently set empty scopes). Retry twice with
-  // backoff, and past that surface an error with a retry button instead of
-  // dead dropdowns.
+  // Retry twice with backoff, then surface an error with a retry button —
+  // never silently fall back to empty scopes (dead "No options" dropdowns).
   const [filtersError, setFiltersError] = useState(false)
   const [filtersAttempt, setFiltersAttempt] = useState(0)
   useEffect(() => {
@@ -167,18 +165,13 @@ export default function RankingsPage() {
   const raidExpansions = filters.raid_expansions ?? []
 
   // Active expansion: explicit ?xpac, else the selected zone's own expansion
-  // (raids OR dungeons — both carry expansion now since dungeons came from
-  // the curated zones catalogue tagging in #36, not from kill data), else the
-  // server's default (SERVER_CURRENT_XPAC / most recent).
+  // (raids and dungeons both carry one), else the server's default.
   const xpac = xpacOverride || zoneObj?.expansion || filters.default_expansion || ''
   const raidZonesForXpac = useMemo(
     () => raidZones.filter(z => (z.expansion ?? 'Other') === xpac),
     [raidZones, xpac],
   )
-  // Same xpac-filter pattern for dungeons. groupZones now carry expansion
-  // (server-side from the zone_types dungeon overlay) — pre-curation they
-  // were kill-data-driven with expansion=null, which is why the old code
-  // showed them all regardless of expansion.
+  // Same xpac-filter pattern for dungeons.
   const groupZonesForXpac = useMemo(
     () => groupZones.filter(z => (z.expansion ?? 'Other') === xpac),
     [groupZones, xpac],
@@ -215,11 +208,9 @@ export default function RankingsPage() {
 
   // ── Boss-default fallback ────────────────────────────────────────────────
   // If a URL-seeded boss isn't in the current zone's roster (typo, stale link,
-  // deleted boss), fall back to the first boss. The loop-breaker is preserved
-  // from the old URL-based implementation as defence-in-depth — even though
-  // state-based setBoss can't generate the URL round-trip mutation that the
-  // original ref was guarding against, an unforeseen render loop would still
-  // hit Firefox's renderer hot loop detection.
+  // deleted boss), fall back to the first boss. The reset counter is a
+  // defence-in-depth loop-breaker: an unforeseen render loop here would trip
+  // Firefox's renderer hot-loop detection.
   const resetCountRef = useRef(0)
   const lastZoneRef = useRef<string>('')
   useEffect(() => {

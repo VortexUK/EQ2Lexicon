@@ -13,7 +13,6 @@ from backend.server.app import create_app
 
 async def test():
     app = create_app()
-    # Call startup
     for handler in app.router.on_startup:
         await handler() if asyncio.iscoroutinefunction(handler) else handler()
 

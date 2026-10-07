@@ -203,9 +203,8 @@ async def test_db_lookup_rejects_garbage(tmp_users_db):
 
 @pytest.mark.asyncio
 async def test_db_lookup_survives_failed_last_used_touch(tmp_users_db, monkeypatch):
-    """The last-used bump is COSMETIC — a busy DB there must never fail
-    token auth (live 2026-09-12: a raid-night upload burst hit
-    'database is locked' on the touch and 500d /attendance/ingest)."""
+    """The last-used bump is COSMETIC — a failing touch must never fail
+    token auth."""
     from backend.server import db as users_db
     from backend.server.db import tokens as tokens_mod
 

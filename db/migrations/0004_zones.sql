@@ -1,12 +1,10 @@
 create schema if not exists zones;
 set search_path to zones, public;
 
--- Reviewed translation of backend/eq2db/zones.sql's schema blocks.
 -- zones.id is BUILDER-ASSIGNED (scripts/build_zones_db.py seeds explicit
 -- ids from the cleaned wiki JSON) — plain bigint PK, no identity.
 -- zone_encounters / zone_encounter_mobs are curator-managed at runtime —
--- identity ids (the copy script preserves existing ids via OVERRIDING +
--- setval). 0/1 flags stay integers per the type policy.
+-- identity ids. 0/1 flags stay integers per the type policy.
 
 CREATE TABLE _meta (
     key   text PRIMARY KEY,
@@ -85,9 +83,9 @@ CREATE TABLE featured_raid_expansions (
     added_at bigint NOT NULL DEFAULT floor(extract(epoch from now()))
 );
 
--- position + category were post-launch SQLite ALTERs (drag-reorder lanes on
--- /raids) — folded into the base table here. category NULL = the implicit
--- Uncategorised lane (listing sorts it first via NULLS FIRST).
+-- position + category drive the drag-reorder lanes on /raids. category
+-- NULL = the implicit Uncategorised lane (listing sorts it first via
+-- NULLS FIRST).
 CREATE TABLE featured_raid_zones (
     zone_id  bigint  PRIMARY KEY REFERENCES zones(id) ON DELETE CASCADE,
     added_at bigint  NOT NULL DEFAULT floor(extract(epoch from now())),

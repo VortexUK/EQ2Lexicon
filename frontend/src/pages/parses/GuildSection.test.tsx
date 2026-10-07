@@ -1,10 +1,7 @@
 /**
- * GuildSection header delete — the 2026-09-27 regression.
- *
- * The header trash button used to call `DELETE /api/parses?guild=` (every
- * parse the guild ever uploaded) while the confirm quoted only the rows on
- * screen. It must now send exactly the VISIBLE upload ids through the batch
- * endpoint, chunked, and keep the page's state truthful on partial failure.
+ * GuildSection header delete: sends exactly the VISIBLE upload ids through
+ * the batch endpoint, chunked, and keeps the page's state truthful on
+ * partial failure.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'

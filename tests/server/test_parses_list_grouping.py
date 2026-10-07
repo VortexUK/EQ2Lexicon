@@ -1,13 +1,6 @@
-"""Tests for the Phase 4 top-N mutual-containment merge gate in
-backend/server/api/parses/list.py:_group_into_fights.
-
-Today's merger merges two uploads when (different uploaders) AND (same
-guild_name) AND (same title) AND (start times within 60 s). Phase 4 adds
-one more clause: each upload's top-N ally encDPS combatants must appear
-in the other upload's ally list (mutual containment).
-
-N is 3 if max(player_count_A, player_count_B) >= 7 else 2. Tests verify
-both the N selection boundary and the containment-vs-equality semantics.
+"""Tests for the top-N mutual-containment merge gate in parses/list.py:_group_into_fights:
+each upload's top-N ally encDPS combatants must appear in the other's ally list,
+with N = 3 if max(player_count) >= 7 else 2.
 """
 
 from __future__ import annotations
@@ -95,7 +88,7 @@ async def test_identical_top_three_merges(app):
 async def test_disjoint_top_three_does_not_merge(app):
     """Two different groups of Guild X simultaneously doing Tarinax — same
     guild, same title, within 60 s — but completely different rosters.
-    The pre-Phase-4 merger would merge them; the new gate rejects the merge."""
+    The top-N gate rejects the merge."""
     rows, fake_top, fake_all = _two_uploads(
         top_a={"P1", "P2", "P3"},
         all_a={"P1", "P2", "P3", "P4", "P5"},

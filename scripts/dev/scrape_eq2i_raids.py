@@ -1,18 +1,12 @@
 """
-PoC scraper: fetch raid-zone wikitext from EQ2i (Fandom) via the
-MediaWiki API, parse out zone metadata + per-section markdown +
-linked named-mob pages, and emit a structured JSON artifact for human
-review.
-
-This is the PoC — runs against 2-3 hand-picked zones by default. After
-you've eyeballed the JSON and approved the shape, the next phase will
-extend it to the full 60-zone in-scope list (Vanilla through RoK
-raids) and load the results into the raids schema via the
-helpers in ``census/raids_db.py``.
+Scrape raid-zone wikitext from EQ2i (Fandom) via the MediaWiki API — zone metadata,
+per-section markdown and linked named-mob pages — into a JSON file. Writes no database;
+load the output with ingest_raids_json.py.
 
 Usage:
-    .venv/Scripts/python scripts/dev/scrape_eq2i_raids.py
-    .venv/Scripts/python scripts/dev/scrape_eq2i_raids.py --zone "Veeshan's Peak"
+    uv run python scripts/dev/scrape_eq2i_raids.py                 # small default sample
+    uv run python scripts/dev/scrape_eq2i_raids.py --zone "Veeshan's Peak"
+    uv run python scripts/dev/scrape_eq2i_raids.py --all-raids     # every in-scope raid zone
 
 Raw API responses get cached under scripts/dev/.eq2i_cache/<title>.json
 to be polite to Fandom and re-runnable without re-hitting the network.
@@ -60,9 +54,8 @@ CACHE_DIR = Path(__file__).resolve().parent / ".eq2i_cache"
 OUT_DIR = Path(__file__).resolve().parent
 POLITE_DELAY_SEC = 1.0  # between live API calls (cached calls don't sleep)
 
-# Default sample for the PoC — one zone per major in-scope expansion
-# so the output exercises the full pipeline across different page
-# shapes. Override with --zone.
+# Default sample — one zone per major in-scope expansion so the output
+# exercises different page shapes. Override with --zone.
 DEFAULT_SAMPLE_ZONES = [
     "Mistmoore's Inner Sanctum",  # EoF, well-documented
     "Trakanon's Lair",  # RoK, agent flagged as good

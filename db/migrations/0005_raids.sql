@@ -1,10 +1,9 @@
 create schema if not exists raids;
 set search_path to raids, public;
 
--- Reviewed translation of backend/eq2db/raids.sql's schema blocks. All ids
--- are runtime-generated (scrape ingest + curator edits) — identity columns;
--- the copy script preserves existing ids via OVERRIDING + setval. 0/1 flags
--- stay integers; epoch stamps bigint; markdown/text blobs stay text.
+-- All ids are runtime-generated (scrape ingest + curator edits) — identity
+-- columns. 0/1 flags stay integers; epoch stamps bigint; markdown/text blobs
+-- stay text.
 
 CREATE TABLE _meta (
     key   text PRIMARY KEY,
@@ -47,9 +46,7 @@ CREATE TABLE raid_encounters (
     mob_name_lower  text    NOT NULL,
     position        integer NOT NULL DEFAULT 0,   -- order within the zone
 
-    -- Free-form markdown strategy. Single blob deliberately — if a
-    -- structured pattern emerges (cures, dispels, phases) we can split
-    -- later without breaking callers.
+    -- Free-form markdown strategy, deliberately a single blob.
     strategy_md     text,
 
     wiki_url        text,

@@ -1,8 +1,4 @@
-"""Shared primary-character + primary-guild resolution.
-
-Audit BE-026 + BE-031: two route modules (zones, raid_strategies) and one
-more (item_watch) hand-roll the same "find the user's primary approved
-character + read its guild from character_cache" flow. Extracted here.
+"""Shared primary-character + primary-guild resolution (cache-only, no Census).
 
 Call sites that need extra fallback logic (e.g. zones.py falls back to
 the most-recent parsed guild) apply that fallback after the helper returns.
@@ -18,12 +14,8 @@ from backend.server.db import get_active_claims
 
 
 def get_primary_claim(claims_payload: dict) -> dict[str, Any] | None:
-    """Return the ``is_primary=True`` row from a ``get_active_claims`` payload.
-
-    Replaces three independent ``next((c for c in claims["approved"] if
-    c.get("is_primary")), None)`` comprehensions. The payload shape comes
-    from ``backend/server/db get_active_claims`` which returns a dict with an
-    ``approved`` list."""
+    """Return the ``is_primary=True`` row from a ``get_active_claims`` payload
+    (a dict with an ``approved`` list)."""
     for claim in claims_payload.get("approved") or []:
         if claim.get("is_primary"):
             return claim

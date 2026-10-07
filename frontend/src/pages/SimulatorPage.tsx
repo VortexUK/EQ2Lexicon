@@ -1,9 +1,6 @@
 // Ability Rotation Simulator — pick a character, build a priority-ordered
 // rotation from their real abilities (the spells catalogue timings + parsed damage),
-// and simulate a boss-dummy fight with their sheet stats. v1 scope:
-// single target, AA/ascension abilities excluded, power ignored,
-// proc/conditional damage badged rather than modeled, auto-attack as a
-// uniform stream.
+// and simulate a boss-dummy fight with their sheet stats. Power is ignored.
 
 import { useEffect, useMemo, useState } from 'react'
 
@@ -163,7 +160,7 @@ export default function SimulatorPage() {
         setAutoAttackMode('off')
         setAutoAttackTouched(true)
       } else {
-        setAutoAttackTouched(false) // legacy true → re-derive the class default
+        setAutoAttackTouched(false) // boolean-only save (true) → re-derive the class default
       }
       setTargetCount(saved.target?.count ?? 1)
       setEncounter(saved.target?.encounter ?? true)

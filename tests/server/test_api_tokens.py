@@ -1,4 +1,4 @@
-"""BE-011: last_used_at write coalescing in lookup_api_token."""
+"""last_used_at write coalescing in lookup_api_token."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def tmp_users_db_for_coalesce(users_schema: str) -> str:
 
 @pytest.mark.asyncio
 async def test_lookup_api_token_coalesces_writes(tmp_users_db_for_coalesce) -> None:
-    """BE-011: two lookups within 60 s should issue at most one UPDATE."""
+    """Two lookups within 60 s should issue at most one UPDATE."""
     schema = tmp_users_db_for_coalesce
 
     # Mint a token for the user.

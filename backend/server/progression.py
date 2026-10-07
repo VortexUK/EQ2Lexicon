@@ -1,7 +1,7 @@
 """RoK progression reduction — epics, raid-tier flags, Trakanon access.
 
 Pure logic over the three committed catalogs in data/quests/ (built by
-scripts/dev/build_epics_json.py + census research, 2026-09-02):
+scripts/dev/build_epics_json.py):
 
   epics.json      class -> fabled/mythical quest chains with census crcs
   rok_access.json T1-T4 tier ladder -> per-boss kill achievement ids

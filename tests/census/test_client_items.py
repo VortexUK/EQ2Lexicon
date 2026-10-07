@@ -1,4 +1,4 @@
-"""Tests for census.client item-related dispatch — COV-009 sub 1.
+"""Tests for census.client item-related dispatch.
 
 Covers: get_item (name/ID/game-link dispatch), _find_in_db, _cache_item,
 get_raw_item.

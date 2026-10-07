@@ -1,5 +1,5 @@
 -- global
--- Supabase lockdown for the Phase-3 reference schemas (aas / classes),
+-- Supabase lockdown for the reference schemas (aas / classes),
 -- mirroring 0006/0010. Same note applies: a future migration adding a
 -- table must ENABLE ROW LEVEL SECURITY on it itself.
 

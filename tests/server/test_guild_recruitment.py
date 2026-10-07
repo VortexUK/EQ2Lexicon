@@ -1,11 +1,6 @@
-"""Guild recruitment: the id-keyed store, the profile/logo/listing routes,
-the PIL logo pipeline, and the daily census-existence sweep.
-
-The store is keyed by census guild id so profiles (and logos) survive guild
-renames; routes stay name-addressed. The authz matrix mirrors
-raid_schedule.py (officer-or-admin writes, public reads), and every logo
-upload/removal is audited with the actor — the user's abuse-trail
-requirement.
+"""Guild recruitment: the id-keyed store (profiles survive renames), the profile/logo/
+listing routes, the PIL logo pipeline, and the daily census-existence sweep.
+Every logo upload/removal is audited with the actor (the abuse trail).
 """
 
 from __future__ import annotations

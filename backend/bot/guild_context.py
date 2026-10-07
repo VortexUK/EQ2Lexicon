@@ -1,10 +1,9 @@
 """Per-Discord-guild context resolution for bot commands.
 
-The discord_guild_links registry (the users schema, configured in Discord via the
-/lexicon command group) maps a Discord server to an EQ2 (world, guild_name)
-pair. Every world-aware command resolves its context here instead of the
-old env-WORLD pin; unlinked servers (and DMs) fall back to
-``FALLBACK_WORLD`` with no default guild.
+The discord_guild_links registry (users schema, edited via /lexicon) maps a
+Discord server to an EQ2 (world, guild_name) pair. Every world-aware command
+resolves its context here, not from the env WORLD; unlinked servers (and DMs)
+fall back to ``FALLBACK_WORLD`` with no default guild.
 """
 
 from __future__ import annotations
@@ -18,9 +17,7 @@ from backend.server.db.discord_links import store as links_store
 
 _log = logging.getLogger(__name__)
 
-#: Where unlinked Discord servers point. Hardcoded by design (2026-09-04):
-#: Wuoshi is the only server the userbase cares about right now — revisit
-#: when that changes rather than growing another env var.
+#: Where unlinked Discord servers point. Hardcoded by design, not an env var.
 FALLBACK_WORLD = "Wuoshi"
 
 

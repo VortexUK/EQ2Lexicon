@@ -1,28 +1,15 @@
-"""Account erasure — the right-to-be-forgotten mechanics behind the privacy
-policy (2026-09-28).
+"""Account erasure (privacy policy section 8): ONE Postgres transaction
+spanning the ``users`` and ``parses`` schemas, run from the routes via
+``run_sync``.
 
-One sync function, ONE Postgres transaction spanning the ``users`` and
-``parses`` schemas (search_path switched mid-transaction) — run from the
-routes through ``run_sync``:
-
-- rows that ARE the person go: the ``users`` row and everything keyed to
-  their Discord id (tokens, roles, role requests, claims, favourites,
-  download events, AA plans, availability), the voice-attendance
-  observations that carry their Discord id, and every tamper/quarantine
-  report about their uploads (those hold the full payload + their name);
-- rows that merely NAME the person as an actor are tombstoned — the
-  ``*_by`` author columns point at a placeholder ``users`` row
-  (``DELETED_USER_ID``) so NOT NULL / FK references stay valid and the
-  guild's records keep their history without the identity;
-- uploaded fights stay, as the guild's raid records, with the Discord
-  identity stripped: ``source_dsn`` ``plugin:<id>`` becomes
-  ``plugin:deleted`` (so the list shows no uploader identity) and
-  ``hidden_by`` is cleared.
-
-What this deliberately does NOT touch: character names. Uploads and
-attendance rows name in-game characters, which are game data shared across
-every raider's log; the policy says so. In-memory state (claim cache,
-supporters cache, the metrics last-seen map) is cleared by the route.
+- delete: rows that ARE the person (``users`` row + everything keyed to their
+  Discord id, their voice observations, tamper reports about their uploads);
+- tombstone: ``*_by`` author columns point at ``DELETED_USER_ID`` so FK /
+  NOT NULL references stay valid;
+- keep uploads as guild records: ``source_dsn`` -> ``plugin:deleted``,
+  ``hidden_by`` cleared;
+- character names are untouched (shared game data). In-memory caches are
+  cleared by the route.
 """
 
 from __future__ import annotations

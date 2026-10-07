@@ -178,10 +178,8 @@ async def test_server_stats_503_after_recent_failed_build(app):
 @pytest.mark.asyncio
 async def test_character_lifetime_resolves_ability_names(app, spells_schema):
     """crc→ability via the spells catalogue: 1729734970 = Frenzy II
-    (real-data assertion — the id came from a live census record hit).
-    The catalogue now lives in Postgres, so the leased ``spells_schema``
-    is seeded with exactly that row — the old skipif-file-absent guard
-    (gitignored spells catalogue artifact) is gone with the file."""
+    (the id came from a live census record); the leased ``spells_schema``
+    is seeded with exactly that row."""
     from backend.eq2db.spells import catalogue as spells_catalogue
 
     conn = spells_catalogue.init_db()

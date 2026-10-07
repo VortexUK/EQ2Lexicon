@@ -1,41 +1,9 @@
 """
-Postgres catalogue of EverQuest 2 zones (the ``zones`` schema).
-
-Sourced from ``scripts/dev/eq2_zones.cleaned.json`` (produced by
-``scripts/dev/clean_eq2_zones.py`` from a noisy EQ2 wiki dump). Run
-``scripts/build_zones_db.py`` to (re)load the zone metadata after the
-cleaned JSON changes — idempotent, and it never touches the curator-managed
-``zone_encounters`` / ``zone_encounter_mobs`` / ``featured_*`` tables.
-
-Schema (db/migrations/0004_zones.sql — migrations own the DDL):
-
-  * **zones**                  — one row per canonical zone with
-                                 classification.
-  * **zone_types**             — many-to-many zone ↔ type tokens
-                                 (`raid_x4`, `solo`, etc.). A zone can
-                                 have multiple types.
-  * **zone_aliases**           — alias name → canonical zone id. ACT
-                                 logs may emit either form ("Fabled
-                                 Deathtoll" vs "The Fabled Deathtoll").
-  * **zone_encounters**        — raid bosses per zone, one row per
-                                 named encounter (solo OR group),
-                                 with optional stage label and the
-                                 curator-supplied position.
-  * **zone_encounter_mobs**    — individual mob names inside an
-                                 encounter. Solo encounters get one
-                                 row; a 4-mob group gets four. Indexed
-                                 lowercased for fast reverse lookup.
-
-``catalogue.find_by_name()`` is the primary log-lookup entry point — it
-checks aliases before falling back to a fuzzy LIKE on the canonical name.
-
-All entry-point behaviour lives on :class:`ZoneCatalogue` (the eq2db
-data-interface convention — see AACatalogue / SpellCatalogue): consumers
-import ONE name, the shared ``catalogue`` instance. The frozen dataclass
-models (Zone, ZoneEncounter, ZoneEncounterMob, FeaturedRaid*) stay as the
-typed active-record layer underneath; catalogue methods delegate to them
-with the instance's ``schema`` and return the legacy dict shapes the routes
-consume.
+Zone catalogue (the ``zones`` schema). ``scripts/build_zones_db.py`` reloads
+zone metadata but never touches the curator-managed ``zone_encounters`` /
+``zone_encounter_mobs`` / ``featured_*`` tables. ``find_by_name()`` checks
+aliases (ACT may log "Fabled Deathtoll" or "The Fabled Deathtoll") before a
+fuzzy LIKE on the canonical name.
 """
 
 from __future__ import annotations
@@ -62,16 +30,14 @@ _SELECT_COLS = _SQL["select_zone_cols"]
 
 
 def _connect(schema: str) -> PgConnProxy:
-    """One pooled, schema-scoped connection — the model classmethods' analog
-    of a plain connect. ``with _connect(schema) as conn:``
+    """One pooled, schema-scoped connection. ``with _connect(schema) as conn:``
     commits on clean exit, rolls back on exception, then returns the
     connection to the pool."""
     return PgConnProxy(schema)
 
 
-# zones-schema `_meta` (provenance) helpers — module-level predecessors of
-# the PgCatalogue.get_meta/set_meta methods; kept for the build/ingest
-# scripts that call them as `zones_db.get_meta(conn, ...)`.
+# zones-schema `_meta` (provenance) helpers, called by the build/ingest
+# scripts as `zones_db.get_meta(conn, ...)`.
 def get_meta(conn: Any, key: str, default: str | None = None) -> str | None:
     """Return the value for ``key`` or ``default`` if missing."""
     row = conn.execute(_SQL["meta_select"], (key,)).fetchone()
@@ -89,9 +55,8 @@ def set_meta(conn: Any, key: str, value: str) -> None:
 # Zone active-record model
 # ---------------------------------------------------------------------------
 # The Zone dataclass owns every column from the `zones` table plus the
-# eagerly-loaded child collections (types, aliases, bosses). Classmethods
-# replace the old free-function lookups; instance methods cover the
-# `zone_types` side-table mutations.
+# eagerly-loaded child collections (types, aliases, bosses). Instance
+# methods cover the `zone_types` side-table mutations.
 
 
 @dataclass(frozen=True)
@@ -101,10 +66,7 @@ class Zone:
     name aliases, raid encounters).
 
     Hydration is eager: every Zone instance carries the full types /
-    aliases / bosses lists — the same shape the routes have always
-    consumed. Eager fetch costs three extra SELECTs per row, which is
-    fine because the historical free-function callers all rendered the
-    full hydrated zone anyway.
+    aliases / bosses lists (three extra SELECTs per row).
     """
 
     id: int
@@ -163,9 +125,8 @@ class Zone:
         )
 
     def to_dict(self) -> dict:
-        """Legacy hydrated-zone dict shape — drop-in for the result of the
-        former ``_hydrate_zone()`` helper. Bools come back as Python
-        bools; bosses are flattened to dicts with mob ids (the editor
+        """The hydrated-zone dict the routes consume. Bools come back as
+        Python bools; bosses are flattened to dicts with mob ids (the editor
         frontend targets individual mob rows for rename/promote/delete)."""
         return {
             "id": self.id,
@@ -329,12 +290,9 @@ class Zone:
 
 
 def _hydrate_zone(conn: Any, row: Any) -> dict:
-    """Build the legacy hydrated-zone dict from a `zones`-table row +
-    side queries for types/aliases/bosses. Now a thin wrapper around
-    ``Zone._from_row(conn, row).to_dict()`` — same SQL, same shape, no
-    drift risk. Still callable with an externally-managed connection
-    (used by the featured-raid shims to share the same DB conn across
-    multiple zones)."""
+    """Build the hydrated-zone dict from a `zones`-table row + side queries
+    for types/aliases/bosses, on an externally-managed connection (the
+    featured-raid shims share one conn across multiple zones)."""
     return Zone._from_row(conn, row).to_dict()
 
 
@@ -399,7 +357,7 @@ class ZoneEncounterMob:
         return cls(id=row["id"], encounter_id=eid, mob_name=row["mob_name"], position=row["position"])
 
     def to_dict(self) -> dict:
-        """Legacy {id, mob_name, position} shape that pre-model callers expect."""
+        """``{id, mob_name, position}`` route shape."""
         return {"id": self.id, "mob_name": self.mob_name, "position": self.position}
 
     @classmethod
@@ -580,7 +538,7 @@ class ZoneEncounter:
 
     def to_dict(self, *, with_mob_ids: bool = False) -> dict:
         """``{id, zone_id, encounter_name, position, stage, wiki_url, mobs}``
-        shape that pre-model callers (routes) expect.
+        route shape.
 
         ``with_mob_ids=True`` produces the hydrate-a-whole-zone shape
         (``mobs[]`` contains ``id``) — needed by the editor frontend so it
@@ -851,7 +809,7 @@ class FeaturedRaidExpansion:
     year: int | None
 
     def to_dict(self) -> dict:
-        """Legacy ``{short, name, year}`` shape that the routes return."""
+        """``{short, name, year}`` shape that the routes return."""
         return {"short": self.expansion_short, "name": self.name, "year": self.year}
 
     @classmethod
@@ -1061,7 +1019,7 @@ class FeaturedRaidCategory:
     position: int
 
     def to_dict(self) -> dict:
-        """Legacy ``{name, position}`` shape. ``expansion_short`` is
+        """``{name, position}`` route shape. ``expansion_short`` is
         contextual (the caller already knew it to make the list call)
         and is not surfaced."""
         return {"name": self.name, "position": self.position}
@@ -1150,16 +1108,10 @@ class FeaturedRaidCategory:
 class ZoneCatalogue(PgCatalogue):
     """Read (and build) access to one zones schema.
 
-    The eq2db data-interface convention (see :class:`PgCatalogue`): the
-    schema name lives on the instance; the shared module-level ``catalogue``
-    is the runtime entry point, and tests construct
-    ``ZoneCatalogue(scratch_schema)``.
-
-    The frozen dataclass models above (Zone, ZoneEncounter, ZoneEncounterMob,
-    FeaturedRaid*) are the typed active-record layer — the catalogue methods
-    delegate to them with ``self.schema`` and convert to the legacy dict
-    shapes the routes and scripts consume, so consumers never juggle
-    connections or model imports themselves.
+    The shared module-level ``catalogue`` is the runtime entry point; tests
+    construct ``ZoneCatalogue(scratch_schema)``. Methods delegate to the
+    dataclass models above with ``self.schema`` and return the dict shapes
+    the routes and scripts consume.
     """
 
     def __init__(self, schema: str = SCHEMA) -> None:
@@ -1275,7 +1227,7 @@ class ZoneCatalogue(PgCatalogue):
 
     def find_by_name(self, name: str) -> dict | None:
         """Resolve a zone by name (canonical → alias fallback). Returns the
-        legacy hydrated dict, or None on miss."""
+        hydrated dict, or None on miss."""
         z = Zone.find_by_name(name, schema=self.schema)
         return z.to_dict() if z is not None else None
 
@@ -1292,9 +1244,8 @@ class ZoneCatalogue(PgCatalogue):
             conn.close()
 
     def list_by_expansion(self, short: str, type_filter: str | None = None) -> list[dict]:
-        """All zones in an expansion as legacy hydrated dicts. ``type_filter``
-        stays positional for the existing call sites; the model exposes it as
-        a keyword-only argument."""
+        """All zones in an expansion as hydrated dicts. ``type_filter`` is
+        positional here; the model exposes it as a keyword-only argument."""
         return [z.to_dict() for z in Zone.list_by_expansion(short, type_filter=type_filter, schema=self.schema)]
 
     def list_by_event(self, event_name: str) -> list[dict]:
@@ -1471,7 +1422,7 @@ class ZoneCatalogue(PgCatalogue):
             return [_hydrate_zone(conn, r) for r in rows]
 
     def add_featured_raid_zone(self, zone_name: str) -> dict | None:
-        # Legacy contract: returns hydrated zone dict (NOT the FeaturedRaidZone
+        # Contract: returns hydrated zone dict (NOT the FeaturedRaidZone
         # shape). Re-hydrate by name after the model add() succeeds.
         fz = FeaturedRaidZone.add(zone_name, schema=self.schema)
         if fz is None:

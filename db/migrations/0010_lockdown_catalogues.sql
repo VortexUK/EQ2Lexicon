@@ -1,6 +1,6 @@
 -- global
--- Supabase lockdown for the Phase-2 catalogue schemas (items / spells /
--- recipes), mirroring 0006_lockdown.sql. The app connects as the schema
+-- Supabase lockdown for the catalogue schemas (items / spells / recipes),
+-- mirroring 0006_lockdown.sql. The app connects as the schema
 -- OWNER (bypasses RLS); enabling RLS + revoking the PostgREST roles keeps
 -- the auto-generated API blind to these schemas too. 0006's note applies
 -- here as well: a future migration that adds a table must ENABLE ROW LEVEL

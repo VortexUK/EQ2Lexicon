@@ -1,10 +1,6 @@
-"""Confirm that officer-only users (non-admin, non-contributor) cannot write
-raid strategies or zone overviews after the edit_content grant was removed.
-
-The key test condition: ``role_has_capability('officer', 'edit_content')``
-returns False (because the row no longer exists in role_permissions after the
-2026-05-29 change). The dep short-circuits: the dynamic officer check is
-never reached and a 403 is returned."""
+"""Officer-only users (non-admin, non-contributor) cannot write raid strategies or
+zone overviews: officer lacks edit_content, so the dep returns 403 before any
+dynamic officer check."""
 
 from __future__ import annotations
 

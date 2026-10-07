@@ -1,15 +1,9 @@
-"""Shared Postgres connection plumbing for the migrated store families.
+"""Shared Postgres connection plumbing: one database, one schema per family,
+selected via ``SET search_path`` at checkout.
 
-One database, five schemas (users / parses / census / zones / raids —
-see db/migrations/). Stores select their schema via ``SET search_path``
-at connection checkout, so every query stays unqualified.
-
-Pool-if-open-else-direct: the app lifespan opens one async + one sync
-pool (`open_pools`) and every checkout goes through them; when no pool
-is open — pytest (fresh event loop per test), scripts, or the bot's
-startup racing the web lifespan — the same contextmanagers fall back to
-a short-lived direct connection. Tests therefore never share a
-loop-bound pool, and nothing outside the lifespan needs pool wiring.
+Pool-if-open-else-direct: the app lifespan opens one async + one sync pool
+(`open_pools`); with no pool open (pytest, scripts, the bot's startup racing
+the lifespan) the same contextmanagers use a short-lived direct connection.
 
 Production DSN is the Supabase Supavisor SESSION pooler (:5432,
 sslmode=require). Transaction mode (:6543) would break psycopg's
@@ -29,7 +23,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
 #: Accepted DSN env names, in precedence order. DATABASE_URL is the
-#: canonical name (Railway); the others are historical/dashboard-copied.
+#: canonical name (Railway); the others match dashboard-copied names.
 _DSN_VARS = ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_CONNECTION_STRING")
 
 
@@ -56,28 +50,26 @@ _async_pool: AsyncConnectionPool | None = None
 _sync_pool: ConnectionPool | None = None
 
 # App connections must never camp an open transaction: a session left "idle
-# in transaction" holds its locks indefinitely and starves maintenance DDL
-# (the cutover's TRUNCATE sat behind two such sessions). The app's real
-# between-statement idling is milliseconds, so two minutes is pure headroom.
-# Pool-only on purpose — scripts/tests use direct connections and may
+# in transaction" holds its locks indefinitely and starves maintenance DDL.
+# The app's real between-statement idling is milliseconds, so two minutes is
+# pure headroom. Pool-only on purpose — scripts/tests use direct connections and may
 # legitimately pause mid-transaction while computing. A plain SET survives
 # the Supavisor SESSION pooler (startup `options` packets do not).
 _IDLE_TXN_TIMEOUT_SQL = "SET idle_in_transaction_session_timeout = '120s'"
 
 # Per-statement ceilings for APP connections (the Supabase role default is
 # 2 minutes, lock_timeout 0): no request-path statement legitimately runs
-# this long, and a statement stuck behind a lock — the metrics size query
-# sat 110 s on cutover DDL while holding one of the five sync slots — must
-# fail fast rather than freeze the pool. Long maintenance work (migrations,
-# scripts, the bulk loaders) uses direct connections and is unaffected; a
+# this long, and a statement stuck behind a lock while holding a pool slot
+# must fail fast rather than freeze the pool. Long maintenance work
+# (migrations, scripts, the bulk loaders) uses direct connections and is unaffected; a
 # sweep that genuinely needs more can `SET LOCAL statement_timeout`.
 _STATEMENT_TIMEOUT_SQL = "SET statement_timeout = '30s'"
 _LOCK_TIMEOUT_SQL = "SET lock_timeout = '10s'"
 _CONFIGURE_SQL = (_IDLE_TXN_TIMEOUT_SQL, _STATEMENT_TIMEOUT_SQL, _LOCK_TIMEOUT_SQL)
 
-# Checkout wait before a PoolTimeout. The library default is 30 s, which on
-# a saturated 5-slot pool turned into a 30 s whole-process stall for every
-# loop-thread caller; failing in 5 s surfaces as a 500/503 instead.
+# Checkout wait before a PoolTimeout. The library default (30 s) on a
+# saturated pool stalls every loop-thread caller for 30 s; failing in 5 s
+# surfaces as a 500/503 instead.
 POOL_CHECKOUT_TIMEOUT_S = 5.0
 
 

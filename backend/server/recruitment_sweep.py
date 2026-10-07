@@ -1,21 +1,9 @@
 """Daily census-existence sweep over guild recruitment listings.
 
-For every row with recruiting=1, look the guild up in Census BY ID (the
-rename-proof anchor):
-
-- Census answers with a different name → the guild was renamed; refresh the
-  stored ``guild_name`` so the name-addressed routes and the browse cards
-  follow it (audited ``guild_recruitment_renamed``).
-- Census answers with no such guild → it disbanded; auto-delist
-  (``recruiting=0``, never a delete — the profile + logo stay recoverable)
-  and audit ``guild_recruitment_delisted``.
-- The lookup itself fails (Census down/flaky) → skip. Disbandment is only
-  ever inferred from a POSITIVE "census answered: not found", so a flake
-  can never delist a live guild.
-
-Run by ``sweep_loop`` from the app lifespan (first pass ~15 min after
-boot, then daily). Listed guilds are few (one TLE world), so the sweep is
-one tiny Census call per guild with polite pacing.
+Each recruiting guild is looked up in Census BY ID: renamed → stored name
+refreshed; not found → delisted (``recruiting=0``, never deleted); lookup
+error → skipped. Disbandment is only inferred from a POSITIVE "Census
+answered: not found", so a flake can never delist a live guild.
 """
 
 from __future__ import annotations

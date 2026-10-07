@@ -1,11 +1,4 @@
-"""Tests for the ilvl column on the items schema — item_to_row + upsert round-trip.
-
-Postgres edition: DB tests lease an isolated scratch schema via the
-``items_schema`` fixture (tests/fixtures/catalogues_db.py) and construct
-``ItemCatalogue(items_schema)`` — the analog of the old
-``ItemCatalogue(tmp_db)``. The former "missing DB file" case asserts the
-EMPTY-schema behaviour instead.
-"""
+"""Tests for the ilvl column on the items schema — item_to_row + upsert round-trip."""
 
 from __future__ import annotations
 
@@ -68,8 +61,7 @@ def test_upsert_round_trip_persists_ilvl(items_schema):
 
 
 def test_ilvl_column_exists_in_fresh_schema(items_schema):
-    # (ilvl is a real column owned by db/migrations/0007_items.sql.) A freshly leased schema already carries
-    # the column, and a value round-trips through upsert.
+    # A freshly leased schema carries the ilvl column, and a value round-trips through upsert.
     cat = ItemCatalogue(items_schema)
     with cat.init_db() as conn:
         cols = {
@@ -108,8 +100,6 @@ def test_gear_for_ids_returns_wield_style(items_schema):
 
 
 def test_gear_for_ids_empty_schema_returns_empty(items_schema):
-    # (was test_gear_for_ids_missing_db_returns_empty — a nonexistent DB file
-    # is no longer a concept; the equivalent is an EMPTY leased schema.)
     empty = ItemCatalogue(items_schema)
     assert empty.gear_for_ids([1, 2, 3]) == {}
     assert empty.gear_for_ids([]) == {}

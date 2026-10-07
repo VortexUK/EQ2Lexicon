@@ -96,10 +96,8 @@ def test_collect_straggler_mirror_of_posted_fight_not_reposted(seeded_db):
 
 
 def test_collect_straggler_hours_later_not_reposted(seeded_db):
-    """2026-09-27 regression: a raider uploading their log of an already-posted
-    fight the next morning (or a history replay days later) used to stand
-    alone as a 'new' fight because the requery only looked 30 min back in
-    UPLOAD time. Regrouping is on FIGHT time now, so it attaches and skips."""
+    """A late upload of an already-posted fight (next morning, or a history replay)
+    regroups on FIGHT time, not upload time, so it attaches and is not reposted."""
     _insert_fight(seeded_db, uploaded_by="RaiderA", ingested_at=NOW + 200)
     # Posted at the tick where the watermark moved past NOW + 200.
     assert len(collect_new_fights("Varsoon", "Exordium", 0, NOW + 600)) == 1

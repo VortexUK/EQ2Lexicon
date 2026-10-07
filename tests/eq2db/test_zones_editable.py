@@ -1,17 +1,5 @@
-"""Tests for the editable raid-roster helpers on the zones catalogue.
-
-Postgres edition: tests lease an isolated scratch schema via the
-``zones_schema`` fixture (tests/fixtures/zones_raids_db.py) and construct
-``ZoneCatalogue(zones_schema)`` — the analog of the old
-``ZoneCatalogue(tmp_db)``. Raw seeding/assertions go through
-``pg_conn(schema)`` (dict rows, %s params).
-
-Note on the two former init_db data-normalization tests: the one-time
-fixups (comma-joined encounter_name collapse, " (Zone)" suffix
-strip) were retired in the Postgres cutover — ``PgCatalogue.init_db()``
-creates and mutates nothing (DDL is owned by db/migrations/; prod data
-crossed over already normalized). The descendants below pin that new
-contract plus the surviving alias-resolution behaviour.
+"""Tests for the editable raid-roster helpers on the zones catalogue, plus the
+"init_db() mutates nothing" contract and alias resolution.
 """
 
 from __future__ import annotations
@@ -24,7 +12,7 @@ from tests.fixtures.pg import pg_conn
 
 def _seed_legacy_zone(schema: str) -> tuple[int, int]:
     """Seed one zone + one comma-joined encounter (two mobs at positions
-    0 + 1) — the legacy pre-normalization shape. Returns (zone_id, encounter_id)."""
+    0 + 1) — a pre-normalization shape. Returns (zone_id, encounter_id)."""
     with pg_conn(schema) as conn:
         conn.execute(
             "INSERT INTO zones (id, name, name_lower, expansion_short, expansion_name, "
@@ -51,11 +39,8 @@ def _seed_legacy_zone(schema: str) -> tuple[int, int]:
 
 
 def test_init_db_is_schema_passive_no_data_normalization(zones_schema):
-    """``init_db()`` is a pooled-connection handle, NOT a
-    schema/data fixup pass — a legacy-shaped row passes through untouched
-    (the one-time normalization was retired at cutover; the copied prod
-    data was already normalized). Pins the "init_db never mutates data"
-    contract so a future destructive _post_init analog is caught."""
+    """``init_db()`` is a pooled-connection handle, NOT a schema/data fixup
+    pass — a comma-joined encounter row passes through untouched."""
     zone_id, enc_id = _seed_legacy_zone(zones_schema)
     # Add a non-comma encounter alongside.
     with pg_conn(zones_schema) as conn:
@@ -76,16 +61,13 @@ def test_init_db_is_schema_passive_no_data_normalization(zones_schema):
 
     with pg_conn(zones_schema) as conn:
         rows = {r["id"]: r["encounter_name"] for r in conn.execute("SELECT id, encounter_name FROM zone_encounters")}
-    assert rows[enc_id] == "Ire, Malevolence"  # untouched — normalization retired
+    assert rows[enc_id] == "Ire, Malevolence"  # untouched
     assert rows[enc_id2] == "Demetrius Crane"  # untouched
 
 
 def test_paren_zone_alias_resolves_to_canonical(zones_schema):
-    """The " (Zone)" suffix-strip rewrite itself was retired at cutover (prod data crossed over
-    already stripped, with the old suffixed name preserved as an alias) —
-    what survives is the alias contract: find_by_name resolves BOTH the
-    clean name and the historical parenthesised form to the same canonical
-    zone."""
+    """find_by_name resolves BOTH the clean name and the parenthesised
+    " (Zone)" alias to the same canonical zone."""
     with pg_conn(zones_schema) as conn:
         conn.execute(
             "INSERT INTO zones (id, name, name_lower, expansion_short, expansion_name, "

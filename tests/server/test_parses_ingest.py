@@ -333,7 +333,7 @@ async def test_bearer_token_unapproved_user_returns_403(app):
 # X-Lexicon-Signature (HMAC) — strict validation
 # ---------------------------------------------------------------------------
 # Plugin v0.1.8+ ships X-Lexicon-Signature = HMAC-SHA256(body, api_token).
-# Server-side validation is STRICT (flipped from opportunistic 2026-05-25):
+# Server-side validation is STRICT:
 #   * token-auth + header missing  → 401 (force plugin update)
 #   * token-auth + header present  → must verify; mismatch is 401
 #   * session-auth + header present → 400 (confused client)
@@ -459,7 +459,7 @@ async def test_signature_required_on_token_auth(app):
 
 
 # ---------------------------------------------------------------------------
-# Defensive validation (v0.1.13 audit follow-ups)
+# Defensive validation
 # ---------------------------------------------------------------------------
 
 

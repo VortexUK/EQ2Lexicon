@@ -1,13 +1,5 @@
-"""Tests for the manual-edit protection in the raids catalogue helpers.
-
-The encounter helper (upsert_raid_encounter) has always had this protection;
-the zone helper (upsert_raid_zone) gained it alongside the wiki-seed ingest
-pipeline so a re-scrape can't overwrite admin/officer-edited zone overviews.
-
-Postgres edition: each test leases an isolated scratch raids schema via the
-``raids_schema`` fixture and opens a schema-scoped pooled connection with
-``RaidCatalogue(raids_schema).init_db()`` (the analog of the old
-``RaidCatalogue(tmp_path / 'the raids catalogue').init_db()``). Rows are dicts.
+"""Tests for the manual-edit protection in upsert_raid_zone / upsert_raid_encounter:
+a re-scrape must never overwrite admin/officer-edited content.
 """
 
 from __future__ import annotations

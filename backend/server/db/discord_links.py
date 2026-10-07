@@ -3,7 +3,7 @@
 Maps a Discord server (guild) to an EQ2 (world, guild_name) pair — the
 bot's per-Discord-guild context. Configured in Discord via the /lexicon
 command group (manage_guild gated); consumed by every world-aware bot
-command (backend/bot/guild_context.py) and by the Phase 3 voice-attendance
+command (backend/bot/guild_context.py) and by the voice-attendance
 poller (voice_channel_id = the raid voice channel to snapshot).
 
 Mirrors the guild_settings domain: pooled per-call connections via

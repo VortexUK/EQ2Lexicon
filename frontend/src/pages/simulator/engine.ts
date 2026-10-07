@@ -1,19 +1,7 @@
-// Rotation simulation engine — discrete-event priority loop.
-//
-// Model (v1, single-target boss dummy):
-//   * At each decision point, cast the FIRST ability in priority order
-//     whose recast timer is up. Busy time = effective cast + recovery;
-//     the recast timer starts when the cast completes (readyAt =
-//     castStart + castTime + recast).
-//   * DoTs are analytic snapshot-at-cast: total tick damage is credited
-//     over the DoT's duration; re-casting before expiry clips the
-//     remaining ticks of the previous application (tracked per ability);
-//     ticks past the fight end are clipped too.
-//   * Auto-attack is a continuous analytic stream (no swing events).
-//   * When nothing is ready, time jumps to the next recast expiry (idle).
-//
-// Kept free of React so it unit-tests directly. All tuning constants
-// live in formulas.ts.
+// Rotation simulation engine — discrete-event priority loop: cast the first
+// ready ability in priority order (recast starts when the cast completes);
+// DoTs credit at cast and clip on early re-cast or fight end. React-free;
+// tuning constants live in formulas.ts.
 
 import { activeBuffIds, applyMods, buffUptimes, modsAt, windowEdges } from './buffs'
 import {
@@ -78,7 +66,7 @@ function dotComponentsDamage(
   // crit × fervor × doublecast (dealt-damage multipliers) × calibration,
   // each component scaled by its target multiplier. The ability's own
   // Enhance % multiplies the BASE-CHAIN parts only — never the flat mod
-  // or proc payloads (Soulrot VII + Lifeburn cross-validated).
+  // or proc payloads.
   // Everything snapshots at cast. Inactive conditional components
   // contribute nothing and are excluded from the dot state list.
   const coeff = damageCoefficient(stats, ability.level)
@@ -330,9 +318,7 @@ export function simulate(config: SimConfig): SimResult {
 
   const abilityDamage = Object.values(perAbility).reduce((s, e) => s + e.damage, 0)
   const procRows: AbilityBreakdown[] = []
-  // Proc payloads DEAL tooltip-chain damage + AM×⅓ (log-validated on
-  // Bolt of Power + Blessed Armament: means within 1.1%, mins 0.3%),
-  // then crit × fervor (crit/non-crit dealt ratio observed 1.29).
+  // Proc payloads DEAL tooltip-chain damage + AM×⅓, then crit × fervor.
   // Maintained toggles (Exorcise) are continuous pulse streams instead:
   // one pulse per interval for the whole fight, aoe scope ⇒ no mod.
   for (const passive of config.passives ?? []) {

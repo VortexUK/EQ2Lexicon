@@ -1,10 +1,8 @@
 create schema if not exists census;
 set search_path to census, public;
 
--- Reviewed translation of backend/census/store.sql's schema blocks.
--- Policy: epoch bigints, counters bigint, composite text PKs kept.
--- REVIEW: data_json becomes jsonb — psycopg returns it parsed (the
--- json.loads round-trips in store.py go away) and the character prefix
+-- census family. Policy: epoch bigints, counters bigint, composite text PKs.
+-- data_json is jsonb: psycopg returns it parsed, and the character prefix
 -- search reads ->>'cls' in SQL instead of parsing whole blobs in Python.
 
 CREATE TABLE characters (
@@ -65,8 +63,8 @@ CREATE TABLE guild_history (
     PRIMARY KEY (world, name_lower, day)
 );
 
--- REVIEW: the store-first name-prefix searches (LIKE 'ab%' on name_lower)
--- need text_pattern_ops to use an index under non-C collations.
+-- The store-first name-prefix searches (prefix LIKE on name_lower) need
+-- text_pattern_ops to use an index under non-C collations.
 CREATE INDEX idx_characters_prefix ON characters (world, name_lower text_pattern_ops);
 CREATE INDEX idx_guilds_prefix     ON guilds (world, name_lower text_pattern_ops);
 -- The recruiting browse's latest-member-count DISTINCT ON scan.

@@ -1,17 +1,5 @@
-"""
-GET /api/zones                 — list zones, default-filtered to raid_x4.
-GET /api/zones/{name}          — single zone hydrated with its encounter roster.
-GET /api/zones/progress        — per-zone kill progress for the signed-in user's
-                                 primary-character guild.
-
-Public reference data — the zones DB carries no user-supplied rows. Sourced from
-the curated wiki dump at ``scripts/dev/eq2_zones.cleaned.json`` +
-``scripts/dev/eq2_raid_bosses.review.txt`` and rebuilt with
-``scripts/build_zones_db.py``.
-
-Sync DB calls (``zones_db.list_by_expansion`` / ``find_by_name``) are
-offloaded with ``run_in_executor`` so they don't block the event loop — same
-pattern as ``recipes.py`` and ``classes.py``.
+"""Zone catalogue routes (zones schema): zone list/detail, per-guild kill
+progress, and the desktop parser's raid-boss list.
 """
 
 from __future__ import annotations

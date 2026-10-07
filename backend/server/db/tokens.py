@@ -1,7 +1,6 @@
 """users-schema api_tokens table helpers (psycopg).
 
-Carved out of the former single-file db module. Async helpers for the API
-token domain. Methods check out pooled connections via the shared
+Methods check out pooled connections via the shared
 ``PgStoreBase._db()``; tests re-point ``store.schema``.
 
 Raw tokens are 'eq2c_' + 32 url-safe base64 chars (≈192 bits entropy).
@@ -133,8 +132,7 @@ class TokensStore(PgStoreBase):
                 # The touch is COSMETIC bookkeeping — it must never fail the
                 # auth path. A transient connection fault or lock contention
                 # under a raid-night upload burst costs a lost last-used bump,
-                # which is nothing; a 500 here fails the whole upload (seen
-                # live 2026-09-12 on /attendance/ingest).
+                # which is nothing; a 500 here fails the whole upload.
                 try:
                     await db.execute(
                         _SQL["update_last_used_at"],

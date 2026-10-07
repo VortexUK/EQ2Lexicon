@@ -1,39 +1,18 @@
-"""Background retention sweeps for parses.
+"""Retention sweeps for parses, keyed on the fight time (``started_at``).
 
-Row retention (both rules keyed on the fight time, ``encounters.started_at``):
+  * Trash (non-boss, see ``boss.is_boss``) is hard-deleted ``RETENTION_DAYS``
+    after the fight.
+  * Named (boss) fights keep only the primary upload after the same window:
+    the canonical (longest) AND the longest winning upload are both kept, so
+    no rankings link breaks.
+  * Kept fights' ``attack_types`` + ``damage_types`` are pruned on a zone-tier
+    schedule (``DETAIL_RETENTION_*_DAYS``, by ``_classify_zone``) and
+    ``detail_pruned_at`` is stamped. ``encounters`` + ``combatants`` live
+    forever. Trash is gone before the shortest tier, so the prune needs no
+    is_boss check.
 
-  * **Trash** encounters (non-boss — title starts lowercase, see ``boss.is_boss``)
-    are hard-deleted ``RETENTION_DAYS`` after the fight.
-  * **Named** (boss) encounters are never deleted, but their *duplicate* raider
-    uploads are cleared ``RETENTION_DAYS`` after the fight — only the primary
-    (the longest-duration canonical, the upload rankings link to) is kept.
-
-Detail retention (user decision 2026-10-04 — the 6.8GB problem): the kept
-fights' per-ability breakdown rows (``attack_types`` + ``damage_types``)
-are dropped on a tier schedule by zone category (``_classify_zone`` — the
-same curated-zones bucketing the parses list uses):
-
-  * curated RAID zones ............ ``DETAIL_RETENTION_RAID_DAYS`` (30)
-  * curated group-instance zones .. ``DETAIL_RETENTION_DUNGEON_DAYS`` (14)
-  * anything else ................. ``DETAIL_RETENTION_OTHER_DAYS`` (7)
-
-``encounters`` + ``combatants`` (everything rankings, the parse list and
-character pages read) stay forever; ``detail_pruned_at`` is stamped so the
-parse detail page can show a "breakdown pruned" notice instead of silently
-empty tables. Trash dies at 3 days, so by the shortest tier only boss
-fights remain — no is_boss re-check needed here.
-
-Hard-deleting the non-primary boss uploads is rankings-safe: rankings
-(``rankings._load_primary_boss_kills``) already mirror-group via the same
-``_group_into_fights`` and use only the primary upload, and leaderboard links
-point at the primary's encounter id. To be safe against the rare case where a
-fight's longest upload is not the winning one rankings link to, the sweep also
-preserves the longest *winning* upload. Soft-deleted (``hidden_at``) rows are
-never touched, so manual hides survive.
-
-``run_parse_cleanup`` is invoked periodically from ``app.py``'s lifespan
-(see ``_parse_cleanup_loop``); ``now`` / ``retention_days`` are injectable so
-tests can drive an arbitrary clock without touching wall-time.
+Soft-deleted (``hidden_at``) rows are never touched. ``now`` /
+``retention_days`` are injectable for tests.
 """
 
 from __future__ import annotations
@@ -105,7 +84,7 @@ def run_parse_cleanup(now: int | None = None, retention_days: int | None = None)
             if not boss_rows:
                 continue
 
-            # Classify pre-migration combatants (is_player NULL) so player_count
+            # Classify unclassified combatants (is_player NULL) so player_count
             # and the top-N gate see the right flags — mirrors rankings/list.
             for r in boss_rows:
                 if _ensure_classified(conn, r["id"], r.get("zone")):

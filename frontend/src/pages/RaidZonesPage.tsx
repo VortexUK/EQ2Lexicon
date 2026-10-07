@@ -1,17 +1,7 @@
 /**
- * RaidZonesPage — /raids landing page.
- *
- * Data is fully admin-curated:
- *   - GET /api/raids/expansions          → which expansion sections to render
- *   - GET /api/raids/zones?expansion=X   → raid zones in each section
- *
- * The page itself just owns the expansion list, the open/closed state per
- * section, and the page-level "Add expansion" admin affordance.  Per-section
- * rendering + per-zone fetches live in <ExpansionSection> so each one calls
- * useFetch exactly once per render (Rules of Hooks).
- *
- * Migrated 2026-05-31 from a hardcoded EXPANSIONS const + raid_x4 type
- * filter to admin-curated tables (see census/zones_db.featured_raid_*).
+ * RaidZonesPage — /raids landing page. Sections come from the admin-curated
+ * GET /api/raids/expansions; per-section fetches live in <ExpansionSection>
+ * because the expansion count is dynamic (Rules of Hooks).
  */
 import { useEffect, useMemo, useState } from 'react'
 

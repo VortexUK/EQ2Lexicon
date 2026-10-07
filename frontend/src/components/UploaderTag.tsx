@@ -1,26 +1,10 @@
 import { SupporterBadge, useSupporters } from './SupporterBadge'
 
 /**
- * Renders a parse uploader's identity for inline display:
- *
- *     Alice 👑 · Menludiir
- *
- * The Discord display name takes priority because the supporter badge
- * sits next to it; the character name shows after a separator as the
- * "logged from" context (whose POV the parse captures).
- *
- * Backward compatibility — older parses uploaded without the plugin
- * (or pre-v0.1.10 plugin builds) carry no Discord identity. In those
- * cases the display falls back to JUST the character name with no
- * badge: `Menludiir`.
- *
- * Single-name collapse — if the resolved display name is the same as
- * the character name (or differs only in case), we don't render both;
- * just the one. Catches the "discord username == character name" case
- * that's surprisingly common in this community.
- *
- * Props are kept loose (string | null | undefined) because the parse
- * response model permits all three for the Discord-side fields.
+ * Renders a parse uploader as `Alice 👑 · Menludiir` (Discord name + badge,
+ * then the logging character). Parses with no Discord identity show just the
+ * character name; a display name equal to the character name (ignoring case)
+ * renders once.
  */
 export function UploaderTag({
   characterName,

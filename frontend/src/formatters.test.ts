@@ -68,8 +68,7 @@ describe('fmtLocalTime', () => {
 })
 
 describe('fmtLocalDateTime', () => {
-  // toLocaleString output varies wildly by runtime — only assert that we
-  // get a non-empty string and that it round-trips deterministically.
+  // toLocaleString output varies by runtime, so only the shape is asserted.
   it('returns a non-empty string', () => {
     const got = fmtLocalDateTime(1779191130)
     expect(typeof got).toBe('string')

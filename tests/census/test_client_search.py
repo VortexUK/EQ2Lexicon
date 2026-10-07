@@ -1,4 +1,4 @@
-"""Tests for census.client search methods — COV-009 sub 4.
+"""Tests for census.client search methods.
 
 Covers: search_characters (parallel fan-out, dedup, sort), search_characters_by_name,
 search_guilds_by_name, _search_chars_single (CensusError on failure).
@@ -193,7 +193,7 @@ class TestSearchCharacters:
 
 
 # ---------------------------------------------------------------------------
-# _search_chars_single (COV-036: raises CensusError on census failure)
+# _search_chars_single (raises CensusError on census failure)
 # ---------------------------------------------------------------------------
 
 

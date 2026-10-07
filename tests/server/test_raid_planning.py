@@ -675,11 +675,9 @@ def test_merge_availability_newest_wins():
 
 @pytest.mark.asyncio
 async def test_planner_officer_edit_overrides_stale_self_declaration(app, users_db):
-    """The live complaint: a player self-declared AFK, the officer changes
-    the character to Tentative on the planner — the newer officer edit must
-    actually show (the old always-player-wins merge silently masked it),
-    and an officer 'Available' must clear the badge, until the player
-    re-declares (newest edit wins again)."""
+    """A player self-declares AFK, then an officer sets Tentative — the newer
+    officer edit shows, and an officer 'Available' clears the badge until the
+    player re-declares (newest edit wins)."""
     from backend.server.db import upsert_user
     from backend.server.db.claims import store as claims_db
 

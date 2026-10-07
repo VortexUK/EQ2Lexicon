@@ -1,43 +1,10 @@
 """One-shot SQLite → Postgres data copy for the Supabase cutover.
 
-Re-runnable by design: every invocation TRUNCATEs the target schemas and
-reloads them, so rehearsals are the real run and the cutover window's
-final pass is just a fast re-run against the last litestream restore.
+    uv run python scripts/migrate_to_postgres.py --users <users.db> \
+        --parses <parses.db> --census <census.db> --zones <zones.db> ...
 
-    uv run python scripts/migrate_to_postgres.py \
-        --users data/users.db --parses data/parses/parses.db \
-        --census data/census/census.db --zones data/zones/zones.db \
-        --raids data/raids/raids.db
-
-The DSN comes from the usual env chain (DATABASE_URL → SUPABASE_DB_URL →
-POSTGRES_CONNECTION_STRING) or --dsn. Safety: the script prints the target
-host and requires --yes (or interactive confirmation) before writing.
-
-Per family: TRUNCATE … RESTART IDENTITY CASCADE → COPY each table in FK
-order (committed PER TABLE — bounds WAL so a bulk load can't fill a small
-disk) → setval every identity sequence → ANALYZE → final verify.
-Column lists and types are introspected from information_schema, so the
-copy follows the reviewed PG schemas; transforms applied by type:
-
-  * integer[]  (raid_slots.days)        — "2,4" CSV → {2,4}
-  * jsonb      (attendance zones/uploaders, census data_json) — validated
-    with json.loads, shipped as text (COPY parses jsonb input server-side)
-  * bytea      (guild_recruitment.logo) — bytes passthrough
-  * detail-retention tiers (parses)     — attack_types/damage_types rows
-    whose encounter is past its tier cutoff are NOT copied; the encounter
-    is stamped detail_pruned_at at load (this is what shrinks 6.8GB of
-    SQLite to a Postgres footprint the tier gate measures).
-
-FK orphans (the users schema never enforced its FKs): each child table is
-anti-joined against its parent IN SQLITE first; offending rows are written
-to reports/orphans_<schema>.<table>.jsonl and EXCLUDED from the copy. Any
-orphan fails the run unless --allow-orphans. Duplicate APPROVED claims per
-(world, lower(name)) are audited the same way (the new partial unique
-index would reject the load).
-
-Verification per table: PG row count must equal sqlite count minus
-quarantined/pruned rows (hard fail), plus a sample deep-compare; a JSON
-report lands in reports/migrate_report.json.
+TRUNCATEs and reloads each named family schema at DATABASE_URL (or --dsn);
+re-runnable. Design, ordering and rollback: docs/decisions/ADR-postgres-cutover.md.
 """
 
 from __future__ import annotations
@@ -69,12 +36,7 @@ REPORTS_DIR = _REPO / "reports"
 #: _classify_zone, which reads the zones schema — with stale/empty zones
 #: data every kill would classify "other" (7-day tier) and curated raid
 #: detail would be over-pruned at load.
-#: Phase-2 read-only catalogue mirrors (items / spells / recipes) ride the
-#: same machinery — their one-time bulk load sources the LOCAL data/<name>/
-#: <name>.db files (the volume copies are identical). The Phase-3 reference
-#: pair (aas / classes) is deliberately NOT here: their rows are seeded by
-#: the 0011/0012 migrations themselves (full-data seeds — every environment
-#: is data-complete from migrations alone).
+#: aas / classes are deliberately NOT here: migrations 0011/0012 seed them.
 FAMILIES = ("users", "zones", "raids", "census", "parses", "items", "spells", "recipes")
 
 #: Tables whose rows are intentionally NOT copied (none today; placeholder
@@ -338,8 +300,8 @@ def copy_family(
                 (now, list(pruned_encounters)),
             )
 
-        # Commit per table: bounds the WAL a bulk load accumulates (a single
-        # family-wide transaction filled a small Supabase disk mid-COPY) and
+        # Commit per table: bounds the WAL a bulk load accumulates (a
+        # family-wide transaction can fill a small Supabase disk mid-COPY) and
         # lets checkpoints recycle between tables. Idempotency is unchanged —
         # every run starts by truncating the family, and the within-family FK
         # order means a committed parent is always valid for its children.
@@ -354,9 +316,8 @@ def copy_family(
                 (f"{schema}.{table}", col),
             )
 
-    # Fresh planner statistics immediately — the first post-cutover queries
-    # (the rankings rebuild) must not run against empty stats while
-    # autovacuum catches up on millions of just-loaded rows.
+    # Fresh planner statistics now — the first queries after a load must not
+    # plan against empty stats while autovacuum catches up.
     for table in order:
         conn.execute(f"ANALYZE {table}")
 

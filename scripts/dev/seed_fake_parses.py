@@ -226,10 +226,8 @@ def main() -> None:
     args = ap.parse_args()
 
     conn = parses_store.init_db()
-    # Some long-lived local parses.dbs carry a stale FK on combatants that
-    # references "encounters_old" (a scar from an old table-rebuild
-    # migration; the app never enables FK enforcement on parses
-    # connections, so it's dormant there). Keep it dormant here too.
+    # PRAGMA is SQLite syntax and Postgres rejects it: this line must go
+    # before the script can run against the parses schema.
     conn.execute("PRAGMA foreign_keys=OFF")
     try:
         if args.wipe:

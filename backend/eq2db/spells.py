@@ -9,16 +9,8 @@ The `crc` field groups all tier-variants of the same base spell together.
 whenever spells are patched (rare — typically expansion launches only).
 
 Character spell-check looks up spell IDs in this table so the per-character
-Census call can return bare IDs instead of resolved spell objects, making it
-faster and removing the c:resolve overhead.
-
-All behaviour lives on :class:`SpellCatalogue` (the eq2db data-interface
-convention — see AACatalogue): DB lookups are instance methods; the pure
-spell-domain helpers (strip_roman, unique_highest_entries, load_blocklist,
-spell_to_row) are staticmethods on the same class so consumers import ONE
-name — the shared ``catalogue`` instance. Module level holds only types
-(SpellRow, Blocklist), constants (SCHEMA), and the instance. Schema DDL is
-owned by db/migrations/0008_spells.sql.
+Census call can return bare IDs instead of resolved spell objects (no
+c:resolve overhead).
 """
 
 from __future__ import annotations
@@ -144,17 +136,10 @@ def _row_to_dict(row: dict) -> SpellRow:
 class SpellCatalogue(PgCatalogue):
     """Read (and build) access to the spells schema, with per-instance caching.
 
-    The eq2db data-interface convention (see AACatalogue): the schema name
-    and caches live on the instance; the shared module-level ``catalogue``
-    is the runtime entry point, and tests lease a scratch schema and
-    re-point ``catalogue.schema``. The pure spell-domain helpers are
-    staticmethods here so the class is the one interface for everything
-    spell-shaped.
-
     Only the CRC lookup is cached (the hot path — AA tooltips resolve spell
     effects by crc per hover); id/name lookups take dynamic inputs and stay
-    uncached. ``upsert_spells`` clears the crc cache (BE-236: spell data
-    changed; stale CRC lookups would lie).
+    uncached. ``upsert_spells`` clears the crc cache so changed spell data
+    can't be served stale.
     """
 
     READY_TABLE = "spells"
@@ -329,12 +314,11 @@ class SpellCatalogue(PgCatalogue):
             "cast_secs": cast_h / 100.0 if cast_h is not None else None,
             "recast_secs": _float(spell.get("recast_secs")),
             # DELIBERATELY ÷10 even though the census field actually carries
-            # hundredths: every loaded spells catalogue row
-            # stores this 10×-inflated value and the ONLY consumer (the
-            # rotation endpoint) normalises with spell_effects.RECOVERY_DIVISOR
-            # at serve time. Changing this to ÷100 requires removing that
-            # divisor AND rebuilding/re-uploading the spells catalogue in lockstep
-            # — do not "fix" it in isolation.
+            # hundredths: every stored row carries this 10×-inflated value
+            # and the ONLY consumer (the rotation endpoint) normalises with
+            # spell_effects.RECOVERY_DIVISOR at serve time. Changing this to
+            # ÷100 requires removing that divisor AND re-downloading the whole
+            # catalogue in lockstep — do not "fix" it in isolation.
             "recovery_secs": rec_t / 10.0 if rec_t is not None else None,
             "target_type": _str(spell.get("target_type")),
             "aoe_radius": _float(spell.get("aoe_radius_meters")),
@@ -355,7 +339,7 @@ class SpellCatalogue(PgCatalogue):
         rows = [self.spell_to_row(s) for s in spells if s.get("id") is not None]
         conn.executemany(_SQL["upsert"], rows)
         conn.commit()
-        self.clear_caches()  # BE-236: spell data changed; stale CRC lookups would lie
+        self.clear_caches()  # spell data changed; stale CRC lookups would lie
         return len(rows)
 
     def spell_count(self, conn: Any) -> int:
@@ -502,10 +486,9 @@ class SpellCatalogue(PgCatalogue):
         Single source of truth for both the spells tab and the upgrade-materials
         checker so the two can't drift. Keeps scribed/trained/auto-granted
         spells alike (excluding only AA abilities) and restricts to lines that
-        actually have a tier ladder — the ``given_by == 'spellscroll'`` gate
-        used to drop trainer-granted (``classtraining``) and base-tier
-        (``class``) spells, so a trained Apprentice never showed up. See
-        get_character_spells for the history.
+        actually have a tier ladder. Do not gate on ``given_by ==
+        'spellscroll'``: that drops trainer-granted (``classtraining``) and
+        base-tier (``class``) spells.
         """
         spell_db = self.find_by_ids(spell_ids)
         blocklist = self.load_blocklist()

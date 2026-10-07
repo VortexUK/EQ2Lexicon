@@ -2,7 +2,7 @@
 
 Pure function; no app fixture needed. Tests cover the single-class,
 single-archetype, exact-subclass-group, greedy-decomposition, all-classes,
-empty-input, and fallback-comma-join paths per the COV-004 proposed scenarios.
+empty-input, and fallback-comma-join paths.
 """
 
 from __future__ import annotations

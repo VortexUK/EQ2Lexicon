@@ -1,7 +1,5 @@
-"""Roster mutations invalidate the _cached_zones_data cache.
-
-Regression test for the user-reported issue: adding bosses via the editor
-didn't show up in /api/rankings/filters until the process restarted.
+"""Roster mutations invalidate the _cached_zones_data cache, so bosses added via the
+editor show up in /api/rankings/filters without a restart.
 """
 
 from __future__ import annotations
@@ -260,7 +258,7 @@ async def test_delete_mob_no_invalidation_on_404(app, editor_override) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5 — invalidate_zones_cache also nukes combatant is_player
+# invalidate_zones_cache also nukes combatant is_player
 # ---------------------------------------------------------------------------
 
 from backend.server.parses import db as parses_db

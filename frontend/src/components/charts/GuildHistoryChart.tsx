@@ -1,16 +1,9 @@
 /**
  * GuildHistoryChart — one time-series line chart over guild_history rows.
  *
- * Rules baked in (see the dataviz notes in the plan): one y-axis per chart
- * (callers put measures of different scale on separate charts), fixed
- * colour per series (a series keeps its colour whatever else is drawn),
- * a legend only when two or more series share the chart, thin 2px lines,
- * no animation, and text in text tokens rather than series colours.
- *
- * Colours come from the theme's CSS variables so the chart matches the
- * page; `fallback` covers jsdom (no computed custom properties). Pass an
- * explicit `width` to skip ResponsiveContainer — tests need it because
- * jsdom reports every element as 0×0.
+ * One y-axis per chart (callers split measures of different scale) and a
+ * fixed colour per series. `fallback` colours cover jsdom (no computed custom
+ * properties); pass `width` to skip ResponsiveContainer, which sees 0×0 in jsdom.
  */
 import {
   CartesianGrid,

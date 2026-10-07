@@ -97,15 +97,12 @@ _SCOPES: dict[str, tuple[int, int]] = {"group": (2, 6), "raid": (7, 24)}
 _SCOPE_LABELS = {"group": "Group", "raid": "Raid"}
 _METRIC_FIELD = {"dps": "encdps", "hps": "enchps"}  # speed handled separately
 
-# Short-lived cache of the expensive load+group step (boards are cheap on top).
-# ttl=600 (user decision 2026-10-07): each rebuild reads every winning
-# kill's combatants from Postgres — ~40 MB of Supabase egress per rebuild
-# on 2026-10 data — so a 60s ttl under constant traffic could blow the Pro
-# plan's 250 GB/month; at 10 min the worst case is ~175 GB and realistic
-# usage ~30-60 GB. Fresh uploads reach the boards within ≤10 min.
-# max_age=6h means a stale board SERVES instantly (with a background
-# rebuild) rather than blocking a visitor on the full parses scan — only
-# a completely cold cache (deploy, 6h idle) builds inline.
+# Cache of the expensive load+group step (boards are cheap on top). Do not
+# shorten ttl=600 lightly: each rebuild reads every winning kill's combatants
+# from Postgres (tens of MB of Supabase egress), so a short ttl under constant
+# traffic can exhaust the plan's monthly egress. max_age=6h means a stale
+# board serves instantly with a background rebuild; only a completely cold
+# cache builds inline.
 rankings_cache: TTLCache = TTLCache(ttl=600, max_age=6 * 3600, name="rankings", maxsize=4)
 _KILLS_KEY = "primary_boss_kills"
 
@@ -256,19 +253,11 @@ def _build_speed_board_character(
 ) -> list[dict]:
     """Per-character fastest-clear board.
 
-    Used for dungeon Speed rankings (scope=group). Each ally combatant
-    flagged ``is_player=1`` on the kill gets one row showing the fastest
-    duration of any clear they were on. If 6 friends speedrun a dungeon
-    together in 1m23s, all 6 rows tie at 83s — the right answer for
-    mixed-guild groups where the per-guild aggregation in
-    ``_build_speed_board`` is meaningless.
-
-    Filters: zone + boss match (the canonical leaderboard predicate). The
-    scope filter is implicit — caller passes the kills already gated by
-    the dungeon scope, so we don't re-check here.
-
-    Returns rows sorted by duration ascending (fastest first), then by
-    name ASC as a stable tiebreaker."""
+    Dungeon (scope=group) Speed: groups are mixed-guild, so each
+    ``is_player`` ally gets their fastest clear (a whole group ties).
+    Filters on zone + boss only — scope is NOT re-checked, so callers must
+    pass kills already gated to the group scope. Sorted by duration, then
+    name."""
     best: dict[str, dict] = {}
     for k in kills:
         if k["zone"] != zone or k["title"] != boss:
@@ -368,20 +357,16 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
                       (curated max-level group instances). Drives the
                       Dungeons dropdown.
 
-    The two trees are deliberately separate even though raid_tree used to
-    contain everything with encounters — without the split a curated dungeon
-    that happens to have bosses (which they all do, post-PR #36) would show
-    under the "Raids" dropdown alongside the actual raids.
+    The trees are keyed by zone type, not "has encounters": curated dungeons
+    have bosses too and must not appear under the Raids dropdown.
 
     Empty when no rosters are curated yet (dev/pre-seed), so everything falls
     back to the is_boss heuristic and parse-derived dropdowns.
 
-    PROCESS-LOCAL: this LRU lives in one Python process. invalidate_zones_cache()
-    only clears it on the worker that handled the mutation; sibling workers
-    serve stale data until they happen to evict. A startup assertion in
-    backend/server/app.py:_startup pins WEB_CONCURRENCY=1 so this is safe — if that
-    assertion is ever loosened, move invalidation to a Redis-backed fan-out
-    (or re-read on a short TTL)."""
+    PROCESS-LOCAL: invalidate_zones_cache() only clears this worker's LRU.
+    Safe because a startup check in backend/server/app.py pins
+    WEB_CONCURRENCY=1; with more workers this needs a shared invalidation
+    (or a short TTL)."""
     conn = zones_db.init_db()
     try:
         boss_index: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -424,10 +409,9 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
 @lru_cache(maxsize=1)
 def _zone_canonical_map() -> dict[str, str]:
     """{name_lower-or-alias_lower: canonical zone name}, one query, cached
-    per process. _resolve_boss runs once per winning encounter — a
-    per-call ``zones_db.find_by_name`` round trip put 15k queries on the
-    Wuoshi rebuild path (276s measured at rehearsal). Cleared by
-    invalidate_zones_cache()."""
+    per process. _resolve_boss runs once per winning encounter, so a
+    per-call ``zones_db.find_by_name`` would put thousands of queries on
+    the rebuild path. Cleared by invalidate_zones_cache()."""
     return zones_db.canonical_name_map()
 
 
@@ -475,22 +459,12 @@ _warned_cut_parses: set[int] = set()
 def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str | None, str | None]:
     """Whether an encounter is a rankable boss, and its canonical (zone, title).
 
-    For both raid AND group scopes, the zones catalogue is authoritative — a title
-    matching a known curated encounter mob is a boss, remapped to its
-    canonical zone + encounter name. This collapses:
-      * ACT zone-name variance (different log lines for the same zone)
-      * Multi-mob encounters (killing any of the mobs in a curated
-        encounter resolves to the same (zone, encounter_name), so the
-        rankings page shows one entry per encounter rather than one
-        per mob)
-
-    UNCURATED zones fall back to the is_boss heuristic, keeping the
-    ACT zone/title verbatim — this is how rankings surface kills for
-    zones the curator hasn't gotten to yet. Inside a CURATED zone the
-    roster is authoritative: an unmatched title never ranks, so a
-    player-shaped kill title ("Ripclaw" — article-less, exactly what
-    the heuristic waves through) can't reach the boss dropdown or the
-    leaderboards."""
+    A title matching a curated encounter mob is a boss, remapped to its
+    canonical (zone, encounter name) — collapsing ACT zone-name variants and
+    the mobs of a multi-mob encounter into one entry. Inside a curated zone
+    an unmatched title never ranks (the is_boss heuristic would wave
+    through player-shaped names); uncurated zones fall back to is_boss with
+    the ACT zone/title kept verbatim."""
     if scope in ("raid", "group"):
         boss_index, _, _, curated_zones = _cached_zones_data()
         candidates = boss_index.get(_normalise_boss_key(title))
@@ -513,18 +487,10 @@ def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str |
 def _build_filters(kills: list[dict]) -> dict:
     """Scope → zone → boss tree for the dropdowns.
 
-    Two sources of truth, both from the zones catalogue:
-
-      * **Raid** zones/bosses come from the ``raid_x4`` type — full structure
-        including bosses with no kills yet, each tagged with its expansion.
-        Heuristic-matched raid kills for zones not yet in the zones catalogue are
-        appended under an "Other" expansion so they still appear.
-      * **Dungeon** zones/bosses come from the ``dungeon`` type overlay (the
-        curated max-level group instances). All curated dungeons appear in
-        the dropdown even when zero kills have been uploaded yet, so the
-        viewer sees the full tracked set. Group-scope kills for zones NOT in
-        the curated set are dropped from the dropdown (still in the DB —
-        they just don't pollute the rankings UI).
+    Raid: the curated ``raid_x4`` tree (bosses listed even with no kills),
+    plus heuristic-matched raid kills in uncurated zones under an "Other"
+    expansion. Group: the curated ``dungeon`` tree only — group kills in
+    uncurated zones never reach the dropdown.
 
     Also returns ``raid_expansions`` (newest first) and ``default_expansion``
     for the expansion selector — the server's current_xpac when it has raids,
@@ -555,9 +521,8 @@ def _build_filters(kills: list[dict]) -> dict:
     has_other_raid = False
     for k in kills:
         if k.get("scope") != "raid":
-            # Non-raid kills (group-scope, etc.) no longer build the
-            # dropdown — see the dungeon-curation block above. They're
-            # still queryable for the leaderboard once a zone is selected.
+            # Group kills don't build the dropdown (the curated dungeon tree
+            # does); they still rank once a zone is selected.
             continue
         zone = k.get("zone") or "(unknown zone)"
         z = raid_zones.setdefault(zone, {"bosses": [], "expansion": None})
@@ -634,7 +599,7 @@ def _zone_expansion_map() -> dict[str, str]:
 
 def _era_lock_for(world: str) -> tuple[str, int] | None:
     """(current_xpac, cutoff_ts) once a server has rolled an expansion —
-    None before the first automatic rollover (no locking, old behaviour)."""
+    None before the first automatic rollover (no locking)."""
     from backend.server.db.servers import store as servers_db  # noqa: PLC0415 — local: avoid import cycle
     from backend.server.xpac_rollover import parse_dt  # noqa: PLC0415
 
@@ -687,10 +652,10 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
             (world,),
         ).fetchall()
         t_select = _time.monotonic()
-        # Phase 4 lazy backfill: classify combatants for any encounter
-        # whose is_player flag is still NULL (pre-migration historic
-        # data). BATCHED probe — one chunked query finds the needy set,
-        # only those run the classifier. The player_count in the SELECT
+        # Lazy classification: combatants whose is_player flag is still NULL
+        # (never classified, or reset by invalidate_zones_cache) are
+        # classified now. One batched query finds the needy set; only those
+        # run the classifier. The player_count in the SELECT
         # above uses the same _PLAYER_COUNT_SQL subquery as parses_list —
         # refresh it here so the post-classifier value drives _scope_for.
         from backend.server.api.parses.list import (  # noqa: PLC0415 — local: avoid import cycle
@@ -839,10 +804,9 @@ def benchmarks_for_boss(boss_title: str, world: str | None = None) -> dict[str, 
     a thread where the contextvar may not be propagated.
 
     CACHE-ONLY (peek): this rides the parse-detail read path, and a cold
-    kills cache must never trigger the full rebuild inline here — that
-    bypass gave parse pages 124s loads while the cache warmed. An empty
-    benchmark overlay until the (prewarmed/SWR-refreshed) cache fills is
-    the right degradation."""
+    kills cache must never trigger the multi-minute rebuild inline here. An
+    empty benchmark overlay until the (prewarmed/SWR-refreshed) cache fills
+    is the intended degradation."""
     dps_by_class: dict[str, float] = {}
     hps_by_class: dict[str, float] = {}
     dps_overall = 0.0
@@ -895,9 +859,8 @@ _kills_build_tasks: dict[str, asyncio.Task] = {}
 
 def _kills_build_task(world: str) -> asyncio.Task:
     """ONE shared rebuild task per world. The startup prewarm, stale
-    background refreshes and cold-cache requests all await the same task —
-    two dedup mechanisms once let a visitor during the prewarm start a
-    SECOND competing multi-minute rebuild against the same database."""
+    background refreshes and cold-cache requests all await the same task, so
+    no path can start a second competing multi-minute rebuild."""
     task = _kills_build_tasks.get(world)
     if task is None or task.done():
 

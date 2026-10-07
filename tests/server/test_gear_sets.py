@@ -1,15 +1,5 @@
-"""Tests for the gear-sets endpoint's census_store integration.
-
-Mirrors tests/server/test_aa_census_store.py — the gear-sets read path is
-the same store-first SWR shape:
-  - Cold cache: Census is called + data is persisted to census_store.
-  - Warm store: census_store is served without calling Census.
-  - Stale store record: served immediately, background refresh spawned.
-  - Census down + nothing cached → 503.
-  - Character with no saved sets → 200 with an empty list.
-  - Unknown character → 404.
-  - The migration-owned census schema carries the character_gear_sets table
-    (init_db creates nothing).
+"""Tests for the gear-sets endpoint's store-first SWR read path: cold/warm/stale store,
+Census down + nothing cached → 503, no saved sets → [], unknown character → 404.
 """
 
 from __future__ import annotations
@@ -242,8 +232,6 @@ async def test_unknown_character_returns_404(app, census_schema):
 # ---------------------------------------------------------------------------
 # Schema invariant: the migrations own the census DDL — the
 # character_gear_sets table must exist in any freshly-built census schema.
-# (store.init_db() creates nothing; db/migrations/0003_census.sql is the
-# single source of schema truth).
 # ---------------------------------------------------------------------------
 
 

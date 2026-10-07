@@ -1,5 +1,5 @@
-"""The Census client no longer conflates "Census failed" with "not found"
-silently: failures feed a breaker that trips census_health.is_down(), error
+"""The Census client never silently treats "Census failed" as "not found":
+failures feed a breaker that trips census_health.is_down(), error
 envelopes count as failures, and the logging is coalesced."""
 
 from __future__ import annotations

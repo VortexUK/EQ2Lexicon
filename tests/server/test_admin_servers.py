@@ -1,11 +1,5 @@
-"""Tests for per-server admin scoping + the server-settings editor endpoints.
-
-Covers:
-- GET  /api/admin/servers  → lists servers with their settings (admin-only)
-- PUT  /api/admin/servers/{world}  → updates settings + refreshes in-memory
-  registry (admin-only); 404 for unknown world; 422 for bad max_level
-- Admin claims list  → scoped to current_world() (x-server override)
-- Admin parses list  → scoped to current_world() (x-server override)
+"""Tests for the server-settings editor (GET/PUT /api/admin/servers, registry refresh)
+and the per-server scoping of the admin claims and parses lists.
 """
 
 from __future__ import annotations

@@ -347,7 +347,7 @@ export default function CharacterPage() {
   const maxLevel = server?.maxLevel ?? 50
 
   // Fetch gear_rating from /api/config once (promise-cached in module scope).
-  // max_level is no longer read from here — it comes from useServer() above.
+  // max_level comes from useServer() above, not from here.
   useEffect(() => {
     getRatingConfig().then(setRatingConfig).catch(() => { /* render with default config */ })
   }, [])

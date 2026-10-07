@@ -1,10 +1,6 @@
 """Tests for CensusClient._resolve_item_meta — the items catalogue → Census → cache
-fallback path used by _parse_equipment.
-
-Before the fix this was items-catalogue-only, which meant a cold items catalogue at character-
-fetch time caused the equipment rows to be cached forever with the literal
-"Item #<id>" placeholder (PR #21's persistent cache then served that placeholder
-indefinitely). The fallback prevents new cache rows from ever being born stale.
+fallback used by _parse_equipment, so a cold items catalogue never caches an
+"Item #<id>" placeholder into an equipment row.
 """
 
 from __future__ import annotations

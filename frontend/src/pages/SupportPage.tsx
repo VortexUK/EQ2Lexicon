@@ -4,20 +4,10 @@ import { SupporterBadge } from '../components/SupporterBadge'
 import { LinkButton } from '../components/ui'
 
 /**
- * /support — the donations + "what hosting costs" page.
- *
- * Linked from the footer. Pitches GitHub Sponsors as the primary route;
- * lists the current supporter wall (rendered from /api/supporters) at
- * the bottom for the social-proof + thank-you effect.
- *
- * Update the SPONSOR_URL constant below once the GitHub Sponsors page
- * is live. The site keeps shipping fine in the meantime — clicking the
- * button just lands on the (not-yet-live) sponsors page on GitHub.
+ * /support — the donations + "what hosting costs" page: GitHub Sponsors
+ * link plus the supporter wall from /api/supporters.
  */
 
-// TODO: replace with the real GitHub Sponsors URL once the account is
-// set up. Leaving the VortexUK org slug as a sensible placeholder so the
-// link points to the correct future location.
 const SPONSOR_URL = 'https://github.com/sponsors/VortexUK'
 
 interface SupporterRow {

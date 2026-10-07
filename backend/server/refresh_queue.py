@@ -7,7 +7,7 @@ many users click, Census sees at most one manual refresh per
 refresh merges into census_store, updates the hot cache, and publishes the
 SSE record event the pages already live-swap on.
 
-Spam mitigations (the feature spec):
+Spam mitigations:
   - per entity: at most ``PER_ENTITY_PER_HOUR`` manual refreshes per hour
   - per user:   one job in the queue at a time
   - global:     bounded queue; requests refused while Census health is down

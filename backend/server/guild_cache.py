@@ -1,20 +1,8 @@
 """Guild cache orchestration helpers.
 
-Extracted from ``backend/server/api/guild.py`` (BE-054). These functions are
-shared infrastructure used by multiple callers that previously imported
-them lazily to avoid circular imports:
-
-  * ``backend/server/census_refresh.py``   — calls _persist_and_publish_guild
-  * ``backend/server/api/parses/ingest.py`` — calls _fetch_and_cache_guild
-
-Moving them here breaks the circular-import chain (guild.py → character.py
-→ guild.py) at the module level, so all callers can switch from lazy
-in-function imports to module-level imports.
-
-The ``_officer_chars`` / ``_roster_rank_map`` / ``_OFFICER_RANKS`` helpers
-that are also shared with guild_officer.py, item_watch.py, etc. remain in
-``backend/server/api/guild.py`` because they depend on ``current_world()`` at
-request time and are closer to route logic than cache orchestration.
+Lives outside ``backend/server/api/guild.py`` so non-route callers
+(census_refresh, parse ingest) can import it at module level without the
+guild.py → character.py → guild.py import cycle.
 """
 
 from __future__ import annotations
@@ -174,11 +162,9 @@ def _build_spell_check_from_overviews(
     blocklist = _spells.load_blocklist()
 
     # Show every *upgradeable* spell a member owns (a line with a tier ladder),
-    # regardless of how it was acquired. The old `given_by=='spellscroll'` gate
-    # dropped base-tier auto-grants (given_by='class', e.g. Apprentice) and
-    # trainer-granted spells (given_by='classtraining'), so those tiers — most
-    # visibly Apprentice — never appeared as columns. Mirrors the character
-    # spells path; AA abilities (given_by='alternateadvancement') stay excluded.
+    # regardless of how it was acquired — including base-tier auto-grants
+    # (given_by='class', e.g. Apprentice) and trainer grants ('classtraining').
+    # Mirrors the character spells path; AA abilities stay excluded.
     upgradeable = _spells.upgradeable_crcs(
         {
             row.get("crc")

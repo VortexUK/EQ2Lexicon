@@ -1,16 +1,9 @@
 """Shared parses fixtures used by tests/parses/ AND tests/server/.
 
-Postgres edition: the parses family lives in the ``parses`` schema
-(db/migrations/0002_parses.sql). Two fixtures are exposed, keeping their
-historical names so test bodies don't churn:
-
-  - parses_db_path: leases an isolated scratch parses schema, points the
-    shared store at it for the test, and yields the SCHEMA NAME (str) —
-    the analog of the old tmp-file + DB_PATH re-point.
-
-  - parses_db_conn: leases a scratch schema and yields an open,
-    schema-scoped connection (PgConnProxy — dict rows, %s params); the
-    store's conn-taking staticmethods accept it directly.
+- parses_db_path: leases a scratch parses schema, points the shared store
+  at it, and yields the SCHEMA NAME (str).
+- parses_db_conn: leases a scratch schema and yields an open schema-scoped
+  connection (dict rows, %s params) for the store's conn-taking staticmethods.
 """
 
 from __future__ import annotations

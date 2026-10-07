@@ -1,20 +1,5 @@
-"""Tests for backend.eq2db.recipes — COV-011.
-
-Covers: _parse_spell_tier, recipe_to_row, find_by_id, find_by_name,
-find_by_spell, find_spells_by_tier, find_by_output_id, upsert_recipes —
-all via the RecipeCatalogue instance API.
-
-Postgres edition: DB tests lease an isolated scratch schema via the
-``recipes_schema`` fixture (tests/fixtures/catalogues_db.py) and construct
-``RecipeCatalogue(recipes_schema)`` — the analog of the old
-``RecipeCatalogue(tmp_db)``. Raw seeding/assertions go through
-``pg_conn(schema)`` (dict rows, %s params). The former "missing DB file"
-cases now assert the EMPTY-schema behaviour; the ``_backfill_spell_tiers``
-startup backfill was deleted in the cutover (crafted_tier is computed by
-recipe_to_row at write time; out_level is loader-owned) — its tests pin
-the write-time equivalent.
-
-Target: ≥ 75% on backend.eq2db.recipes.
+"""Tests for backend.eq2db.recipes — the pure parsing helpers and the
+RecipeCatalogue lookups/upsert against a leased scratch schema.
 """
 
 from __future__ import annotations
@@ -160,8 +145,6 @@ class TestRecipeToRow:
 
 class TestFindById:
     def test_returns_none_when_schema_empty(self, recipes_db: RecipeCatalogue):
-        # (was test_returns_none_when_path_missing — a nonexistent DB file is
-        # no longer a concept; the equivalent is an EMPTY leased schema.)
         assert recipes_db.find_by_id(1) is None
         assert recipes_db.ready() is False
 
@@ -184,7 +167,6 @@ class TestFindById:
 
 class TestFindByName:
     def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
-        # (was test_returns_empty_when_path_missing — see TestFindById.)
         assert recipes_db.find_by_name("anything") == []
         assert recipes_db.ready() is False
 
@@ -224,7 +206,6 @@ class TestFindByName:
 
 class TestFindBySpell:
     def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
-        # (was test_returns_empty_when_path_missing — see TestFindById.)
         assert recipes_db.find_by_spell("x", "Expert") == []
         assert recipes_db.ready() is False
 
@@ -248,7 +229,6 @@ class TestFindBySpell:
 
 class TestFindSpellsByTier:
     def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
-        # (was test_returns_empty_when_path_missing — see TestFindById.)
         assert recipes_db.find_spells_by_tier(["x"], "Expert") == {}
         assert recipes_db.ready() is False
 
@@ -274,7 +254,6 @@ class TestFindSpellsByTier:
 
 class TestFindByOutputId:
     def test_returns_empty_when_schema_empty(self, recipes_db: RecipeCatalogue):
-        # (was test_returns_empty_when_path_missing — see TestFindById.)
         assert recipes_db.find_by_output_id(1) == []
         assert recipes_db.ready() is False
 
@@ -300,19 +279,15 @@ class TestFindByOutputId:
 
 # ---------------------------------------------------------------------------
 # spell-tier population at write time
-# (descendants of the deleted _backfill_spell_tiers startup backfill)
 # ---------------------------------------------------------------------------
 
 
 class TestSpellTierAtWriteTime:
-    """There is no startup spell-tier backfill —
-    ``recipe_to_row`` (via ``_parse_spell_tier``) computes base_name_lower +
-    crafted_tier at WRITE time, so a row can no longer arrive without them.
-    Same intent as the old backfill tests: a tiered recipe name lands with
-    its spell-tier columns populated, and re-running the write is a no-op."""
+    """``recipe_to_row`` computes base_name_lower + crafted_tier at WRITE time:
+    a tiered recipe name lands with its spell-tier columns populated, and
+    re-running the write is a no-op."""
 
     def test_upsert_populates_crafted_tier(self, recipes_db: RecipeCatalogue):
-        # (was test_backfills_null_crafted_tier_rows)
         with recipes_db.init_db() as conn:
             recipes_db.upsert_recipes([_make_recipe_dict(recipe_id=50, name="Thunderbolt IV (Expert)")], conn)
         row = recipes_db.find_by_id(50)
@@ -321,8 +296,7 @@ class TestSpellTierAtWriteTime:
         assert row["base_name_lower"] == "thunderbolt iv"
 
     def test_idempotent_on_already_filled_rows(self, recipes_db: RecipeCatalogue):
-        # The write-time analog of "a second backfill run finds 0 rows":
-        # re-upserting an already-tiered recipe keeps the columns stable.
+        # Re-upserting an already-tiered recipe keeps the columns stable.
         recipe = _make_recipe_dict(recipe_id=55, name="Fire Bolt (Expert)")
         with recipes_db.init_db() as conn:
             recipes_db.upsert_recipes([recipe], conn)

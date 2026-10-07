@@ -1,19 +1,8 @@
 """Ingest scraped EQ2i raid JSON into the raids schema.
 
-Sibling of ``scrape_eq2i_raids.py`` — that one produces a JSON snapshot of
-zone + encounter pages; this one writes that snapshot into the raids schema
-via the existing ``raids_db.upsert_raid_zone`` / ``upsert_raid_encounter``
-helpers.
-
-Why split? The scrape is the expensive, network-dependent step (cached on
-disk via ``scripts/dev/.eq2i_cache``); the ingest is a fast local pass that
-benefits from being re-runnable without re-fetching anything.
-
-Safety: ``upsert_raid_encounter`` already skips ``SOURCE_MANUAL`` rows on a
-re-scrape (it refreshes wiki_url/position/last_synced_at but leaves
-``strategy_md`` alone), so re-running this script never overwrites a human
-edit. The first ever scrape per encounter also records a revision row with
-``before_md = NULL`` so the audit history starts clean.
+Writes the JSON produced by ``scrape_eq2i_raids.py`` via ``upsert_raid_zone`` /
+``upsert_raid_encounter``. Re-run safe: ``SOURCE_MANUAL`` rows keep their
+``strategy_md`` (only wiki_url/position/last_synced_at refresh).
 
 Usage::
 

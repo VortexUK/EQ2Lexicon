@@ -1,10 +1,6 @@
-"""Additional tests for backend/server/api/character/views.py — COV-026.
-
-Scenarios added here complement the existing test_character.py coverage.
-Focus on the _f()/_i() stat-extraction helpers, the secondary-weapon
-negative-value normalisation, the _equipment_lookup_ids adorn path, and
-the _heal_equipment_placeholders ValueError branches that are currently
-uncovered.
+"""Additional tests for backend/server/api/character/views.py — the _f()/_i() stat
+helpers, secondary-weapon negative-value normalisation, the _equipment_lookup_ids
+adorn path and the _heal_equipment_placeholders ValueError branches.
 """
 
 from __future__ import annotations

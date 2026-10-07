@@ -1,25 +1,10 @@
 """Apply polished strategy markdown back into the raids schema.
 
-Reads every JSON file in ``data/raids/polish_outbox/`` (or a single file via
-``--in <path>``) and writes each entry's ``polished_md`` into the matching
-``raid_encounters`` row, stamped as ``source=SOURCE_MANUAL`` so a future
-re-scrape won't clobber the polished version.
+    uv run python scripts/dev/apply_polish.py [--in <file>] [--dry-run]
 
-Per-entry expected shape::
-
-    {
-      "zone_name": "Veeshan's Peak",
-      "mob_name":  "Druushk",
-      "polished_md": "...the polished markdown..."
-    }
-
-Wrapped in either ``{"entries": [...]}`` (matches the inbox shape) OR a
-bare list. Both are accepted so agents can use whichever feels natural.
-
-The encounter helper already records a revision row for every actual change
-to ``strategy_md`` — no extra audit work needed here. ``edited_by`` is
-stamped as ``ai-polish`` so the revision history can distinguish AI passes
-from human edits later.
+Reads data/raids/polish_outbox/chunk_*.json; writes raid_encounters.strategy_md stamped
+source=manual (so a re-scrape won't clobber it), last_edited_by='ai-polish'. Workflow:
+docs/runbooks/raid-strategy-agent-polish.md.
 """
 
 from __future__ import annotations

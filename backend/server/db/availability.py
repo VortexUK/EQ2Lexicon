@@ -84,7 +84,7 @@ class AvailabilityStore(PgStoreBase):
 
     async def statuses_for_day_with_times(self, day: str) -> dict[str, tuple[str, int]]:
         """{discord_id: (status, updated_at)} — for the newest-edit-wins
-        merge against officer character entries. Legacy rows (pre-stamp)
+        merge against officer character entries. Rows without a stamp
         carry updated_at 0, so any stamped officer edit beats them."""
         async with self._db(row_factory=True) as db:
             async with await db.execute(_SQL["select_statuses_for_day_with_times"], (day,)) as cur:

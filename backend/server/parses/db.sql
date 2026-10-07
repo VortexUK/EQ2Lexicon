@@ -290,7 +290,7 @@ UPDATE tamper_reports
 DELETE FROM tamper_reports WHERE world = %s AND acknowledged_at IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
--- Tiered detail retention (cleanup sweep; user decision 2026-10-04)
+-- Tiered detail retention (cleanup sweep)
 -- ---------------------------------------------------------------------------
 
 -- Candidate encounters whose breakdown rows may be due for pruning: older

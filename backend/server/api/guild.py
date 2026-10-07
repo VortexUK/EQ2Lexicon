@@ -37,8 +37,7 @@ _SQL = load_sql(__file__)
 
 _log = logging.getLogger(__name__)
 
-# Re-export for backward compat: callers that imported _overview_to_char_response
-# from this module (none currently, but keeps the surface stable during Phase 2c).
+# Re-exported so _overview_to_char_response stays importable from this module.
 from backend.server.guild_cache import _overview_to_char_response  # noqa: E402,F401
 
 router = APIRouter(tags=["guild"])
@@ -212,10 +211,9 @@ async def _roster_rank_map_cached(guild_name: str) -> dict[str, int | None] | No
     """Cache-only variant of :func:`_roster_rank_map` for POLLED endpoints
     (the notification bell). It must NEVER fall through to the full Census
     guild fetch: a 60-second poll that can fire a multi-minute roster pull
-    wedged the whole site (2026-09-12 — /api/notifications requests
-    stacked at 10–107s awaiting one shared fetch, Cloudflare 524ing the
-    tail). Returns None on a cold cache; a background warm is kicked
-    (deduped inside _fetch_and_cache_guild) so a later poll succeeds."""
+    stacks requests behind one shared fetch and wedges the site. Returns
+    None on a cold cache; a background warm is kicked (deduped inside
+    _fetch_and_cache_guild) so a later poll succeeds."""
     world = current_world()
     roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, world))
     if roster is not None:
@@ -527,8 +525,8 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
         return GuildSearchResponse(results=[], total=0)
 
     # Store-first: instant results for every guild this server has seen
-    # (the census search averaged ~2.4s per keystroke, live metrics
-    # 2026-09-22); census stays the fallback for unseen names.
+    # (a Census search costs seconds per keystroke); Census stays the
+    # fallback for unseen names.
     world = current_world()
 
     def _store_guild_search() -> list[str]:

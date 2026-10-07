@@ -1,14 +1,6 @@
-"""Tests for POST /api/parses/tamper-report — the plugin's audit channel
-for parses it refused to send to the leaderboard.
-
-The tamper-report endpoint reuses ingest's auth + HMAC validation
-verbatim, so most failure-mode tests live there. The cases pinned here
-are the ones specific to this endpoint:
-  * the X-Lexicon-Tamper-Reason header is required + sanitised
-  * the row lands in `tamper_reports`, NOT `encounters` (the whole point)
-  * the same encid posted twice produces two rows (no idempotency)
-  * unknown reason codes are accepted for forward-compat with future
-    plugin heuristics
+"""Tests for POST /api/parses/tamper-report (auth + HMAC are shared with ingest):
+reason header required + sanitised, rows land in tamper_reports NOT encounters,
+no idempotency, and unknown reason codes accepted for forward-compat.
 """
 
 from __future__ import annotations

@@ -1,56 +1,11 @@
-"""
-Shared auth dependencies for FastAPI routes.
+"""Auth dependencies for FastAPI routes.
 
-`require_user_session` — session-cookie only (the existing pattern).
-`require_user_session_or_token` — session cookie OR Authorization: Bearer.
-                                  Used by endpoints meant for the ACT plugin
-                                  (and other external integrations).
-`is_admin` / `require_admin` — admin allow-list driven by the
-                               ADMIN_DISCORD_IDS env var (comma-separated
-                               Discord IDs).
-
-Roles model
------------
-
-There are three role sources that grant content-edit access. They layer
-inside `require_editor`:
-
-  * **admin**       — env-driven (`ADMIN_DISCORD_IDS`). Cheapest check.
-                      Intentionally outside the DB so a wipe can't lock you
-                      out.
-  * **contributor** — DB-driven via the `user_roles` table. Admin-grantable
-                      from the UI. Generic enough that future roles
-                      (`moderator`, `editor`, …) slot in as new role strings
-                      without a schema change.
-  * **officer**     — dynamic. Computed at request time from the user's
-                      primary character's guild rank against
-                      ``_OFFICER_RANKS`` (see ``backend/server/api/guild.py``).
-                      Never persisted — Census is the source of truth.
-                      Officers used to hold edit_content; that grant was
-                      removed on 2026-05-29 so editing is admin/contributor
-                      only. The officer code path stays for future
-                      officer-only capabilities (e.g. claim approvals).
-
-`KNOWN_ROLES` is the route-layer allowlist for grant/revoke endpoints; new
-roles get added there before they're meaningful anywhere else.
-
-Capabilities + the role → capability map
-----------------------------------------
-
-Routes don't gate on roles directly — they gate on **capabilities** via
-`require_capability(...)`. The `role_permissions` table (backend/server/db/) maps
-each persistent role to the capabilities it grants. Admin is the synthetic
-"all capabilities" branch (so it never appears in the table); officer is
-dynamic but does appear in the table so adding a new capability for officer
-is a one-row INSERT rather than a code change.
-
-`KNOWN_CAPABILITIES` is the programmer-facing allowlist for capability
-strings — guards against typos at route-definition time (`require_capability`
-raises if the capability isn't registered here).
-
-Adding a new capability is two lines: register the string in
-`KNOWN_CAPABILITIES` and seed any `role_permissions` rows in
-a `db/migrations/NNNN_users.sql` migration.
+Gate content routes with ``require_capability(...)``, not on roles. Roles:
+admin (ADMIN_DISCORD_IDS, implicitly every capability), DB roles in
+``user_roles`` (must be in KNOWN_ROLES), and officer (dynamic, from the
+Census guild rank, never persisted). Register new capability strings in
+KNOWN_CAPABILITIES and seed their ``role_permissions`` rows in a
+users-schema migration.
 """
 
 from __future__ import annotations
@@ -76,9 +31,8 @@ _admin_warning_emitted = False
 
 def _warn_admin_missing_once() -> None:
     """Emit the 'ADMIN_DISCORD_IDS not set' warning at most once per process,
-    deferred until the first admin-gated request actually hits. Avoids the
-    import-time-flood issue in tests (every test that imports auth_deps with
-    no env set used to log the warning)."""
+    deferred until the first admin-gated request actually hits (not at
+    import time, which would flood test runs that import this module)."""
     global _admin_warning_emitted
     if _admin_warning_emitted:
         return
@@ -179,27 +133,11 @@ def require_admin(request: Request) -> SessionUser:
 # (see `user_roles` + `role_permissions` schema in backend/server/db/)
 # ---------------------------------------------------------------------------
 
-# Allowlist for grant/revoke routes. Routes reject unknown role names with a
-# 400 — keeps the table free of typo'd "Contibutor" rows that'd silently grant
-# nothing. Add a new role here AND seed its role_permissions rows in
-# a users-schema migration (only if the role gates a capability — purely cosmetic
-# roles like "supporter" don't need role_permissions entries).
-#
-# Roles:
-#   contributor — grants edit_content capability (raid strategies, etc.).
-#   supporter   — cosmetic role surfaced as a 👑 badge next to the
-#                 holder's name everywhere it renders. No capability;
-#                 awarded manually by admin in recognition of site
-#                 donations (see /support page + /api/supporters).
-#   subscriber  — gates the raid-attendance feature set (guild Attendance
-#                 tab + parser ingest/mains endpoints) while it's in
-#                 limited preview. Checked directly by the attendance
-#                 routes (no capability row); admins always pass. The name
-#                 may change later — it's just the preview gate for now.
-#   api         — grants the read-only third-party export API
-#                 (/api/export/v1/*, issue #219). Opt-in per account,
-#                 admin-granted; pairs with a bearer token so access is
-#                 attributable and revocable two ways.
+# Allowlist for grant/revoke/request routes (unknown names are a 400, so a typo
+# can't create a row that silently grants nothing). A role that gates a
+# capability also needs role_permissions rows in a users-schema migration;
+# supporter (badge), subscriber (attendance) and api (export) are checked
+# directly with has_role() and have none.
 KNOWN_ROLES: frozenset[str] = frozenset({"contributor", "supporter", "subscriber", "api"})
 
 # Programmer-facing capability allowlist. `require_capability` raises at

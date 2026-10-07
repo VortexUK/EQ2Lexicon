@@ -1,22 +1,7 @@
 /**
- * DungeonsCard — per-expansion dungeon-curation panel on /raids.
- *
- * Visible only to contributors / admins. Non-contributors see no trace of
- * this card (the component returns null on its first line for them) so the
- * public /raids page is unchanged for regular users.
- *
- * Behaviour:
- *   - Collapsible header showing the dungeon count for this expansion.
- *   - Add-a-dungeon dropdown — non-dungeon zones in the same expansion.
- *   - List of currently-tagged dungeons; each row is itself collapsible and
- *     mounts the same `<BossRosterEditor>` used by the raid editor.
- *
- * Auto-categorisation note: dungeons tagged here automatically appear on the
- * rankings page and as the "Dungeon" parses bucket via the backend's
- * `_classify_zone` predicate. There's no frontend coupling — the moment the
- * type tag is added, both pickups happen on the next /api/rankings/filters
- * and /api/parses request. (`invalidate_zones_cache` fires on the mutation
- * so neither cache returns a stale view.)
+ * DungeonsCard — per-expansion dungeon-curation panel on /raids. Renders null
+ * for non-contributors. Adding the `dungeon` zone-type tag is all it takes for
+ * rankings and the parses "Dungeon" bucket to pick the zone up (backend-side).
  */
 import { useMemo, useState } from 'react'
 

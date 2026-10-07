@@ -4,9 +4,7 @@ Everything the frontend engine needs per owned ability: cast/recast/
 recovery timing (the spells catalogue), parsed damage components (effect-text parser
 in backend.eq2db.spell_effects), spell duration + power cost + scaled
 effect text (the items catalogue spellscroll join — preferred over the spells catalogue
-effect text, which is unscaled for some spells). Mirrors
-character/spells.py plumbing: cache-first character resolution, census
-fallback, sync DB reads via run_sync.
+effect text, which is unscaled for some spells).
 
 Recovery normalisation: the spells catalogue ``recovery_secs`` is 10× inflated
 (census units bug — see spell_effects.RECOVERY_DIVISOR); divided here so

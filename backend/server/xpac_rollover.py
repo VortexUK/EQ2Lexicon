@@ -1,23 +1,9 @@
-"""Automatic expansion rollover — the countdown banner's other half.
+"""Automatic expansion rollover: once a server's ``next_xpac_dt`` passes, flip
+``current_xpac`` / ``max_level`` in place, clear ``next_xpac*``, and reload the
+server registry.
 
-Admins set ``next_xpac`` + ``next_xpac_dt`` on a server row (the frontend
-shows the countdown). A small lifespan loop here checks every minute: once
-the instant passes, the row flips in place —
-
-  * ``current_xpac``  = next_xpac
-  * ``max_level``     = the expansion's level cap (XPAC_MAX_LEVEL; kept as
-                        game facts in code — unknown short codes keep the
-                        existing cap and log a warning)
-  * ``current_xpac_started_dt`` = the scheduled instant (NOT "now": a
-                        restart that misses midnight must not shift the
-                        rankings era-lock cutoff)
-  * ``next_xpac`` / ``next_xpac_dt`` cleared (banner disappears)
-
-then the in-memory server registry reloads so ``current_world()`` consumers
-see the new era immediately. The stamped instant is the rankings era-lock
-cutoff (see rankings.py): out-of-era raid parses ingested after it stop
-entering leaderboards, while uploads, parse pages, attendance and
-census-driven guild progression continue untouched.
+``current_xpac_started_dt`` is the SCHEDULED instant, not now: a restart must
+not shift the rankings era-lock cutoff.
 """
 
 from __future__ import annotations

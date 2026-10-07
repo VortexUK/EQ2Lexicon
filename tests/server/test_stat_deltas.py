@@ -1,9 +1,5 @@
-"""Tests for the gear-set stat-delta approximation (stat_deltas.py).
-
-Postgres edition: seeds the leased items schema (items + item_stats) via
-``pg_conn`` — the ``items_schema`` fixture re-points the shared items
-catalogue instance at the lease (the analog of the old tmp items catalogue +
-``catalogue.path`` re-point).
+"""Tests for the gear-set stat-delta approximation (stat_deltas.py), seeded through
+the leased items schema (items + item_stats).
 """
 
 from __future__ import annotations
@@ -103,8 +99,7 @@ def test_non_numeric_and_missing_ids_are_skipped(items_db):
 
 
 def test_missing_db_returns_empty(items_schema):
-    """An EMPTY leased items schema (nothing seeded) yields no stats — the
-    Postgres analog of the old missing-catalogue-file case."""
+    """An EMPTY leased items schema (nothing seeded) yields no stats."""
     assert stat_totals([_slot("1")]) == {}
 
 

@@ -9,9 +9,8 @@ The two auth-dep flavours produce slightly different dicts:
     Authorization: Bearer header. Adds ``auth_source`` ("session"|"token"),
     and on the token path also ``token_id`` + ``token_name``.
 
-Routes that take a ``user: dict`` parameter (30+ of them in the audit)
-should annotate with ``SessionUser`` so pyright catches a ``user["i"]``
-typo at type-check time. Phase 2c.6 migrates the annotations.
+Routes that take a ``user: dict`` parameter should annotate it with
+``SessionUser`` so pyright catches a ``user["i"]`` typo.
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ class _SessionUserRequired(TypedDict):
 class SessionUser(_SessionUserRequired, total=False):
     """Session-derived user shape. ``id`` is the only required field; the
     others are populated from the Discord OAuth profile and may be missing
-    on legacy sessions or session-replays from third-party admin tools.
+    on older sessions or session-replays from third-party admin tools.
 
     All fields strings except where noted. ``id`` is the Discord snowflake.
     """

@@ -1,24 +1,9 @@
 """Raid-attendance category derivation — pure, no I/O.
 
-Categories are derived at READ time (never stored) so role/claim/afk edits
-after the fact stay correct. Inputs are gathered by the route from existing
-registries:
-
-  obs          attendance_observations rows for one session
-  roles        raid_planning.get_roles → {char_lower: 'raider'|'raid_alt'}
-               (placeholder raiders included — they are rostered like anyone)
-  claims       raid_planning.claims_map → {char_lower: discord_id}
-  afk_by_user  availability.statuses_for_day(session_day) → {discord_id: status}
-  scheduled    the session's frozen scheduled flag
-
-Per-character precedence: present > sat_out > afk > awol > absent.
-Observed behaviour beats declaration (declared-afk-but-showed-up = present;
-declared-afk-but-online = sat_out — they were demonstrably available). If
-officers dislike that call, flipping afk above sat_out is a one-line reorder.
-
-Per-user rollup: characters group by their claim owner; the user takes the
-BEST category across their characters (a raid alt attending credits its
-owner). Raid alts are never expected, so never AWOL.
+Categories are derived at read time, never stored, so later role/claim/afk
+edits stay correct. Per-character precedence: present > sat_out > afk > awol
+> absent (observed behaviour beats a declared AFK). A user takes the best
+category across their claimed characters; raid alts are never AWOL.
 """
 
 from __future__ import annotations
@@ -81,20 +66,14 @@ def resolve_mains(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Best-effort "raid main" resolution. Returns (user_mains, char_mains).
 
-    A player's raid main is their claimed character rostered as 'raider' —
-    preferring the primary claim when several qualify, else alphabetical.
-    A player with NO rostered raider falls back to their primary claim, so
-    someone who only ever raids on alts still credits their main.
+    A player's raid main is their claimed 'raider' (primary claim first, else
+    alphabetical), falling back to their primary claim.
 
-    user_mains: {discord_id: main display name} (players with neither a
-                rostered raider nor a primary claim are absent).
+    user_mains: {discord_id: main display name}.
     char_mains: {char display name: main display name} — the parser's
-                DKP-substitution table. Covers every rostered character
-                (raiders map to themselves, rostered alts to their owner's
-                main) AND every other claimed character of a player who has
-                a main — so a second-account character dual-boxed into the
-                raid still collapses onto the same main instead of
-                double-dipping DKP.
+                DKP-substitution table: every rostered character plus every
+                other claimed character of a player with a main, so a
+                dual-boxed second-account character cannot double-dip DKP.
     """
     display = {r["character_name"].lower(): r["character_name"] for r in role_rows}
     roles = {r["character_name"].lower(): r["role"] for r in role_rows}
@@ -150,25 +129,16 @@ def derive_categories(
                 main: raid-main display name or None (see resolve_mains),
                 in_voice}
 
-    ``overrides`` ({char_lower: {character_name, category, ...}} from
-    attendance_overrides) beats every derived category — officer corrections
-    are the last word. Overridden names join the universe even when never
-    observed (the "add a missed raider" case).
-
-    ``segments_by_char`` ({char_lower: [{category, started_at, ended_at}]}
-    from attendance_segments) is a character's officer-authored timeline: it
-    REPLACES their derived timeline, sets their times, and — unless a category
-    override also exists — their category becomes the best segment state.
-    Characters with a manual timeline join the universe like overridden ones.
-
-    ``window`` (the session's started_at/ended_at) clips DERIVED segments
-    and fallback seen-times, so observation tails outside the session (an
-    overnight parser's online rows) never pollute timelines — and an officer
-    window correction repairs every derived timeline in one stroke.
+    ``overrides`` (attendance_overrides) beat every derived category, and
+    overridden names join the universe even when never observed.
+    ``segments_by_char`` (attendance_segments) REPLACES a character's derived
+    timeline; without an override their category is the best segment state.
+    ``window`` (session started_at/ended_at) clips derived segments and
+    fallback seen-times; manual segments are never clipped.
     """
     raid_obs = {o["character_name"]: o for o in obs if o["kind"] == "raid"}
     online_obs = {o["character_name"]: o for o in obs if o["kind"] == "online"}
-    # kind='voice' rows carry DISCORD IDS in character_name (Phase 3 bot).
+    # kind='voice' rows carry DISCORD IDS in character_name.
     # They never enter the character universe — they only flag the player.
     voice_ids = {o["character_name"] for o in obs if o["kind"] == "voice"}
 
@@ -233,13 +203,10 @@ def derive_categories(
         if override is not None:
             category = override["category"]
 
-        # A rostered NON-RAIDER that was never observed (and never hand-
-        # corrected) is pure roster noise: the row reads "absent" forever
-        # and the officer ✕ can't remove it — there are no observations
-        # behind it to delete, so it respawns from the roles table on
-        # every render (live complaint 2026-09-13: three unremovable
-        # raid-alt rows). Raiders keep their no-show row — that IS the
-        # AWOL/absent signal.
+        # Drop never-observed, never-corrected rostered NON-RAIDERS: the row
+        # has no observations for the officer ✕ to delete, so it would
+        # respawn from the roles table on every render. Raiders keep their
+        # no-show row — that IS the AWOL/absent signal.
         if (
             category == "absent"
             and override is None
@@ -313,15 +280,10 @@ def summarize_attendance(per_session: list[tuple[int, list[dict], list[dict]]]) 
     one cell per session). ``per_session`` is [(session_id, char_rows,
     user_rows)] straight from :func:`derive_categories`.
 
-    Row identity: claimed characters credit their OWNER (one row per
-    player, best category per session, combined first/last-seen window
-    across their characters); unclaimed characters stand as their own
-    row. Rows absent in every supplied session are dropped.
-
-    Attendance % counts present + sat_out over ALL supplied sessions —
-    a benched raider showed up (and banks sit-out DKP), so the bench is
-    attendance. Sessions where a row has no cell at all count against
-    the percentage exactly like an absent cell.
+    Claimed characters credit their owner (one row per player); unclaimed
+    characters are their own row; rows absent in every session are dropped.
+    Attendance percent = (present + sat_out) / ALL supplied sessions — a
+    missing cell counts like an absent one.
     """
     rows: dict[str, dict] = {}
 

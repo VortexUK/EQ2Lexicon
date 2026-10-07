@@ -1,9 +1,5 @@
-"""Tests for DELETE /api/parses/{id}, DELETE /api/parses/batch,
-soft-delete, boss/trash/purge logic — and the ABSENCE of the former
-filter-based DELETE /api/parses (removed 2026-09-28 after it wiped a guild's
-whole history from a "clear this view" click).
-
-Extracted from test_parses.py:593-1217 per TEST-004 / Phase 2b.3.
+"""Tests for DELETE /api/parses/{id}, DELETE /api/parses/batch, soft-delete and
+boss/trash/purge logic — and that no filter-based bulk DELETE /api/parses exists.
 """
 
 from __future__ import annotations
@@ -330,10 +326,8 @@ async def test_delete_batch_rejects_bad_ids(app):
 
 @pytest.mark.asyncio
 async def test_delete_bulk_by_filter_route_is_gone(app):
-    """2026-09-27 regression: `DELETE /api/parses?guild=` matched a guild's
-    entire history while the page's confirm quoted only the visible rows.
-    The route no longer exists — GET /api/parses does, so the answer is a
-    405, not a 404 — and no amount of auth changes that."""
+    """`DELETE /api/parses?guild=` does not exist (405, since GET does) regardless
+    of auth: a filter-based delete can wipe far more than the visible rows."""
     with patch("backend.server.api.parses.delete._require_user", _fake_user):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             anon = await client.delete("/api/parses?guild=Exordium")

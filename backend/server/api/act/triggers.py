@@ -332,21 +332,10 @@ async def import_triggers_xml(
     body: ImportXmlRequest,
     user: SessionUser = Depends(require_editor),
 ) -> ImportXmlResponse:
-    """Paste-import path: parse one or more ``<Trigger>`` / ``<Spell>``
-    elements (ACT's verbose XML or its "shareable" short-attribute form)
-    and write them to this encounter.
-
-    Behaviour:
-      * Each ``<Trigger>``'s ``Category`` is restamped to the encounter's
-        mob name (matches the manual create flow), but the source
-        category is preserved in ``notes`` so the import provenance isn't
-        lost.
-      * Triggers with the same ``(regex, sound_data)`` as an existing row
-        on this encounter are **skipped** rather than duplicated — the
-        endpoint is safely re-callable.
-      * Spell timers are upserted by name (UNIQUE within encounter), so
-        re-importing the same ``<Spell>`` refreshes its fields rather than
-        409'ing.
+    """Paste-import ``<Trigger>`` / ``<Spell>`` elements into this encounter.
+    Idempotent: trigger Category is restamped to the mob name (source category
+    kept in ``notes``); triggers matching an existing ``(regex, sound_data)``
+    are skipped; spell timers upsert by name.
     """
     _, mob_name, encounter_id = await _resolve_encounter(zone_name, position)
 

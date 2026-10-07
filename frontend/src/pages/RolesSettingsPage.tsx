@@ -25,8 +25,7 @@ interface RoleRequest {
   admin_note: string | null
 }
 
-// Available roles + their descriptions. Hardcoded for now since there's only
-// one — when there are more, a /api/roles catalogue endpoint slots in here.
+// Requestable roles + their descriptions (client-side list; no catalogue endpoint).
 const AVAILABLE_ROLES: { key: string; label: string; description: string }[] = [
   {
     key: 'contributor',

@@ -1,48 +1,22 @@
 """Effect-text parser for the rotation simulator — pure, no DB access.
 
-the spells catalogue stores damage ONLY as English effect lines ("Inflicts 447 - 746
-melee damage on target", "... every 4 seconds"); no numeric columns exist.
-This module turns those lines into structured damage components the
-simulator can do arithmetic on. One canonical grammar covers every
-observed level-60–80 hostile line (verified against the live catalogue);
-anything that doesn't match is carried in ``unparsed_damage`` and badged
-in the UI — NEVER silently dropped.
-
-Parsing rules (each backed by observed rows):
-  * ``Inflicts <min>[ - <max>] <school> damage on <target>`` → one 'hit'
-    (flat lines get min == max).
-  * ``... instantly and every N seconds`` → BOTH a 'hit' and a 'dot' with
-    the same values (matches in-game behaviour, e.g. Frostbite).
-  * ``... every N seconds`` (no "instantly") → pure 'dot'; bare
-    ``every second`` means interval 1.0.
+The spells catalogue stores damage ONLY as English effect lines; this module
+turns them into structured components. Lines that don't match the grammar go
+to ``unparsed_damage`` (badged in the UI) — NEVER silently dropped. Grammar:
+  * ``Inflicts <min>[ - <max>] <school> damage on <target>`` → a 'hit'
+    (flat lines get min == max); ``... every N seconds`` → a 'dot' (bare
+    ``every second`` = 1.0); ``instantly and every N seconds`` → BOTH.
   * ``on target`` / ``on target encounter`` / ``on targets in Area of
-    Effect`` → ``target_scope`` 'single' / 'encounter' / 'aoe' (the sim
-    multiplies encounter/aoe components by its target count).
-  * A damage line immediately followed by a DEEPER line starting with
-    ``If `` is conditional damage — census places the condition AFTER its
-    effect, indented one level ("Inflicts 754 - 922 divine damage on
-    target." / "  If target is undead"). The condition text is attached
-    to the component (``condition``); the sim gates it on target toggles.
-    No condition-first layout exists in the catalogue (verified: 0 rows).
-  * Attack-driven proc triggers ("On any combat or spell hit this spell
-    has a 50% chance to cast Bolt of Power…") open a proc block: the
-    indented lines below them are the proc's own effects and its damage
-    becomes ``procs`` entries (trigger kind + chance + components) — how
-    AA passives like Bolt of Power are modeled. Defensive triggers
-    ("When damaged…") are not modeled (they need incoming-hit rates).
-  * Other indentation-0 lines produce components — remaining indented
-    lines are sub-effects of unmatched triggers and any damage there
-    goes to ``unparsed_damage`` (conditional, not modeled).
-  * Heals, threat, debuffs, requirement text → ignored (kept in ``lines``).
-
-Unit constants live here so every consumer shares one source of truth:
-  * ``SPELL_DURATION_DIVISOR`` — the items catalogue ``spell_duration`` is HUNDREDTHS
-    of a second (verified: Dark Pyre VI 1000 → 10 s; Tempest 800 → 8 s).
-  * ``RECOVERY_DIVISOR`` — the spells catalogue ``recovery_secs`` is 10× inflated:
-    the census ``recovery_secs_tenths`` field actually carries hundredths
-    and ``spell_to_row`` divides by 10, so the stored 5.0 is really the
-    universal in-game 0.5 s. Normalised at read time; fixing ingestion +
-    re-downloading the 117 MB catalogue is a separate follow-up.
+    Effect`` → ``target_scope`` 'single' / 'encounter' / 'aoe'.
+  * A deeper-indented ``If ...`` line right AFTER a damage line is that
+    damage's ``condition`` (census puts the condition after its effect).
+  * Attack-driven proc triggers ("On any combat or spell hit this spell has
+    a 50% chance to cast ...") open a proc block whose indented damage
+    becomes ``procs`` entries; defensive triggers ("When damaged...") are
+    not modeled.
+  * Other indentation-0 lines produce components; damage indented under an
+    unmatched trigger goes to ``unparsed_damage``. Heals, threat, debuffs
+    and requirement text are ignored (kept in ``lines``).
 """
 
 from __future__ import annotations
@@ -50,9 +24,11 @@ from __future__ import annotations
 import re
 from typing import TypedDict
 
-#: the items catalogue spell_duration → seconds (field is hundredths of a second).
+#: items catalogue spell_duration → seconds (field is hundredths of a second).
 SPELL_DURATION_DIVISOR = 100.0
-#: the spells catalogue recovery_secs → real seconds (stored value is 10× inflated).
+#: spells catalogue recovery_secs → real seconds. The stored value is 10×
+#: inflated (census sends hundredths; spell_to_row divides by 10), so the
+#: stored 5.0 is the universal in-game 0.5 s. Normalised here at read time.
 RECOVERY_DIVISOR = 10.0
 #: A beneficial spell with a duration at or under this is "temp-buff shaped"
 #: and belongs in the rotation; longer buffs are permanent and already

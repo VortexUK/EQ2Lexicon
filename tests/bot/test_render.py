@@ -1,8 +1,6 @@
 """backend/bot/render.py — the pure text half of every bot response.
 
-These are the first bot tests in the repo. The builders were extracted
-verbatim from the cogs (2026-09 formalisation); assertions pin the exact
-output shape so the extraction provably changed nothing.
+Assertions pin the exact output shape the cogs send.
 """
 
 from __future__ import annotations

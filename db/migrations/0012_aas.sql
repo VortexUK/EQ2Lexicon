@@ -1,13 +1,12 @@
 create schema if not exists aas;
 set search_path to aas, public;
 
--- Phase 3: reviewed translation of backend/eq2db/aas.sql's schema blocks.
 -- aa_trees condenses data/AAs/trees/{id}.json (157 files) into two tables;
 -- tree_type and max_points are PRECOMPUTED at build time
 -- (scripts/build_aas_db.py). node_id / spellcrc / first_parent_id are
 -- census-assigned and exceed int4 (max observed ~4.29e9) — bigint.
 -- aa_limits.unlocked_trees / visible_rows stay text (JSON strings the
--- Python json.loads, matching the SQLite shape).
+-- Python json.loads).
 
 CREATE TABLE _meta (
     key   text PRIMARY KEY,
@@ -67,8 +66,8 @@ CREATE TABLE aa_limits (
 );
 
 -- seeds
--- FULL DATA SEEDS, machine-generated from the final SQLite aas catalogue build
--- (2026-07-10) — never hand-edit. They make every environment (prod, CI,
+-- FULL DATA SEEDS, machine-generated from an aas catalogue build — never
+-- hand-edit. They make every environment (prod, CI,
 -- scratch leases, fresh dev) data-complete from migrations alone; future AA
 -- updates flow through scripts/build_aas_db.py upserts against the DB.
 -- 157 trees
@@ -3961,7 +3960,7 @@ INSERT INTO aa_limits (xpac, aa_cap, unlocked_trees, visible_rows, notes) VALUES
     ('The Shadow Odyssey', 200, '["class", "subclass", "shadows", "tradeskill"]', '{"class": [0, 1, 2, 3, 4], "subclass": [0, 3, 6, 9, 13]}', 'Shadows tree added — one per class, cross-archetype nodes (whole tree from launch). Class/subclass trees still pre-revamp.')
 ON CONFLICT (xpac) DO NOTHING;
 
--- 5 _meta provenance stamps (from the final SQLite build)
+-- 5 _meta provenance stamps (from the seeding build)
 INSERT INTO _meta (key, value) VALUES
     ('built_at', '2026-07-10T23:55:20Z'),
     ('built_from', 'E:\git\EQ2Lexicon\data\AAs\trees'),

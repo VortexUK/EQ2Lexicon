@@ -5,13 +5,8 @@ spell_timers.xml exports) AND the "shareable" short-attribute format you
 get from ACT's right-click → Copy as Shareable XML
 (``<Trigger R="..." SD="..." ST="3" CR="F" C="..." T="T" TN="..." Ta="F" />``).
 
-The input can be:
-  * A single ``<Trigger />`` or ``<Spell />`` element (the usual paste).
-  * Multiple sibling elements at the top level.
-  * A wrapping ``<root>``, ``<Triggers>``, ``<CustomTriggers>``, or full
-    ``<Config>`` block.
-The parser wraps the input in a synthetic root if needed so ElementTree
-can parse it either way.
+Input may be one element, sibling elements, or a wrapping ``<root>`` /
+``<Triggers>`` / ``<CustomTriggers>`` / ``<Config>`` block.
 """
 
 from __future__ import annotations

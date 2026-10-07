@@ -1,15 +1,11 @@
 create schema if not exists items;
 set search_path to items, public;
 
--- Reviewed translation of backend/eq2db/items.sql's schema blocks (Phase 2:
--- the read-only catalogue mirrors move off the Railway volume).
 -- items.id is CENSUS-ASSIGNED (ids exceed int4 — max observed 4,294,964,656)
--- — plain bigint PK, no identity. SQLite REAL columns become double
--- precision (SQLite REAL is 8-byte). 0/1 flags stay integers per the type
--- policy. classification_list existed only as a SQLite ALTER migration —
--- here it is a real column. raw_json stays text on purpose: ~1.38 GB of
--- payload nothing queries into at runtime (build-time backfills cast
--- raw_json::jsonb themselves).
+-- — plain bigint PK, no identity. Floating-point columns are double
+-- precision. 0/1 flags stay integers per the type policy. raw_json stays
+-- text on purpose: ~1.38 GB of payload nothing queries into at runtime
+-- (build-time backfills cast raw_json::jsonb themselves).
 
 CREATE TABLE _meta (
     key   text PRIMARY KEY,
@@ -137,7 +133,7 @@ CREATE TABLE items (
     flag_indestructible  integer DEFAULT 0,
     flag_pvp             integer DEFAULT 0,  -- 1 = PvP item (pvp stats or pvp effect text)
 
-    -- JSON array of census classification nodes (was a SQLite ALTER-only column)
+    -- JSON array of census classification nodes
     classification_list  text,
 
     -- Full raw Census JSON — used by _parse_item(); all nested data lives here

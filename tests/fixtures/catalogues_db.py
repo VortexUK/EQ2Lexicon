@@ -2,9 +2,7 @@
 
 ``items_schema`` / ``spells_schema`` / ``recipes_schema`` lease isolated
 scratch schemas built from db/migrations/0007-0009, re-point the shared
-catalogue instances, and yield the schema name — the analog of the old
-``XCatalogue(tmp_db)`` + ``catalogue.path`` re-point (and of the
-zones/raids fixtures in tests/fixtures/zones_raids_db.py).
+catalogue instances, and yield the schema name.
 """
 
 from __future__ import annotations

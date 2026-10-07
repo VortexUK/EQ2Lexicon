@@ -17,9 +17,6 @@ export function abilityColour(index: number): string {
   return SEGMENT_COLOURS[index % SEGMENT_COLOURS.length]
 }
 
-// The old single-strip timeline is replaced by the swimlane cast chart
-// + DPS curve in ResultsCharts.tsx.
-
 export default function ResultsPanel({ result, fightDurationS, rotation, abilities, firstCastAt, onFirstCastAt, timedExternals, onExternalStartAt }: {
   result: SimResult | null
   fightDurationS: number

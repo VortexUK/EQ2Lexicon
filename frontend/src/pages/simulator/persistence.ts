@@ -31,13 +31,13 @@ export interface SavedSimState {
   procChanceOverrides?: Record<string, number>
   /** Group make-up: member CHARACTER names + ticked buff base_names. */
   groupMembers?: string[]
-  /** Legacy (pre-character members): generic member classes — ignored. */
+  /** Older saves only: generic member classes — ignored on load. */
   groupClasses?: string[]
   groupBuffs: string[]
   /** User CORRECTIONS to the auto-derived hidden bonuses; null = trust
    * the derived value. */
   overrides?: { base: number | null; cast: number | null; reuse: number | null }
-  /** Legacy manual fields (pre-derivation saves) — read as overrides. */
+  /** Older saves only: manual bonus fields — read as overrides. */
   baseDamageBonusPct?: number
   hiddenCastSpeedPct?: number
   observed: ObservedHits
@@ -47,7 +47,7 @@ export interface SavedSimState {
   /** EQ2 membership Perks (+20% beneficial duration). Absent = ON. */
   perks?: boolean
   autoAttack: boolean
-  /** Which weapon auto-attacks (legacy saves carry only the boolean). */
+  /** Which weapon auto-attacks (older saves carry only the boolean). */
   autoAttackMode?: 'melee' | 'ranged' | 'off'
   target: SimTarget
 }

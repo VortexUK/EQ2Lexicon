@@ -1,20 +1,9 @@
 """Dump current raid_zones.overview_md into N balanced chunks for agent cleanup.
 
-Mirrors export_for_polish.py but for zone overviews — same chunk layout
-(inbox/outbox), same balanced bin-pack by char count, same JSON shape.
+    uv run python scripts/dev/export_zone_overviews.py [--chunks 2]
 
-Each chunk's entries are::
-
-    {"zone_name": "...", "current_md": "...the current overview..."}
-
-Agent outputs go to data/raids/zone_overview_outbox/chunk_<n>.json and
-should match::
-
-    {"entries": [{"zone_name": "...", "cleaned_md": "..."}, ...]}
-
-with ``cleaned_md`` empty-string-allowed (some overviews are entirely
-per-boss content and should reduce to nothing zone-specific — the apply
-step interprets empty as "wipe the field, fall back to no overview").
+Reads the raids schema; writes data/raids/zone_overview_inbox/chunk_<n>.json. Workflow
+and chunk shapes: docs/runbooks/raid-strategy-agent-polish.md.
 """
 
 from __future__ import annotations

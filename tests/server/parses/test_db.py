@@ -704,7 +704,7 @@ class TestDeleteHelpers:
 
 
 # ---------------------------------------------------------------------------
-# Per-server world scoping — Task 8: (world, act_encid) uniqueness
+# Per-server world scoping: (world, act_encid) uniqueness
 # ---------------------------------------------------------------------------
 
 
@@ -882,8 +882,7 @@ class TestWorldScoping:
         """The DEFAULT lives
         in the migrations-owned DDL outright — a raw INSERT that omits the
         world column must land as 'Varsoon' in both encounters and
-        ingest_log. (The FK-cascade half of the old legacy-rebuild test is
-        pinned in TestDeleteHelpers.test_delete_encounter_cascades_children.)
+        ingest_log.
         """
         row = parses_db_conn.execute(
             "INSERT INTO encounters (act_encid, title, zone, started_at, ended_at, "

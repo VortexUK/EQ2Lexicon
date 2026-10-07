@@ -1,19 +1,6 @@
 /**
- * Delete API for the parses page.
- *
- * Call sites: per-encounter delete (single non-mirror row), whole-fight
- * delete (mirror group, officers/admins), per-upload delete (one raider's
- * upload inside a mirror group's expansion), and the guild header's
- * "delete the parses shown" button, which chunks the VISIBLE upload ids
- * through the batch endpoint.
- *
- * Everything goes through `/api/parses/{id}` or `/api/parses/batch?ids=`.
- * There is deliberately no filter-based bulk endpoint any more: the old
- * `DELETE /api/parses?guild=` matched a guild's entire history while the
- * confirm dialog quoted only what was on screen (2026-09-27). Auth +
- * permission checks happen server-side per id; the buttons that call these
- * helpers are gated client-side by ParseEncounterSummary.permissions /
- * ParseUploadSummary.permissions for UX, not enforcement.
+ * Delete API for the parses page. No filter-based bulk delete: always delete
+ * by an explicit id list, so a delete can never reach beyond what is on screen.
  */
 import type { ParseEncounterSummary } from './types'
 

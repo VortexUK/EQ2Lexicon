@@ -1,19 +1,6 @@
-"""Regression test for the 2026-05-31 SPA stale-cache hotfix.
-
-After a deploy with a new Vite build, browsers that cached the old
-``index.html`` request hashed chunk URLs that no longer exist. Without
-proper Cache-Control headers, browsers can hold stale index.html for
-hours and the user gets a blank page until they hard-refresh.
-
-The fix:
-  * ``index.html`` is served with ``Cache-Control: no-cache, must-revalidate``
-    so the browser always re-validates on navigation.
-  * Hashed ``/assets/*`` files are served with
-    ``Cache-Control: public, max-age=31536000, immutable``
-    (Vite's content hashes make them safe to cache forever).
-
-These tests pin the contract so a future refactor of the static-serving
-layer doesn't regress it.
+"""SPA cache headers: ``index.html`` is ``no-cache, must-revalidate`` and hashed
+``/assets/*`` are ``immutable``. A cached stale index.html after a deploy points at
+chunk URLs that no longer exist (blank page).
 """
 
 from __future__ import annotations

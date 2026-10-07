@@ -1,38 +1,8 @@
 /**
- * ExpansionSection — one collapsible expansion block on /raids.
- *
- * Each instance owns its own ``useFetch('/api/raids/zones?expansion=X')`` and
- * ``useFetch('/api/raids/categories?expansion=X')``, which sidesteps the
- * Rules-of-Hooks limit on the parent (where the number of expansions is
- * dynamic).
- *
- * Composition (per expansion):
- *   - Section header (collapsible). Shows zone count and admin trash.
- *   - One lane per category (NULL = "Uncategorised" lane, always first,
- *     not draggable as a header, no visible header label).
- *   - Each lane is a grid of zone cards. Admin sees a drag handle on
- *     every card + on every named lane header.
- *   - Drag a zone within its lane → PUT /api/raids/zones/reorder with the
- *     full lane order, position renumbered 0..N-1.
- *   - Drag a zone to a different lane → single DndContext at the
- *     ExpansionSection level captures the move; handler infers source +
- *     destination lane from active.id / over.id prefix.
- *   - Drag a named-lane header → PUT /api/raids/categories/reorder.
- *   - Admin-only "Add raid zone" button → ZonePickerModal → POST.
- *   - Admin-only "+ Add category" button → inline prompt → POST.
- *   - DungeonsCard (unchanged — contributor-gated internally).
- *
- * Single DndContext pattern for cross-lane zone drags:
- *   - ONE <DndContext onDragEnd={handleDragEnd}> wraps everything.
- *   - handleDragEnd branches on id prefix: 'cat:' → category reorder,
- *     'zone:' → zone reorder / cross-lane move.
- *   - Each lane's zone-grid is a <SortableContext items={zoneIds}>.
- *   - Each lane also has a useDroppable droppable zone-grid container so
- *     empty lanes can accept drops.
- *
- * Mutations refetch via the hook's ``refetch`` and ``onExpansionRemoved``
- * lifts deletes back to the parent so the whole expansion section
- * disappears in one render.
+ * ExpansionSection — one collapsible expansion block on /raids, owning its
+ * own zone + category fetches (one component per expansion keeps the parent
+ * within the Rules of Hooks). One DndContext spans every lane so zones can
+ * move across lanes; handleDragEnd branches on the 'cat:' / 'zone:' id prefix.
  */
 import { useState } from 'react'
 import { Link } from 'react-router-dom'

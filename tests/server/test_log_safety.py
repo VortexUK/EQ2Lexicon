@@ -1,7 +1,4 @@
-"""Tests for backend.server.core.log_safety — COV-022.
-
-Target: ≥ 90 % on backend.server.core.log_safety.
-"""
+"""Tests for backend.server.core.log_safety."""
 
 from __future__ import annotations
 

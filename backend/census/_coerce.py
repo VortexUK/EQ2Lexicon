@@ -2,9 +2,7 @@
 
 Census returns most fields as strings even when they're numeric (``"42"`` not
 ``42``). These helpers wrap the ``int()``/``float()``/``str()`` calls + the
-``None``-and-error fallbacks the codebase ended up hand-rolling in five
-places (census/client.py, census/spells_db.py, census/recipes_db.py,
-census/item_parser.py, census/db.py).
+``None``-and-error fallbacks.
 
 The leading underscore in the module name is a soft "don't import this
 outside ``census/``" — the parses-side coercers in ``parses/models.py``

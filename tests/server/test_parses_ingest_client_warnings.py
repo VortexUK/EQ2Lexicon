@@ -1,15 +1,6 @@
-"""Tests for the optional `client_warnings` field on POST /parses/ingest.
-
-The plugin (v0.1.15+) attaches a list of soft-warning codes when something
-looks off but isn't bad enough to block the upload — currently just
-``folder_hint_mismatch``. The field is purely additive: old plugins
-never send it, and the column stays NULL for those rows. We pin:
-
-  * round-trip: a valid list is persisted as a JSON-encoded string
-  * absence: omitting the field leaves the column NULL
-  * empty list: stored as NULL (same resting state as absent)
-  * sanitisation: empty entries dropped, over-long entries truncated,
-    duplicates deduped, list-cap enforced upstream by Pydantic
+"""Tests for the optional `client_warnings` field on POST /parses/ingest: a valid list
+round-trips as JSON, absent or empty stores NULL (older plugins never send it), and
+entries are sanitised (empties dropped, long ones truncated, duplicates deduped).
 """
 
 from __future__ import annotations

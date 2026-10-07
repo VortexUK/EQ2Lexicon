@@ -1,8 +1,7 @@
 """GET /parses + GET /parses/{id} — paginated list + detail of recent encounters.
 
-Carved out of the former single-file parses module. All helpers used
-ONLY by the read paths live here. Helpers shared with ingest live in
-ingest.py (and the read paths import them).
+Helpers used ONLY by the read paths live here; helpers shared with ingest
+live in ingest.py.
 """
 
 from __future__ import annotations
@@ -80,32 +79,22 @@ SIZE_BUCKETS: Mapping[str, tuple[int, int]] = MappingProxyType(
 )
 
 # Player count: ally combatants flagged is_player=1 by the pet-detection
-# pipeline (see parses/pet_detection.py). Pre-Phase-4 historic rows
-# have is_player=NULL until _ensure_classified backfills them on first
-# read — until then they count as 0, which is fine because the lazy-
-# backfill runs BEFORE the SQL filter in every read path.
-# Subquery fragment used by both the encounter-listing query (below) and
-# rankings.py's leaderboard loader. Defined here so the two call sites
-# share one source of truth. Re-exported under the original
-# `_PLAYER_COUNT_SQL` name for backwards compat with rankings.py's import.
+# pipeline (see parses/pet_detection.py). Unclassified rows (is_player
+# NULL) count as 0, which is fine because the lazy backfill
+# (_ensure_classified) runs BEFORE the SQL filter in every read path.
+# Shared by the encounter-listing query (below) and rankings.py's
+# leaderboard loader — one source of truth.
 _PLAYER_COUNT_SQL = _SQL["player_count_subquery"]
 _TOP_N_ALLY_SQL = _SQL["top_n_ally_names"]
 _ALL_ALLY_SQL = _SQL["all_ally_names"]
 
 
 def _ensure_classified(conn: Any, encounter_id: int, zone: str | None) -> bool:
-    """Lazy backfill for pre-Phase-4 combatant rows.
+    """Classify this encounter's combatants if any has ``is_player IS NULL``.
 
-    If any combatant for this encounter has ``is_player IS NULL`` (i.e.
-    was inserted before the pet-detection pipeline shipped), run the
-    classifier now and persist. No-op when every row is already
-    classified (a single indexed lookup — steady-state cost is
-    negligible).
-
-    Called by every read path (parses list, parse detail, rankings load)
-    before any ``WHERE is_player = 1`` query that depends on the value
-    being populated. Without this, historic encounters would silently
-    report player_count=0 forever.
+    Every read path (list, detail, rankings load) calls this before any
+    ``WHERE is_player = 1`` query, or unclassified encounters would report
+    player_count=0. One indexed lookup when already classified.
 
     Returns True iff backfill actually ran (so callers can decide
     whether to re-query player_count for the same response)."""
@@ -117,10 +106,8 @@ def _ensure_classified(conn: Any, encounter_id: int, zone: str | None) -> bool:
 
 def encounters_needing_classification(conn: Any, encounter_ids: list[int]) -> set[int]:
     """Batched probe: which of these encounters still have unclassified
-    ally rows? ONE ``= ANY`` query
-    instead of one probe per encounter — at Wuoshi's backlog size the
-    per-encounter probes alone cost the rankings rebuild the better part
-    of a minute."""
+    ally rows? ONE ``= ANY`` query instead of one probe per encounter —
+    per-encounter probes dominate the rankings rebuild at backlog scale."""
     if not encounter_ids:
         return set()
     rows = conn.execute(
@@ -178,7 +165,7 @@ def _top_n_ally_names(conn: Any, encounter_id: int, n: int) -> set[str]:
     Returns ``min(n, available)`` names if the encounter has fewer qualifying
     allies than ``n``. Empty set when there are no qualifying allies at all
     (e.g. an empty-ally parse) — that case still merges trivially under the
-    Phase 4 mutual-containment rule (``set() ⊆ X`` is always true)."""
+    mutual-containment rule (``set() ⊆ X`` is always true)."""
     pre = _roster_prefetch.get()
     if pre is not None and encounter_id in pre:
         return set(pre[encounter_id][:n])
@@ -196,19 +183,9 @@ def _all_ally_names(conn: Any, encounter_id: int) -> set[str]:
 
 
 # ── Zone classifier ──────────────────────────────────────────────────────
-# Bucket a parse's zone into Raid / Dungeon / Other for the ParsesPage
-# Guild → Category hierarchy. Mirror the rankings page's leaderboard
-# predicate exactly so the dropdown set and the classifier set are
-# guaranteed in lockstep: a zone counts iff (a) it has the right type AND
-# (b) ≥1 row in zone_encounters. _cached_zones_data already embeds (b) in
-# the trees it returns, so we just derive the lookup map from those.
-#
-# _cached_zones_data lives in rankings.py, which already imports from this
-# module (_PLAYER_COUNT_SQL, _group_into_fights). A top-level import here
-# would create a circular dependency at module load time. Instead we expose
-# a thin module-level wrapper that delegates on first call via a local
-# import — this lets tests patch 'backend.server.api.parses.list._cached_zones_data'
-# while keeping the load-time cycle broken.
+# Raid / Dungeon / Other bucketing, derived from the rankings page's curated
+# zone trees so the classifier and the rankings dropdowns stay in lockstep.
+# rankings.py imports this module, so the wrappers below import it lazily.
 
 
 def _cached_zones_data() -> tuple[dict, list[dict], list[dict], set[str]]:
@@ -238,9 +215,8 @@ _LEADERBOARD_MAP: dict[str, Literal["raid", "dungeon"]] | None = None
 
 def _classifier_cache_clear() -> None:
     """Reset the lazily-built classifier map. Called from
-    rankings.invalidate_zones_cache so the eight admin curator hooks that
-    already invalidate the rankings cache also invalidate this one — no
-    need to retrofit every call site."""
+    rankings.invalidate_zones_cache, so every curator edit that invalidates
+    the rankings cache invalidates this one too."""
     global _LEADERBOARD_MAP
     _LEADERBOARD_MAP = None
 
@@ -248,11 +224,8 @@ def _classifier_cache_clear() -> None:
 def _build_leaderboard_map() -> dict[str, Literal["raid", "dungeon"]]:
     """Materialise {zone_name_lower: category} from the cached zone trees.
 
-    Dungeons win ties with raids — neither test data nor real EQ2 data
-    should ever assign a single zone BOTH ``raid_x4`` AND ``dungeon``
-    types, but if a curator ever does, the rankings page would surface
-    it under both dropdowns. Picking "dungeon" here is arbitrary; flag
-    this in the audit if it happens in practice."""
+    Dungeons win (arbitrarily) if a curator ever tags a zone as both a raid
+    and a dungeon type."""
     _, raid_tree, dungeon_tree, _ = _cached_zones_data()
     out: dict[str, Literal["raid", "dungeon"]] = {entry["zone"].lower(): "raid" for entry in raid_tree}
     for entry in dungeon_tree:
@@ -365,22 +338,9 @@ def _group_into_fights_prefetched(encounters: list[dict], conn: Any) -> list[dic
     own fight, so two of their uploads are two real fights. The canonical
     upload (carried as the top-level fields on the returned dict) is the
     longest-duration upload in the group — the raider whose ACT captured
-    the most fight time.
-
-    The top-N gate (added 2026-05-30) catches the case of two of the same
-    guild's groups simultaneously doing the same boss — the older gates
-    alone would have merged them.
-
-    Each returned group dict looks like::
-
-        {
-            # ...all fields of the canonical upload row...
-            "uploads": [<every upload dict, including the canonical>],
-        }
-
-    The ``conn`` argument lets the top-N gate query ``combatants`` rows
-    without re-opening the parses DB per pair. Caller is responsible for
-    the connection lifetime."""
+    the most fight time. Each returned dict is the canonical row plus
+    ``uploads`` (every member, canonical included). The caller owns
+    ``conn``."""
     if not encounters:
         return []
     # Sort by started_at ASC so we attach in chronological order — late
@@ -389,11 +349,8 @@ def _group_into_fights_prefetched(encounters: list[dict], conn: Any) -> list[dic
     sorted_encs = sorted(encounters, key=lambda e: e["started_at"])
     groups: list[dict] = []
     # A group can only ever merge encounters sharing (title, guild), so
-    # scan candidates per-bucket instead of the whole group list. The flat
-    # scan was quadratic over the entire history — fine at dozens of
-    # encounters, but Wuoshi's backlog turned the rankings rebuild into a
-    # multi-minute grind (2026-09-12: the startup prewarm never finished
-    # inside a 7-minute log window).
+    # scan candidates per-bucket instead of the whole group list — a flat
+    # scan is quadratic over the entire history.
     buckets: dict[tuple, list[dict]] = {}
     for e in sorted_encs:
         attached = False
@@ -416,21 +373,11 @@ def _group_into_fights_prefetched(encounters: list[dict], conn: Any) -> list[dic
             # when they share guild + title but have entirely different
             # rosters.
             #
-            # Compare new upload against the CANONICAL upload in the
-            # group. Group membership is overlap-transitive only THROUGH
-            # the canonical — every prior member overlapped with the
-            # then-canonical at the time of joining, not member-to-
-            # member. The canonical can also swap mid-group when a
-            # longer-duration upload joins, so the join criterion has a
-            # moving target. Both are acceptable for v1 — the
-            # pathological case (a new join overlaps the current
-            # canonical but would have failed against an earlier
-            # member's roster) is rare in practice.
-            # Missing-data default of 0 → N=2 (the weaker / more permissive
-            # gate). Never fires in practice — _list_encounters_sync's outer
-            # SELECT always projects player_count via _PLAYER_COUNT_SQL — but
-            # if it ever does, two empty top-N sets trivially merge by the
-            # set-containment rule below.
+            # Compared against the CANONICAL upload only, so membership is
+            # transitive through the canonical (which can change as longer
+            # uploads join), not member-to-member.
+            # Missing player_count defaults to 0 → N=2 (the more permissive
+            # gate); the list query always projects it.
             n = 3 if max(g.get("player_count", 0), e.get("player_count", 0)) >= 7 else 2
             top_e = _top_n_ally_names(conn, e["id"], n)
             all_e = _all_ally_names(conn, e["id"])
@@ -471,16 +418,13 @@ def _encounter_detail_sync(encounter_id: int, top_attacks_per_combatant: int, wo
         if enc_row is None:
             return None
         enc = dict(enc_row)
-        # Phase 4 lazy backfill: classify combatants if pre-migration.
-        # is_player drives the frontend Allies/Pets split (Phase 6) and
-        # any other consumer that hits the detail endpoint.
+        # Lazy backfill: is_player drives the frontend Allies/Pets split.
         _ensure_classified(conn, enc["id"], enc.get("zone"))
 
         combatants = parses_db.get_combatants_for_encounter(conn, enc["id"])
         # ACT's per-skill DPS divides by the SKILL's own active window
         # (first hit → last hit), so an ability used for half the fight
-        # reads at double its real contribution (live complaint: 1,040,928
-        # damage over a 7m14s fight shown as 3,884 DPS instead of ~2,398).
+        # reads at double its real contribution.
         # Serve every per-ability rate over the FIGHT duration instead,
         # matching the row-level encDPS semantics. Stored columns are
         # untouched — this is presentation math.
@@ -526,9 +470,8 @@ async def _compute_permissions(
         return {e["id"]: ParsePermissions(can_delete=True) for e in encounters}
 
     # CACHE-ONLY officer resolution — the list is a hot read path and must
-    # never await a census roster fetch: a cold guild cache held /parses
-    # requests for 60-70s (live metrics 2026-09-23 07–09Z), the same
-    # failure class as the 2026-09-12 notifications wedge. On a cold cache
+    # never await a Census roster fetch (a cold guild cache would hold the
+    # request for a minute or more). On a cold cache
     # the officer delete buttons simply don't render for this load (a
     # background warm is kicked inside _roster_rank_map_cached); explicit
     # DELETE actions still authorise against the full fetch in delete.py.
@@ -567,10 +510,8 @@ async def _compute_permissions(
     return out
 
 
-# /parses list SWR cache. The list+classify+group step dominated the route
-# (12s 7-day average vs sub-second warm p95, live metrics 2026-09-22): every
-# cold hit paid the 15k-row scan + mirror grouping, and each deploy's cold
-# start produced minutes-long tails. Same treatment as the rankings kills
+# /parses list SWR cache: a cold build pays the 15k-row scan + mirror
+# grouping (seconds). Same treatment as the rankings kills
 # dataset: 60s freshness, 6h stale amnesty (stale pages serve instantly with
 # a background rebuild), single-flight so concurrent cold hits share ONE
 # build, and a startup prewarm of each world's default view. Keys carry the
@@ -587,7 +528,7 @@ def _build_list_dataset(
     search: str | None,
     before: int | None,
 ) -> tuple[list[dict], list[dict], int]:
-    """SYNC (executor): the inner-list SQL, Phase-4 lazy classification
+    """SYNC (executor): the inner-list SQL, lazy classification
     backfill, then mirror-grouping. Returns (rows, fights, total_fights).
 
     ``_list_encounters_sync`` opens its own connection for the row SELECT;
@@ -599,11 +540,10 @@ def _build_list_dataset(
         return rows, [], 0
     conn = parses_db.init_db()
     try:
-        # Lazy backfill: pre-pipeline encounters have is_player=NULL
-        # combatants — classify before the merger so its top-N gate sees the
-        # right flags, and refresh player_count on the same request. ONE
-        # batched probe finds the needy set (the per-row probe was 40% of all
-        # statements in production and always empty).
+        # Lazy backfill: classify is_player=NULL combatants before the merger
+        # so its top-N gate sees the right flags, and refresh player_count on
+        # the same request. ONE batched probe finds the needy set (a per-row
+        # probe would be most of the statements and almost always empty).
         needy = encounters_needing_classification(conn, [r["id"] for r in rows])
         for r in rows:
             if r["id"] in needy and _classify_now(conn, r["id"], r.get("zone")):
@@ -696,7 +636,7 @@ async def list_parses(
 ) -> ParsesListResponse:
     _require_user(request)
 
-    # `limit` is now a FIGHT cap, not an upload cap. Clamp to 500 — the
+    # `limit` is a FIGHT cap, not an upload cap. Clamp to 500 — the
     # whole page is rendered client-side; bigger pages stall the browser
     # before they stall the server.
     limit = max(1, min(limit, PARSE_LIST_MAX_LIMIT))
@@ -713,10 +653,8 @@ async def list_parses(
     inner_cap = max(limit * PARSE_INNER_CAP_MULTIPLIER, PARSE_INNER_CAP_FLOOR)
 
     # Capture the request's active world OUTSIDE the threadpool closure
-    # below. Even with run_sync's contextvar propagation (fixed
-    # 2026-05-31), capturing here explicitly is clearer and protects
-    # against future runtime/executor changes that might not propagate
-    # context — defence in depth.
+    # below — explicit, and independent of run_sync's contextvar
+    # propagation.
     active_world = current_world()
 
     builder = functools.partial(_build_list_dataset, inner_cap, zone, size, active_world, search, before)

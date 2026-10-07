@@ -1,16 +1,9 @@
-"""Load locally-downloaded AA tree JSONs + aa_limits.json into the Postgres
-``aas`` schema (DATABASE_URL — see backend/pg.py for the DSN resolution chain).
+"""Load locally-downloaded AA tree JSONs + aa_limits.json into the Postgres ``aas`` schema.
 
-    python scripts/build_aas_db.py                 # data/AAs/trees -> the aas schema
-    python scripts/build_aas_db.py --schema my_scratch_schema
+    uv run python scripts/build_aas_db.py [--schema <name>]
 
-Mirrors scripts/build_zones_db.py: reads every data/AAs/trees/{id}.json
-(LOCAL census downloads — gitignored; fetch them first with
-scripts/download_aa_trees.py) plus the committed aa_limits.json, upserts into
-aa_trees/aa_nodes/aa_limits (tree_type + max_points precomputed), and stamps
-_meta provenance. Schema DDL (and the full data seed a fresh database starts
-from) is owned by db/migrations/0012_aas.sql — this script refreshes the data
-after a new tree download.
+Reads data/AAs/trees/{id}.json (fetch first with scripts/download_aa_trees.py); upserts
+aa_trees / aa_nodes / aa_limits at DATABASE_URL. See docs/runbooks/catalogue-refresh.md.
 """
 
 from __future__ import annotations

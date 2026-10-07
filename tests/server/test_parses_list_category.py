@@ -1,8 +1,5 @@
-"""Tests for the `category` field on /api/parses responses.
-
-The field is computed at query time from _classify_zone(row.zone) and
-attached to every ParseEncounterSummary. Frontend reads it in Phase 5;
-backend ships it from Phase 3 onwards.
+"""Tests for the `category` field on /api/parses responses, computed at query time
+from _classify_zone(row.zone) on every ParseEncounterSummary.
 """
 
 from __future__ import annotations

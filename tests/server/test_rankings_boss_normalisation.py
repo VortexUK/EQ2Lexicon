@@ -1,7 +1,5 @@
-"""Apostrophe-variant normalisation for boss-name canonicalisation.
-
-Regression test for the issue where a curator-entered roster with one
-apostrophe variant silently failed to match parses shipped with another.
+"""Apostrophe-variant normalisation for boss-name canonicalisation, so a roster entered
+with one apostrophe variant matches parses shipped with another.
 """
 
 from backend.server.api.rankings import _normalise_boss_key

@@ -1,13 +1,10 @@
 """/lexicon — link a Discord server to an EQ2 guild.
 
-The registry these commands edit (the users schema discord_guild_links) drives every
-world-aware bot command's context (backend/bot/guild_context.py) and the
-Phase 3 voice-attendance poller. Gated on Discord's own manage_guild
-permission: default_permissions hides the group from regular members in the
-UI, and interaction_check enforces it server-side (admins can loosen the UI
-default per-integration; the check is the hard floor). Deliberately NO
-site-officer verification — the Discord server's admin is the right trust
-boundary for "what does this Discord server map to".
+Edits the discord_guild_links registry (users schema) behind every
+world-aware bot command and the voice-attendance poller. Gated on Discord's
+manage_guild permission: default_permissions only hides the group in the UI
+(admins can loosen it); interaction_check is the hard floor. Deliberately NO
+site-officer verification — the Discord server's admin is the trust boundary.
 """
 
 from __future__ import annotations

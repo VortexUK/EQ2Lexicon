@@ -1,21 +1,13 @@
 /**
- * TamperReportsTable — admin view of the audit channel for parses the
- * plugin refused to send to the leaderboard.
+ * TamperReportsTable — admin view of parses the plugin refused to upload
+ * (POST /api/parses/tamper-report). Hard signals only; soft `client_warnings`
+ * show as the ⚠ chip on ParsesAdminTable.
  *
- * Populated by POST /api/parses/tamper-report (the plugin fires this
- * fire-and-forget when its heuristics block an upload). The admin sees
- * the working set (pending review) by default — switching to "ack" or
- * "all" lets them revisit older reports.
- *
- * Hard tamper signals only — the soft `client_warnings` flags that
- * ride along with successful uploads (e.g. folder_hint_mismatch) are
- * surfaced via the ⚠ chip on ParsesAdminTable instead.
- *
- * Reason codes (server contract — see CLAUDE.md "/api/parses/tamper-report"):
+ * Reason codes (server contract):
  *   - title_enemy_mismatch    → rename detected            → danger badge
  *   - stale_encounter         → EndTime > 1h ago           → warning badge
  *   - recent_import_activity  → Import UI was active       → warning badge
- *   - any future code         → renders verbatim + muted   → safe to add server-side later
+ *   - any other code          → rendered verbatim, muted
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '../../components/ui'

@@ -1,11 +1,6 @@
-"""Tests for the /api/parses + admin-list pagination cursor (``before``).
-
-The list endpoints serve a newest-first window; without a cursor, growth in
-upload volume silently pushes older history out of view (the "several weeks
-of bosses disappeared" incident of 2026-07 — nothing was deleted, the
-newest-500-fights window just no longer reached past three days). These
-tests pin the cursor contract: ``next_before`` handed out exactly when more
-data exists, ``before`` filtering strictly older rows.
+"""Tests for the /api/parses + admin-list pagination cursor: ``next_before`` is handed
+out exactly when more data exists and ``before`` filters strictly older rows.
+Without it, upload volume silently pushes older history out of the newest-first window.
 """
 
 from __future__ import annotations

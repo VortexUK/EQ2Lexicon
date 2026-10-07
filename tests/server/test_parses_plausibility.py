@@ -292,7 +292,7 @@ async def test_route_quarantines_implausible_rate_off_the_board(app):
 
 
 # ---------------------------------------------------------------------------
-# 2026-10 review additions: the checks the module docstring promised
+# The remaining checks the module docstring promises
 # ---------------------------------------------------------------------------
 
 

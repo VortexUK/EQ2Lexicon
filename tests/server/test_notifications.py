@@ -1,12 +1,6 @@
-"""Behavioural tests for GET /api/notifications.
+"""Behavioural tests for GET /api/notifications (polled every 60 s by the bell icon).
 
-Polled every 60 s from the frontend bell icon. Zero tests existed before
-the COV-001 audit finding. Each test pins one user-facing branch of the
-endpoint per the audit's proposed-scenario list.
-
-All Census calls are stubbed — the endpoint must never hit Census on a poll
-(the cache-miss / refresh path lives in the read endpoints). The session is
-injected via a signed itsdangerous cookie matching the test app's secret.
+The endpoint must never hit Census on a poll; all Census calls are stubbed.
 """
 
 from __future__ import annotations
@@ -247,11 +241,8 @@ async def test_notifications_admin_who_is_also_officer_combines(app):
 
 
 async def test_notifications_cold_roster_cache_returns_zeros_without_fetching(app):
-    """The bell is polled every 60s from every open tab: when the roster
-    cache is cold, the poll must return immediately with zero claims for
-    that guild (a background warm is kicked) — the OLD behaviour fell
-    through to the full Census guild fetch and wedged the site
-    (2026-09-12: /api/notifications stacked at 10–107s, Cloudflare 524s)."""
+    """A cold roster cache returns zero claims for that guild immediately and kicks a
+    background warm — a Census guild fetch on the 60 s poll from every tab wedges the site."""
     import backend.server.api.notifications as nmod
 
     user = {"id": "user-1", "username": "knight"}

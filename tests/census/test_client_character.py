@@ -1,4 +1,4 @@
-"""Tests for census.client character-related methods — COV-009 sub 3.
+"""Tests for census.client character-related methods.
 
 Covers: get_character, get_character_aas, get_character_brief,
 get_character_spells, get_character_guild_name.

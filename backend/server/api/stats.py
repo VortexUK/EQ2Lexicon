@@ -1,23 +1,12 @@
-"""Server statistics — the census character.stat aggregate family surfaced
-as a per-server Stats page + per-character lifetime panel.
+"""Server statistics from the Census character.stat aggregate family.
 
-Data shape (probed 2026-07-25):
-  - character.stat.global: one row per classid + 'all', game-wide.
-  - character.stat.world:  one row per worldid.
-  - character.stat:        one row per 'worldid.classid'.
-  Each row: 12 lifetime statistics as {max, sum, avg} + count + ts,
-  recomputed daily by census (~09:45 UTC).
-
-Named leaderboards come from sorted/filtered character queries:
-  - single-value stats sort server-side ('statistics.kills:-1'),
-  - K/D sorts on '...ratio.value' with a kills floor (pure ratio farming
-    from a handful of kills would otherwise own the board),
-  - the two hit records can't be census-sorted (two-key objects), so we
-    range-filter near the aggregate max and sort client-side.
-
-Everything is cached per world for STATS_TTL_S (census only recomputes
-daily) with stale-while-revalidate semantics, so page views cost zero
-census once warm.
+Rows: character.stat.global (per classid + 'all'), character.stat.world (per
+worldid), character.stat (per 'worldid.classid'); each holds 12 lifetime stats
+as {max, sum, avg}, recomputed daily by Census (~09:45 UTC). Leaderboards: single-value
+stats sort server-side; K/D sorts on '.ratio.value' with a kills floor; the
+two-key hit records can't be Census-sorted, so they are range-filtered near
+the aggregate max and sorted here. Cached per world for STATS_TTL_S with
+stale-while-revalidate.
 """
 
 from __future__ import annotations

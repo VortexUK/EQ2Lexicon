@@ -2,18 +2,13 @@ create schema if not exists users;
 set search_path to users, public;
 
 -- ============================================================================
--- users family — translated AND REVIEWED from backend/server/db/schema.sql
--- (the SQLite users schema), not a mechanical port. Type policy: identity
--- bigints; unix-epoch bigints (NOT timestamptz — Python arithmetic + the
--- JSON contract use raw ints); 0/1 flags stay integers (frontend contract);
--- ISO day strings stay text. Review decisions are annotated per table;
--- contract-affecting ideas were escalated instead of applied.
+-- users family. Type policy: identity bigints; unix-epoch bigints (NOT
+-- timestamptz — Python arithmetic + the JSON contract use raw ints); 0/1
+-- flags stay integers (frontend contract); ISO day strings stay text.
 --
 -- FK policy: every reference to users(discord_id) is DEFERRABLE INITIALLY
 -- IMMEDIATE so the erasure sweep runs as ONE transaction under
--- SET CONSTRAINTS ALL DEFERRED (replaces SQLite's PRAGMA foreign_keys=OFF).
--- Unlike SQLite (where the users schema never enabled the pragma), these are
--- actually enforced.
+-- SET CONSTRAINTS ALL DEFERRED. The FKs are enforced.
 -- ============================================================================
 
 CREATE TABLE users (
@@ -26,10 +21,9 @@ CREATE TABLE users (
     access_status    text   NOT NULL DEFAULT 'pending'
 );
 
--- REVIEW: considered CHECK constraints on the status enums (here and on
--- claims/requests/availability). Rejected: the routes validate them, the
--- value sets grow as data-not-schema, and ingest paths must never start
--- rejecting values SQLite accepted.
+-- No CHECK constraints on the status enums (here and on claims/requests/
+-- availability): the routes validate them and the value sets grow as data,
+-- not schema.
 
 CREATE TABLE character_claims (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -47,13 +41,9 @@ CREATE TABLE character_claims (
 CREATE INDEX idx_claims_discord ON character_claims (discord_id);
 CREATE INDEX idx_claims_status  ON character_claims (status);
 CREATE INDEX idx_claims_world   ON character_claims (world);
--- Ported from migrations.sql (post-ALTER home no longer needed — the
--- two-phase schema/migrations split is dead on Postgres).
 CREATE INDEX idx_claims_primary ON character_claims (world, is_primary) WHERE is_primary = 1;
--- REVIEW (applied, user-approved): one APPROVED claim per character per
--- world, enforced by the database instead of only by the supersede flow.
--- The copy script audits prod data for violations before load (a
--- historical double-approval fails loudly at rehearsal, not silently).
+-- One APPROVED claim per character per world, enforced by the database and
+-- not only by the supersede flow.
 CREATE UNIQUE INDEX idx_claims_one_approved
     ON character_claims (world, lower(character_name)) WHERE status = 'approved';
 
@@ -73,8 +63,7 @@ CREATE TABLE item_watch (
     UNIQUE (world, guild_name, character_name, item_id)
 );
 
--- REVIEW (applied): the SQLite index was (guild_name) alone but every
--- query is world-scoped — composite matches the access path.
+-- Composite because every query is world-scoped.
 CREATE INDEX idx_watch_guild ON item_watch (world, guild_name);
 
 -- Persistent, admin-grantable roles (admin itself stays env-driven so a
@@ -132,8 +121,7 @@ CREATE TABLE api_tokens (
 );
 
 CREATE INDEX idx_tokens_user ON api_tokens (user_id);
--- REVIEW (applied): SQLite also had idx_tokens_hash — redundant with the
--- UNIQUE constraint's index. Dropped.
+-- No separate token_hash index: the UNIQUE constraint's index serves lookups.
 
 CREATE TABLE servers (
     world          text PRIMARY KEY,
@@ -170,10 +158,7 @@ CREATE TABLE raid_slots (
     id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     team_id    bigint  NOT NULL REFERENCES raid_teams(id) ON DELETE CASCADE,
     slot_index integer NOT NULL,     -- 0..3
-    -- REVIEW (applied, user-approved): ISO weekdays (1=Mon..7=Sun) as a real
-    -- array instead of the SQLite CSV string — the API already speaks
-    -- lists, so only the store/poller layer changes (lands with the P1
-    -- raid_schedule store swap; the copy script splits prod CSV).
+    -- ISO weekdays, 1=Mon..7=Sun.
     days       integer[] NOT NULL,
     start_min  integer NOT NULL,     -- minutes since midnight in the team tz
     end_min    integer NOT NULL,     -- may cross midnight; span <= 300 (5h)
@@ -226,9 +211,8 @@ CREATE TABLE raid_roster_roles (
 CREATE INDEX idx_raid_roles_guild ON raid_roster_roles (world, guild_name);
 
 -- Canonical merged attendance per guild raid night.
--- REVIEW (applied): zones + uploaders become jsonb — erasure's LIKE probe
--- becomes an exact jsonb key-exists test, and the snapshot merge can later
--- become an atomic `uploaders || excluded.uploaders`.
+-- zones + uploaders are jsonb so erasure can use an exact key-exists test
+-- and the snapshot merge can be an atomic `uploaders || excluded.uploaders`.
 CREATE TABLE attendance_sessions (
     id          bigint  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     world       text    NOT NULL,
@@ -395,13 +379,13 @@ CREATE INDEX        idx_guild_recruitment_listing ON guild_recruitment (world, r
 
 -- seeds
 -- Idempotent — the test scratch-schema reset re-runs everything below this
--- marker after TRUNCATE. Production values are overwritten by the data copy.
+-- marker after TRUNCATE.
 INSERT INTO role_permissions (role, capability) VALUES ('contributor', 'edit_content')
 ON CONFLICT DO NOTHING;
 INSERT INTO servers (world, subdomain, display_name, max_level, is_default)
 VALUES ('Varsoon', 'varsoon', 'Varsoon', 70, 1), ('Wuoshi', 'wuoshi', 'Wuoshi', 70, 0)
 ON CONFLICT DO NOTHING;
--- Exactly-one-default fixup (mirrors the retired migrations.py logic).
+-- Exactly one server row must be the default.
 UPDATE servers SET is_default = 1
 WHERE world = (SELECT MIN(world) FROM servers)
   AND NOT EXISTS (SELECT 1 FROM servers WHERE is_default = 1);

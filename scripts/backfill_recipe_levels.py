@@ -1,29 +1,10 @@
 """Backfill the ``out_level`` column in the recipes schema — no re-download.
 
-The crafting tier (T1–T14) shown on the recipe page is derived from the level of
-the item a recipe makes, NOT from the fuel name (the old fuel-prefix heuristic was
-wrong for ~79% of recipes — the same adjective, e.g. "Smoldering", appears across
-wildly different tiers depending on the fuel type). This backfill resolves each
-recipe's crafted-output level from the items schema and stores it on
-``recipes.out_level``; the API then maps level → tier.
+    uv run python scripts/backfill_recipe_levels.py [--rebuild]
 
-Output level is resolved from the first leveled output in priority order:
-``out_elaborate_id`` (the named-quality scroll for spell recipes) →
-``out_worked_id`` → ``out_formed_id`` → ``out_simple_id``. Levels < 1 are treated
-as "no level" (intermediate components, etc.), leaving ``out_level`` NULL.
-
-Idempotent. By default only fills rows where ``out_level IS NULL`` (cheap on
-re-run); pass ``--rebuild`` / ``rebuild=True`` to recompute every row after an
-items refresh.
-
-Both catalogue families live in the one Postgres database (DATABASE_URL), so
-the old "load 372k item levels into a Python dict, then executemany UPDATEs"
-stitch is now a single cross-schema ``UPDATE … FROM``.
-
-Usage:
-
-    uv run python scripts/backfill_recipe_levels.py
-    uv run python scripts/backfill_recipe_levels.py --rebuild
+Resolves each recipe's crafted-output level from items.items into recipes.out_level
+(default: NULL rows only; --rebuild after an items refresh). See
+docs/runbooks/catalogue-refresh.md.
 """
 
 from __future__ import annotations
@@ -42,13 +23,11 @@ load_dotenv()
 from backend.eq2db.items import catalogue as items_catalogue  # noqa: E402
 from backend.eq2db.recipes import catalogue as recipes_catalogue  # noqa: E402
 
-# One statement replaces the old per-recipe dict lookup. Each output-id column
-# LEFT JOINs the items table restricted to leveled items (level_to_use >= 1),
-# and COALESCE picks the first hit in priority order — elaborate first: for
+# Each output-id column LEFT JOINs the items table restricted to leveled
+# items (level_to_use >= 1), and COALESCE picks the first hit in priority order — elaborate first: for
 # spell-scroll recipes it points at the named scroll (the simple/worked/formed
 # ids often point at the fuel/component instead). A NULL id, an id missing
-# from items, and an item with level < 1 all fall through to the next column,
-# exactly like the old `next((levels[i] for i in out_ids if i in levels), None)`.
+# from items, and an item with level < 1 all fall through to the next column.
 # RETURNING reports whether each processed row resolved a level.
 _UPDATE_SQL = """
 UPDATE recipes AS r
@@ -72,8 +51,7 @@ def run(rebuild: bool = False) -> tuple[int, int]:
     """Backfill recipes.out_level from the items schema. Returns
     (rows_processed, rows_with_level).
 
-    Returns (0, 0) when the items catalogue holds no rows yet (the Postgres
-    analogue of the old "catalogue file absent" soft exit) — never wipes
+    Returns (0, 0) when the items catalogue holds no rows yet — never wipes
     existing out_level values against an unloaded items schema.
     """
     if not items_catalogue.ready():

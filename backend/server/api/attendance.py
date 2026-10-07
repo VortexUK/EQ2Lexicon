@@ -1,16 +1,10 @@
-"""Raid-attendance endpoints — parser ingest + the guild Attendance tab.
+"""Raid-attendance routes — EQ2Parser snapshot ingest + the guild Attendance tab.
 
-POST /api/attendance/ingest              — EQ2Parser snapshot upload
-GET  /api/guild/{g}/attendance           — session list (member-gated)
-GET  /api/guild/{g}/attendance/{id}      — session detail with categories
-DELETE /api/guild/{g}/attendance/{id}    — officer moderation
-
-Ingest reuses the parses upload contract (bearer token + HMAC over the
-uncompressed JSON; gzip handled by middleware) and resolves + verifies the
-uploader's guild server-side from logger_name — the client never asserts its
-own guild. Categories (present / sat_out / afk / awol) are derived at read
-time by backend/server/attendance.py against the raid-planner roles, claims,
-and the availability calendar.
+Ingest uses the parses upload contract (bearer token + HMAC over the
+uncompressed JSON) and resolves the uploader's guild server-side from
+logger_name — the client never asserts its own guild. Categories
+(present / sat_out / afk / awol) are derived at read time by
+backend/server/attendance.py.
 """
 
 from __future__ import annotations

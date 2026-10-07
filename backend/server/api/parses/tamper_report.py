@@ -1,27 +1,8 @@
-"""POST /parses/tamper-report — audit channel for client-detected tamper.
+"""POST /parses/tamper-report — audit channel for plugin-detected tamper.
 
-Companion to /parses/ingest. When the ACT plugin's heuristics decide a
-parse is tampered (renamed encounter, stale import, recent import activity)
-it blocks the leaderboard upload and POSTs the same payload here instead
-with an ``X-Lexicon-Tamper-Reason`` header. We persist the row in the
-``tamper_reports`` table for admin review and respond 201.
-
-Crucially this endpoint NEVER writes to ``encounters`` — the parse must
-not appear on public leaderboards. Admins read these rows via
-``GET /api/admin/tamper-reports`` (see backend/server/api/admin.py).
-
-Plugin contract (mirror CLAUDE.md "/api/parses/tamper-report (POST)"):
-  * Headers: Authorization Bearer, X-Lexicon-Tamper-Reason (one code),
-    X-Lexicon-Signature (HMAC matches ingest scheme)
-  * Body shape: identical to IngestRequest (so admins can drill in with
-    the same parse-row reader the rest of the site uses)
-  * Reason codes today: title_enemy_mismatch | stale_encounter |
-    recent_import_activity. Stored as TEXT so future codes need no
-    server change.
-
-The plugin is fire-and-forget here — it never surfaces the response to
-the user, even on failure. So we keep the response minimal (id + reason)
-and rely on logging for diagnostics.
+Body is an IngestRequest; headers are the ingest auth + HMAC plus
+``X-Lexicon-Tamper-Reason``. Rows go to ``tamper_reports`` for admin review
+and NEVER to ``encounters``, so the parse cannot reach a leaderboard.
 """
 
 from __future__ import annotations
@@ -126,8 +107,8 @@ def _parse_unix_seconds(value: str | None) -> int:
     """Parse the plugin's ISO-8601-with-Z timestamps into unix seconds.
 
     The plugin emits ``yyyy-MM-ddTHH:mm:ssZ`` for both starttime and
-    endtime; the older "yyyy-MM-dd HH:mm:ss" form (no T, no Z) is also
-    accepted for compatibility with the test fixtures. Returns 0 on
+    endtime; "yyyy-MM-dd HH:mm:ss" (no T, no Z, read as UTC) is also
+    accepted. Returns 0 on
     anything that doesn't parse — tamper reports are evidence, not
     leaderboard rows, so a malformed timestamp shouldn't reject the
     audit insert.
@@ -143,7 +124,7 @@ def _parse_unix_seconds(value: str | None) -> int:
     # accepts it on every Python version.
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
-    # The old test fixture form uses a space separator instead of "T".
+    # Also accept a space separator instead of "T".
     if " " in s and "T" not in s:
         s = s.replace(" ", "T", 1)
     try:
@@ -169,18 +150,9 @@ async def report_tamper(
 ) -> TamperReportResponse:
     """Persist a plugin-detected tamper attempt to the audit table.
 
-    Auth: same as /parses/ingest — Bearer token OR session cookie.
-    HMAC validation: strict via _validate_payload_signature (token-auth
-    paths require X-Lexicon-Signature; mismatch is 401).
-
-    Reason header is required. Logger_name is validated to the same
-    1-15 letter rule the ingest endpoint applies — keeps malformed
-    payloads out of admin search.
-
-    Logger_server is recorded verbatim (after shape sanitisation) but
-    NOT gated against ALLOWED_SERVERS — a tamper attempt from an
-    unallowed server is still evidence worth surfacing. The admin sees
-    the raw value in the report.
+    Same auth + strict HMAC as /parses/ingest. logger_server is NOT gated
+    against ALLOWED_SERVERS — a report from an unallowed server is still
+    evidence.
     """
     user: TokenUser = await require_user_session_or_token(request)
     await _validate_payload_signature(request, user)
@@ -194,13 +166,9 @@ async def report_tamper(
             detail=f"{PLUGIN_TAMPER_REASON_HEADER} header is required.",
         )
     if reason not in KNOWN_TAMPER_REASONS:
-        # Accept unknown codes for forward-compat with future plugin
-        # versions, but log so the maintainer notices a new heuristic
-        # they may want to wire admin-UI styling for. Drop the
-        # discord_id from this line — it's the receipt-side log only;
-        # the actor's id is captured at audit-log time when the report
-        # actually lands (and in the DB row's uploader_discord_id
-        # column either way).
+        # Accept unknown codes (forward-compat with newer plugins), but log
+        # so a new heuristic gets noticed. No discord_id here — the audit
+        # log and the row's uploader_discord_id carry the actor.
         _log.info(
             "[tamper-report] unknown reason code: %s",
             _safe_for_log(reason),
@@ -258,11 +226,7 @@ async def report_tamper(
         # Don't surface DB details to the client.
         raise HTTPException(status_code=500, detail="Could not persist tamper report.") from None
 
-    # Successful receipt of a tamper report IS an audit event — route it
-    # via the audit_log helper rather than a free-form _log.info so the
-    # `eq2.audit` channel has the full record (action, actor, reason,
-    # encid, world). audit_log scrubs every field automatically and is
-    # the project's blessed pattern for security-relevant events.
+    # Successful receipt of a tamper report IS an audit event.
     audit_log(
         "tamper_report.received",
         actor=discord_id,

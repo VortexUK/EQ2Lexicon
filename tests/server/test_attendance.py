@@ -1,12 +1,7 @@
 """Raid-attendance tests — store merge semantics, category derivation, routes.
 
-Store tests run against a leased scratch Postgres schema (stores re-pointed
-by the autouse fixture, same pattern as test_raid_planning.py). The ingest
-route reuses the HMAC signing helpers from
-tests/server/_parses_ingest_fixtures.py so the signature contract stays
-pinned by one source of truth; guild resolution and the schedule probe are
-patched in the attendance module's namespace (the route imports them by
-name).
+Guild resolution and the schedule probe are patched in the attendance module's
+namespace because the route imports them by name.
 """
 
 from __future__ import annotations
@@ -937,7 +932,7 @@ async def test_guild_views_require_subscriber_role(app):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — voice cross-check: live-session probe, voice recording, in_voice
+# Voice cross-check: live-session probe, voice recording, in_voice
 # ---------------------------------------------------------------------------
 
 

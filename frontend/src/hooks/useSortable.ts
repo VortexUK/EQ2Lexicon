@@ -1,19 +1,7 @@
 /**
- * useSortable — manages sort key + direction for a tabular dataset.
- *
- * Replaces the 3 duplicated [sortKey, sortDir] + handleSort patterns in
- * GuildPage's three tables (Roster, SpellCheck, Adorn).
- *
- * Usage:
- *   const { sorted, sortKey, sortDir, handleSort } = useSortable(
- *     rows,
- *     (row, key) => row[key],
- *     'name',
- *   )
- *
- * `getValue(row, key)` returns the value to compare. Strings sort
- * case-insensitively; numbers/dates sort numerically; null/undefined sort
- * last regardless of direction.
+ * useSortable — sort key + direction for a tabular dataset. Strings compare
+ * case-insensitively, numbers/dates numerically; null/undefined sort last in
+ * both directions.
  */
 import { useMemo, useState, useRef } from 'react'
 

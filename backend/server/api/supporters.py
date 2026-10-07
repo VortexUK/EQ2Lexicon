@@ -1,24 +1,8 @@
-"""
-GET /api/supporters — Discord IDs + display names of users holding the
-'supporter' role. Logged-in users only.
+"""GET /api/supporters — Discord IDs + display names of 'supporter' role holders.
 
-The frontend fetches this once per session, caches the IDs in memory, and
-checks membership locally when rendering any username (to slap a 👑 badge
-next to supporter names). The set is tiny (low double-digits at most for a
-niche community site), and the alternative — joining role info into every
-endpoint that returns a Discord ID — would balloon many response schemas
-for one cosmetic feature.
-
-It used to be unauthenticated (2026-09-28 privacy review): raw Discord IDs
-of real people were readable by anyone on the internet without a login,
-which no other endpoint allows. The whole app sits behind the Discord
-login gate, so gating this one costs nothing for real users; the Support
-page now gets display names from here too instead of "Supporter #1234".
-
-Cache strategy: module-level list, populated on first request, busted on
-any /api/admin/users/{discord_id}/roles/supporter grant/revoke (see the
-admin route — it calls `invalidate()` here after a successful write) and
-on account erasure.
+Session-gated (raw Discord IDs must not be public). The frontend fetches the
+set once and badges names locally. The module-level cache must be cleared via
+``invalidate()`` on supporter grant/revoke and on account erasure.
 """
 
 from __future__ import annotations

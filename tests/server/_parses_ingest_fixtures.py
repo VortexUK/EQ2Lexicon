@@ -1,14 +1,5 @@
-"""Shared ingest-test helpers for parses ingest web tests.
-
-Extracted per TEST-005 / Phase 2b.2. Single source of truth for the
-ingest payload builder and signing helpers — both test_parses_ingest.py
-and test_parses_ingest_hmac.py import from here.
-
-The _minimal_payload in this file is the canonical (full) version from
-test_parses_ingest.py; the HMAC test previously had a minimal variant
-with only one combatant — that variant is now covered by the HMAC test
-calling this version directly (it only needs the payload to be valid,
-not to exercise every field).
+"""Shared ingest-test helpers: the single source of truth for the ingest payload
+builder and the HMAC signing helpers used by the ingest/HMAC/attendance tests.
 """
 
 from __future__ import annotations

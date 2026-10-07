@@ -1,8 +1,7 @@
 /**
- * ParsesAdminTable — the bulk-restore workflow added after the 2026-09-27
- * guild-wide delete: "Hidden only" narrows the list, "Select all hidden"
- * ticks the soft-deleted rows, "Unhide selected" POSTs their ids to the
- * batch unhide route in chunks and reloads.
+ * ParsesAdminTable — the bulk-restore workflow: "Hidden only" narrows the
+ * list, "Select all hidden" ticks the soft-deleted rows, "Unhide selected"
+ * POSTs their ids to the batch unhide route in chunks and reloads.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'

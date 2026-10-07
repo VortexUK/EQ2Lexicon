@@ -1,10 +1,5 @@
-"""Tests for the Phase-4 SQL filter switch + lazy backfill in
-backend/server/api/parses/list.py.
-
-After Phase 4: _PLAYER_COUNT_SQL filters on is_player=1, not on the
-old multi-word/Unknown predicate. _ensure_classified runs lazy
-backfill for any encounter whose combatants still have is_player=NULL
-(i.e. pre-migration historic rows).
+"""Tests for backend/server/api/parses/list.py: _PLAYER_COUNT_SQL filters on is_player=1,
+and _ensure_classified lazily backfills encounters whose allies have is_player=NULL.
 """
 
 from __future__ import annotations
@@ -53,8 +48,7 @@ def _insert_encounter(conn: Any, act_encid: str, zone: str = "Z") -> int:
 @pytest.mark.asyncio
 async def test_player_count_reads_is_player_flag(app, parses_conn):
     """A combatant whose is_player=0 must NOT count toward player_count
-    even if its name is single-word + ally=1 (the old heuristic would
-    have counted it)."""
+    even if its name is single-word + ally=1."""
     enc_id = _insert_encounter(parses_conn, "encA")
     for name in ("Alpha", "Bravo", "Charlie"):
         parses_conn.execute(
@@ -128,10 +122,8 @@ def test_ensure_classified_is_noop_when_already_classified(parses_conn):
 def test_ensure_classified_ignores_enemy_null_rows(parses_conn):
     """Enemy rows keep is_player NULL FOREVER by design (classify_combatants
     omits ally != 1 from its result), so their NULLs must not trip the
-    unclassified probe. Before the ally-scoped probe, every encounter with an
-    enemy row looked perpetually unclassified — every read path re-ran the
-    classifier + re-wrote the same ally rows on every request, which melted
-    the rankings load and collided with ingest ("database is locked")."""
+    unclassified probe — otherwise every read re-runs the classifier and
+    re-writes the same ally rows on every request."""
     from backend.server.api.parses.list import _ensure_classified
 
     enc_id = _insert_encounter(parses_conn, "encD")
@@ -157,7 +149,7 @@ def test_ensure_classified_ignores_enemy_null_rows(parses_conn):
 
 @pytest.mark.asyncio
 async def test_phase4_merger_top_n_uses_is_player(app, parses_conn):
-    """Phase-4-of-parse-grouping-redo merger's top-N gate must filter on
+    """The merger's top-N gate must filter on
     is_player=1, so a bucket-promoted player CAN appear in top-N for
     merge decisions and a regex-matched pet CANNOT (even with high encdps).
     Two uploads of the same fight with identical top-N should merge."""

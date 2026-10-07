@@ -1,9 +1,8 @@
 /**
  * characterCache — module-level cache + fetch for full character records.
  *
- * Extracted from CharacterPage so the compare page shares the same cache:
- * navigating character page → compare (or comparing two already-viewed
- * characters) performs zero refetches. Survives re-renders and Vite HMR
+ * Shared by the character page and the compare page, so moving between
+ * them performs zero refetches. Survives re-renders and Vite HMR
  * remounts; keyed by lower-cased character name. In-flight promises are
  * deduped so two consumers asking for the same name concurrently share one
  * request.

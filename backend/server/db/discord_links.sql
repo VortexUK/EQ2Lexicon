@@ -24,7 +24,7 @@ FROM discord_guild_links WHERE discord_guild_id = %s;
 -- :name delete_link
 DELETE FROM discord_guild_links WHERE discord_guild_id = %s;
 
--- Every link with voice polling on — the Phase 3 poller's work list.
+-- Every link with voice polling on — the voice-attendance poller's work list.
 -- :name select_voice_links
 SELECT discord_guild_id, world, guild_name, voice_channel_id
 FROM discord_guild_links WHERE voice_channel_id IS NOT NULL;

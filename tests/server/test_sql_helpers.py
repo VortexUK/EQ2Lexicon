@@ -1,7 +1,4 @@
-"""Tests for backend.server.core.sql_helpers — COV-023.
-
-Target: ≥ 90 % on backend.server.core.sql_helpers.
-"""
+"""Tests for backend.server.core.sql_helpers."""
 
 from __future__ import annotations
 

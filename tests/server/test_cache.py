@@ -119,7 +119,7 @@ class TestTTLCacheSetDelete:
 
 
 class TestLRUEviction:
-    """maxsize eviction is LRU-by-access (2026-07): reads and overwrites move
+    """maxsize eviction is LRU-by-access: reads and overwrites move
     an entry to the back of the eviction queue, so hot entries survive
     roster-flood inserts."""
 

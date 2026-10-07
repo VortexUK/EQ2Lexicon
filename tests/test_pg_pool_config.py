@@ -1,8 +1,7 @@
 """Pool checkout preamble: pooled app connections must carry the
 idle-in-transaction guardrail (a camped transaction holds its locks and
-starves maintenance DDL — the cutover's TRUNCATE sat behind two such
-sessions). Direct (non-pool) connections stay unrestricted on purpose:
-scripts legitimately pause mid-transaction while computing."""
+starves maintenance DDL). Direct (non-pool) connections stay unrestricted on
+purpose: scripts legitimately pause mid-transaction while computing."""
 
 import psycopg
 import pytest
@@ -35,7 +34,7 @@ def test_direct_connections_keep_server_default():
 
 def test_configure_sets_statement_and_lock_timeouts():
     # Request-path statements fail fast instead of camping a pool slot behind
-    # a lock (the metrics size query sat 110 s on cutover DDL).
+    # a lock.
     with psycopg.connect(pg.dsn()) as conn:
         pg._configure_sync(conn)
         assert conn.execute("SHOW statement_timeout").fetchone()[0] == "30s"

@@ -1,33 +1,10 @@
-"""
-GET  /api/zones/{zone}/encounters/{position}/strategy
-PUT  /api/zones/{zone}/encounters/{position}/strategy             (editor-gated)
-GET  /api/zones/{zone}/encounters/{position}/strategy/revisions   (history)
-GET  /api/zones/{zone}/overview                                   (zone-level)
-PUT  /api/zones/{zone}/overview                                   (editor-gated)
-GET  /api/zones/{zone}/overview/revisions                         (history)
+"""Raid strategy markdown routes — per-encounter strategies and zone overviews
+(raids schema), writes gated by ``require_editor``; every write records a revision.
 
-Read-write surface for raid strategy markdown — per-encounter strategies and
-zone-level overview. Bodies live in ``backend/eq2db/raids.py`` (the raids
-Postgres schema). Write gate is ``require_editor`` from
-``backend/server/auth_deps.py`` (admin / contributor — see that module's
-docstring for the role model).
-
-For encounters, the revision history is recorded automatically by
-``upsert_raid_encounter`` so this route doesn't have to think about it on the
-write path — only surface it on the read path via the ``/revisions`` endpoint.
-
-Zone overviews share the editor gate and carry a per-field revision history
-in ``raid_zone_revisions`` — every PUT to the overview writes a revision row
-in the same transaction before returning the updated row.
-
-Key translation: the URL identifies a curator encounter by ``(zone_name,
-position)`` (matches the sidebar URLs in the React app). We resolve those via
-the zones catalogue → ``zone_encounters.encounter_name`` and use that string as the
-raids_db row's ``mob_name`` — one strategy per curator encounter, keyed by the
-display name. Group encounters get a single strategy under their joined name.
-
-Lazy zone creation: a PUT for a zone not yet known to raids_db creates the
-``raid_zones`` row on the fly, pulling ``expansion_short`` from the zones catalogue.
+Key translation: the URL's ``(zone_name, position)`` resolves via the zones
+catalogue to ``zone_encounters.encounter_name``, which is the raids row's
+``mob_name`` — one strategy per curator encounter (group encounters use their
+joined name). A PUT for an unknown zone creates its ``raid_zones`` row.
 """
 
 from __future__ import annotations
@@ -162,8 +139,7 @@ def _resolve_curator_encounter(zone_name: str, position: int) -> tuple[str, str]
     if z is None:
         return None
     canonical_zone = z["name"]
-    # BE-210: bosses is a list[dict]; a {position: encounter_name} dict would be
-    # faster but this path is not hot (curator writes only), so defer the rebuild.
+    # Linear scan over bosses is fine: this path is not hot (curator writes only).
     for boss in z.get("bosses", []):
         if int(boss.get("position", -1)) == position:
             return canonical_zone, boss["encounter_name"]

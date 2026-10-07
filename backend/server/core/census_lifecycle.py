@@ -1,31 +1,8 @@
-"""Process-wide shared CensusClient lifecycle.
-
-Audit BE-010: 18 sites hand-rolled ``CensusClient(...); try: ...; finally:
-await client.close()``. Each invocation built a new ``aiohttp.ClientSession``
-+ TraceConfig; each Census call paid a TLS handshake. ``aiohttp``'s own
-docs warn against this pattern — a long-lived ``ClientSession`` is the
-intended shape.
-
-This module owns the singleton + its lifecycle. Two equivalent call shapes:
+"""One shared CensusClient (aiohttp session) per event loop; callers must not
+close it; ``aclose_all()`` runs at lifespan shutdown.
 
   async with shared_census_client() as c:
       char = await c.get_character(name, world)
-
-  # Or, for one-line migration of a single `client = CensusClient(...)`:
-  client = await get_shared_census_client()
-  char = await client.get_character(name, world)
-  # NB: do NOT await client.close() — the lifecycle is owned by this module.
-
-The singleton is keyed by the running event loop, because:
-  - pytest-asyncio creates a fresh loop per test
-  - an aiohttp.ClientSession opened on a closed loop raises RuntimeError on
-    next use
-So a per-test-loop rebuild is necessary for the tests to stay green. In prod
-the loop is created once at startup and never closed mid-process, so the
-rebuild path is effectively dead.
-
-Shutdown: the FastAPI lifespan (backend/server/app.py) calls ``aclose_all()`` so the
-process exits cleanly without aiohttp's "Unclosed client session" warning.
 """
 
 from __future__ import annotations

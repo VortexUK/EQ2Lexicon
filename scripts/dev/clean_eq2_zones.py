@@ -1,37 +1,12 @@
 """
-Clean and re-classify the noisy EQ2 wiki zone dump at
-``scripts/dev/eq2_zones.json``.
+Clean and re-classify the EQ2 wiki zone dump ``scripts/dev/eq2_zones.json`` (UTF-16).
 
-The upstream scraper synthesised a ``tags`` field that's broken: it
-mislabels ~76% of zones as ``Instance: Raid`` (real EQ2 has nowhere
-near that many raids). The wiki ``categories`` it also captured are
-reliable and carry the real classification signal.
+    uv run python scripts/dev/clean_eq2_zones.py
 
-Outputs (alongside the source file):
-
-  * ``eq2_zones.cleaned.json`` — UTF-8 (the source is UTF-16). Same
-    top-level shape as the input plus a ``quality_report`` summary.
-    Each zone gets a new ``classification`` block with:
-        - ``types``           list, e.g. ["solo"], ["raid_x4"], ["solo","group"]
-        - ``expansion``       {short, name, year, confidence, source}
-        - ``is_persistent_instance`` bool
-        - ``is_endless_persistent``  bool
-        - ``is_tradeskill``          bool
-        - ``is_pvp``                  bool
-        - ``is_openworld``            bool
-        - ``is_instance``             bool
-    Original ``tags`` / ``expansion`` are preserved for diffing.
-
-  * ``eq2_zones.report.txt`` — human-readable summary: counts, zones
-    that are still ``unknown`` expansion (with their categories so a
-    human can fill in an override), and zones whose expansion came
-    from the lowest-confidence ``name_keyword`` heuristic for
-    spot-checking.
-
-Idempotent. Re-run after editing the source.
-
-Run with:
-    .venv/Scripts/python scripts/dev/clean_eq2_zones.py
+Writes ``eq2_zones.cleaned.json`` (UTF-8, input for scripts/build_zones_db.py) and
+``eq2_zones.report.txt`` next to the source; idempotent. Classification uses the wiki
+``categories`` only — the dump's synthesised ``tags`` field is unreliable (it mislabels
+most zones as raids).
 """
 
 from __future__ import annotations
@@ -61,10 +36,6 @@ REPORT_TXT = SCRIPT_DIR / "eq2_zones.report.txt"
 # ``year`` is the calendar year of release. The empty-name keys at the
 # bottom are pre-expansion / DLC content that gets folded into the launch
 # era for classification purposes.
-#
-# Pulled from the wiki category counts already in the source (every name
-# that appears as an ``X Zones`` or ``X Instances`` category) cross-checked
-# against the EQ2 wiki expansions list.
 
 EXPANSIONS = [
     # (short, full name, year)
@@ -104,15 +75,9 @@ EXPANSIONS = [
 # number, that's its INTRODUCTION update — so the expansion at that LU's
 # release date is the zone's true expansion era.
 #
-# This map was built by cross-referencing:
-#   * The EQ2 wiki's Game Updates timeline
-#   * The LU correlations our own high-confidence data shows (built via
-#     scripts/dev/clean_eq2_zones.py earlier)
-#
-# Where the two disagree, the wiki timeline wins — the data is
-# contaminated by location-prefix misclassifications (e.g. an LU65 zone
-# in Antonica gets called "Vanilla" by the location matcher even though
-# LU65 is DoV-era).
+# Ranges follow the EQ2 wiki's Game Updates timeline, not correlations in our
+# own data (those are skewed by location-prefix misclassifications, e.g. an
+# LU65 zone in Antonica reads "Vanilla" though LU65 is DoV-era).
 #
 # Format: (min_inclusive_lu, max_inclusive_lu, expansion_short)
 # Ordered by LU range — first match wins.
@@ -156,8 +121,7 @@ def _lu_to_expansion(lu: int) -> str | None:
 # Annual EQ2 events recur every year, so a "Tinkerfest" instance could
 # have been added in any year since the event launched. Without more
 # data we attribute each event to its INTRODUCTION expansion. Zones in
-# these categories also get the is_live_event flag so a future schema
-# can distinguish "expansion zone" from "event zone".
+# these categories also get the is_live_event flag.
 
 EVENT_CATEGORY_EXPANSION = {
     "Tinkerfest": "SF",  # introduced Aug 2010
@@ -383,7 +347,7 @@ LOCATION_PREFIX_EXPANSION = {
     "The City of New Halas": "SF",
     "Plane of Sky": "KoS",  # original KoS launch zone
     "Svarni Expanse": "RoR",  # Renewal of Ro era
-    "Bar of Brell": "DoV",  # Brewday content was added in DoV era originally
+    "Bar of Brell": "DoV",  # Brewday content (DoV era)
     "The Mystic Lake": "FD",  # Fallen Dynasty adventure pack
 }
 
@@ -392,7 +356,7 @@ LOCATION_PREFIX_EXPANSION = {
 # Name-keyword heuristic (lowest confidence). Last resort for zones
 # whose categories don't name an expansion. Match against the zone name
 # itself — risky because some location names span multiple expansions.
-# Stamped with confidence='name_keyword' so the user can spot-check.
+# Stamped with confidence='name_keyword' so it can be spot-checked.
 
 NAME_KEYWORD_HINTS = [
     # (substring, expansion-short) — checked in order
@@ -744,9 +708,8 @@ def _load_aliases() -> dict[str, list[str]]:
       - Dropped from the cleaned output (its standalone record disappears).
       - Appended to the canonical record's ``aliases`` array.
 
-    Lets us collapse upstream wiki duplicates (e.g. "Fabled Deathtoll"
-    vs "The Fabled Deathtoll" — both are real wiki pages, but the same
-    in-game zone) without losing the alternate name.
+    Collapses wiki duplicates of one in-game zone (e.g. "Fabled Deathtoll"
+    vs "The Fabled Deathtoll") without losing the alternate name.
 
     Returns {} when the file doesn't exist.
     """

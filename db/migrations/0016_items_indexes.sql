@@ -1,8 +1,8 @@
 create schema if not exists items;
 set search_path to items, public;
 
--- Live-DB review 2026-10-07: the two slowest application queries were
--- catalogue lookups on this table. Both indexes are IF NOT EXISTS so they
+-- The two slowest application queries were catalogue lookups on this
+-- table. Both indexes are IF NOT EXISTS so they
 -- can be pre-built in production with CREATE INDEX CONCURRENTLY (the
 -- items heap is ~430 MB; a plain build inside the deploy migration holds a
 -- SHARE lock on the table for the build) and this file then records them

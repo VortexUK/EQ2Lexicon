@@ -1,18 +1,11 @@
-"""Shared Postgres test plumbing for the migrated users family.
+"""Shared Postgres test plumbing.
 
-Two isolation tiers:
-
-- SESSION schema: ``pytest_configure`` (conftest) calls
-  :func:`provision_for_session`, which points ``pg.dsn()`` at the local
-  TEST database (never the developer's .env Supabase DSN), rebuilds the
-  production-named schemas from the migration files, and leaves them
-  shared for the whole run (the schema route tests run against).
-- SCRATCH schemas: the :data:`leaser` hands out ``users_s<pid>_N``
-  schemas built by retargeting the SAME migration file (header
-  substitution — one source of truth), reset on release with one
-  ``TRUNCATE … RESTART IDENTITY CASCADE`` + a re-run of the idempotent
-  ``-- seeds`` section. The :func:`users_schema` fixture leases one and
-  points every store at it.
+- SESSION schemas: :func:`provision_for_session` (called from conftest's
+  ``pytest_configure``) points ``pg.dsn()`` at the local TEST database and
+  rebuilds the production-named schemas from db/migrations/ for the whole run.
+- SCRATCH schemas: :data:`leaser` hands out ``users_s<pid>_N`` schemas built
+  from the same migration file, truncated + re-seeded on release. The
+  :func:`users_schema` fixture leases one and points every store at it.
 
 :func:`pg_conn` is the seeding/assertion connection for tests.
 """
@@ -39,8 +32,7 @@ _DEFAULT_TEST_DSN = "postgresql://postgres:postgres@localhost:5432/eq2lexicon_te
 
 #: Advisory lock serialising pytest SESSIONS on one test database (distinct
 #: from pg_migrate's lock). provision_for_session drops + rebuilds the
-#: session and scratch schemas, which would clobber another in-flight run —
-#: the old per-PID tmpdir layout made parallel invocations safe (TEST-039),
+#: session and scratch schemas, which would clobber another in-flight run,
 #: so queue them instead of racing. Held by a dedicated connection for the
 #: LIFETIME of the process (released when the process exits).
 _SESSION_LOCK_ID = 0x_E92_7E57  # spells-ish "eq2TEST"

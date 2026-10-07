@@ -1,10 +1,6 @@
-"""Tiered breakdown-detail retention (user decision 2026-10-04).
-
-Curated raid zones keep attack_types/damage_types 30 days, curated
-group instances 14, anything else 7; encounters + combatants live
-forever and detail_pruned_at is stamped for the detail-page notice.
-The zone→tier classifier is monkeypatched so these tests don't depend
-on the zones catalogue content.
+"""Tiered breakdown-detail retention: attack_types/damage_types kept 30/14/7 days
+(curated raid / group instance / other), encounters + combatants forever, and
+detail_pruned_at stamped. The zone→tier classifier is monkeypatched.
 """
 
 from __future__ import annotations

@@ -1,19 +1,6 @@
-"""HTTP-layer tests for backend/server/api/item_watch.py — COV-005.
-
-Covers:
-  GET  /guild/{name}/item-watch  — unauthenticated → 401, non-officer → 403,
-                                    officer → returns list.
-  POST /guild/{name}/item-watch  — character not in roster → 404,
-                                    item not found → 404, duplicate → 409,
-                                    happy path creates watch.
-  DELETE /guild/{name}/item-watch/{id} — officer gate; removes; 404 for missing.
-
-All Census + DB helpers are mocked — the HTTP layer only, no real DB or
-network calls.
-
-Session injection: the item_watch route reads `request.session.get("user")`
-directly so we inject a signed itsdangerous cookie (same pattern as
-test_notifications.py) matching the test app secret.
+"""HTTP-layer tests for backend/server/api/item_watch.py — officer-gated list/add/delete
+with Census + DB helpers mocked. The route reads ``request.session`` directly, so
+sessions are injected via a signed itsdangerous cookie.
 """
 
 from __future__ import annotations

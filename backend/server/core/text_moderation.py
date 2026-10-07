@@ -1,9 +1,7 @@
 """Shared text moderation: a profanity screen + input sanitisation.
 
-Backs both the Twitch-login check and the raid-team free-text fields (team name,
-raid label) on the raid-schedule save path. The wordlist comes from the
-maintained ``better-profanity`` package (which also generates leetspeak variants)
-so we don't hand-curate a slur list in the repo.
+The wordlist comes from the ``better-profanity`` package (with generated
+leetspeak variants) so no slur list is committed in the repo.
 
 Before screening we normalise: NFKC, strip invisible/bidi/control chars (which
 would otherwise split a word and defeat the match), and collapse whitespace.

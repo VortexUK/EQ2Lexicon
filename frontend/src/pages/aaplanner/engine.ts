@@ -1,20 +1,10 @@
 /**
- * aaPlanner — pure validation + allocation engine for the AA planner.
- *
- * Rule semantics (verified against the aas catalogue node data + in-game behaviour):
- *   - Every threshold counts AA POINTS SPENT (rank × pointspertier), never
- *     rank counts — a 2-point/rank endline contributes 2 per rank.
+ * aaPlanner — pure (React-free) validation + allocation engine. Rules:
+ *   - Thresholds count AA POINTS SPENT (rank × pointspertier), never ranks.
  *   - Unlock thresholds are SELF-EXCLUSIVE: a node's own points never count
- *     toward its own requirement (the game checks the unlock before rank 1
- *     goes in). This also makes "is this allocation achievable in some spend
- *     order" order-independent, because real trees gate rows monotonically.
- *   - Removals must not strand anything: dropping a rank is legal only if
- *     every other taken node still meets its requirements afterwards
- *     (validatePlan on the simulated allocation).
- *   - Flat TREE_POINT_CAP (100) per tree in every era; adventure vs
- *     tradeskill trees draw from separate pools with separate caps.
- *
- * Kept free of React so it unit-tests directly (engine.test.ts).
+ *     toward its own requirement.
+ *   - A removal is legal only if every other taken node still validates.
+ *   - Flat 100-point cap per tree; tradeskill trees use a separate pool.
  */
 
 import type { AANode, AATreeData } from '../../components/AATree'

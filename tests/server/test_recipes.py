@@ -187,7 +187,7 @@ def _recipes_db_with_level(recipes_schema, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_search_craft_tier_from_level(app, _recipes_db_with_level):
-    """A level-75 recipe surfaces as craft_tier T8 (not the old fuel-derived value)."""
+    """A level-75 recipe surfaces as craft_tier T8 (from out_level, not the fuel)."""
     # items catalogue not ready → skip class enrichment; craft_tier comes from out_level
     with patch("backend.server.api.recipes._items.ready", return_value=False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

@@ -1,11 +1,6 @@
 """Autouse fixture to snapshot + restore logger levels around each test.
 
-Fixes TEST-009: test_logging_config.py mutates the root logger and the
-third-party loggers (discord, uvicorn.access, aiohttp.access) without
-restoring them, leaking state into subsequent tests.
-
-Scoped autouse so every test gets it — the snapshot/restore is cheap
-and the safety is broad.
+Logging-config tests mutate the root and third-party loggers without restoring them.
 """
 
 from __future__ import annotations

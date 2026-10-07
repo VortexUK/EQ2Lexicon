@@ -103,7 +103,7 @@ def render_raid_comp(
 
     # ── header ──
     # Middot, not em-dash: with no system fonts (Railway container) the
-    # bundled fallback font lacks U+2014 and drew a tofu box — seen live.
+    # bundled fallback font lacks U+2014 and draws a tofu box.
     title = f"{guild_name} · Raid Composition"
     draw.text((_z(_PAD), _z(20)), title, font=f_title, fill=_GOLD)
     sub_bits = [f"Starting zone: {zone_name}"]

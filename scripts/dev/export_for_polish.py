@@ -1,29 +1,10 @@
-"""Export current scraped strategies into N balanced JSON chunks for
-parallel-agent polishing.
+"""Export scraped raid strategies into N balanced JSON chunks for parallel-agent polishing.
 
-Reads the raids schema for every encounter that has non-empty ``strategy_md``,
-groups by zone, then splits across ``--chunks`` files balanced by total
-char count. Writes each chunk to ``data/raids/polish_inbox/chunk_<n>.json``.
+    uv run python scripts/dev/export_for_polish.py [--chunks 6] [--include-manual]
 
-Each chunk's shape::
-
-    {
-      "chunk_id": 1,
-      "total_chars": 18234,
-      "entries": [
-        {
-          "zone_name": "Veeshan's Peak",
-          "mob_name":  "Druushk",
-          "position":  1,
-          "wiki_url":  "https://eq2.fandom.com/wiki/Druushk",
-          "current_md": "...the scraped strategy markdown..."
-        },
-        ...
-      ]
-    }
-
-The polish agents write their output files to ``data/raids/polish_outbox/``
-following the matching shape (see ``apply_polish.py``)."""
+Reads the raids schema; writes data/raids/polish_inbox/chunk_<n>.json. Workflow and
+chunk shapes: docs/runbooks/raid-strategy-agent-polish.md.
+"""
 
 from __future__ import annotations
 

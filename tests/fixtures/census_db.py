@@ -2,8 +2,7 @@
 
 ``census_schema`` leases an isolated scratch schema built from
 db/migrations/0003_census.sql, re-points the shared CensusStore at it,
-and yields the schema name — the analog of the old
-``CensusStore(tmp_db)`` + ``store.path`` re-point.
+and yields the schema name.
 """
 
 from __future__ import annotations

@@ -2,9 +2,7 @@
 --
 -- Most queries are fixed shapes. `list_winning_encounters_with_player_count`
 -- needs the `player_count` subquery interpolated via .format() because that
--- subquery is shared with parses/list.py (`_PLAYER_COUNT_SQL`) — when that
--- module migrates the subquery moves into its own .sql key and rankings.py
--- can compose the two via load_sql at module-load.
+-- subquery is shared with parses/list.py (`_PLAYER_COUNT_SQL`).
 
 -- ---------------------------------------------------------------------------
 -- zones schema — boss-tree builders for the leaderboard sidebar

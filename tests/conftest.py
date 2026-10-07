@@ -1,15 +1,8 @@
 """Shared pytest fixtures for the EQ2 Lexicon test suite.
 
-Test isolation note
--------------------
-Every data family is Postgres: tests/fixtures/pg.py points ``pg.dsn()`` at the
-local TEST database (TEST_DATABASE_URL) and rebuilds the session schemas
-from db/migrations/ — never the developer's .env Supabase DSN. Per-test
-isolation comes from the ``users_schema`` fixture (leased scratch schemas).
-
-BE-096: env vars are set inside ``pytest_configure`` (a plugin-ordered hook
-that runs after plugin discovery, before test collection) to avoid a race
-with plugins that import ``backend.server.app`` during discovery.
+``pg.dsn()`` points at the local TEST_DATABASE_URL (never the .env DSN); per-test
+isolation comes from leased scratch schemas. Env vars are set in ``pytest_configure``
+because plugins may import ``backend.server.app`` during discovery.
 """
 
 from __future__ import annotations
@@ -28,7 +21,7 @@ import pytest
 # as a module-level constant (imported by some test modules directly).
 #
 # Per-process suffix (os.getpid()) makes the path unique per worker so
-# parallel pytest-xdist invocations don't race on rmtree + mkdir (TEST-039).
+# parallel pytest-xdist invocations don't race on rmtree + mkdir.
 # ---------------------------------------------------------------------------
 
 _PROC_SUFFIX = f"{os.getpid()}"
@@ -40,11 +33,7 @@ _TEST_DB_DIR.mkdir(parents=True, exist_ok=True)
 def _tmp_db_dir_isolation() -> Generator[Path]:
     """Clean up the tmp DB dir at session teardown.
 
-    Per-process suffix means parallel pytest-xdist workers don't race
-    on rmtree (TEST-039) — each worker creates a fresh unique directory.
-    The directory contents are initialised by pytest_configure before any
-    test runs; we skip the pre-session wipe to avoid touching open DB
-    file handles on Windows (PermissionError on locked files).
+    No pre-session wipe: on Windows that hits PermissionError on locked files.
     """
     try:
         yield _TEST_DB_DIR
@@ -54,11 +43,7 @@ def _tmp_db_dir_isolation() -> Generator[Path]:
 
 def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     """Plugin-ordered env var setup. Runs after plugin discovery, before
-    test collection — guarantees backend.server.app sees the right env.
-
-    BE-096: moved from module-level os.environ calls to avoid a race with
-    pytest plugins (e.g. pytest-asyncio) that may import backend.server.app during
-    plugin discovery."""
+    test collection — guarantees backend.server.app sees the right env."""
     # Catalogue tests lease scratch schemas via tests/fixtures/catalogues_db.
     # The classes catalogue is the migration-seeded source of truth
     # (db/migrations/0011_classes.sql), read-only at runtime; tests read it
@@ -100,19 +85,8 @@ from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
     """Close any leaked aiohttp ClientSession instances before pytest exits.
 
-    Why this matters: httpx.ASGITransport does NOT fire FastAPI's lifespan
-    startup/shutdown — so census_lifecycle.aclose_all() (registered in the
-    app's lifespan) never runs in tests. Any route test that triggers a
-    Census call creates a singleton CensusClient bound to the test loop;
-    that ClientSession then leaks to GC at process exit.
-
-    On Linux/CI the destructor's logger.error('Unclosed client session')
-    fires AFTER pytest has closed stdout, raising ValueError: I/O operation
-    on closed file. The unraisable-exception plugin promotes that to an
-    exit-1 failure even though every test passed.
-
-    Running aclose_all() here closes the underlying sessions cleanly so
-    no destructor warning fires at GC.
+    ASGITransport never runs the lifespan's aclose_all(); a leaked session's
+    destructor logs after stdout closes, which fails the run with exit 1.
     """
     import asyncio
 

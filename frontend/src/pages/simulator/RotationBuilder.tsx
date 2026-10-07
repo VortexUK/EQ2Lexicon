@@ -50,12 +50,9 @@ function abilitySubtitle(a: RotationAbility, stats: SimStats): string {
   return bits.filter(Boolean).join(' · ')
 }
 
-/** Below this level gap the game REPLACES a rank's damage with its own
- * level curve census doesn't carry (Divine Smite IV, 49 levels down,
- * reads 2,362-2,838 at 80 vs the model's 2,737-2,889; III and II are
- * further off) — the sim's numbers there are knowingly wrong and badged.
- * WITHIN the gap the normal model holds: Divine Smite V (35 down) and
- * VI fit to 0.5%. The cutover sits between 35 and 49 levels. */
+/** Beyond this many levels below the character the game replaces a rank's
+ * damage with a level curve census doesn't carry — the sim's numbers there
+ * are knowingly wrong and badged. Within the gap the normal model holds. */
 export const GREY_RANK_LEVEL_GAP = 35
 
 /** Scope + condition badges shared by the palette and the priority list. */

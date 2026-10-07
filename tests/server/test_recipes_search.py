@@ -1,28 +1,6 @@
-"""Tests for backend/server/api/recipes.py — COV-018.
-
-Covers:
-  GET /recipes/filters  — returns craft tiers, benches, and adventure classes.
-  GET /recipes/search   — recipes catalogue not ready → 503;
-                          no query params → empty results (no conditions);
-                          name filter → paginates results;
-                          tier filter → out_level range matching;
-                          bench filter → bench key and display-label both accepted;
-                          class_name filter → items catalogue not ready → 503;
-                          class_name + items schema → item-id subquery;
-                          craft_class filter → recipe_classes subquery;
-                          page parameter → correct offset applied.
-
-  Helper unit tests:
-  _level_to_craft_tier  — crafted-item level → tier label (T1 … T14 / None).
-  _bench_label          — raw key → display label; unknown key → title-cased.
-  _resolve_bench_param  — accepts raw key or display label.
-
-Postgres edition: seeded tests lease isolated recipes (and, for the
-class-name filter, items) schemas; the route's import-frozen
-``_RECIPES_SCHEMA`` search_path alias and the two SQL blocks that
-hard-qualify the production ``items.items`` schema are re-pointed at the
-leases via monkeypatch. The old file-exists 503 gates became
-``catalogue.ready()`` probes, patched directly for the unavailable paths.
+"""Tests for backend/server/api/recipes.py — /recipes/filters, /recipes/search and the
+tier/bench helpers. Seeded tests re-point the import-frozen ``_RECIPES_SCHEMA`` alias
+and the SQL blocks that hard-qualify ``items.items`` at the leased schemas.
 """
 
 from __future__ import annotations

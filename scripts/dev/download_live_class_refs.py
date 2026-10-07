@@ -2,9 +2,8 @@
 
 Live characters at cap carry their full class kit across every level, so
 their spell lists are the complete per-class reference the spell→class
-mapping needs (TLE characters only know era-capped subsets). The FULL
-character JSON is stored per class — local only, gitignored — because the
-rest of the document (AAs, equipment, achievements) may be useful later.
+mapping needs (TLE characters only know era-capped subsets). The full
+character JSON is stored per class (local only, gitignored).
 
 Usage:
     uv run python scripts/dev/download_live_class_refs.py

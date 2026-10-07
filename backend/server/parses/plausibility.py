@@ -1,35 +1,21 @@
 """Server-side plausibility gate for uploaded parses.
 
 Pure functions over the typed ``Encounter`` / ``Combatant`` models — no DB,
-no I/O — so it unit-tests like ``pet_detection.classify_combatants``. Born of
-the 2026 upload-honesty review: the parser holds the user's own token and can
-sign an arbitrary payload, so HMAC proves *who sent* the bytes, never that the
-bytes are *true*. This gate is the server-side floor under upload honesty.
+no I/O. HMAC proves who sent a payload, never that it is true; this gate is
+the server-side floor under upload honesty.
 
 Three verdicts:
 
   ``ACCEPT``     — passes; ingest normally.
   ``REJECT``     — physically impossible / malformed; the ingest handler
                    returns 400.
-  ``QUARANTINE`` — structurally possible but implausibly large; the handler
+  ``QUARANTINE`` — structurally possible but implausible; the handler
                    routes it to the ``tamper_reports`` audit table and keeps it
                    OFF the leaderboard (never inserted into ``encounters``).
 
-Design notes on threshold conservatism
----------------------------------------
-The REJECT checks are limited to UNAMBIGUOUS impossibilities that no real ACT
-parse produces (negative/absurd duration, out-of-order or absurd timestamps, a
-combatant out-damaging the entire fight). They must have ~zero false-positive
-risk — a false REJECT drops a legitimate raider's parse.
-
-The QUARANTINE ceiling is a DELIBERATELY GENEROUS absolute constant. It exists
-to catch order-of-magnitude fabrication (the 1e9+ rate class, and any finite
-huge float that slipped past the coercers) without policing legitimate
-high-end content, whose real magnitudes we cannot know without calibrating
-against production data. Tightening the ceiling to era / level / class-record
-scaled bounds — and adding the multi-reporter corroboration trust model — is
-the calibration follow-up. This layer stops crashes, DoS, impossible values,
-and crude poisoning; corroboration is what stops a carefully-chosen fake.
+REJECT is only for unambiguous impossibilities (a false REJECT drops a
+legitimate raider's parse). The QUARANTINE ceiling is deliberately generous:
+it catches order-of-magnitude fabrication, not records.
 """
 
 from __future__ import annotations

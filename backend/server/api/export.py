@@ -1,22 +1,8 @@
-"""Read-only export API for third-party tools (v1) — issue #219 (Warboard).
+"""Read-only export API for third-party tools, under /api/export/v1/*.
 
-Purpose-built, versioned endpoints under /api/export/v1/* so external
-consumers never couple to the frontend-shaped internals:
-
-  GET /api/export/v1/filters               — valid sizes/zones/bosses/classes
-  GET /api/export/v1/rankings              — per-character ranking rows
-  GET /api/export/v1/parses/{ids}/abilities — ability breakdowns (<=20 ids)
-
-Safety model:
-  * Auth = bearer API token (the same tokens the ACT plugin mints) PLUS the
-    admin-granted 'api' role — read access is opt-in per account, revocable
-    two ways, and every call is attributable. Site admins pass.
-  * Data mirrors what any logged-in site user can already see: the curated
-    rankings dataset (which deliberately keeps soft-hidden parses — that is
-    the point of soft-delete) and parse ability tables. Uploader identities
-    (source_dsn discord ids) are never included.
-  * Rate limits keyed by token; responses are versioned pydantic models —
-    the stable contract. Breaking changes mean /v2/, never a mutation here.
+Bearer token + the admin-granted 'api' role (admins pass). Never exposes
+uploader identities (source_dsn discord ids). The pydantic response models are
+the stable contract: v1 is frozen; breaking changes go to /v2/.
 """
 
 from __future__ import annotations

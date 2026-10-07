@@ -131,7 +131,7 @@ def _make_badge(tier: int, maxed: bool) -> Image.Image:
 
 
 def _tree_nodes(tree_id: int) -> list[dict]:
-    """The tree's node rows; raises like the old missing-JSON open() did."""
+    """The tree's node rows; raises FileNotFoundError for an unknown tree."""
     tree = catalogue.get_tree(tree_id)
     if tree is None:
         raise FileNotFoundError(f"AA tree {tree_id} not found in the AA catalogue")

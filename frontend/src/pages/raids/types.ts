@@ -1,15 +1,5 @@
 /**
- * Shared types for the raid-zone pages.
- *
- * Both ``RaidZonesPage.tsx`` (the index/grid) and ``RaidZonePage.tsx``
- * (per-zone detail) consume the ``GET /api/zones`` shape and previously
- * defined identical ``EncounterMob`` / ``Encounter`` / ``Zone`` interfaces
- * inline — flagged by the user after the 2026-05-29 frontend cleanliness
- * audit missed it.
- *
- * Per the audit's file-split convention (see ``CLAUDE.md`` →
- * "File-split conventions"), shared types for a page family live in a
- * sibling ``types.ts``.  This is the home for them.
+ * Shared types for the raid-zone pages (the ``GET /api/zones`` shape).
  */
 
 export interface EncounterMob {

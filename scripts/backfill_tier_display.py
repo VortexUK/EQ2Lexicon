@@ -1,12 +1,7 @@
-"""RETIRED — one-time SQLite-era backfill (the items catalogue).
+"""RETIRED — do not run (one-time items backfill).
 
-Filled the then-new ``tier_display`` column (``tier`` with a ``'COMMON'``
-default for null/empty tiers). Superseded by the Postgres ``items`` schema
-(db/migrations/0007_items.sql): ``ItemCatalogue.item_to_row`` computes
-``tier_display`` at write time, and historic rows arrived pre-backfilled via
-the one-time bulk copy.
-
-Kept as a stub so the implementation stays reachable in git history.
+``tier_display`` (``tier`` with a ``'COMMON'`` default for null/empty tiers) is computed at
+write time by ``ItemCatalogue.item_to_row``.
 """
 
 from __future__ import annotations

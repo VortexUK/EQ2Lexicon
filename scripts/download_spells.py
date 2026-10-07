@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 """
-Download all spells from the Census /spell/ collection into the Postgres
-`spells` schema (DATABASE_URL — see backend/pg.py for the DSN resolution chain).
+Download all spells from the Census /spell/ collection into the Postgres `spells` schema.
 
-Mirrors scripts/download_items.py in structure:
-  - Resumes automatically from saved offset (stored in the schema's _meta table)
-  - Safe to re-run: upserts keyed on spell ID
-  - ~167,000 spells total; takes a few minutes on a good connection
+    uv run python scripts/download_spells.py [--limit N] [--restart]
 
-Usage:
-    python scripts/download_spells.py                  # full download / resume
-    python scripts/download_spells.py --limit 1000     # stop after N spells (testing)
-    python scripts/download_spells.py --restart        # ignore saved offset, start from 0
+Resumes from the offset saved in the schema's _meta table; upserts by spell id.
+See docs/runbooks/catalogue-refresh.md.
 """
 
 from __future__ import annotations

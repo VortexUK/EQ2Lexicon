@@ -140,9 +140,9 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
     """Records per-route request count and latency using the matched route
     template (e.g. /api/character/{name}) rather than the raw path, so
     label cardinality stays low. Requests that match no route (bot probes)
-    collapse into a single "(unmatched)" path label — labelling them with
-    the raw URL minted a permanent series per probe path and blew through
-    the Grafana Cloud free-tier series limit (2026-07)."""
+    collapse into a single "(unmatched)" path label — a raw-URL label mints
+    a permanent series per probe path and exhausts the metrics backend's
+    series limit."""
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         start = time.perf_counter()
@@ -261,19 +261,15 @@ async def _http_exception_handler(request: Request, exc: HTTPException) -> Respo
     """HTTPException → JSON body with the request_id surfaced (for API paths)
     or plain text (for everything else — most importantly static assets).
 
-    Why the split: lazy-loaded JS chunks request URLs like
-    ``/assets/ParsesPage-<hash>.js``. If that file is missing (stale CDN
-    cache pointing at old hashes, etc.), Starlette raises a 404. Previously
-    we returned that as ``Content-Type: application/json`` for EVERY path,
-    which Firefox refused to execute as a JS module ("disallowed MIME
-    type"), breaking the whole SPA. JSON is only useful for our API
-    consumers; static-asset fetches just need a proper status code.
+    Why the split: a missing lazy-loaded chunk (``/assets/X-<hash>.js``)
+    404s through here, and a JSON body on a module-script fetch makes the
+    browser reject it ("disallowed MIME type") and breaks the SPA.
     """
     from backend.server.core.request_context import request_id_var
 
     rid = request_id_var.get() or "-"
     # Keep whatever headers the raiser attached (Retry-After on a 429,
-    # WWW-Authenticate on a 401) — rebuilding the response used to drop them.
+    # WWW-Authenticate on a 401) — rebuilding the response would drop them.
     headers = {**(exc.headers or {}), "X-Request-ID": rid}
     if request.url.path.startswith("/api/"):
         return JSONResponse(
@@ -292,9 +288,8 @@ async def _http_exception_handler(request: Request, exc: HTTPException) -> Respo
 async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Response:
     """slowapi's stock 429 response, with OUR logging: one WARNING per
     (client identity, path) per minute carrying the count of rejections
-    since. slowapi's own per-request warning (2,600 lines in an hour on
-    2026-09-27) is silenced in logging_config — a flood is the one time a
-    per-request line is worthless."""
+    since. slowapi's own per-request warning is silenced in logging_config —
+    a flood is the one time a per-request line is worthless."""
     from backend.server.core.log_coalesce import coalescer
     from backend.server.limiter import upload_rate_key
 
@@ -486,9 +481,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
     # Surface X-Request-ID in 4xx/5xx JSON so users can quote it back to support.
     # Register for BOTH FastAPI's HTTPException and Starlette's parent
     # HTTPException. Unmatched-route 404s raise the Starlette parent directly;
-    # only registering for the FastAPI subclass fails to catch them. (Passes
-    # locally on Windows but failed in CI on Linux — Starlette/FastAPI version
-    # interaction.)
+    # only registering for the FastAPI subclass fails to catch them.
     from starlette.exceptions import HTTPException as StarletteHTTPException
 
     app.add_exception_handler(HTTPException, _http_exception_handler)  # type: ignore[arg-type]
@@ -544,8 +537,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
 
     # Innermost body-touching layer: transparently gunzip request bodies
     # (Content-Encoding: gzip) before FastAPI parsing / the ingest HMAC check
-    # read them. Plain requests pass through untouched — pre-gzip ACT plugin
-    # versions keep working. See backend/server/core/gzip_request.py.
+    # read them. Plain requests pass through untouched.
     from backend.server.core.gzip_request import BodySizeLimitMiddleware, GzipRequestMiddleware
 
     app.add_middleware(GzipRequestMiddleware)
@@ -636,10 +628,8 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         if _dir_path.exists():
             app.mount(_mount_path, StaticFiles(directory=_dir_path), name=_mount_path.lstrip("/"))
 
-    # Serve the React build in production. If the path doesn't exist, log loud
-    # — silently skipping is what hid the 2026-05-31 reorg outage (the SPA
-    # mount + catch-all just never registered and every non-API URL 404'd
-    # with nothing in the logs to point at it).
+    # Serve the React build in production. If the path doesn't exist, log loud:
+    # without the SPA mount + catch-all every non-API URL 404s silently.
     if not _FRONTEND_DIST.exists():
         _log.error(
             "[startup] FRONTEND DIST NOT FOUND at %s — SPA + catch-all routes are NOT mounted, "
@@ -665,7 +655,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             Index.html and root-level non-hashed files MUST re-validate so a
             deploy's new chunk hash references are picked up — otherwise the
             browser's cached index.html points at chunks that no longer exist
-            and the SPA breaks until hard-refresh (the 2026-05-31 incident)."""
+            and the SPA breaks until hard-refresh."""
             # Don't swallow unmatched /api/* paths — let FastAPI return a real
             # 404 JSON response so typos surface as errors instead of HTML.
             if full_path == "api" or full_path.startswith("api/"):

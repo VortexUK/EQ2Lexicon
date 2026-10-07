@@ -1,11 +1,5 @@
-"""OAuth callback error-path tests for backend/server/api/auth.py — COV-033.
-
-Covers the branches not exercised by test_auth.py's happy-path flow:
-  callback state mismatch         → 400
-  callback token exchange failure → 400
-  callback user-info fetch failure → 400
-  GET /auth/me for admin user      → is_admin=True, access_status forced "approved"
-  POST /auth/logout without session → 200 ok (graceful no-op)
+"""OAuth callback error paths (state mismatch, token/user-info failures → 400), admin
+/auth/me, and logout without a session for backend/server/api/auth.py.
 """
 
 from __future__ import annotations

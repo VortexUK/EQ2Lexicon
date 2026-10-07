@@ -1,9 +1,10 @@
 """Mappings for Census API field names → display names and groupings.
 
-Class-group membership and archetype colours are OWNED by the committed classes catalogue (read via backend.eq2db.classes.catalogue at this module's import,
-so a broken classes catalogue still fails fast at process start). Anything defined
+Class-group membership and archetype colours are OWNED by the classes
+catalogue (read via backend.eq2db.classes.catalogue at this module's import,
+so a broken classes schema fails fast at process start). Anything defined
 here that names classes is derived from that source. Don't redefine class
-groupings or colours here — edit the row in the classes catalogue and commit the file.
+groupings or colours here — change them with a classes migration.
 """
 
 from backend.eq2db.classes import catalogue as _classes

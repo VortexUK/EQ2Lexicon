@@ -1,16 +1,6 @@
 """HTTP-layer tests for backend/server/api/item.py — search, detail, spell-scroll, filters.
 
-COV-004 scenarios: stat_filter parsing (gte/lte), tier exact vs LIKE, item_type
-routing (typeinfo_name vs classification_list), JOIN parameter ordering, non-numeric
-item ID → 400, Census fallback, craftable/non-craftable spell-scroll, and the filters
-endpoint. Each test encodes one named behaviour, not line-coverage.
-
-Postgres edition: seeded tests lease an isolated items schema via the
-``items_schema`` fixture (which re-points the shared catalogue, so
-``ready()`` probes the lease) and additionally re-point the route module's
-import-frozen ``_ITEMS_SCHEMA`` search_path alias. The old
-``DB_PATH.exists()`` 503 gate is now ``_items.ready()`` — patched directly
-for the unavailable-DB tests.
+Seeded tests also re-point the route module's import-frozen ``_ITEMS_SCHEMA`` alias.
 """
 
 from __future__ import annotations
@@ -29,7 +19,7 @@ from tests.fixtures.pg import pg_conn
 
 def _seed_items_schema(schema: str) -> None:
     """Populate the leased items schema for testing (visible defaults to 1
-    and flag_pvp to 0 in the migration DDL, matching the old seed)."""
+    and flag_pvp to 0 in the migration DDL)."""
     with pg_conn(schema) as conn:
         conn.cursor().executemany(
             "INSERT INTO items (id, displayname, displayname_lower, tier_display, slot, typeinfo_name, "

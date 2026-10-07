@@ -1,19 +1,10 @@
 """Guild recruitment API — public read, officer-or-admin write.
 
-A guild's recruitment profile (needed classes, tags, description, in-game
-contacts, Discord invite, 200x200 logo) plus the world-wide "Guilds
-Recruiting" listing. Profiles are keyed by CENSUS GUILD ID in the store
-(rename-proof — see backend/server/db/guild_recruitment.py); routes stay
-name-addressed like the rest of the guild API, and every officer save
-re-resolves the id and refreshes the stored name.
-
-Write gate mirrors raid_schedule.py (`_officer_chars`, admin override).
-Every free-text field is sanitised + blocklist-screened; a hit is rejected
-AND reported via audit_log. Logo uploads are base64 JSON (no multipart
-anywhere in the app), re-encoded server-side through PIL to a <=200px WebP
-— re-encoding destroys EXIF/polyglot payloads — and every upload/removal
-is audited with the actor's discord id (the user's abuse-trail
-requirement).
+Profiles are keyed by Census guild id (rename-proof) while routes stay
+name-addressed; every officer save re-resolves the id and refreshes the stored
+name. Free text is sanitised + blocklist-screened (hits rejected and audited).
+Logos are base64 JSON re-encoded through PIL to a <=200px WebP (strips
+EXIF/polyglot payloads); uploads and removals are audited with the actor.
 """
 
 from __future__ import annotations
@@ -46,7 +37,7 @@ _log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["guild"])
 
-#: The curated tag set (user-approved 2026-10-03). Single source of truth —
+#: The curated tag set. Single source of truth —
 #: served to the frontend as `available_tags` on profile + list responses;
 #: never duplicate this list in the frontend.
 RECRUITMENT_TAGS: tuple[str, ...] = (

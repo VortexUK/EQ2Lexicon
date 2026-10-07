@@ -1,10 +1,6 @@
-"""Duplicate-key payloads on /api/parses/ingest.
-
-Before 2026-09-27 a payload with two attack_types rows for one
-(attacker, swingtype, type) key reached the DB as a UNIQUE violation and
-came back as a 500 + traceback. One third-party client retried that every
-~2 s for nine hours. Now: identical repeats collapse, conflicting repeats
-are a 422 naming the keys, and any other UniqueViolation is a 422 too.
+"""Duplicate-key payloads on /api/parses/ingest: identical repeats collapse, conflicting
+repeats are a 422 naming the keys, and any other UniqueViolation is a 422 — never a
+500, which third-party clients retry in a tight loop.
 """
 
 from __future__ import annotations

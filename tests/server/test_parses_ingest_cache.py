@@ -100,10 +100,8 @@ async def test_uploader_guild_served_from_store_without_census_or_prewarm(store_
 @pytest.mark.asyncio
 async def test_uploader_guild_response_path_never_calls_census(store_db):
     """A never-seen uploader must NOT trigger an inline Census call on the
-    response path (default allow_census=False) — one degraded lookup blew
-    the plugin's 20 s HttpClient timeout (2026-07-28 incident). The resolve
-    returns CENSUS_UNAVAILABLE so the endpoint commits guild_name=NULL and
-    the background backfill picks it up."""
+    response path (the plugin times out after 20 s): the resolve returns
+    CENSUS_UNAVAILABLE and the background backfill picks it up."""
     client = MagicMock()
     client.get_character_guild_name = AsyncMock(side_effect=AssertionError("Census must not be called inline"))
 

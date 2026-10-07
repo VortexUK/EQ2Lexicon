@@ -1,10 +1,6 @@
-"""The session-cookie access gate (backend/server/core/session_access.py).
-
-A signed cookie used to be a login for 14 days no matter what an admin did
-to the account. These tests pin: pending/denied accounts reach only
-/api/auth/*, a kicked or denied account's live cookie dies (epoch bump), an
-erased account's cookie dies (no row), admins skip the status check but not
-the epoch check, and the admin routes invalidate the per-user cache.
+"""The session-cookie access gate (backend/server/core/session_access.py): pending/denied
+accounts reach only /api/auth/*, kicked/denied/erased accounts' live cookies die, and
+admins skip the status check but not the epoch check.
 """
 
 from __future__ import annotations

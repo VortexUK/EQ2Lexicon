@@ -1,17 +1,6 @@
-"""Tests for the ACT triggers + spell-timers routes.
-
-Covers:
-  * CRUD on /api/zones/{zone}/encounters/{position}/triggers
-  * CRUD on /api/zones/{zone}/encounters/{position}/spell-timers
-  * The XML export endpoints (single trigger + all triggers)
-  * Auth gating (write paths require_editor)
-  * 404 fall-through for unknown zone / position / id
-  * UNIQUE-constraint → 409 on spell-timer name collisions
-
-Encounter resolution is mocked at the helper boundary
-(``_resolve_encounter_sync``) — the lazy-create logic against raids_db is
-covered separately by the raids_db unit tests; here we just need to assert
-the route layer behaves correctly given a resolved encounter."""
+"""Tests for the ACT triggers + spell-timers routes: CRUD, XML export, editor gating,
+404s and the 409 on spell-timer name collisions. Encounter resolution is mocked
+at ``_resolve_encounter_sync``."""
 
 from __future__ import annotations
 

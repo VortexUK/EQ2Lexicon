@@ -1,8 +1,5 @@
 """Shared test factories for SessionUser-shaped fakes.
 
-Resolves TEST-001 (5+ files redeclaring `_fake_admin`) and TEST-031
-(test fakes returning untyped dicts instead of SessionUser).
-
 Usage in tests:
 
     from tests.fixtures.users import make_fake_admin, make_fake_user

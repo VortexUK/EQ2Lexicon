@@ -1,16 +1,5 @@
-"""Tests for backend/server/api/census.py and backend/server/census_events.py — COV-007.
-
-Covers:
-  GET /api/census/health — returns current state dict.
-  GET /api/census/stream — SSE content-type, primes with health snapshot,
-                            delivers queued events, keep-alive on timeout,
-                            unsubscribes on disconnect.
-  _sse helper — formats dict as SSE data line.
-  census_events — subscribe, unsubscribe, publish (fan-out + QueueFull drop).
-  census_health — get_state, is_down, _body_looks_healthy.
-
-The SSE generator is tested by consuming a bounded number of chunks rather
-than waiting for the stream to close naturally.
+"""Tests for the census health endpoint, the SSE stream, census_events pub/sub and
+census_health. The SSE generator is consumed for a bounded number of chunks.
 """
 
 from __future__ import annotations

@@ -1,13 +1,10 @@
 """Backend user/claims/tokens/servers DB layer — the users Postgres schema.
 
-Carved out of the former single-file db module. Each domain gets its own
-module (users, claims, item_watch, tokens, servers, …); the schema DDL
-lives in db/migrations/0001_users.sql, applied by backend/pg_migrate.py
-from the app lifespan (deploy = migrate) and by the test fixtures.
+Each domain gets its own module (users, claims, item_watch, tokens,
+servers, …); the schema DDL lives in db/migrations/0001_users.sql.
 
-Every per-domain helper is re-exported from this module so the existing
-`from backend.server import db as users_db; users_db.get_active_claims(...)`
-API shape is preserved — no consumer rewrites needed.
+Every per-domain helper is re-exported from this module, so consumers call
+`from backend.server import db as users_db; users_db.get_active_claims(...)`.
 """
 
 from __future__ import annotations
@@ -19,8 +16,8 @@ SCHEMA = "users"
 
 
 # ---------------------------------------------------------------------------
-# Facade: re-export each domain store's bound methods so the existing
-# `users_db.get_active_claims(...)` API shape is preserved. The domains are
+# Facade: re-export each domain store's bound methods as
+# `users_db.get_active_claims(...)`. The domains are
 # XStore(PgStoreBase) classes (backend/db_catalogue.py) — the bound methods
 # read the shared instance's `schema` dynamically, so conftest re-points one
 # attribute per store and every alias follows.

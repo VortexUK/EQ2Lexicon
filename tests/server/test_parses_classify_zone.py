@@ -1,14 +1,6 @@
-"""Unit tests for the zone classifier in backend/server/api/parses/list.py.
-
-The classifier mirrors the rankings page's leaderboard predicate exactly:
-a zone is 'on the leaderboard' iff (a) its type token is 'raid_x4' or
-'dungeon' AND (b) it has ≥1 row in zone_encounters (a curator has
-populated at least one boss for it). Anything else is 'other'.
-
-The implementation reuses rankings._cached_zones_data so the classifier
-and the rankings dropdowns are guaranteed in lockstep. Cache invalidation
-rides invalidate_zones_cache() so admin curator edits propagate without
-a separate hook.
+"""Unit tests for the zone classifier in backend/server/api/parses/list.py: a zone is
+'on the leaderboard' iff its type is 'raid_x4' or 'dungeon' AND it has ≥1 curated
+encounter (same data as the rankings dropdowns); anything else is 'other'.
 """
 
 from __future__ import annotations
@@ -146,11 +138,8 @@ def test_classifier_cache_clear_picks_up_new_trees():
 
 
 def test_invalidate_zones_cache_also_clears_classifier_map():
-    """The Phase 2 spec wires _classifier_cache_clear into
-    rankings.invalidate_zones_cache so the 8 admin call sites in
-    backend/server/api/zones_admin.py don't each need their own hook. Verify by
-    populating the map, calling invalidate_zones_cache, repopulating with
-    a different fake, and checking the new result wins."""
+    """rankings.invalidate_zones_cache also clears the classifier map, so the
+    zones_admin call sites need no separate hook."""
     from backend.server.api.rankings import invalidate_zones_cache
 
     with patch(

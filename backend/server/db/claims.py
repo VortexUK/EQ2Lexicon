@@ -1,7 +1,6 @@
 """users ``character_claims`` helpers (async psycopg).
 
-Carved out of the former single-file db module. Async (psycopg) helpers
-for the character claims domain. Per-call connections open via the
+Per-call connections open via the
 shared ``PgStoreBase._db()``; tests re-point ``store.schema``.
 
 Claim statuses:
@@ -108,7 +107,6 @@ class ClaimsStore(PgStoreBase):
         Returns True if something changed.
         """
         async with self._db() as db:
-            # Check if this claim is primary before withdrawing (and capture world from row)
             async with await db.execute(
                 _SQL["select_primary_and_world"],
                 (claim_id, discord_id),

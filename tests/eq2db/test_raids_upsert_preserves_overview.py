@@ -1,18 +1,5 @@
-"""Regression test for the 2026-05-30 'losing raid zone overviews' bug.
-
-When _write_strategy_sync (the encounter-strategy edit path) calls
-raids_db.upsert_raid_zone(... source=MANUAL) to auto-create the parent
-zone row, it does NOT pass overview_md — so the default (None) flowed
-into the ON CONFLICT DO UPDATE clause and clobbered the zone's existing
-overview_md with NULL.
-
-The fix wraps every nullable column in COALESCE so None means
-'don't touch' instead of 'clobber to NULL'. Destructive writes go
-through targeted UPDATEs (e.g. _update_overview_sync), not through
-upsert_raid_zone.
-
-Postgres edition: leased scratch schema via ``raids_schema``; dict rows,
-%s params.
+"""upsert_raid_zone treats None as "don't touch" for nullable columns, so the
+strategy-edit path (which omits overview_md) can't wipe a zone overview.
 """
 
 from __future__ import annotations
@@ -22,9 +9,8 @@ from backend.eq2db.raids import catalogue as raids_db
 
 
 def test_upsert_with_none_overview_preserves_existing_overview(raids_schema: str):
-    """The regression scenario: an existing zone has a curator-written
-    overview_md. A subsequent upsert_raid_zone call WITHOUT overview_md
-    (the strategy-write path) must NOT wipe it to NULL."""
+    """An upsert_raid_zone call WITHOUT overview_md (the strategy-write path)
+    must NOT wipe an existing curator-written overview to NULL."""
     conn = RaidCatalogue(raids_schema).init_db()
     try:
         # 1. Curator writes an overview — overview_md is set.
@@ -44,7 +30,6 @@ def test_upsert_with_none_overview_preserves_existing_overview(raids_schema: str
 
         # 2. Curator edits a boss strategy — _write_strategy_sync auto-creates
         #    the zone parent by calling upsert_raid_zone() WITHOUT overview_md.
-        #    Before the fix, this nulled overview_md to NULL.
         raids_db.upsert_raid_zone(
             conn,
             zone_name="Mistmoore's Inner Sanctum",
@@ -56,7 +41,7 @@ def test_upsert_with_none_overview_preserves_existing_overview(raids_schema: str
             "SELECT overview_md, source FROM raid_zones WHERE zone_name = %s",
             ("Mistmoore's Inner Sanctum",),
         ).fetchone()
-        # The fix: overview_md is preserved, not nulled.
+        # overview_md is preserved, not nulled.
         assert row["overview_md"] == "Bring poison cures. Stagger interrupts on Mob B."
         assert row["source"] == raids_db.SOURCE_MANUAL
     finally:

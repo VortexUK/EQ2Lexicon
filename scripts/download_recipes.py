@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
 """
-Download all recipes from the Census /recipe/ collection into the Postgres
-`recipes` schema (DATABASE_URL — see backend/pg.py for the DSN resolution chain).
+Download all recipes from the Census /recipe/ collection into the Postgres `recipes` schema.
 
-Mirrors scripts/download_spells.py in structure:
-  - Resumes automatically from saved offset (stored in the schema's _meta table)
-  - Safe to re-run: upserts keyed on recipe ID
-  - ~70,000 recipes total; takes a few minutes on a good connection
-  - Spell-scroll recipes (e.g. "Lightning Palm III (Expert)") are automatically
-    parsed into base_name_lower + crafted_tier columns at ingest time.
+    uv run python scripts/download_recipes.py [--limit N] [--restart]
 
-Usage:
-    python scripts/download_recipes.py                  # full download / resume
-    python scripts/download_recipes.py --limit 1000     # stop after N recipes (testing)
-    python scripts/download_recipes.py --restart        # ignore saved offset, start from 0
+Resumes from the offset saved in the schema's _meta table; upserts by recipe id.
+See docs/runbooks/catalogue-refresh.md.
 """
 
 from __future__ import annotations

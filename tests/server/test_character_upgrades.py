@@ -1,31 +1,6 @@
-"""HTTP-layer tests for backend/server/api/character/upgrades.py — COV-006.
-
-Covers:
-  GET /api/character/{name}/upgrade-materials
-    — spells catalogue not ready → 503
-    — recipes catalogue not ready → 503
-    — character not found → 404
-    — empty spell_ids → zero counts, no ingredients
-    — no sub-expert spells → zero counts, no ingredients
-    — happy path: aggregates ingredients sorted by category/qty
-    — two recipes sharing an ingredient sum their quantities
-    — sort order: primary first, then secondary, then fuel
-  GET /api/character/{name}/upgrade-recipes
-    — spells catalogue not ready → 503
-    — character not found → 404
-    — happy path returns RecipeResult list
-    — character name too long → 400
-  _lookup_items_by_name
-    — exact match on stripped "Raw X" (pass-1)
-    — pass-1 miss triggers LIKE fuzzy search (pass-2)
-    — non-"Raw" name uses exact match only
-    — items catalogue not ready (empty schema) → returns empty dict
-
-Postgres edition: the old ``_SPELLS_DB``/``_RECIPES_DB`` file-exists gates
-became ``catalogue.ready()`` probes, so the 503 paths patch ``ready`` on the
-shared catalogue instances. The _lookup_items_by_name tests seed the leased
-items schema via ``pg_conn`` (the ``items_schema`` fixture re-points the
-shared catalogue at the lease). All Census calls stay mocked.
+"""HTTP-layer tests for backend/server/api/character/upgrades.py — upgrade-materials,
+upgrade-recipes and _lookup_items_by_name. The 503 paths patch ``ready`` on the
+shared catalogue instances; all Census calls are mocked.
 """
 
 from __future__ import annotations
@@ -48,14 +23,12 @@ class _FakeCharCached:
 
 
 def _spells_ready(value: bool):
-    """Patch the spells catalogue's ready() gate — the Postgres analog of
-    the old ``_SPELLS_DB`` path patch (exists ↔ ready)."""
+    """Patch the spells catalogue's ready() gate."""
     return patch("backend.server.api.character.upgrades._spells.ready", return_value=value)
 
 
 def _recipes_ready(value: bool):
-    """Patch the recipes catalogue's ready() gate — the Postgres analog of
-    the old ``_RECIPES_DB`` path patch (exists ↔ ready)."""
+    """Patch the recipes catalogue's ready() gate."""
     return patch("backend.server.api.character.upgrades._recipes.ready", return_value=value)
 
 
@@ -395,8 +368,7 @@ class TestLookupItemsByName:
         assert "nonexistent material" not in result
 
     def test_returns_empty_when_items_db_absent(self, items_schema):
-        """An EMPTY leased items schema reads as not-ready → empty dict (the
-        Postgres analog of the old missing-catalogue-file case)."""
+        """An EMPTY leased items schema reads as not-ready → empty dict."""
         from backend.server.api.character.upgrades import _lookup_items_by_name
 
         result = _lookup_items_by_name(["Lead Cluster"])

@@ -4,13 +4,9 @@ here (via the in-memory cache) and never blocks on Census; background
 refreshes merge in fresh data "keep best known" — a sparse Census response
 never nulls out good data.
 
-All behaviour lives on :class:`CensusStore` (the catalogue convention — see
-backend/db_catalogue.py): the shared module-level ``store`` instance is the
-runtime entry point (consumers alias it ``census_store``); the get/upsert
-helpers take an open conn (callers batch reads/writes per connection) and are
-staticmethods. ``init_db()`` returns a pooled schema-scoped connection proxy;
-schema DDL lives in db/migrations/0003_census.sql. ``data_json`` is jsonb —
-psycopg hands back parsed dicts and writes go through ``Json()``.
+The get/upsert helpers take an open conn (callers batch reads/writes per
+connection). ``data_json`` is jsonb — psycopg hands back parsed dicts and
+writes go through ``Json()``.
 """
 
 from __future__ import annotations

@@ -1,17 +1,10 @@
-"""Voice-attendance poller — the Phase 3 cross-check.
+"""Voice-attendance poller: while the linked EQ2 guild has a LIVE attendance
+session, snapshot the ``/lexicon voice`` channel and record kind='voice'
+observations (``character_name`` carries the Discord user id).
 
-Every ~2 minutes, for each Discord guild with a raid voice channel
-configured (/lexicon voice), check whether the linked EQ2 guild has a LIVE
-attendance session (one the parser's uploads would merge into right now).
-If so, snapshot who's connected to the channel and record kind='voice'
-observations (character_name carries the Discord user id — reserved by the
-attendance schema). The site's per-player rollup then shows 🎧 and flags
-AWOL-but-in-voice players.
-
-Idle cost: one registry query per tick + one indexed session probe per
-configured guild — no Discord API calls and no writes unless a session is
-live. Requires the privileged members intent (dev-portal toggle) so voice
-states resolve to Members.
+The idle path must stay at one registry query + one session probe per
+configured guild: no Discord API calls, no writes. Needs the privileged
+members intent so voice states resolve to Members.
 """
 
 from __future__ import annotations

@@ -1,8 +1,7 @@
 """POST /parses/ingest — ACT-plugin upload + HMAC validation + snapshot resolve.
 
-Carved out of the former single-file parses module. HMAC validation
-+ regression tests live here. The Pydantic ingest models live in models.py
-so they can be type-imported without dragging the helpers along.
+The Pydantic ingest models live in models.py so they can be type-imported
+without dragging these helpers along.
 """
 
 from __future__ import annotations
@@ -115,33 +114,13 @@ async def _resolve_uploader_guild_async(
     *,
     allow_census: bool = False,
 ) -> str | None | _CensusUnavailable:
-    """Cache-first guild lookup for the upload path. Order of attempts:
+    """Uploader's guild: character_cache (any age), then census_store; Census
+    only when ``allow_census`` (background tasks). The HTTP response path must
+    never wait on Census — the plugin's HttpClient times out at 20 s.
 
-      1. character_cache hit on the uploader's character → return its
-         guild_name (zero Census traffic; any age — stale beats a live call).
-      2. Miss → durable census_store hit → return its guild_name (zero
-         Census). The store never deletes, so an uploader resolved once is
-         served from here forever; and if they're in the store the guild was
-         already loaded, so its members are too and combatant resolution finds
-         them without a prewarm.
-      3. Never-seen → CENSUS_UNAVAILABLE unless ``allow_census`` (background
-         tasks only). The HTTP response path must NEVER wait on Census — one
-         degraded lookup blows the plugin's 20 s HttpClient timeout
-         (2026-07-28 incident); the encounter commits with guild_name=NULL
-         and _backfill_encounter_guild resolves it after the response.
-         With ``allow_census``: single-character Census call via
-         get_character_guild_name.
-      4. If we learned a guild that way, fire-and-forget _fetch_and_cache_guild()
-         to pull + persist the full roster so the rest of the raid hits step 1/2.
-         Thundering-herd guard inside the helper dedupes concurrent prewarms.
-
-    ``world`` overrides the EQ2_WORLD env-var default — the plugin
-    (v0.1.10+) detects the server from its log file path and stamps it
-    on each upload. Empty/None → fall back to the configured default
-    so older plugin versions and the local-ingest path keep working.
-    Sanitised via _sanitize_world; anything that doesn't match the
-    expected shape also falls back rather than feeding garbage into
-    a Census API URL.
+    A guild learned from Census triggers a fire-and-forget roster prewarm.
+    ``world`` (the upload's logger_server) is sanitised; empty or malformed
+    falls back to EQ2_WORLD so nothing unvalidated reaches a Census URL.
 
     Returns:
       - ``str``                — guild name (character is in this guild)
@@ -208,39 +187,22 @@ async def _resolve_combatant_snapshots(
     names: list[str],
     world: str | None = None,
 ) -> dict[str, CombatantSnapshot]:
-    """Freeze each named player's identity (level / guild / class) at ingest
-    time. Cache-first against the durable store; Census only for never-seen
-    names.
-
-    Per-name strategy, in order:
-      1. character_cache hit → snapshot it (zero Census traffic).
-      2. Miss → durable census_store hit → snapshot the last-known data
-         (zero Census). The store never deletes, so a character resolved once
-         (via the character page, a guild load, or a prior parse) is served
-         from here forever.
-      3. Never-seen (absent from both) → one Census call
-         (get_character_guild_name) to find the guild, then *await* a full
-         roster fetch which caches + persists every guildmate; re-check cache
-         then store.
-      4. iLvl backfill: a guild-roster resolve sometimes has class/level but no
-         equipment, leaving ilvl None. Only then do one get_character to fill it
-         — and write the result through to census_store so it's never re-fetched.
-
-    Because a raid is overwhelmingly one guild, the first never-seen miss warms
-    the whole roster, so every subsequent name is a step-1/2 hit. Unguilded pugs
-    / Census errors leave that name absent from the result (combatant row stores
-    NULLs). Never raises — best-effort, must not block a valid upload.
+    """Snapshot each player's level/guild/class/ilvl at ingest so later Census
+    drift cannot rewrite history. Background-only: cache, then census_store,
+    then Census for never-seen names (awaiting a full roster prewarm so the
+    rest of the raid hits the store). Unresolved names are absent from the
+    result (the combatant row keeps NULLs). Never raises.
     """
     # Same sanitisation as _resolve_uploader_guild_async — a malformed
     # logger_server can't end up in a Census URL.
     effective_world = _sanitize_world(world) or _WORLD
     world_lower = effective_world.lower()
     out: dict[str, CombatantSnapshot] = {}
-    # A pooled connection is NEVER held across a Census await here: the sync
-    # pool has five slots and a raid-night burst of resolvers each parked on a
-    # 30 s Census call used to exhaust it (and trip the idle-in-transaction
-    # timeout). Store work runs in short executor hops; the semaphore caps how
-    # many resolvers hit Census at once.
+    # Never hold a pooled connection across a Census await: the sync pool has
+    # five slots, and a raid-night burst of resolvers parked on 30 s Census
+    # calls would exhaust it and trip the idle-in-transaction timeout. Store
+    # work runs in short executor hops; the semaphore caps how many resolvers
+    # hit Census at once.
     async with _RESOLVER_SEM:
         stored = await run_sync(_store_lookup_sync, names, effective_world)
         async with shared_census_client() as client:
@@ -377,7 +339,7 @@ def _update_snapshots_sync(encounter_id: int, snapshots: dict[str, CombatantSnap
     conn = parses_db.init_db()
     try:
         parses_db.update_combatant_snapshots(conn, encounter_id, snapshots)
-        # Phase 3 (pet detection): re-classify because cls just changed. The
+        # Re-classify pets/players because cls just changed. The
         # classifier is stage-5-driven by cls, so a fresh resolution can flip
         # an unconfirmed ally to player (or unblock a higher-rank slot in the
         # bucket-fill pool for a different unconfirmed contributor).
@@ -630,10 +592,8 @@ def _attack_types_from_payload(rows: list[IngestAttackType], encid: str) -> list
 class DuplicatePayloadRows(ValueError):
     """The payload carries two rows for one (combatant, type) key that
     disagree with each other. Raised from the executor thread by
-    ``_ingest_payload_sync`` and turned into a 422 by the route — before
-    2026-09-27 this reached Postgres as a UNIQUE violation and surfaced as a
-    500 with a traceback, which one third-party client then retried every
-    couple of seconds for nine hours."""
+    ``_ingest_payload_sync`` and turned into a 422 by the route: it is a
+    client bug, and a 500 would invite blind retries."""
 
     def __init__(self, table: str, keys: list[tuple]) -> None:
         self.table = table
@@ -689,16 +649,10 @@ def _check_idempotency_sync(
     'skipped' — already ingested; no-op return.
     None      — never ingested; caller should insert.
 
-    Re-upload NEVER un-hides a soft-deleted parse. Soft-delete is the
-    moderation action (an officer/admin hid an abusive parse); the original
-    uploader is also the party most likely to re-upload, so auto-reviving on
-    re-upload let a cheater undo moderation just by re-sending the payload
-    (a known moderation-evasion bypass). Restoring a wrongly-hidden parse is
-    now an explicit authenticated admin action, not a side effect of ingest.
-
-    The existing internal ``encounter_id`` is NOT echoed on a skip — combined
-    with client-chosen encids it was an enumeration oracle for which encounters
-    exist. Skipped returns ``None`` for the id.
+    Re-upload never un-hides a soft-deleted parse (that would let an uploader
+    undo moderation by re-sending); restoring is an explicit admin action.
+    A skip returns ``None`` for the id — echoing the existing id would make
+    client-chosen encids an enumeration oracle.
     """
     if not parses_db.is_ingested(conn, encid, world):
         return None
@@ -741,10 +695,9 @@ def _insert_encounter_rows_sync(
     """
     ingested_at = int(time.time())
     # One transaction: the statements below ride the connection's open
-    # transaction and the explicit commit at the end closes it.
-    # On an exception mid-way the transaction
-    # is left uncommitted; the caller's conn.close() returns the connection
-    # to the pool, which rolls it back.
+    # transaction and the explicit commit at the end closes it. On an
+    # exception mid-way the caller's conn.close() returns the connection to
+    # the pool, which rolls it back.
     encounter_id = parses_db.insert_encounter(
         conn,
         enc,
@@ -789,7 +742,7 @@ def _insert_encounter_rows_sync(
         ingested_at=ingested_at,
         world=world,
     )
-    # Phase 3 (pet detection): classify ally combatants now that the
+    # Classify ally combatants (pet detection) now that the
     # cache-warm snapshot fast-path has populated cls for whatever was
     # already in character_cache. Any cls that fills in later via the
     # background snapshot resolution triggers a re-classify in
@@ -814,10 +767,9 @@ def _ingest_payload_sync(
     """Write the payload into the parses schema. Returns (status, encounter_id,
     n_combatants, n_damage_types, n_attack_types).
 
-    status: 'inserted' on success, 'revived' if the encid was already
-    ingested but soft-deleted (re-upload un-hides it), 'skipped' if the
-    encid was already ingested and still visible — the upload is
-    idempotent on retries.
+    status: 'inserted' on success, 'skipped' if the encid was already
+    ingested for this world (including soft-deleted parses, which stay
+    hidden) — the upload is idempotent on retries.
 
     ``world`` is the authoritative server name (on the HTTP path this is the
     allowlist-gated ``sanitized_server`` derived from logger_server) and is
@@ -913,24 +865,14 @@ async def _validate_payload_signature(
     request: Request,
     user: TokenUser,
 ) -> None:
-    """HMAC-SHA256 validation of the upload body, keyed by the bearer
-    token. Plugin v0.1.8+ ships this header on every upload.
+    """Token auth requires X-Lexicon-Signature = hex HMAC-SHA256(raw body, token).
 
-    STRICT mode (flipped from opportunistic on 2026-05-25):
       * token-auth + header missing  → 401 (force plugin update)
       * token-auth + header present  → must verify; mismatch is 401
       * session-auth + header present → 400 (confused client)
       * session-auth + header absent → allowed (browser uploads, if any)
 
-    The strict flip means v0.1.7 and older plugins now hit a clear 401
-    telling them to update. The plugin's update-awareness banner (also
-    introduced in v0.1.8) makes the upgrade path obvious in the UI.
-
-    Threat model: see PayloadSigner.cs in the plugin repo. Short version
-    — this stops payload tampering in flight; it does NOT prevent the
-    legitimate token holder from signing whatever JSON they want (they
-    have the key). Real integrity comes from server-side sanity checks
-    on top of this.
+    This stops in-flight tampering only; the token holder can sign anything.
     """
     sig_header = request.headers.get(PLUGIN_SIGNATURE_HEADER)
 
@@ -1040,36 +982,25 @@ async def ingest_parse(
     user = await require_user_session_or_token(request)
     await _validate_payload_signature(request, user)
 
-    # Trust the plugin's logger_name (it reads ActGlobals.charName) and
-    # use it as the uploader identifier on the encounter row. The session/
-    # token user_id is what we'd surface for "who uploaded this" if/when
-    # we add an uploader-by-user-id column in Phase 3+.
+    # logger_name (the plugin reads ActGlobals.charName) is the uploader
+    # identifier on the encounter row; _uploader_claimed below binds it to
+    # the token owner's approved claims.
     uploader = body.logger_name.strip()
     if not uploader:
         raise HTTPException(status_code=400, detail="logger_name must not be empty")
     # EQ2 character names are letters only, 1-15 chars. Reject
     # anything else — keeps malformed payloads out of Census API
-    # URLs, parses-DB rows, and prevents the ":"-injection cache-
-    # collision path called out in the v0.1.13 audit (M4).
+    # URLs and parses rows, and blocks ":"-injection collisions in the
+    # "name:world" cache keys.
     if _validate_character_name(uploader) is None:
         raise HTTPException(
             status_code=400,
             detail="logger_name must be 1-15 letters (the EQ2 character-name shape).",
         )
 
-    # Server allowlist gate — strict mode.
-    #
-    # The plugin stamps logger_server from the active ACT log path
-    # (v0.1.10+). Pre-v0.1.10 builds didn't send the field at all and
-    # any plugin more than two minor versions behind the latest release
-    # has been blocked client-side by the version gate, plus rejected
-    # server-side by the X-Lexicon-Signature strict check since
-    # 2026-05-25. So any payload that lands here without logger_server
-    # is effectively a misconfigured client we want to surface, not a
-    # legitimate request to silently fall back to EQ2_WORLD.
-    #
-    # Three rejection cases, ordered from most-actionable-for-user to
-    # least:
+    # Server allowlist gate — strict: a payload without logger_server is a
+    # misconfigured client to surface, not a request to silently fall back
+    # to EQ2_WORLD. Three rejection cases, most-actionable first:
     #   1. logger_server missing/empty   → 400, "update your plugin"
     #   2. logger_server malformed shape → 400, "logger_server is bad"
     #   3. logger_server not in allow set → 403, with the allowed list
@@ -1109,8 +1040,8 @@ async def ingest_parse(
 
     # Plausibility gate — the server-side honesty floor. Runs BEFORE any
     # Census/DB work so an impossible or absurd payload is cheap to reject.
-    #   REJECT     → 400 (physically impossible: bad duration/timestamps, a
-    #                combatant out-damaging the whole fight).
+    #   REJECT     → 400 (physically impossible: negative values, bad
+    #                timestamps, out-of-range percentages).
     #   QUARANTINE → routed to tamper_reports, kept off the leaderboard, and
     #                the caller gets a normal-looking 201 (no calibration
     #                feedback for a forger).
@@ -1162,13 +1093,10 @@ async def ingest_parse(
         )
 
     # Guild resolve — cache/census_store only (any age). The response path
-    # NEVER waits on Census: a never-seen uploader gets CENSUS_UNAVAILABLE
-    # here, the encounter commits with guild_name=NULL, and the background
-    # backfill below does the live lookup after the response is out. (One
-    # degraded inline Census call was enough to blow the plugin's 20 s
-    # HttpClient timeout — 2026-07-28 incident.) logger_server (plugin
-    # v0.1.10+) overrides EQ2_WORLD; after the strict gate above the value
-    # is guaranteed valid.
+    # never waits on Census (plugin HttpClient timeout is 20 s): a never-seen
+    # uploader gets CENSUS_UNAVAILABLE here, the encounter commits with
+    # guild_name=NULL, and the background backfill below does the live
+    # lookup after the response is out.
     # The logger must be a character the uploading account has an approved
     # claim on for this world; otherwise the upload is kept for its uploader
     # but is never attributed to a guild (no backfill either) and never ranks.
@@ -1194,9 +1122,9 @@ async def ingest_parse(
     # player-like names (single-word ally, not the 'Unknown' rollup) so we
     # never burn Census calls on pets/NPCs that don't exist as characters.
     # Restrict to VALID EQ2 character-name shapes (letters, 1-15) — the
-    # background resolver does one live Census call per never-seen name, so an
-    # unvalidated list of fabricated names was a Census-amplification lever
-    # (could get the shared service ID rate-limited/banned). Cap the count too:
+    # background resolver does one live Census call per never-seen name, so
+    # fabricated names would be a Census-amplification lever (and could get
+    # the shared service ID rate-limited). Cap the count too:
     # a real raid is well under _MAX_SNAPSHOT_NAMES, and names beyond it simply
     # keep NULL identity rather than each costing a Census round-trip.
     player_names: list[str] = []
@@ -1231,9 +1159,8 @@ async def ingest_parse(
         )
     except (DuplicatePayloadRows, psycopg.errors.UniqueViolation) as exc:
         # A payload that breaks a uniqueness rule is the CLIENT's bug: say
-        # so with a 422 (a 500 reads as "server broke, retry" and one client
-        # did exactly that, every ~2 s, for nine hours on 2026-09-27). Log
-        # enough to name the client without dumping a traceback per attempt.
+        # so with a 422 (a 500 reads as "server broke, retry"). Log enough to
+        # name the client without dumping a traceback per attempt.
         _log.warning(
             "[parses-ingest] rejected malformed payload (%s) user_id=%s token_id=%s logger=%s encid=%s ua=%r remote_ip=%s",
             exc,
@@ -1252,10 +1179,9 @@ async def ingest_parse(
             ),
         ) from exc
 
-    # Schedule the full (Census-backed) resolution off the response path. For
-    # freshly-inserted parses, and for revived ones (so the brought-back parse
-    # re-resolves its players against the now-warmer cache). Skipped rows
-    # already have their snapshots, and an empty name list has nothing to do.
+    # Schedule the full (Census-backed) resolution off the response path for
+    # fresh inserts. Skipped rows already have their snapshots, and an empty
+    # name list has nothing to do.
     if status in ("inserted", "revived") and encounter_id is not None and player_names:
         background.add_task(
             _resolve_and_update_snapshots,

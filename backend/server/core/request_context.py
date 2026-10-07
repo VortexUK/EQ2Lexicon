@@ -1,27 +1,6 @@
-"""Per-request context (request_id, user_id, world) propagated via contextvars.
-
-Why contextvars instead of an `extra=` kwarg at every log call site:
-  - Existing code is hundreds of `_log.info(...)` lines deep; passing context
-    explicitly to each one is a forever-job.
-  - asyncio task-local context is exactly what `contextvars` is designed for
-    (PEP 567). Inside a request handler, every awaitable spawned from it
-    inherits the contextvar values automatically.
-  - A `logging.LoggerAdapter` reads the contextvar inside its `process()`
-    method, so the addition is invisible to call sites — `_log.info("foo")`
-    inside a request gets `[req=abc12345 user=… world=…]` in the formatted
-    output without any change to the log site.
-
-Single-process assumption: contextvars don't cross workers. Today the app
-runs with WEB_CONCURRENCY=1 (asserted at startup — see backend/server/app.py:_startup).
-If that ever loosens, request_id propagation between workers needs an
-HTTP-header pickup at the receiving worker too — at which point the middleware
-in request_context_middleware.py needs to honour an inbound X-Request-ID
-header rather than minting one unconditionally. See LOG-047 + the
-single-process note in CLAUDE.md.
-
-The contextvars are intentionally Optional — outside a request (background
-task started before a request, CLI script, test harness) the LoggerAdapter
-falls back to "-" so log lines stay parseable.
+"""Per-request context (request_id, user_id, world) propagated via contextvars
+and stamped onto every log record. Process-local: it does not cross workers.
+Outside a request every field reads as "-".
 """
 
 from __future__ import annotations
@@ -31,8 +10,8 @@ from collections.abc import MutableMapping
 from contextvars import ContextVar
 from typing import Any
 
-# Public contextvars. Default None so background tasks + tests don't 500 on
-# unset reads. Phase 2b's middleware sets them at request start.
+# Default None so background tasks + tests don't 500 on unset reads;
+# RequestContextMiddleware sets them at request start.
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
 world_var: ContextVar[str | None] = ContextVar("world", default=None)
@@ -60,17 +39,8 @@ class _RequestContextAdapter(logging.LoggerAdapter):  # type: ignore[type-arg]
 def get_logger(name: str) -> _RequestContextAdapter:
     """Return a LoggerAdapter that auto-injects request_id/user_id/world.
 
-    The convention is to assign this at module level just like a plain
-    logger::
-
-        from backend.server.core.request_context import get_logger
-        _log = get_logger(__name__)
-
-    Plain `logging.getLogger(__name__)` still works — the contextvars are
-    also read by the logging-config filter (backend/core/logging_config.py), so
-    every log record from any logger gets the contextvar values attached
-    via the filter. The adapter exists for routes that want a typed
-    handle + auto-context.
+    Optional: plain ``logging.getLogger(__name__)`` gets the same fields via
+    ``RequestContextFilter`` on the root handler.
     """
     return _RequestContextAdapter(logging.getLogger(name), extra={})
 

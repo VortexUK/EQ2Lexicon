@@ -41,8 +41,8 @@ WHERE encounter_id = %s AND is_player = 1;
 -- :name ally_rosters_bulk
 -- Every candidate encounter's player roster in ONE statement, already in
 -- top-N order (encDPS DESC, name ASC) so the grouper slices [:n] for the
--- top-N set and uses the whole list for the containment set. Replaces the
--- four lookups per compared pair (twelve percent of all production statements).
+-- top-N set and uses the whole list for the containment set, instead of
+-- four lookups per compared pair.
 SELECT encounter_id, name FROM combatants
 WHERE encounter_id = ANY(%s) AND is_player = 1
 ORDER BY encounter_id, encdps DESC, name ASC;
@@ -53,14 +53,11 @@ ORDER BY encounter_id, encdps DESC, name ASC;
 
 -- :name has_unclassified_combatants
 -- Cheap probe: does this encounter still have any ALLY combatant rows with
--- is_player IS NULL? Drives the pre-Phase-4 lazy backfill. Scoped to
--- ally = 1 because that is exactly the set classify_combatants can ever
--- classify — enemy rows keep is_player NULL by design (omitted from the
--- classifier's result), so probing all rows made every encounter look
--- perpetually unclassified: every read path re-ran the classifier and
--- re-WROTE the same ally rows forever, which is what melted the rankings
--- load (thousands of write+commit cycles per cold cache fill, colliding
--- with raid-night ingest → "database is locked").
+-- is_player IS NULL? Drives the lazy backfill. Must stay scoped to
+-- ally = 1: enemy rows keep is_player NULL by design (the classifier never
+-- returns them), so probing all rows would make every encounter look
+-- perpetually unclassified and every read path would re-write the same
+-- ally rows.
 SELECT 1 FROM combatants
 WHERE encounter_id = %s AND ally = 1 AND is_player IS NULL LIMIT 1;
 

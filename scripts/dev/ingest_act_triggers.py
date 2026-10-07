@@ -42,7 +42,7 @@ from backend.eq2db.raids import catalogue as raids_db  # noqa: E402
 # — sometimes a zone name, sometimes a boss name. We resolve each Category to
 # a single (zone, position) target. For categories where the contributor
 # tagged the zone but the triggers actually fire against a specific boss in
-# that zone, this is the per-user-confirmed attribution.
+# that zone, this is the manually confirmed attribution.
 
 DEFAULT_ATTRIBUTION: dict[str, tuple[str, int]] = {
     # EoF

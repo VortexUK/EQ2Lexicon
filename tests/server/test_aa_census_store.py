@@ -1,12 +1,5 @@
-"""Tests for the AA endpoint's census_store integration (Task 2c.6).
-
-Verifies:
-  - Cold cache: Census is called + data is persisted to census_store.
-  - Warm store: census_store is served without calling Census.
-  - Stale store record: census_store is served immediately, background
-    refresh is spawned.
-  - The migration-owned census schema carries the character_aas table
-    (init_db creates nothing).
+"""Tests for the AA endpoint's census_store integration: cold → Census + persist,
+warm store → no Census, stale store → served immediately + background refresh.
 """
 
 from __future__ import annotations
@@ -176,9 +169,7 @@ async def test_stale_store_returns_data_and_spawns_refresh(app, census_schema):
 
 # ---------------------------------------------------------------------------
 # Schema invariant: the migrations own the census DDL — the character_aas
-# table must exist in any freshly-built census schema
-# (store.init_db() creates nothing; db/migrations/0003_census.sql is
-# the single source of schema truth).
+# table must exist in any freshly-built census schema.
 # ---------------------------------------------------------------------------
 
 

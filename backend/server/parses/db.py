@@ -306,7 +306,7 @@ class ParsesStore(PgCatalogue):
         polluting the leaderboards.
 
         ``world`` scopes to a single EQ2 server; ``None`` returns all worlds
-        (no longer recommended — pass the active server world in all call sites).
+        (routes should always pass the active server world).
         ``before`` is the pagination cursor: only rows strictly older than that
         unix timestamp (pass the previous page's last started_at).
         ``hidden_only`` narrows to soft-deleted rows — the restore workflow

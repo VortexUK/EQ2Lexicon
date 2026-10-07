@@ -1,22 +1,14 @@
-// Stat math for the rotation simulator — the TOOLTIP-VALIDATED TLE model
-// (fitted on Divine Smite VII / Warring Deities V / Smite Corruption I
-// tooltips, then blind-verified on Divine Strike VII to 0.15%):
+// Stat math for the rotation simulator — the tooltip-validated model:
 //
 //   coefficient = (1 + primaryStatBonus + gear/AA base-damage%, ADDITIVE
 //                  in one bucket) × (1 + potency)
 //   per component application = B̄ × (coefficient + ½)
-//   the PRIMARY unconditional hit additionally gets the full ability mod
-//   (uncapped); DoT ticks and conditional riders get none.
+//   the PRIMARY unconditional hit additionally gets the ability mod;
+//   DoT ticks and conditional riders get none.
 //   Crit/fervor/doublecast multiply DEALT damage only (tooltips exclude
 //   them). Cast/recast are divisive: base ÷ (1 + speed/100).
 //
-// Scope refinements (blind-fitted on Divine Demonstration's two tooltip
-// ends + Exorcise across two stat loadouts): encounter components use a
-// reduced flat fraction (~0.1) and HALF the ability mod; self-pulse blue
-// AoEs keep the ½ but carry NO mod. Proc payloads (log-validated on Bolt
-// of Power + Blessed Armament to ≤1%) deal tooltip + AM/3.
-// Every constant is exported and tunable; calibration absorbs residual
-// error. Kept free of React (aaplanner convention).
+// Kept free of React.
 
 import type { DamageComponent, RotationAbility, SimStats, SimTarget } from './types'
 
@@ -24,36 +16,22 @@ import type { DamageComponent, RotationAbility, SimStats, SimTarget } from './ty
 export const DEFAULT_TARGET: SimTarget = { count: 1, encounter: false, activeConditions: [] }
 
 /** Every component application carries a flat +½·B̄ — a CONSTANT
- * (half the component's census midpoint) added to BOTH tooltip ends,
- * so ranges widen by the BARE chain, not chain+½. Pinned by
- * Menludiir's Divine Smite VII: widths back-solve the bare chain and
- * the min end then reproduces his ability mod to ±0.03%. The AVERAGE
- * is unchanged versus the old per-end reading (B̄×(chain+½)), so the
- * engine's expected-damage math is identical — only displayed ranges
- * and tooltip-min predictions split the two. */
+ * (half the census midpoint) added to BOTH tooltip ends, so ranges widen
+ * by the BARE chain, not chain+½. The average is the same either way. */
 export const COMPONENT_BASE_FLAT_FRACTION = 0.5
-/** LOW-LEVEL spells (T6 and below) carry NO +½: Velium Winds (59) and
- * Wrath of the Ancients (60) tooltip spreads sit on the BARE chain
- * (−4.5%) and nowhere near chain+½ (−18%), while level 67/70+ spells on
- * the same character (Plague, Rabies two-loadout ratio 0.860) demand
- * the ½. Spells at/above this level keep the ½. */
+/** Spells below this level (T6 and lower) carry NO +½ flat. */
 export const COMPONENT_FLAT_LEVEL_MIN = 61
-/** Attack-proc payloads DEAL tooltip + AM×⅓ (log-fitted on Bolt of
- * Power and Blessed Armament dealt damage: means ≤1.1%, mins ≤0.3%).
- * Applied to single-target proc payloads only — maintained pulse
- * streams (aoe scope) verifiably carry none. */
+/** Single-target attack-proc payloads deal tooltip + AM×⅓; maintained
+ * pulse streams (aoe scope) carry none. */
 export const PROC_AM_SHARE = 1 / 3
-/** EQ2 membership Perks grant +20% beneficial spell duration — every
- * temp-buff window (own, group and raid) runs 1.2× its census length
- * (Badbang's Accelerated examine: 39.6s vs the 33.0s census value).
- * Toggleable in the Fight panel (default ON) since not every account
- * has perks active. Hostile effect durations (dots) are unaffected. */
+/** EQ2 membership Perks: +20% beneficial spell duration on every temp-buff
+ * window (own, group, raid). Toggleable — not every account has perks.
+ * Hostile durations (dots) are unaffected. */
 export const PERK_BENEFICIAL_DURATION_MULT = 1.2
 /** Crit multiplier = 1.3 + crit bonus (modern engine). */
 export const CRIT_BASE_MULT = 1.3
-/** USER-VERIFIED on Wuoshi (RoK TLE): Fervor applies, Crit Bonus does
- * NOT — the stat exists on sheets/buffs but has no effect. Flip this
- * when a later era enables it. */
+/** On the RoK TLE era Crit Bonus has no effect (the stat exists on
+ * sheets/buffs). Flip this when a later era enables it. */
 export const CRIT_BONUS_ENABLED = false
 export const effectiveCritBonus = (stats: SimStats) =>
   CRIT_BONUS_ENABLED ? (stats.crit_bonus ?? 0) : 0
@@ -70,10 +48,7 @@ export const SPEED_STAT_MAX_EFFECT = 125
  * chance of a third), soft-capped at 600. */
 export const MULTI_ATTACK_CAP = 600
 export const FLURRY_CAP = 100
-/** Extra hits per flurry proc. LOG-FITTED to 1: a 10.7-minute pure-auto
- * session (178 base swings) showed 21.9% extra-hit lines vs the sheet's
- * DA 15.7 + flurry 6.9 — dead on MA + flurry×1 (22.6%) and 2.6σ below
- * flurry×2 (29.5%). */
+/** Extra hits per flurry proc (log-fitted). */
 export const FLURRY_EXTRA_HITS = 1
 /** DoTs with no known duration assume this many seconds (flagged "est."). */
 export const FALLBACK_DOT_DURATION_S = 12
@@ -157,9 +132,9 @@ export const effRecovery = (recoverySecs: number, stats: SimStats) =>
  * variant only the temp-buff casts). Treated as speed-equivalent
  * (divisor-additive) like the set bonuses.
  *
- * HARD FLOOR (user-verified): cast and reuse never drop below HALF the
- * ORIGINAL base — AA second-cuts count toward the same cap, so a 5s
- * cast with a −1s AA at +100% cast speed still lands on 2.5s. */
+ * HARD FLOOR: cast and reuse never drop below HALF the ORIGINAL base —
+ * AA second-cuts count toward the same cap, so a 5s cast with a −1s AA
+ * at +100% cast speed still lands on 2.5s. */
 export const effCastTimeFor = (a: RotationAbility, stats: SimStats) =>
   Math.max(
     (a.orig_cast_secs ?? a.cast_secs) / 2,
@@ -219,15 +194,8 @@ export function damageCoefficient(stats: SimStats, spellLevel: number): number {
   )
 }
 
-/** Ability-mod share by primary-component target scope (blind-validated):
- * single-target abilities carry the FULL mod (Divine Strike ±0.15%),
- * encounter AEs carry HALF (Divine Demonstration fit c ≈ AM/2), and
- * self-pulse blue AoEs carry NONE (Exorcise across two stat loadouts —
- * its small residual flat tracks the stat chain, not AM, and is left to
- * the per-ability calibration factor). */
-/** Encounter AEs carry AM×⅓ (Wrath of the Ancients' two ends give a
- * constant flat ≈ AM×0.36; AM/2 misses by 10% — and ⅓ matches the proc
- * share). Blue self-AoEs carry none (Exorcise, two loadouts). */
+/** Ability-mod share by primary-component target scope: single target
+ * carries the full mod, encounter AEs ⅓, self-pulse blue AoEs none. */
 export const AM_SHARE_ENCOUNTER = 1 / 3
 export const AM_SHARE_AOE = 0.0
 
@@ -246,9 +214,7 @@ export function componentFlatFraction(spellLevel: number): number {
 }
 
 /** What one PROC payload hit deals (before crit/fervor): payload avg ×
- * (coefficient + flat) + AM×⅓ for single-target payloads. Log-validated
- * on Bolt of Power and Blessed Armament; the AM×⅓ confirmed again by
- * Rabies II across a gear swap. */
+ * (coefficient + flat) + AM×⅓ for single-target payloads. */
 export function procHitDamage(components: DamageComponent[], stats: SimStats, level: number): number {
   if (!components.length) return 0
   const per = damageCoefficient(stats, level) + componentFlatFraction(level)
@@ -258,20 +224,16 @@ export function procHitDamage(components: DamageComponent[], stats: SimStats, le
 }
 
 /** Lifeburn's per-HP components: per application = rate × fraction ×
- * caster max health — FLAT, outside the coefficient chain and Enhance
- * (the in-game 9/HP is static across gear; the ~25%-of-pool burn per
- * application is user-observed, pending a log). The in-game cap "based
- * off the target's maximum health" is not modeled. */
+ * caster max health — FLAT, outside the coefficient chain and Enhance.
+ * The in-game cap "based off the target's maximum health" is not modeled. */
 export const isPerHp = (c: DamageComponent) => (c.per_hp_rate ?? 0) > 0
 export const perHpDamage = (c: DamageComponent, stats: SimStats) =>
   Math.max(c.per_hp_rate ?? 0, 0) * Math.max(c.hp_fraction ?? 0, 0) * Math.max(stats.max_health ?? 0, 0)
 
 /** The flat add on a primary-hit application: ability mod plus any
- * school-matched "damage done by spells" gear flat (Spooky Bone Hoop —
- * +30 disease reaches Soulrot/Lifeburn, nothing on a cold spell, and a
- * character with no spells of the school gets nothing at all).
- * Validated: Lifeburn's hit − tick = sheet AM 627 + 30 exactly at both
- * tooltip ends. On procs it's assumed to share the AM ⅓ (unvalidated). */
+ * school-matched "damage done by spells" gear flat (nothing on a
+ * component of another school). On procs it's assumed to share the
+ * AM ⅓ (unvalidated). */
 export const flatDamageMod = (stats: SimStats, school: string | null | undefined) =>
   Math.max(stats.ability_mod ?? 0, 0) +
   Math.max(stats.school_damage_flat?.[(school ?? '').toLowerCase()] ?? 0, 0)
@@ -299,8 +261,7 @@ export function expectedCastDamage(
   const coeff = damageCoefficient(stats, ability.level)
   const primary = primaryComponent(ability)
   // Enhance multiplies the BASE-CHAIN part only; the flat ability-mod/
-  // school-flat part and proc payloads sit OUTSIDE it (Soulrot VII +
-  // Lifeburn cross-validated via the Spooky Bone Hoop's +30 disease).
+  // school-flat part and proc payloads sit OUTSIDE it.
   let chainPart = 0
   let flatPart = 0
   for (const c of ability.components) {
@@ -329,10 +290,7 @@ export function expectedCastDamage(
 }
 
 /** Per-ability Enhance multiplier — applies to the BASE-CHAIN part only,
- * never the flat ability-mod/school-flat part: with the hoop's +30
- * disease flat known, Soulrot VII's hit back-solves to chain×1.05 +
- * (627 + 30) exactly; whole-tooltip ×1.05 was the coincidence
- * 627×1.05 ≈ 657. */
+ * never the flat ability-mod/school-flat part. */
 export const abilityDmgMod = (a: RotationAbility) => 1 + Math.max(a.dmg_mod_pct ?? 0, 0) / 100
 
 
@@ -346,8 +304,7 @@ export function predictedTooltipMin(ability: RotationAbility, stats: SimStats): 
   if (!primary || primary.kind !== 'hit') return null
   if (primary.min_dmg <= 0) return null
   // The ½ flat is a CONSTANT ½×B̄ (midpoint), not ½×B_min — tooltip
-  // widths scale by the bare chain (Divine Smite VII width-validated).
-  // Auto-scaled class ranks (Wrath) are the BARE chain: no ½, no mod.
+  // widths scale by the bare chain. Auto-scaled class ranks (Wrath) are the BARE chain: no ½, no mod.
   const mid = (primary.min_dmg + primary.max_dmg) / 2
   const half = primary.no_flat_mod ? 0 : componentFlatFraction(ability.level)
   const flat = primary.no_flat_mod ? 0 : flatDamageMod(stats, primary.school) * abilityModShare(primary)
@@ -385,8 +342,7 @@ export function autoSwingRate(stats: SimStats): number {
 }
 
 /** BASE swing rate — no multi-attack/flurry extras. This is the PROC
- * trigger pool: log-validated (pure-wand session: 190 procs on exactly
- * 190 base swings out of 304 total auto hits — MA extras never proc). */
+ * trigger pool: multi-attack/flurry extras never proc. */
 export function baseAutoSwingRate(stats: SimStats): number {
   const haste = 1 + speedStatEffective(stats.attack_speed) / 100
   let rate = 0
@@ -421,8 +377,7 @@ export function extraSwingFactor(stats: SimStats): number {
 }
 
 /** Expected value of a CRIT swing for a uniform roll on [min, max]:
- * crit = max(critMult × roll, max+1) — the max-hit+1 floor, measured on
- * live logs (75% of observed crits sat exactly at the floor). */
+ * crit = max(critMult × roll, max+1) — the max-hit+1 floor. */
 export function expectedCritSwing(min: number, max: number, critMult: number): number {
   const floor = max + 1
   if (critMult <= 0) return floor
@@ -436,8 +391,7 @@ export function expectedCritSwing(min: number, max: number, critMult: number): n
 
 /** Continuous auto-attack DPS from the weapon lines (0 when no weapon).
  *
- * VALIDATED MODEL (Menludiir wand session, 184 swings): the census
- * sheet's weapon min/max/delay are already fully cooked — the game folds
+ * The census sheet's weapon min/max/delay are already fully cooked — the game folds
  * STR/DPS-stat scaling in — so the roll is uniform[min, max] with NO
  * further sheet multipliers. Crits use the max+1 floor. `dps` and
  * `attack_speed` in stats are treated as BUFF-WINDOW DELTAS only (the

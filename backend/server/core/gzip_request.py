@@ -1,18 +1,9 @@
 """Transparent gzip request-body decompression (pure ASGI middleware).
 
-The ACT plugin (v0.1.16+) gzips its ingest payloads — ACT JSON compresses
-10-20×, which is the difference between a 2 s and a 20+ s upload on a slow
-route (2026-07-28 incident: a raider on a ~120 kbit/s effective route could
-not push a 282 KB payload inside the plugin's HttpClient timeout).
-
-When a request carries ``Content-Encoding: gzip``, the middleware drains the
-body, decompresses it (bounded — zip-bomb guard), strips the header, fixes
-``Content-Length``, and hands the plain body downstream. Everything after it
-— FastAPI's model parsing AND the HMAC check's ``request.body()`` — sees the
-uncompressed bytes, so the plugin's signature contract (HMAC over the
-uncompressed JSON) holds for both compressed and plain uploads. Requests
-without the header pass through completely untouched, so pre-gzip plugin
-versions keep working unchanged.
+Requests with ``Content-Encoding: gzip`` are inflated (bounded by
+``MAX_DECOMPRESSED_BYTES``) before anything downstream reads them, so the
+ingest HMAC is always computed over the uncompressed body. Requests without
+the header pass through untouched.
 """
 
 from __future__ import annotations

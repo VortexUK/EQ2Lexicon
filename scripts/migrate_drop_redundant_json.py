@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""RETIRED — one-time SQLite-era migration (the items catalogue).
+"""RETIRED — do not run (one-time items migration).
 
-Dropped the redundant ``*_json`` blob columns (typeinfo_json, modifiers_json,
-effect_list_json, …) that duplicated data already present in ``raw_json``
-(~300 MB). The Postgres ``items`` schema (db/migrations/0007_items.sql) was
-created without those columns, so there is nothing to drop.
-
-Kept as a stub so the implementation stays reachable in git history.
+The items schema (db/migrations/0007_items.sql) has no redundant ``*_json`` blob columns;
+everything they held is in ``raw_json``.
 """
 
 from __future__ import annotations

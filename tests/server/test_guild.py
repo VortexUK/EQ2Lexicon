@@ -496,8 +496,8 @@ def test_guild_spell_check_includes_base_tier_apprentice():
     """Every *upgradeable* spell a member owns is counted regardless of how it
     was acquired — so base-tier auto-grants (given_by='class', typically
     Apprentice) and trainer-granted spells appear as their own tier columns.
-    Regression guard: the old given_by=='spellscroll' gate dropped them, so the
-    Apprentice column never showed. AA abilities stay excluded."""
+    A given_by=='spellscroll' gate would drop them and hide the Apprentice
+    column. AA abilities stay excluded."""
     from backend.server import guild_cache
 
     overviews = [SimpleNamespace(name="Healer", spell_ids=[1, 2, 3, 4, 5])]

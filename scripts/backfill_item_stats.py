@@ -2,18 +2,11 @@
 """
 Rebuild the item_stats side-table from raw_json stored in the items schema.
 
-Run whenever the stat-extraction patterns change (STAT_MAP additions, new
-_EFFECT_STAT_PATTERNS entries in backend/eq2db/items.py) — this re-extracts
-both modifier-derived and effect-derived stats in place, no re-download. The
-loader computes stats at write time, and this script is THE way to recompute
-them after a pattern change.
-
     uv run python scripts/backfill_item_stats.py [--rebuild]
 
---rebuild  : DELETE existing item_stats rows before filling (default:
-             incremental). Use it when a pattern CHANGED its value or was
-             removed — the incremental pass never overwrites an existing
-             effect-derived row and never deletes stale ones.
+Run after changing STAT_MAP / _EFFECT_STAT_PATTERNS. The incremental pass never overwrites
+or deletes an existing effect-derived row; --rebuild deletes item_stats first (use it when a
+pattern changed its value or was removed). See docs/runbooks/catalogue-refresh.md.
 """
 
 from __future__ import annotations

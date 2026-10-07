@@ -1,12 +1,5 @@
-"""Per-server claim isolation tests (Task 6 — scope claims per (user, world)).
-
-Tests use the DB helpers directly with explicit ``world`` args so they run
-without a live HTTP layer and stay fast.  Each test gets an isolated leased
-users schema (the autouse ``users_db`` alias of ``users_schema`` below).
-
-Convention mirrors the rest of tests/server/: use the shared ``app`` fixture
-from conftest when testing route-level behaviour (x-server header), and call
-the DB helpers directly for unit-level isolation cases.
+"""Per-server claim isolation: claims are scoped per (user, world). DB helpers are
+called directly with explicit ``world`` args against a leased users schema.
 """
 
 from __future__ import annotations
@@ -197,10 +190,7 @@ async def test_submit_claim_records_world():
 @pytest.mark.asyncio
 async def test_submit_claim_default_world_is_varsoon():
     """submit_claim without explicit world stores 'Varsoon' (column default)."""
-    # This tests the migration path: old call sites that don't pass world
-    # get the Varsoon default via the column DEFAULT — but since we're now
-    # making world a required param on submit_claim, this test verifies the
-    # explicit 'Varsoon' path.
+    # world is a required param on submit_claim; this pins the explicit 'Varsoon' path.
     uid = "world-record-user-2"
     await _seed_user(uid)
 

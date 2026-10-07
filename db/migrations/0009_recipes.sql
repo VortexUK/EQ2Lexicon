@@ -1,11 +1,9 @@
 create schema if not exists recipes;
 set search_path to recipes, public;
 
--- Reviewed translation of backend/eq2db/recipes.sql's schema blocks (Phase 2).
 -- recipes.id / crc and the out_*_id item references are CENSUS-ASSIGNED and
--- reach ~4.29e9 (> int4) — bigint, no identity. out_level existed only as a
--- SQLite ALTER migration (the upsert never wrote it; the recipe-levels
--- backfill did) — a real column here, filled by the loader at build time.
+-- reach ~4.29e9 (> int4) — bigint, no identity. out_level is never written
+-- by the recipe upsert; scripts/backfill_recipe_levels.py fills it.
 
 CREATE TABLE _meta (
     key   text PRIMARY KEY,

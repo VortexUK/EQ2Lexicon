@@ -1,26 +1,13 @@
-"""Outermost ASGI middleware: turn an unhandled exception into ONE useful
-log line and a JSON 500, instead of a 250-line framework traceback.
+"""Outermost ASGI middleware: turn an unhandled exception into ONE log line
+and a JSON 500.
 
 Why not an ``Exception`` handler on the app: Starlette's ServerErrorMiddleware
-always re-raises after calling it, so uvicorn still dumps the full traceback
-("Exception in ASGI application") — and because the app's BaseHTTPMiddleware
-layers run in an anyio TaskGroup, that dump is an ExceptionGroup with every
-middleware frame repeated. On 2026-09-27 one client produced that ~2,000
-times in an hour, burying the two audit lines the incident actually hinged
-on. This middleware sits OUTSIDE ServerErrorMiddleware's callers (added last
-in create_app, so it runs first), catches the exception itself, and never
-re-raises, so nothing downstream logs it again.
-
-What gets logged:
-  - every occurrence: one ERROR line — method, path, leaf exception type +
-    message, the deepest frame inside ``backend/`` (file:line), request id;
-  - the full traceback: once per (path, exception type) per
-    ``TRACEBACK_EVERY_S``, with a count of how many one-liners were
-    suppressed in between.
-
-The leaf exception is what a developer wants (``psycopg.errors.UniqueViolation:
-duplicate key value …``), not the ExceptionGroup wrapper, so groups are
-unwrapped to their first leaf.
+always re-raises after calling it, so uvicorn would still dump the full
+traceback (an ExceptionGroup with every BaseHTTPMiddleware frame repeated).
+This middleware is added last in create_app so it runs first, catches the
+exception itself, and never re-raises (unless the response has already
+started). The full traceback is logged once per (path, exception type) per
+``TRACEBACK_EVERY_S``; ExceptionGroups are unwrapped to their first leaf.
 """
 
 from __future__ import annotations

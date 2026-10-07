@@ -1,4 +1,4 @@
-"""Read-only export API (/api/export/v1/*) — issue #219.
+"""Read-only export API (/api/export/v1/*).
 
 Auth = bearer token + admin-granted 'api' role. Rankings tests drive the
 board builder over fixture kills; the abilities test goes end-to-end

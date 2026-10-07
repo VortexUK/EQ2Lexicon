@@ -235,8 +235,8 @@ class TTLCache:
 #              character pages. Writes invalidate exactly (single-process), so
 #              the TTL is only a backstop.
 # 2000: guild-roster views and the startup pre-warm insert every member/claimed
-# character; at 500 the combined rosters exceeded the cap and cycled the cache
-# (observed pinned-at-cap with a ~4% hit ratio, 2026-07). Entries are a few KB
+# character; a much smaller cap lets the combined rosters cycle the cache
+# (pinned at cap, near-zero hit ratio). Entries are a few KB
 # each → ~10-20 MB worst case.
 character_cache: TTLCache = TTLCache(name="character", maxsize=2000)
 guild_cache: TTLCache = TTLCache(name="guild", maxsize=50)

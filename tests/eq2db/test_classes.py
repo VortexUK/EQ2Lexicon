@@ -1,11 +1,5 @@
-"""Integrity tests for the migration-seeded classes schema.
-
-The class catalogue is owned by the Postgres ``classes`` schema, whose rows
-are seeded in full by db/migrations/0011_classes.sql (applied to the session
-test database before collection). These tests read the rows directly + check
-the module-level derived constants in backend.eq2db.classes /
-backend.census.constants. There is no CLASS_SEED struct anymore — to change
-class metadata, edit the row in the DB and add a new migration.
+"""Integrity tests for the classes rows seeded by db/migrations/0011_classes.sql and
+the derived constants in backend.eq2db.classes / backend.census.constants.
 """
 
 from __future__ import annotations
@@ -195,9 +189,8 @@ class TestSeedDerivedConstants:
 
 
 class TestComputeClassLabelParity:
-    """compute_class_label() output must match the legacy CLASS_SEED-era
-    implementation — this is what the items.class_label column was backfilled
-    with, so any regression breaks search results until re-backfill."""
+    """compute_class_label() output must match the stored items.class_label
+    values — a drift breaks item search results until re-backfill."""
 
     def test_all_classes_label(self):
         from backend.eq2db.items import ItemCatalogue

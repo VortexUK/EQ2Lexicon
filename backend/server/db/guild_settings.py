@@ -5,10 +5,8 @@ or a site admin may change. One boolean column per setting: the DB default
 makes "no row" and "default" identical, so readers never merge defaults
 themselves, and a later setting is the well-worn ADD COLUMN path.
 
-First (and so far only) switch: ``officers_can_delete_parses`` — added after
-the 2026-09-27 incident where an officer's click removed a guild's parse
-history. Default ON (today's behaviour); a leader can turn it off so that
-only the leader, admins and each parse's own uploader may delete.
+``officers_can_delete_parses`` (default ON): a leader can turn it off so
+that only the leader, admins and each parse's own uploader may delete.
 """
 
 from __future__ import annotations

@@ -9,9 +9,6 @@ names. Validating against the real shape on the way in is defence in depth:
   containing ``:`` could read or poison another player's cache entry).
 - Makes invalid input fail loudly at the route layer rather than producing
   a 502 from a downstream Census error.
-
-Originally lived inline in backend/server/api/parses/:84-107 — promoted here so
-every route applies the same rules, not just the ingest endpoint.
 """
 
 from __future__ import annotations

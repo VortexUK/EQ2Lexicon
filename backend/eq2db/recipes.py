@@ -17,14 +17,6 @@ Spell-scroll recipes (e.g. "Lightning Palm III (Expert)") also populate:
   base_name_lower – spell name without tier suffix, lowercased ("lightning palm iii")
   crafted_tier    – tier suffix ("Expert", "Grandmaster", "Ancient", …)
 Non-spell recipes leave both columns NULL.
-
-All behaviour lives on :class:`RecipeCatalogue` (the eq2db data-interface
-convention — see AACatalogue / SpellCatalogue): DB lookups are instance
-methods; the pure recipe-domain helpers (_parse_spell_tier, recipe_to_row)
-are staticmethods on the same class so consumers import ONE name — the
-shared ``catalogue`` instance. Module level holds only types (RecipeRow),
-constants (SPELL_TIERS, SCHEMA), and the instance. Schema DDL is owned by
-db/migrations/0009_recipes.sql.
 """
 
 from __future__ import annotations
@@ -86,8 +78,7 @@ class RecipeRow(_RecipeRowRequired, total=False):
 _log = logging.getLogger(__name__)
 
 # Ordered from lowest to highest so tier-comparison logic can use the index.
-# BE-225: candidate for StrEnum conversion (ordering would be self-documenting),
-# but consumers rely on iterating bare strings for canonicalisation — keep as tuple.
+# Kept as a tuple of bare strings: consumers iterate it for canonicalisation.
 SPELL_TIERS: tuple[str, ...] = (
     "Apprentice",
     "Journeyman",
@@ -128,15 +119,7 @@ def _row_to_dict(row: dict) -> RecipeRow:
 
 
 class RecipeCatalogue(PgCatalogue):
-    """Read (and build) access to the recipes schema.
-
-    The eq2db data-interface convention (see AACatalogue / SpellCatalogue):
-    the schema name lives on the instance; the shared module-level
-    ``catalogue`` is the runtime entry point, and tests lease a scratch
-    schema and re-point ``catalogue.schema``. The pure recipe-domain
-    helpers are staticmethods here so the class is the one interface for
-    everything recipe-shaped.
-    """
+    """Read (and build) access to the recipes schema."""
 
     READY_TABLE = "recipes"
 

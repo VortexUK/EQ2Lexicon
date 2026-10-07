@@ -1,12 +1,6 @@
-"""RETIRED — SQLite-era scratch test of the item search query logic.
+"""RETIRED — do not run (scratch test of the item search query).
 
-Exercised the /api/items search SQL (stat joins + sort) directly over the
-local items catalogue via aiosqlite, bypassing FastAPI. Superseded by the Postgres
-``items`` schema (db/migrations/0007_items.sql) — the search SQL now lives
-in ``backend/server/api/item.py`` against pooled psycopg connections, and
-the route tests cover it.
-
-Kept as a stub so the implementation stays reachable in git history.
+The search SQL lives in ``backend/server/api/item.py`` and the route tests cover it.
 """
 
 from __future__ import annotations
