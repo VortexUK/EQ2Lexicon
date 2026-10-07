@@ -423,6 +423,10 @@ def main() -> int:
         sconn = sqlite3.connect(f"file:{sources[fam]}?mode=ro", uri=True)
         try:
             with pg.connection() as conn:
+                # Bulk-load session: the server-side statement_timeout kills a
+                # TRUNCATE queued behind live app locks; lift it for this
+                # session only (a waiting TRUNCATE cannot be starved in PG).
+                conn.execute("SET statement_timeout = 0")
                 copy_family(
                     conn,
                     sconn,

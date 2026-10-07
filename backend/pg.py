@@ -55,6 +55,25 @@ def dsn() -> str:
 _async_pool: AsyncConnectionPool | None = None
 _sync_pool: ConnectionPool | None = None
 
+# App connections must never camp an open transaction: a session left "idle
+# in transaction" holds its locks indefinitely and starves maintenance DDL
+# (the cutover's TRUNCATE sat behind two such sessions). The app's real
+# between-statement idling is milliseconds, so two minutes is pure headroom.
+# Pool-only on purpose — scripts/tests use direct connections and may
+# legitimately pause mid-transaction while computing. A plain SET survives
+# the Supavisor SESSION pooler (startup `options` packets do not).
+_IDLE_TXN_TIMEOUT_SQL = "SET idle_in_transaction_session_timeout = '120s'"
+
+
+def _configure_sync(conn: psycopg.Connection) -> None:
+    conn.execute(_IDLE_TXN_TIMEOUT_SQL)
+    conn.commit()
+
+
+async def _configure_async(conn: psycopg.AsyncConnection) -> None:
+    await conn.execute(_IDLE_TXN_TIMEOUT_SQL)
+    await conn.commit()
+
 
 async def open_pools() -> None:
     """Open the shared pools — called once from the app lifespan startup.
@@ -76,9 +95,18 @@ async def open_pools() -> None:
             "or call pg.ensure_selector_event_loop_policy() before the loop is created."
         )
     global _async_pool, _sync_pool
-    _async_pool = AsyncConnectionPool(dsn(), min_size=1, max_size=5, open=False, kwargs={"row_factory": dict_row})
+    _async_pool = AsyncConnectionPool(
+        dsn(),
+        min_size=1,
+        max_size=5,
+        open=False,
+        kwargs={"row_factory": dict_row},
+        configure=_configure_async,
+    )
     await _async_pool.open()
-    _sync_pool = ConnectionPool(dsn(), min_size=1, max_size=5, kwargs={"row_factory": dict_row})
+    _sync_pool = ConnectionPool(
+        dsn(), min_size=1, max_size=5, kwargs={"row_factory": dict_row}, configure=_configure_sync
+    )
 
 
 async def close_pools() -> None:

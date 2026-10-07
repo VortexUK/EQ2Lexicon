@@ -30,7 +30,9 @@ jobs:
           dump="eq2lexicon-$ts.dump"
           # Only our schemas — Supabase-internal schemas (auth/storage/…)
           # are not ours to dump and would fail on permissions.
-          pg_dump -Fc -d "$DATABASE_URL" \
+          # Full path: the runner image preinstalls an older client whose
+          # pg_dump wins PATH and aborts on the server version mismatch.
+          /usr/lib/postgresql/17/bin/pg_dump -Fc -d "$DATABASE_URL" \
             -n users -n parses -n census -n zones -n raids -n public \
             -f "$dump"
           ls -la "$dump"
