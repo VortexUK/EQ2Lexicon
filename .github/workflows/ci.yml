@@ -87,6 +87,9 @@ jobs:
       - name: tsc -b
         run: npx tsc -b
 
+      - name: vitest
+        run: npm test
+
       - name: Vite build
         run: npm run build
 

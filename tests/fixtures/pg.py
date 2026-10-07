@@ -73,6 +73,19 @@ def provision_for_session() -> None:
 
     params: dict[str, Any] = conninfo.conninfo_to_dict(test_dsn)
     dbname = str(params.get("dbname") or "eq2lexicon_test")
+    # This function DROPS every family schema on the target. Refuse anything
+    # that doesn't look like a local scratch database unless explicitly
+    # overridden — a mis-set TEST_DATABASE_URL must never reach production.
+    host = str(params.get("host") or "localhost")
+    if not os.environ.get("ALLOW_REMOTE_TEST_DB") and (
+        host not in ("localhost", "127.0.0.1", "::1") or not dbname.endswith("_test")
+    ):
+        pytest.exit(
+            f"Refusing to provision tests against {host!r}/{dbname!r}: the test run drops every "
+            "family schema there. Use a local database whose name ends in '_test', or set "
+            "ALLOW_REMOTE_TEST_DB=1 if you really mean it.",
+            returncode=4,
+        )
     try:
         try:
             psycopg.connect(test_dsn, connect_timeout=3).close()
