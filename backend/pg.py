@@ -64,14 +64,32 @@ _sync_pool: ConnectionPool | None = None
 # the Supavisor SESSION pooler (startup `options` packets do not).
 _IDLE_TXN_TIMEOUT_SQL = "SET idle_in_transaction_session_timeout = '120s'"
 
+# Per-statement ceilings for APP connections (the Supabase role default is
+# 2 minutes, lock_timeout 0): no request-path statement legitimately runs
+# this long, and a statement stuck behind a lock — the metrics size query
+# sat 110 s on cutover DDL while holding one of the five sync slots — must
+# fail fast rather than freeze the pool. Long maintenance work (migrations,
+# scripts, the bulk loaders) uses direct connections and is unaffected; a
+# sweep that genuinely needs more can `SET LOCAL statement_timeout`.
+_STATEMENT_TIMEOUT_SQL = "SET statement_timeout = '30s'"
+_LOCK_TIMEOUT_SQL = "SET lock_timeout = '10s'"
+_CONFIGURE_SQL = (_IDLE_TXN_TIMEOUT_SQL, _STATEMENT_TIMEOUT_SQL, _LOCK_TIMEOUT_SQL)
+
+# Checkout wait before a PoolTimeout. The library default is 30 s, which on
+# a saturated 5-slot pool turned into a 30 s whole-process stall for every
+# loop-thread caller; failing in 5 s surfaces as a 500/503 instead.
+POOL_CHECKOUT_TIMEOUT_S = 5.0
+
 
 def _configure_sync(conn: psycopg.Connection) -> None:
-    conn.execute(_IDLE_TXN_TIMEOUT_SQL)
+    for sql in _CONFIGURE_SQL:
+        conn.execute(sql)
     conn.commit()
 
 
 async def _configure_async(conn: psycopg.AsyncConnection) -> None:
-    await conn.execute(_IDLE_TXN_TIMEOUT_SQL)
+    for sql in _CONFIGURE_SQL:
+        await conn.execute(sql)
     await conn.commit()
 
 
@@ -100,12 +118,18 @@ async def open_pools() -> None:
         min_size=1,
         max_size=5,
         open=False,
+        timeout=POOL_CHECKOUT_TIMEOUT_S,
         kwargs={"row_factory": dict_row},
         configure=_configure_async,
     )
     await _async_pool.open()
     _sync_pool = ConnectionPool(
-        dsn(), min_size=1, max_size=5, kwargs={"row_factory": dict_row}, configure=_configure_sync
+        dsn(),
+        min_size=1,
+        max_size=5,
+        timeout=POOL_CHECKOUT_TIMEOUT_S,
+        kwargs={"row_factory": dict_row},
+        configure=_configure_sync,
     )
 
 

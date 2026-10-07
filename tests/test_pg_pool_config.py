@@ -31,3 +31,12 @@ def test_direct_connections_keep_server_default():
     with psycopg.connect(pg.dsn()) as conn:
         val = conn.execute("SHOW idle_in_transaction_session_timeout").fetchone()[0]
         assert val != "2min"
+
+
+def test_configure_sets_statement_and_lock_timeouts():
+    # Request-path statements fail fast instead of camping a pool slot behind
+    # a lock (the metrics size query sat 110 s on cutover DDL).
+    with psycopg.connect(pg.dsn()) as conn:
+        pg._configure_sync(conn)
+        assert conn.execute("SHOW statement_timeout").fetchone()[0] == "30s"
+        assert conn.execute("SHOW lock_timeout").fetchone()[0] == "10s"
