@@ -318,6 +318,7 @@ def invalidate_zones_cache() -> None:
     parses_db.invalidate_is_player_cache()
     _encounter_required_mobs.cache_clear()
     _raid_boss_names.cache_clear()
+    _zone_canonical_map.cache_clear()
 
 
 @lru_cache(maxsize=1)
@@ -413,6 +414,16 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
 
 
 @lru_cache(maxsize=1)
+def _zone_canonical_map() -> dict[str, str]:
+    """{name_lower-or-alias_lower: canonical zone name}, one query, cached
+    per process. _resolve_boss runs once per winning encounter — a
+    per-call ``zones_db.find_by_name`` round trip put 15k queries on the
+    Wuoshi rebuild path (276s measured at rehearsal). Cleared by
+    invalidate_zones_cache()."""
+    return zones_db.canonical_name_map()
+
+
+@lru_cache(maxsize=1)
 def _encounter_required_mobs() -> dict[tuple[str, str], frozenset[str]]:
     """(canonical zone, encounter name) → normalised mob keys, for curated
     encounters with MULTIPLE mobs — the anti-cut-parse gate's requirement
@@ -477,14 +488,14 @@ def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str |
         candidates = boss_index.get(_normalise_boss_key(title))
         if candidates:
             if len(candidates) > 1 and zone:
-                resolved = zones_db.find_by_name(zone)
-                if resolved:
+                canonical = _zone_canonical_map().get(zone.lower())
+                if canonical:
                     for cz, ct in candidates:
-                        if cz == resolved["name"]:
+                        if cz == canonical:
                             return True, cz, ct
             cz, ct = candidates[0]
             return True, cz, ct
-        if zone and (resolved := zones_db.find_by_name(zone)) and resolved["name"] in curated_zones:
+        if zone and _zone_canonical_map().get(zone.lower()) in curated_zones:
             return False, zone, title
     if is_boss(title):
         return True, zone, title

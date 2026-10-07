@@ -422,3 +422,12 @@ WHERE category = %s
 
 -- :name delete_featured_raid_category
 DELETE FROM featured_raid_categories WHERE expansion_short = %s AND name = %s;
+
+-- Every lookup key (canonical name_lower + every alias_lower) with its
+-- canonical zone name — one pass for the process-cached resolver maps
+-- (rankings._zone_canonical_map / parses list's classifier). Replaces
+-- per-encounter find_by_name round trips in the rankings rebuild.
+-- :name list_zone_name_keys
+SELECT name_lower AS key, name FROM zones
+UNION ALL
+SELECT a.alias_lower AS key, z.name FROM zone_aliases a JOIN zones z ON z.id = a.zone_id;

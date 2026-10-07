@@ -1279,6 +1279,18 @@ class ZoneCatalogue(PgCatalogue):
         z = Zone.find_by_name(name, schema=self.schema)
         return z.to_dict() if z is not None else None
 
+    def canonical_name_map(self) -> dict[str, str]:
+        """{lookup_key_lower: canonical zone name} for every canonical name
+        AND alias — one query, built for the process-level resolver caches
+        (per-encounter ``find_by_name`` calls in the rankings rebuild cost
+        a Postgres round trip each; 15k of them turned the rebuild into
+        minutes)."""
+        conn = _connect(self.schema)
+        try:
+            return {r["key"]: r["name"] for r in conn.execute(_SQL["list_zone_name_keys"]).fetchall()}
+        finally:
+            conn.close()
+
     def list_by_expansion(self, short: str, type_filter: str | None = None) -> list[dict]:
         """All zones in an expansion as legacy hydrated dicts. ``type_filter``
         stays positional for the existing call sites; the model exposes it as

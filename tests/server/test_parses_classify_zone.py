@@ -96,7 +96,7 @@ def test_classify_is_case_insensitive():
 
 def test_classify_resolves_aliases():
     # When the parse's `zone` doesn't match a canonical name directly but
-    # zones_db.find_by_name resolves it to one that's on the leaderboard,
+    # the canonical-name map resolves it to one that's on the leaderboard,
     # the classifier should still bucket it correctly.
     with (
         patch(
@@ -104,8 +104,8 @@ def test_classify_resolves_aliases():
             return_value=_fake_trees(["Castle Mistmoore"], []),
         ),
         patch(
-            "backend.server.api.parses.list.zones_db.find_by_name",
-            return_value={"name": "Castle Mistmoore"},
+            "backend.server.api.parses.list._zone_canonical_map",
+            return_value={"mistmoore castle": "Castle Mistmoore"},
         ),
     ):
         _classifier_cache_clear()
@@ -119,8 +119,8 @@ def test_classify_falls_through_to_other_when_alias_misses():
             return_value=_fake_trees(["Castle Mistmoore"], []),
         ),
         patch(
-            "backend.server.api.parses.list.zones_db.find_by_name",
-            return_value=None,
+            "backend.server.api.parses.list._zone_canonical_map",
+            return_value={},
         ),
     ):
         _classifier_cache_clear()

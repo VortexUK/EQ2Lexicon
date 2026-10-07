@@ -870,10 +870,11 @@ def test_resolve_boss_curated_zone_rejects_unmatched_titles():
             "backend.server.api.rankings._cached_zones_data",
             return_value=(fake_boss_index, [], [], {"Throne of New Tunaria"}),
         ),
-        patch("backend.server.api.rankings.zones_db") as zdb,
+        patch(
+            "backend.server.api.rankings._zone_canonical_map",
+            return_value={"throne of new tunaria": "Throne of New Tunaria"},
+        ),
     ):
-        zdb.find_by_name.side_effect = lambda z: {"name": z} if z == "Throne of New Tunaria" else None
-
         # A player kill shaped like a named: rejected in the curated zone.
         ok, _, _ = _resolve_boss("Ripclaw", "Throne of New Tunaria", "raid")
         assert ok is False

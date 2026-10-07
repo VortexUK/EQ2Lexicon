@@ -17,7 +17,6 @@ from typing import Any, Literal
 import psycopg
 from fastapi import HTTPException, Request
 
-from backend.eq2db.zones import catalogue as zones_db
 from backend.server import db as users_db
 from backend.server.api.parses import router  # the package-level router
 from backend.server.api.parses.models import (
@@ -198,6 +197,17 @@ def _cached_zones_data() -> tuple[dict, list[dict], list[dict], set[str]]:
     return _real()
 
 
+def _zone_canonical_map() -> dict[str, str]:
+    """Thin local wrapper around rankings._zone_canonical_map — same
+    cycle-breaking indirection (and test seam) as _cached_zones_data.
+    One cached map instead of a per-miss ``zones_db.find_by_name`` round
+    trip: the cleanup sweep and list classification call _classify_zone
+    per encounter."""
+    from backend.server.api.rankings import _zone_canonical_map as _real  # noqa: PLC0415
+
+    return _real()
+
+
 _LEADERBOARD_MAP: dict[str, Literal["raid", "dungeon"]] | None = None
 
 
@@ -244,9 +254,9 @@ def _classify_zone(zone: str | None) -> Literal["raid", "dungeon", "other"]:
     hit = _LEADERBOARD_MAP.get(zone.lower())
     if hit is not None:
         return hit
-    canonical = zones_db.find_by_name(zone)
+    canonical = _zone_canonical_map().get(zone.lower())
     if canonical:
-        hit = _LEADERBOARD_MAP.get(canonical["name"].lower())
+        hit = _LEADERBOARD_MAP.get(canonical.lower())
         if hit is not None:
             return hit
     return "other"
