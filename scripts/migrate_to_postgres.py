@@ -340,6 +340,12 @@ def copy_family(
                 (f"{schema}.{table}", col),
             )
 
+    # Fresh planner statistics immediately — the first post-cutover queries
+    # (the rankings rebuild) must not run against empty stats while
+    # autovacuum catches up on millions of just-loaded rows.
+    for table in order:
+        conn.execute(f"ANALYZE {table}")
+
     # Verify counts inside the same transaction.
     for table in order:
         key = f"{schema}.{table}"
