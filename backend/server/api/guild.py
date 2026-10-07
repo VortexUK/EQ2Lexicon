@@ -167,7 +167,7 @@ async def _roster_rank_map(guild_name: str) -> dict[str, int | None]:
     roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, current_world()))
     if roster is not None:
         return {m.name.lower(): m.rank_id for m in roster.members}
-    full = await _fetch_and_cache_guild(guild_name)
+    full = await _fetch_and_cache_guild(guild_name, current_world())
     if not full:
         return {}
     guild_data, _, _ = full
@@ -185,7 +185,7 @@ async def _roster_rank_map_cached(guild_name: str) -> dict[str, int | None] | No
     roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, current_world()))
     if roster is not None:
         return {m.name.lower(): m.rank_id for m in roster.members}
-    asyncio.create_task(_fetch_and_cache_guild(guild_name))
+    asyncio.create_task(_fetch_and_cache_guild(guild_name, current_world()))
     return None
 
 
@@ -294,7 +294,7 @@ async def get_guild_info(request: Request, guild_name: str) -> GuildInfoResponse
             detail=f"Guild '{guild_name}' not cached yet and Census is unavailable.",
         )
     try:
-        await _persist_and_publish_guild(guild_name)
+        await _persist_and_publish_guild(guild_name, current_world())
     except Exception as exc:
         _log.warning("[guild] Live fetch failed for %s: %s", _scrub(guild_name), exc)
         raise HTTPException(
@@ -396,7 +396,7 @@ async def get_guild(request: Request, guild_name: str) -> GuildResponse:
             detail=f"Guild '{guild_name}' not cached yet and Census is unavailable.",
         )
     try:
-        await _persist_and_publish_guild(guild_name)
+        await _persist_and_publish_guild(guild_name, current_world())
     except Exception as exc:
         _log.warning("[guild] Live fetch failed for %s: %s", _scrub(guild_name), exc)
         raise HTTPException(
@@ -426,9 +426,9 @@ async def guild_spell_check(request: Request, guild_name: str) -> GuildSpellChec
             # Spawned within the request context: asyncio.create_task copies the
             # contextvar, so current_world() inside the task resolves to THIS
             # request's server even after the middleware resets it post-response.
-            asyncio.create_task(_bg_refresh_guild(guild_name))
+            asyncio.create_task(_bg_refresh_guild(guild_name, current_world()))
         return cached
-    full = await _fetch_and_cache_guild(guild_name)
+    full = await _fetch_and_cache_guild(guild_name, current_world())
     if full is None:
         raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {current_world()}.")
     result, _ = guild_cache.get_stale(cache_key)
@@ -456,9 +456,9 @@ async def guild_adorn_check(request: Request, guild_name: str) -> GuildAdornChec
             # Spawned within the request context: asyncio.create_task copies the
             # contextvar, so current_world() inside the task resolves to THIS
             # request's server even after the middleware resets it post-response.
-            asyncio.create_task(_bg_refresh_guild(guild_name))
+            asyncio.create_task(_bg_refresh_guild(guild_name, current_world()))
         return cached
-    full = await _fetch_and_cache_guild(guild_name)
+    full = await _fetch_and_cache_guild(guild_name, current_world())
     if full is None:
         raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found on {current_world()}.")
     result, _ = guild_cache.get_stale(cache_key)

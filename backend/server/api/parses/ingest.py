@@ -41,7 +41,7 @@ from backend.server.core.session_user import TokenUser
 from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
 from backend.server.db import get_active_claims
-from backend.server.limiter import limiter, upload_rate_key
+from backend.server.limiter import client_ip, limiter, upload_rate_key
 from backend.server.parses import plausibility
 from backend.server.parses.db import store as parses_db
 from backend.server.parses.models import (
@@ -191,19 +191,19 @@ async def _resolve_uploader_guild_async(
     # member, so subsequent raid uploads from the same guild are
     # zero-Census. We don't await it; the encounter ingest can proceed
     # while the roster pre-warm runs.
-    asyncio.create_task(_prewarm_guild_silently(guild_name))
+    asyncio.create_task(_prewarm_guild_silently(guild_name, effective_world))
     return guild_name
 
 
-async def _prewarm_guild_silently(guild_name: str) -> None:
+async def _prewarm_guild_silently(guild_name: str, world: str) -> None:
     """Background roster pre-warm used by _resolve_uploader_guild_async.
-    Imports lazily to dodge the web.routes.guild ↔ web.routes.parses
-    circular dependency, and never raises — pre-warm failure must not
-    affect ingest success."""
+    ``world`` is the upload's world (logger_server), never the request host's.
+    Imports lazily to dodge the api.guild ↔ api.parses circular dependency,
+    and never raises — pre-warm failure must not affect ingest success."""
     try:
         from backend.server.guild_cache import _fetch_and_cache_guild  # noqa: PLC0415
 
-        await _fetch_and_cache_guild(guild_name)
+        await _fetch_and_cache_guild(guild_name, world)
     except Exception as exc:
         _log.warning("Background guild prewarm failed for %s: %s", guild_name, exc)
 
@@ -240,8 +240,13 @@ async def _resolve_combatant_snapshots(
     effective_world = _sanitize_world(world) or _WORLD
     world_lower = effective_world.lower()
     out: dict[str, CombatantSnapshot] = {}
-    store_conn = census_store.init_db()
-    try:
+    # A pooled connection is NEVER held across a Census await here: the sync
+    # pool has five slots and a raid-night burst of resolvers each parked on a
+    # 30 s Census call used to exhaust it (and trip the idle-in-transaction
+    # timeout). Store work runs in short executor hops; the semaphore caps how
+    # many resolvers hit Census at once.
+    async with _RESOLVER_SEM:
+        stored = await run_sync(_store_lookup_sync, names, effective_world)
         async with shared_census_client() as client:
             for name in names:
                 cache_key = f"{name.lower()}:{world_lower}"
@@ -250,31 +255,28 @@ async def _resolve_combatant_snapshots(
                 cached, _ = character_cache.get_stale(cache_key)
                 if cached is not None:
                     snap = _snapshot_from_cache(cached)
+                elif name.lower() in stored:
+                    snap = _snapshot_from_store_data(stored[name.lower()])
                 else:
-                    # Durable store — no Census.
-                    rec = census_store.get_character(store_conn, name, effective_world)
-                    if rec is not None:
-                        snap = _snapshot_from_store_data(rec["data"])
-                    else:
-                        # Never seen anywhere → learn the guild, then warm +
-                        # persist the whole roster (awaited so the remaining
-                        # names hit the cache/store). The thundering-herd guard
-                        # in _fetch_and_cache_guild dedupes against the
-                        # uploader's own prewarm for the same guild.
-                        try:
-                            guild_name = await client.get_character_guild_name(name, effective_world)
-                        except Exception as exc:
-                            _log.warning("Combatant guild lookup failed for %r: %s", name, exc)
-                            guild_name = None
-                        if guild_name:
-                            await _prewarm_guild_silently(guild_name)
-                            cached, _ = character_cache.get_stale(cache_key)
-                            if cached is not None:
-                                snap = _snapshot_from_cache(cached)
-                            else:
-                                rec = census_store.get_character(store_conn, name, effective_world)
-                                if rec is not None:
-                                    snap = _snapshot_from_store_data(rec["data"])
+                    # Never seen anywhere → learn the guild, then warm +
+                    # persist the whole roster (awaited so the remaining
+                    # names hit the cache/store). The thundering-herd guard
+                    # in _fetch_and_cache_guild dedupes against the
+                    # uploader's own prewarm for the same guild.
+                    try:
+                        guild_name = await client.get_character_guild_name(name, effective_world)
+                    except Exception as exc:
+                        _log.warning("Combatant guild lookup failed for %r: %s", name, exc)
+                        guild_name = None
+                    if guild_name:
+                        await _prewarm_guild_silently(guild_name, effective_world)
+                        cached, _ = character_cache.get_stale(cache_key)
+                        if cached is not None:
+                            snap = _snapshot_from_cache(cached)
+                        else:
+                            data = await run_sync(_store_get_one_sync, name, effective_world)
+                            if data is not None:
+                                snap = _snapshot_from_store_data(data)
 
                 # iLvl backfill — only when we have a class but still no ilvl
                 # (neither cache nor store had equipment). One Census fetch,
@@ -292,16 +294,43 @@ async def _resolve_combatant_snapshots(
 
                         resp = _build_char_response(char)
                         character_cache.set(cache_key, resp)
-                        census_store.upsert_character(
-                            store_conn, name, effective_world, resp.model_dump(), resolved=True
-                        )
+                        await run_sync(_store_put_one_sync, name, effective_world, resp.model_dump())
                         snap = _snapshot_from_cache(resp)
 
                 if snap is not None:
                     out[name] = snap
-    finally:
-        store_conn.close()
     return out
+
+
+#: At most this many snapshot resolvers talk to Census concurrently.
+_RESOLVER_SEM = asyncio.Semaphore(2)
+
+
+def _store_lookup_sync(names: list[str], world: str) -> dict[str, dict]:
+    """One batched census_store read; the connection is returned before any await."""
+    conn = census_store.init_db()
+    try:
+        return census_store.get_characters(conn, names, world)
+    finally:
+        conn.close()
+
+
+def _store_get_one_sync(name: str, world: str) -> dict | None:
+    conn = census_store.init_db()
+    try:
+        rec = census_store.get_character(conn, name, world)
+        return rec["data"] if rec is not None else None
+    finally:
+        conn.close()
+
+
+def _store_put_one_sync(name: str, world: str, data: dict) -> None:
+    conn = census_store.init_db()
+    try:
+        census_store.upsert_character(conn, name, world, data, resolved=True)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _snapshot_from_cache(cached: object) -> CombatantSnapshot:
@@ -925,7 +954,7 @@ async def _validate_payload_signature(
             "token_id=%s user_id=%s remote_ip=%s",
             user.get("token_id"),
             user["id"],
-            request.client.host if request.client else None,
+            client_ip(request),
         )
         raise HTTPException(
             status_code=401,
@@ -969,7 +998,7 @@ async def _validate_payload_signature(
             "[parses-ingest] HMAC signature mismatch: token_id=%s user_id=%s remote_ip=%s",
             user.get("token_id"),
             user["id"],
-            request.client.host if request.client else None,
+            client_ip(request),
         )
         raise HTTPException(
             status_code=401,
@@ -987,7 +1016,7 @@ async def _client_flood_gate(request: Request) -> None:
     verdict = client_throttle.check(
         request.headers.get("user-agent"),
         upload_rate_key(request),
-        remote_ip=request.client.host if request.client else None,
+        remote_ip=client_ip(request),
     )
     if verdict.limited:
         raise HTTPException(
@@ -1213,7 +1242,7 @@ async def ingest_parse(
             scrub(uploader),
             scrub(body.encounter.encid),
             (request.headers.get("user-agent") or "")[:80],
-            request.client.host if request.client else None,
+            client_ip(request),
         )
         raise HTTPException(
             status_code=422,

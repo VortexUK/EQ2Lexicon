@@ -427,7 +427,7 @@ async def test_persist_merges_offline_member_from_store(app, census_schema):
         patch("backend.server.core.census_lifecycle._clients", {}),
         patch("backend.server.core.census_lifecycle.CensusClient", return_value=mock_client),
     ):
-        await _persist_and_publish_guild("TestGuild")
+        await _persist_and_publish_guild("TestGuild", _WORLD)
 
     conn = census_store.CensusStore(census_schema).init_db()
     try:

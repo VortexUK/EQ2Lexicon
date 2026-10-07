@@ -40,6 +40,9 @@ ON CONFLICT(name_lower, world) DO UPDATE SET
 -- :name select_character
 SELECT data_json, last_resolved_at FROM characters WHERE name_lower=%s AND world=%s;
 
+-- :name select_characters_bulk
+SELECT name_lower, data_json FROM characters WHERE world=%s AND name_lower = ANY(%s);
+
 -- :name upsert_guild
 INSERT INTO guilds (name_lower, world, name, data_json, last_resolved_at, updated_at)
 VALUES (%s, %s, %s, %s, %s, %s)

@@ -547,6 +547,9 @@ async def test_logger_server_overrides_world_for_census(app):
     with (
         patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user),
         patch("backend.server.api.parses.ingest._resolve_uploader_guild_async", new=_spy),
+        # The background snapshot resolver would otherwise run for real and,
+        # on a cold character cache, call the live Census API.
+        patch("backend.server.api.parses.ingest._resolve_combatant_snapshots", new=AsyncMock(return_value={})),
         patch("backend.server.api.parses.ingest._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -710,7 +713,7 @@ async def test_resolve_snapshots_miss_warms_roster_then_hits():
     ):
         out = await parses_mod._resolve_combatant_snapshots(["Sihtric"], "Varsoon")
 
-    prewarm.assert_awaited_once_with("Exordium")
+    prewarm.assert_awaited_once_with("Exordium", "Varsoon")
     client.get_character_guild_name.assert_awaited_once_with("Sihtric", "Varsoon")
     assert out["Sihtric"].level == 88
 

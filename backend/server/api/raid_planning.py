@@ -168,7 +168,7 @@ async def _guild_roster(guild_name: str) -> list:
     roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, current_world()))
     if roster is not None:
         return roster.members
-    full = await _fetch_and_cache_guild(guild_name)
+    full = await _fetch_and_cache_guild(guild_name, current_world())
     if not full:
         raise HTTPException(status_code=404, detail=f"Guild '{guild_name}' not found")
     guild_data, _, _ = full

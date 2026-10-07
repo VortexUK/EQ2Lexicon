@@ -45,7 +45,7 @@ from backend.server.core.cache_keys import (
 )
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
-from backend.server.server_context import current_world, server_for_world
+from backend.server.server_context import server_for_world
 
 _log = logging.getLogger(__name__)
 
@@ -381,10 +381,11 @@ def _finish_guild_fetch(guild_name: str, world: str, full) -> tuple | None:
 
 async def _fetch_and_cache_guild(
     guild_name: str,
+    world: str,
 ) -> tuple[GuildData, list, dict] | None:
     """
-    Fetch full guild data via get_guild_full and atomically refresh every
-    related cache key in one shot:
+    Fetch full guild data for ``world`` via get_guild_full and atomically
+    refresh every related cache key in one shot:
 
         roster:{guild}:{world}      — sorted member list
         info:{guild}:{world}        — guild metadata (no member list)
@@ -399,13 +400,15 @@ async def _fetch_and_cache_guild(
     network failure or guild-not-found.
     """
 
-    task_key = guild_roster_key(guild_name, current_world())
+    # ``world`` is explicit (never current_world()): this runs from the refresh
+    # worker and ingest background tasks, where the request contextvar is unset
+    # and would silently fall back to the default server.
+    task_key = guild_roster_key(guild_name, world)
     existing = _guild_fetch_tasks.get(task_key)
     if existing is not None and not existing.done():
         return await existing
 
     async def _do_fetch():
-        world = current_world()
         async with shared_census_client() as client:
             full = await client.get_guild_full(guild_name, world)
         if not full or not full[0].members:
@@ -427,14 +430,14 @@ async def _fetch_and_cache_guild(
             _guild_fetch_tasks.pop(task_key, None)
 
 
-async def _bg_refresh_guild(guild_name: str) -> None:
+async def _bg_refresh_guild(guild_name: str, world: str) -> None:
     """Background task: re-fetch all guild data and refresh every related cache."""
-    key = guild_name.lower()
+    key = f"{guild_name.lower()}:{world.lower()}"
     if key in _guild_refresh_in_flight:
         return
     _guild_refresh_in_flight.add(key)
     try:
-        await _fetch_and_cache_guild(guild_name)
+        await _fetch_and_cache_guild(guild_name, world)
     finally:
         _guild_refresh_in_flight.discard(key)
 
@@ -465,7 +468,7 @@ def _guild_history_snapshot(info: dict | None, members: list[dict], max_level: i
     }
 
 
-async def _persist_and_publish_guild(guild_name: str, world: str | None = None) -> None:
+async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
     """Full guild refresh: fetch + warm the in-memory caches (existing behaviour),
     then build the BEST-KNOWN merged roster (resolved members this fetch + offline
     members carried forward with last-good data from the character store), persist
@@ -475,8 +478,7 @@ async def _persist_and_publish_guild(guild_name: str, world: str | None = None) 
     from backend.server.api.guild import GuildMemberResponse, GuildResponse  # noqa: PLC0415
     from backend.server.census_refresh import _merge_roster  # local import — cycle avoidance
 
-    world = world or current_world()
-    await _fetch_and_cache_guild(guild_name)  # existing: warms roster/info/spells/adorns + char cache
+    await _fetch_and_cache_guild(guild_name, world)  # warms roster/info/spells/adorns + char cache
     now = int(time.time())
     roster, _ = guild_cache.get_stale(guild_roster_key(guild_name, world))
     if roster is None:

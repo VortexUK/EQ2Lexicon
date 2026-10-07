@@ -133,6 +133,16 @@ class CensusStore(PgCatalogue):
         return {"data": row["data_json"], "last_resolved_at": row["last_resolved_at"]}
 
     @staticmethod
+    def get_characters(conn: Any, names: list[str], world: str) -> dict[str, dict]:
+        """One round trip for many names: ``{name_lower: data}`` for every
+        stored character among ``names`` on ``world`` (absent names omitted)."""
+        if not names:
+            return {}
+        lowers = sorted({n.lower() for n in names})
+        rows = conn.execute(_SQL["select_characters_bulk"], (world, lowers)).fetchall()
+        return {row["name_lower"]: row["data_json"] for row in rows}
+
+    @staticmethod
     def _like_prefix(prefix: str) -> str:
         """Escape LIKE wildcards in user input, then anchor as a prefix."""
         return prefix.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
