@@ -80,7 +80,10 @@ def _class_tables() -> tuple[frozenset[str], frozenset[str], list[tuple[str, fro
         archetypes = [
             (f"All {archetype}s", frozenset(n.lower() for n in members))
             for archetype, members in _classes.archetype_groups()
-        ] + [(f"All {subclass}s", frozenset(n.lower() for n in members)) for subclass, members in _classes.subclass_groups()]
+        ] + [
+            (f"All {subclass}s", frozenset(n.lower() for n in members))
+            for subclass, members in _classes.subclass_groups()
+        ]
         _class_tables_cache = (crafters, adventurers, archetypes)
     return _class_tables_cache
 

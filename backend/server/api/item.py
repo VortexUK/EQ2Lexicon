@@ -374,9 +374,7 @@ async def search_items(
         stat_alias[stat] = alias
         if threshold is not None:
             op_sql = ">=" if op == "gte" else "<="
-            stat_joins += (
-                f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = %s AND {alias}.value {op_sql} %s"
-            )
+            stat_joins += f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = %s AND {alias}.value {op_sql} %s"
             join_params.extend([stat, threshold])
         else:
             stat_joins += f" JOIN item_stats {alias} ON i.id = {alias}.item_id AND {alias}.stat = %s"
