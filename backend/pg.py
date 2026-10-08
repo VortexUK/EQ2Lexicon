@@ -72,6 +72,12 @@ _CONFIGURE_SQL = (_IDLE_TXN_TIMEOUT_SQL, _STATEMENT_TIMEOUT_SQL, _LOCK_TIMEOUT_S
 # surfaces as a 500/503 instead.
 POOL_CHECKOUT_TIMEOUT_S = 5.0
 
+# Idle connections above min_size close after this long (psycopg_pool's
+# default is 10 minutes). The Supabase session pooler caps clients (15 on
+# the current plan) and deploys overlap, so an idle container must fall
+# back to ~min_size quickly or the incoming container can't connect.
+POOL_MAX_IDLE_S = 60.0
+
 
 def _configure_sync(conn: psycopg.Connection) -> None:
     for sql in _CONFIGURE_SQL:
@@ -111,6 +117,7 @@ async def open_pools() -> None:
         max_size=5,
         open=False,
         timeout=POOL_CHECKOUT_TIMEOUT_S,
+        max_idle=POOL_MAX_IDLE_S,
         kwargs={"row_factory": dict_row},
         configure=_configure_async,
     )
@@ -120,6 +127,7 @@ async def open_pools() -> None:
         min_size=1,
         max_size=5,
         timeout=POOL_CHECKOUT_TIMEOUT_S,
+        max_idle=POOL_MAX_IDLE_S,
         kwargs={"row_factory": dict_row},
         configure=_configure_sync,
     )

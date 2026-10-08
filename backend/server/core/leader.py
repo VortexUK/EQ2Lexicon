@@ -40,7 +40,7 @@ def is_leader() -> bool:
 
 
 def try_acquire() -> bool:
-    """One non-blocking attempt. Keeps the connection open while held."""
+    """One non-blocking attempt. Keeps the connection open only while held."""
     global _conn, _held
     if not _enabled():
         return True
@@ -51,6 +51,11 @@ def try_acquire() -> bool:
             _conn = psycopg.connect(pg.dsn(), autocommit=True, application_name="eq2lexicon-leader")
         row = _conn.execute("SELECT pg_try_advisory_lock(%s)", (LEASE_KEY,)).fetchone()
         _held = bool(row and row[0])
+        if not _held:
+            # Standing by must not cost a pooler slot: the session pooler
+            # caps clients, and the overlapping container needs them.
+            _conn.close()
+            _conn = None
     except psycopg.Error as exc:
         _log.warning("[leader] lease attempt failed: %s", exc)
         _held = False

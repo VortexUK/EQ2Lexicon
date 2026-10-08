@@ -74,6 +74,31 @@ async def run_bot() -> None:
         )
 
 
+async def _retry_pooler_full(
+    step: Callable[[], Awaitable[object]], *, what: str, attempts: int = 8, delay_s: float = 10.0
+) -> None:
+    """Run a startup step, retrying when the Supabase session pooler reports
+    'max clients reached' — during a deploy overlap the outgoing container
+    still holds its connections for a short while. Anything else raises."""
+    import psycopg
+
+    for attempt in range(1, attempts + 1):
+        try:
+            await step()
+            return
+        except psycopg.OperationalError as exc:
+            if "max clients" not in str(exc).lower() or attempt == attempts:
+                raise
+            logging.getLogger("supervisor.web").warning(
+                "[startup] %s: session pooler full (attempt %d/%d) — retrying in %.0fs",
+                what,
+                attempt,
+                attempts,
+                delay_s,
+            )
+            await asyncio.sleep(delay_s)
+
+
 async def run_web() -> None:
     import uvicorn
 
@@ -84,7 +109,7 @@ async def run_web() -> None:
     # stays as the second line of defence.
     from backend import pg_migrate
 
-    await asyncio.to_thread(pg_migrate.run)
+    await _retry_pooler_full(lambda: asyncio.to_thread(pg_migrate.run), what="migrations")
 
     from backend.server.app import app
 
