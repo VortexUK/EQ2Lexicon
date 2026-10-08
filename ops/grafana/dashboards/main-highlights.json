@@ -11,12 +11,32 @@
   ],
   "__elements": {},
   "__requires": [
-    { "type": "grafana",    "id": "grafana",    "name": "Grafana",    "version": "10.0.0" },
-    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"  },
-    { "type": "panel",      "id": "stat",       "name": "Stat",       "version": ""       },
-    { "type": "panel",      "id": "timeseries", "name": "Time series","version": ""       }
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    }
   ],
-  "description": "EQ2 Companion — high-level product health: total parses, claims, raid content, traffic.",
+  "description": "EQ2 Companion — product-level overview: content totals, raid data, traffic, and a one-glance health strip.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -24,13 +44,19 @@
   "links": [],
   "refresh": "30s",
   "schemaVersion": 38,
-  "tags": ["eq2companion", "highlights"],
-  "time": { "from": "now-24h", "to": "now" },
+  "tags": [
+    "eq2companion",
+    "highlights"
+  ],
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "EQ2 Companion — Main Highlights",
   "uid": "eq2companion-highlights",
-  "version": 1,
+  "version": 2,
   "templating": {
     "list": [
       {
@@ -47,198 +73,859 @@
       }
     ]
   },
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "panels": [
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 100, "title": "Content", "type": "row" },
-
     {
-      "id": 1, "type": "stat", "title": "Encounters parsed (visible)",
-      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Live count of normalised encounters in parses.db — the visible leaderboard rows. Excludes soft-deleted (hidden) parses.",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "title": "Content",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Encounters parsed (visible)",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "parses_encounters_total{job=\"eq2companion\",visibility=\"visible\"}", "legendFormat": "encounters", "refId": "A" }]
-    },
-
-    {
-      "id": 2, "type": "stat", "title": "Approved users",
-      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Users with access_status='approved' — the active member count.",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "users_total{job=\"eq2companion\",status=\"approved\"}", "legendFormat": "users", "refId": "A" }]
-    },
-
-    {
-      "id": 3, "type": "stat", "title": "Approved character claims",
-      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Characters claimed by approved users (cumulative). Lower-bound on linked identities.",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "character_claims_total{job=\"eq2companion\",status=\"approved\"}", "legendFormat": "claims", "refId": "A" }]
-    },
-
-    {
-      "id": 4, "type": "stat", "title": "Pending claims",
-      "gridPos": { "h": 4, "w": 4, "x": 15, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Character claims awaiting officer/admin review. Spike here = review backlog.",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null }, { "color": "yellow", "value": 3 }, { "color": "red", "value": 10 }
-          ] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "character_claims_total{job=\"eq2companion\",status=\"pending\"}", "legendFormat": "pending", "refId": "A" }]
-    },
-
-    {
-      "id": 5, "type": "stat", "title": "Pending users",
-      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Discord users waiting for admin approval. Spike here = onboarding queue.",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }
-          ] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "users_total{job=\"eq2companion\",status=\"pending\"}", "legendFormat": "pending", "refId": "A" }]
-    },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 101, "title": "Raid content", "type": "row" },
-
-    {
-      "id": 10, "type": "stat", "title": "Curated raid encounters",
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 6 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Boss encounters with a strategy entry in raids.db (across all expansions).",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "raid_encounters_total{job=\"eq2companion\"}", "legendFormat": "encounters", "refId": "A" }]
-    },
-
-    {
-      "id": 11, "type": "stat", "title": "ACT triggers",
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 6 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Regex-driven boss triggers contributors have shared. Cumulative across all encounters.",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "act_triggers_total{job=\"eq2companion\"}", "legendFormat": "triggers", "refId": "A" }]
-    },
-
-    {
-      "id": 12, "type": "stat", "title": "ACT spell timers",
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 6 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Named timer definitions referenced by triggers. Visible on the per-boss timer pill.",
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
-        }, "overrides": []
-      },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "act_spell_timers_total{job=\"eq2companion\"}", "legendFormat": "spell timers", "refId": "A" }]
-    },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 10 }, "id": 102, "title": "Activity", "type": "row" },
-
-    {
-      "id": 20, "type": "timeseries", "title": "Requests / sec (5 m rate)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Aggregate HTTP request rate across the entire API. Use the Frontend dashboard for per-route detail.",
-      "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never" } },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "sum(rate(http_requests_total{job=\"eq2companion\"}[5m]))", "legendFormat": "req/s", "refId": "A" }]
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "parses_encounters_total{job=\"eq2companion\",visibility=\"visible\"}",
+          "legendFormat": "encounters",
+          "refId": "A"
+        }
+      ]
     },
-
     {
-      "id": 21, "type": "timeseries", "title": "Encounters parsed over time",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Visible encounter count over time — flat line means no new parses ingesting; upward steps mean fresh uploads.",
+      "id": 2,
+      "type": "stat",
+      "title": "Approved users",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 5,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "drawStyle": "line" } },
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "parses_encounters_total{job=\"eq2companion\",visibility=\"visible\"}", "legendFormat": "encounters (visible)", "refId": "A" }]
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "users_total{job=\"eq2companion\",status=\"approved\"}",
+          "legendFormat": "users",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Approved character claims",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 10,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "character_claims_total{job=\"eq2companion\",status=\"approved\"}",
+          "legendFormat": "claims",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Pending claims",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 15,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "character_claims_total{job=\"eq2companion\",status=\"pending\"}",
+          "legendFormat": "pending",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Pending users",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "users_total{job=\"eq2companion\",status=\"pending\"}",
+          "legendFormat": "pending",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 101,
+      "title": "Raid content",
+      "type": "row"
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Curated raid encounters",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "raid_encounters_total{job=\"eq2companion\"}",
+          "legendFormat": "encounters",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "ACT triggers",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "act_triggers_total{job=\"eq2companion\"}",
+          "legendFormat": "triggers",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "ACT spell timers",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "act_spell_timers_total{job=\"eq2companion\"}",
+          "legendFormat": "spell timers",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 102,
+      "title": "Health at a glance",
+      "type": "row"
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "Census API",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Background poll every 5 min plus the failure breaker. DOWN = the site serves stored data only and refreshes are skipped.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "census_health_status{job=\"eq2companion\"}",
+          "legendFormat": "Census",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "Stale background loops",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Loops that have not completed an iteration in 24 h (every loop runs at least daily). Anything above 0 — see Front End → Process health for which one.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(time() - background_loop_last_success_timestamp_seconds{job=\"eq2companion\"} > 86400) or vector(0)",
+          "legendFormat": "stale",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "Error rate (5xx)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(http_requests_total{job=\"eq2companion\",status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=\"eq2companion\"}[5m])), 0.001)",
+          "legendFormat": "5xx rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "Active users (24 h)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "active_users{job=\"eq2companion\",window=\"24h\"}",
+          "legendFormat": "users",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 103,
+      "title": "Activity",
+      "type": "row"
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Requests / sec (5 m rate)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(http_requests_total{job=\"eq2companion\"}[5m]))",
+          "legendFormat": "req/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Encounters parsed over time",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Steps up on ingest, down on the retention sweep (trash parses after 3 days, duplicate uploads collapsed to the primary).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "parses_encounters_total{job=\"eq2companion\",visibility=\"visible\"}",
+          "legendFormat": "encounters (visible)",
+          "refId": "A"
+        }
+      ]
     }
-
   ]
 }

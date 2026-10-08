@@ -1,18 +1,42 @@
 {
   "__inputs": [
     {
-      "name": "DS_PROMETHEUS", "label": "Prometheus", "description": "Grafana Cloud Prometheus",
-      "type": "datasource", "pluginId": "prometheus", "pluginName": "Prometheus"
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Grafana Cloud Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
     }
   ],
   "__elements": {},
   "__requires": [
-    { "type": "grafana",    "id": "grafana",    "name": "Grafana",    "version": "10.0.0" },
-    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"  },
-    { "type": "panel",      "id": "stat",       "name": "Stat",       "version": ""       },
-    { "type": "panel",      "id": "timeseries", "name": "Time series","version": ""       }
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    }
   ],
-  "description": "EQ2 Companion — per-DB size growth, row counts, and server-error rates.",
+  "description": "EQ2 Companion — Supabase Postgres: schema sizes, connection-pool saturation, row counts, rankings rebuilds, server-error rates.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -20,149 +44,1058 @@
   "links": [],
   "refresh": "30s",
   "schemaVersion": 38,
-  "tags": ["eq2companion", "databases"],
-  "time": { "from": "now-24h", "to": "now" },
+  "tags": [
+    "eq2companion",
+    "databases"
+  ],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "EQ2 Companion — Databases",
   "uid": "eq2companion-databases",
-  "version": 1,
+  "version": 2,
   "templating": {
     "list": [
       {
-        "current": {}, "hide": 0, "includeAll": false, "multi": false, "name": "datasource",
-        "options": [], "query": "prometheus", "refresh": 1, "type": "datasource", "label": "Data source"
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource",
+        "label": "Data source"
       }
     ]
   },
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "panels": [
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 100, "title": "On-disk size", "type": "row" },
-
     {
-      "id": 1, "type": "timeseries", "title": "Database file size (by DB)",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Bytes on disk for each SQLite file. Steep growth = ingest activity (parses) or content additions (raids). Flat = idle. Missing series = file absent on the volume.",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "title": "Postgres storage (Supabase)",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Schema size (bytes, by family schema)",
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "pg_total_relation_size summed per family schema (tables + indexes + toast). parses grows with ingest and shrinks on the retention sweeps; items/spells/recipes only move on a catalogue refresh.",
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "stacking": { "mode": "none" } } },
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max", "delta"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "db_file_size_bytes{job=\"eq2companion\"}", "legendFormat": "{{db}}", "refId": "A" }]
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "last",
+            "max",
+            "delta"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "pg_schema_size_bytes{job=\"eq2companion\"}",
+          "legendFormat": "{{schema}}",
+          "refId": "A"
+        }
+      ]
     },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 }, "id": 101, "title": "Row counts", "type": "row" },
-
     {
-      "id": 10, "type": "timeseries", "title": "users.db — by access status",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "id": 2,
+      "type": "stat",
+      "title": "Total database size",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "All ten family schemas. Compare against the Supabase plan's disk allowance.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(pg_schema_size_bytes{job=\"eq2companion\"})",
+          "legendFormat": "total",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 101,
+      "title": "Connection pools (psycopg)",
+      "type": "row"
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Pool connections — size / available",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each pool is min 5 / max 5. 'available' at 0 for a sustained stretch means every connection is busy and new requests queue (see right).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "pg_pool_size{job=\"eq2companion\"}",
+          "legendFormat": "{{pool}} size",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "pg_pool_available{job=\"eq2companion\"}",
+          "legendFormat": "{{pool}} available",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Requests waiting for a connection",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Callers queued at checkout. Anything above 0 for more than a scrape or two is pool saturation — the 5 s checkout timeout then turns into 503s.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "async"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "pg_pool_waiting{job=\"eq2companion\"}",
+          "legendFormat": "{{pool}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Connection wait (ms waited per second) and checkout errors",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "wait ms/s = cumulative milliseconds callers spent waiting, per second. errors = checkouts that timed out or failed in the last 5 m. Both should sit at 0.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rate(pg_pool_requests_wait_ms_total{job=\"eq2companion\"}[5m])",
+          "legendFormat": "{{pool}} wait ms/s",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "increase(pg_pool_requests_errors_total{job=\"eq2companion\"}[5m])",
+          "legendFormat": "{{pool}} errors (5 m)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 102,
+      "title": "Row counts",
+      "type": "row"
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "users schema — users by access status",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "description": "Approved vs pending vs denied. Watch pending — non-zero means there's a review backlog.",
       "fieldConfig": {
-        "defaults": { "unit": "short", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 0
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "denied" },   "properties": [{ "id": "color", "value": { "fixedColor": "red",    "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "pending" },  "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "approved" }, "properties": [{ "id": "color", "value": { "fixedColor": "green",  "mode": "fixed" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "denied"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pending"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "approved"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "users_total{job=\"eq2companion\"}", "legendFormat": "{{status}}", "refId": "A" }]
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "users_total{job=\"eq2companion\"}",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
     },
-
     {
-      "id": 11, "type": "timeseries", "title": "users.db — character claims by status",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "id": 11,
+      "type": "timeseries",
+      "title": "users schema — character claims by status",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "description": "Approved (linked) / pending (queue) / rejected / withdrawn / superseded character claims.",
       "fieldConfig": {
-        "defaults": { "unit": "short", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } }, "overrides": []
-      },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "character_claims_total{job=\"eq2companion\"}", "legendFormat": "{{status}}", "refId": "A" }]
-    },
-
-    {
-      "id": 12, "type": "timeseries", "title": "parses.db — encounters (visible vs hidden)",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Visible = live leaderboard rows. Hidden = soft-deleted (rare; admin action).",
-      "fieldConfig": {
-        "defaults": { "unit": "short", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } }, "overrides": []
-      },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "parses_encounters_total{job=\"eq2companion\"}", "legendFormat": "{{visibility}}", "refId": "A" }]
-    },
-
-    {
-      "id": 13, "type": "stat", "title": "Raid encounters curated",
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Boss strategies in raids.db.",
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "area", "textMode": "auto" },
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "raid_encounters_total{job=\"eq2companion\"}", "legendFormat": "encounters", "refId": "A" }]
-    },
-
-    {
-      "id": 14, "type": "stat", "title": "ACT triggers",
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "area", "textMode": "auto" },
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] } }, "overrides": [] },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "act_triggers_total{job=\"eq2companion\"}", "legendFormat": "triggers", "refId": "A" }]
-    },
-
-    {
-      "id": 15, "type": "stat", "title": "ACT spell timers",
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "area", "textMode": "auto" },
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] } }, "overrides": [] },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "act_spell_timers_total{job=\"eq2companion\"}", "legendFormat": "spell timers", "refId": "A" }]
-    },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 }, "id": 102, "title": "Errors", "type": "row" },
-
-    {
-      "id": 20, "type": "timeseries", "title": "Server errors / sec (by route, 5 m rate)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "5xx-class responses only — 4xx (auth/validation) deliberately excluded so this surfaces server-side problems, not user errors.",
-      "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } },
-        "overrides": [
-          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
-        ]
-      },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "sum by(source) (rate(app_errors_total{job=\"eq2companion\"}[5m]))", "legendFormat": "{{source}}", "refId": "A" }]
-    },
-
-    {
-      "id": 21, "type": "timeseries", "title": "5xx rate as % of total (5 m)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Server-error rate over the full request volume. Healthy = ~0. Spike = look at the per-route panel on the left.",
-      "fieldConfig": {
-        "defaults": { "unit": "percentunit", "decimals": 3, "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never" } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 0
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "expr": "sum(rate(http_requests_total{job=\"eq2companion\",status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=\"eq2companion\"}[5m])), 0.001)",
-        "legendFormat": "5xx rate", "refId": "A" }]
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "character_claims_total{job=\"eq2companion\"}",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "parses schema — encounters (visible vs hidden)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Visible = live leaderboard rows. Hidden = soft-deleted (officer/admin action, or an unverified upload).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "parses_encounters_total{job=\"eq2companion\"}",
+          "legendFormat": "{{visibility}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Raid encounters curated",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Boss strategies in the raids schema.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "raid_encounters_total{job=\"eq2companion\"}",
+          "legendFormat": "encounters",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "ACT triggers",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "act_triggers_total{job=\"eq2companion\"}",
+          "legendFormat": "triggers",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "ACT spell timers",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "act_spell_timers_total{job=\"eq2companion\"}",
+          "legendFormat": "spell timers",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 103,
+      "title": "Rankings and retention",
+      "type": "row"
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Rankings rebuild wall time (p95 over 1 h, by world)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 33
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Full kills-dataset rebuild (stale-while-revalidate, every ~10 min per world). Buckets 1 s … 300 s. The 837 s incident is what this guards against.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum by(le, world) (rate(rankings_rebuild_seconds_bucket{job=\"eq2companion\"}[1h])))",
+          "legendFormat": "{{world}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Rankings kills dataset size",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 33
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Kills in the last dataset build per world. A sudden drop with no deletions = a rebuild returned a partial set.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rankings_kills_dataset_size{job=\"eq2companion\"}",
+          "legendFormat": "{{world}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Parse detail views by encounter age (24 h)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 33
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Evidence for the per-ability detail retention windows (raid 30 d / dungeon 14 d / other 7 d). Views in the 30-90d or >90d buckets land on already-pruned breakdowns.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by(age_bucket) (increase(parse_detail_views_total{job=\"eq2companion\"}[24h]))",
+          "legendFormat": "{{age_bucket}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "id": 104,
+      "title": "Errors",
+      "type": "row"
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Server errors / sec (by source, 5 m rate)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "5xx-class responses only — 4xx (auth/validation) deliberately excluded so this surfaces server-side problems, not user errors.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by(source) (rate(app_errors_total{job=\"eq2companion\"}[5m]))",
+          "legendFormat": "{{source}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "5xx rate as % of total (5 m)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Server-error rate over the full request volume. Healthy = ~0. Spike = look at the per-source panel on the left.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(http_requests_total{job=\"eq2companion\",status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=\"eq2companion\"}[5m])), 0.001)",
+          "legendFormat": "5xx rate",
+          "refId": "A"
+        }
+      ]
     }
-
   ]
 }
