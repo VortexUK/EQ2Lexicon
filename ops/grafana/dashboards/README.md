@@ -58,13 +58,14 @@ Some metrics take time to appear:
 
 ### Reading the latency panels
 
-`http_request_duration_seconds` has buckets 0.01 / 0.05 / 0.1 / 0.25 /
-1 / 2.5 / 5 / 10 / 30 / 60 s. `histogram_quantile` interpolates inside a
-bucket, so with low traffic a single request in the 0.25–1 s bucket
-reads as a p95 of ~0.96 s and one in the 1–2.5 s bucket as ~2.4 s, held
-for the whole 5 m rate window. The p95 panels are kept for trend-spotting;
-the **Slow requests** row on the Front End dashboard counts actual
-requests over 250 ms / 1 s per route and is the honest view.
+`http_request_duration_seconds` has buckets 0.01 / 0.05 / 0.1 / 0.25 / 0.5
+/ 0.75 / 1 / 1.5 / 2.5 / 5 / 10 / 30 / 60 s. `histogram_quantile`
+interpolates inside a bucket, so with low traffic a single slow request
+reads as a plateau at a bucket-derived value for the whole 5 m rate
+window. The p95 panels are kept for trend-spotting; the **Slow requests**
+row on the Front End dashboard counts actual requests over 250 ms / 1 s
+per route and is the honest view. The Databases dashboard's **Postgres
+round trip** stat is the unit a DB-only route's floor is measured in.
 
 ## Adding a new dashboard
 

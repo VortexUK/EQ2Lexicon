@@ -221,7 +221,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Bucket-interpolated: the histogram buckets jump 0.25 s → 1 s → 2.5 s, so one slow request in the 5 m window reads as ~0.96 s or ~2.4 s. Treat values as 'which bucket', not a measurement; the slow-request panels below count actual requests over a threshold.",
+      "description": "Bucket-interpolated: histogram_quantile reports a point inside the bucket the 95th-percentile request fell in (buckets 0.1 / 0.25 / 0.5 / 0.75 / 1 / 1.5 / 2.5 s …), so with low traffic one slow request reads as a plateau for the whole 5 m window. Good for trends; the slow-request panels below count actual requests over a threshold.",
       "options": {
         "reduceOptions": {
           "calcs": [
@@ -551,7 +551,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Bucket-interpolated: the histogram buckets jump 0.25 s → 1 s → 2.5 s, so one slow request in the 5 m window reads as ~0.96 s or ~2.4 s. Treat values as 'which bucket', not a measurement; the slow-request panels below count actual requests over a threshold.",
+      "description": "Bucket-interpolated: histogram_quantile reports a point inside the bucket the 95th-percentile request fell in (buckets 0.1 / 0.25 / 0.5 / 0.75 / 1 / 1.5 / 2.5 s …), so with low traffic one slow request reads as a plateau for the whole 5 m window. Good for trends; the slow-request panels below count actual requests over a threshold.",
       "fieldConfig": {
         "defaults": {
           "unit": "s",

@@ -209,8 +209,71 @@
         "y": 10
       },
       "id": 101,
-      "title": "Connection pools (psycopg)",
+      "title": "Connection pools (psycopg) and round trip",
       "type": "row"
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Postgres round trip",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "One timed SELECT 1 on an open pooled connection per scrape — the app-to-Supabase network round trip. Every pooled call is priced in these: a single-statement read is now one of them, a write is three (BEGIN, statement, COMMIT).",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.02
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "pg_roundtrip_seconds{job=\"eq2companion\"}",
+          "legendFormat": "SELECT 1",
+          "refId": "A"
+        }
+      ]
     },
     {
       "id": 5,
@@ -218,8 +281,8 @@
       "title": "Pool connections — size / available",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 0,
+        "w": 6,
+        "x": 6,
         "y": 11
       },
       "datasource": {
@@ -279,8 +342,8 @@
       "title": "Requests waiting for a connection",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
+        "w": 6,
+        "x": 12,
         "y": 11
       },
       "datasource": {
@@ -362,8 +425,8 @@
       "title": "Connection wait (ms waited per second) and checkout errors",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 6,
+        "x": 18,
         "y": 11
       },
       "datasource": {
