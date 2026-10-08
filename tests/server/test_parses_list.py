@@ -187,14 +187,15 @@ async def test_list_parses_does_not_group_across_guilds(app):
 
 @pytest.mark.asyncio
 async def test_list_parses_clamps_fight_limit(app):
-    """`limit` clamps the number of FIGHTS returned (not raw uploads).
-    The inner SQL cap is generous (limit*30) so grouping has headroom."""
+    """`limit` clamps the number of FIGHTS returned (not raw uploads). The
+    dataset is always built at the maximum fight cap (inner SQL cap 500*30)
+    and sliced per request, so every page size shares ONE cache entry."""
     captured = {}
+    calls = []
 
     def fake_list_sync(inner_cap, zone, size, world="Varsoon", search=None, before=None):
         captured["inner_cap"] = inner_cap
-        captured["zone"] = zone
-        captured["size"] = size
+        calls.append(inner_cap)
         return []
 
     with (
@@ -202,12 +203,16 @@ async def test_list_parses_clamps_fight_limit(app):
         patch("backend.server.api.parses.list._list_encounters_sync", side_effect=fake_list_sync),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            # Asking for 9999 should clamp the fight cap to 500 → inner=15000.
             await client.get("/api/parses?limit=9999")
             assert captured["inner_cap"] == 500 * 30
-            # Asking for 0 should floor the fight cap to 1 → inner=max(30, 2000) = 2000.
+            # A different page size is the same dataset: served from cache, no rebuild.
             await client.get("/api/parses?limit=0")
-            assert captured["inner_cap"] == 2000
+            assert len(calls) == 1
+            from backend.server.api.parses import list as parses_list
+
+            assert (
+                parses_list._LIST_CACHE.get(parses_list._list_cache_key("Varsoon", None, None, None, None)) is not None
+            )
 
 
 @pytest.mark.asyncio
@@ -496,10 +501,11 @@ async def test_list_parses_swr_serves_cached_and_single_flights(app):
 def test_invalidate_parses_list_cache_clears_entries():
     from backend.server.api.parses import list as parses_list
 
-    parses_list._LIST_CACHE.set("Varsoon|500||||", ([], [], 0))
-    assert parses_list._LIST_CACHE.get("Varsoon|500||||") is not None
+    key = parses_list._list_cache_key("Varsoon", None, None, None, None)
+    parses_list._LIST_CACHE.set(key, ([], [], 0))
+    assert parses_list._LIST_CACHE.get(key) is not None
     parses_list.invalidate_parses_list_cache()
-    assert parses_list._LIST_CACHE.get("Varsoon|500||||") is None
+    assert parses_list._LIST_CACHE.get(key) is None
 
 
 # ---------------------------------------------------------------------------

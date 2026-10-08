@@ -260,14 +260,15 @@ class CensusStore(PgCatalogue):
     def latest_guild_member_counts(conn: Any, world: str, names_lower: Iterable[str]) -> dict[str, int]:
         """Latest-known member count for each requested guild, keyed by
         name_lower; guilds with no history rows are simply absent. One
-        DISTINCT ON pass over guild_history. Feeds the recruiting browse
-        cards."""
-        wanted = set(names_lower)
+        DISTINCT ON pass over the wanted guilds' history (indexed per
+        guild, not a walk of every row on the world). Feeds the recruiting
+        browse cards."""
+        wanted = sorted(set(names_lower))
         if not wanted:
             return {}
         out: dict[str, int] = {}
-        for r in conn.execute(_SQL["select_latest_member_counts"], (world,)).fetchall():
-            if r["name_lower"] in wanted and r["members"] is not None:
+        for r in conn.execute(_SQL["select_latest_member_counts"], (world, wanted)).fetchall():
+            if r["members"] is not None:
                 out[r["name_lower"]] = int(r["members"])
         return out
 

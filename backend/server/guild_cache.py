@@ -469,7 +469,13 @@ async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
         # Nothing came back (Census down / guild gone) — end the page's
         # "Updating…" state rather than leaving it up forever.
         census_events.publish(
-            {"type": "guild", "key": census_refresh_guild_key(guild_name, world), "nochange": True, "fetched_at": now}
+            {
+                "type": "guild",
+                "key": census_refresh_guild_key(guild_name, world),
+                "world": world,
+                "nochange": True,
+                "fetched_at": now,
+            }
         )
         return
     info, _ = guild_cache.get_stale(guild_info_key(guild_name, world))
@@ -482,7 +488,13 @@ async def _persist_and_publish_guild(guild_name: str, world: str) -> None:
     guild_cache.delete(guild_history_key(guild_name, world))
     # SSE event carries the MERGED roster
     census_events.publish(
-        {"type": "guild", "key": census_refresh_guild_key(guild_name, world), "data": merged_data, "fetched_at": now}
+        {
+            "type": "guild",
+            "key": census_refresh_guild_key(guild_name, world),
+            "world": world,
+            "data": merged_data,
+            "fetched_at": now,
+        }
     )
 
 

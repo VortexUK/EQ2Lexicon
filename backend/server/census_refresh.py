@@ -88,7 +88,9 @@ async def _run_character_refresh(name: str, key: str, world: str) -> None:
             # Not found / not resolved → keep best-known. Tell the page the
             # refresh is over so its "Updating…" badge doesn't stay up forever
             # (Census returns nothing for anyone not logged in recently).
-            census_events.publish({"type": "character", "key": key, "nochange": True, "fetched_at": int(time.time())})
+            census_events.publish(
+                {"type": "character", "key": key, "world": world, "nochange": True, "fetched_at": int(time.time())}
+            )
             return
         resp = _build_char_response(char)  # CharacterResponse (pydantic)
         data = resp.model_dump()
@@ -104,7 +106,9 @@ async def _run_character_refresh(name: str, key: str, world: str) -> None:
         await run_sync(_persist)
         if resolved:
             character_cache.set(key, resp)
-            census_events.publish({"type": "character", "key": key, "data": data, "fetched_at": int(time.time())})
+            census_events.publish(
+                {"type": "character", "key": key, "world": world, "data": data, "fetched_at": int(time.time())}
+            )
     except Exception:
         _log.exception("[census-refresh] character %s failed", _scrub(name))
     finally:

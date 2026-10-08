@@ -25,7 +25,7 @@ ORDER BY day;
 -- :name select_latest_member_counts
 SELECT DISTINCT ON (name_lower) name_lower, members, day
 FROM guild_history
-WHERE world = %s
+WHERE world = %s AND name_lower = ANY(%s)
 ORDER BY name_lower, day DESC;
 
 -- :name upsert_character

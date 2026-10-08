@@ -170,8 +170,8 @@ def _screen_text(value: str, *, actor: str, guild: str, field: str) -> None:
         )
 
 
-async def _fmt_profile(profile: dict) -> RecruitmentProfileResponse:
-    ids = [i for i in (profile.get("updated_by"), profile.get("logo_uploaded_by")) if i]
+async def _fmt_profile(profile: dict, *, include_names: bool = True) -> RecruitmentProfileResponse:
+    ids = [i for i in (profile.get("updated_by"), profile.get("logo_uploaded_by")) if i] if include_names else []
     names = await get_display_names_for_discord_ids(ids) if ids else {}
     return RecruitmentProfileResponse(
         recruiting=profile["recruiting"],
@@ -261,11 +261,12 @@ async def _adventure_class_names() -> frozenset[str]:
 
 
 @router.get("/guild/{guild_name}/recruitment", response_model=RecruitmentProfileResponse)
-async def get_recruitment(guild_name: str) -> RecruitmentProfileResponse:
-    """Public — anyone may view a guild's recruitment profile."""
+async def get_recruitment(request: Request, guild_name: str) -> RecruitmentProfileResponse:
+    """Public — anyone may view a guild's recruitment profile. Officer
+    Discord display names are only shown to signed-in readers."""
     _validate_guild_name(guild_name)
     profile = await recruitment_db.get_profile(current_world(), guild_name)
-    return await _fmt_profile(profile)
+    return await _fmt_profile(profile, include_names=bool(request.session.get("user")))
 
 
 @router.put("/guild/{guild_name}/recruitment", response_model=RecruitmentProfileResponse)

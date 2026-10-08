@@ -17,12 +17,14 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.census.constants import ALL_CLASSES
+from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
 from backend.server.api.guild import _fetch_and_cache_guild, _officer_chars, _roster_rank_map
 from backend.server.auth_deps import is_admin
 from backend.server.cache import guild_cache
 from backend.server.core.audit_log import audit_log
 from backend.server.core.cache_keys import guild_roster_key
+from backend.server.core.executor import run_sync
 from backend.server.core.session_user import SessionUser
 from backend.server.core.validation import validate_character_name
 from backend.server.db import get_active_claims, get_display_names_for_discord_ids
@@ -436,8 +438,25 @@ async def put_character_availability(request: Request, guild_name: str, body: Ch
 
     name = body.character_name.strip()
     role_rows = await planning_db.get_roles(world, guild_name)
-    if name.lower() not in {r["character_name"].lower() for r in role_rows}:
+    role_row = next((r for r in role_rows if r["character_name"].lower() == name.lower()), None)
+    if role_row is None:
         raise HTTPException(status_code=400, detail=f"'{name}' is not on the planner roster.")
+    if role_row.get("placeholder"):
+        # Availability is keyed by (world, character), not by guild. A
+        # placeholder is a hand-typed name, so refuse when the census store
+        # knows that character as another guild's member — otherwise this
+        # guild's officers would be writing that guild's calendar.
+        def _stored_guild() -> str | None:
+            conn = census_store.init_db()
+            try:
+                rec = census_store.get_character(conn, name, world)
+            finally:
+                conn.close()
+            return ((rec or {}).get("data") or {}).get("guild_name")
+
+        owner = await run_sync(_stored_guild)
+        if owner and owner.lower() != guild_name.lower():
+            raise HTTPException(status_code=403, detail=f"'{name}' is a member of {owner}, not {guild_name}.")
 
     validated = _validate_days(body.days)
     await availability_db.set_character_days(world, name, validated, set_by=str(user["id"]))

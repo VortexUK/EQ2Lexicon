@@ -24,6 +24,10 @@ import pytest
 # parallel pytest-xdist invocations don't race on rmtree + mkdir.
 # ---------------------------------------------------------------------------
 
+# Route tests select tenants with the X-Server header, which server_context
+# honours only under a dev-style ENV (unset == closed, as in production).
+os.environ.setdefault("ENV", "dev")
+
 _PROC_SUFFIX = f"{os.getpid()}"
 _TEST_DB_DIR = Path(tempfile.gettempdir()) / f"eq2lexicon-pytest-{_PROC_SUFFIX}"
 _TEST_DB_DIR.mkdir(parents=True, exist_ok=True)

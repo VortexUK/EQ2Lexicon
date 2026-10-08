@@ -28,6 +28,12 @@ _SERVER_STATUS_URL = f"{_CENSUS_BASE_URL}/s:{_SERVICE_ID}/get/global/game_server
 
 _status: str = "unknown"  # "up" | "down" | "unknown"
 _checked_at: int = 0
+# Consecutive failed probes before the site-wide signal flips to "down". One
+# lost probe (a 5-minute cadence) used to switch every page to "stored data
+# only" for five minutes; the live breaker in backend/census/failures.py
+# already covers the burst-of-real-failures case.
+PROBE_FAILURES_TO_TRIP = 2
+_failed_probes: int = 0
 # {world_name: {"state": last_reported_state, "reported_at": unix}} for every
 # EQ2 server in the game_server_status feed. Refreshed by the same 5-minute
 # loop as the health probe.
@@ -35,8 +41,8 @@ _server_states: dict[str, dict] = {}
 
 
 def _reset_for_test() -> None:
-    global _status, _checked_at
-    _status, _checked_at = "unknown", 0
+    global _status, _checked_at, _failed_probes
+    _status, _checked_at, _failed_probes = "unknown", 0, 0
     _server_states.clear()
     failures._reset_for_test()
 
@@ -144,18 +150,27 @@ async def _probe_census() -> bool:
 async def refresh_health() -> str:
     """Probe once, update state, return the new status. Publishes an SSE health
     event on change (import is local to avoid a cycle)."""
-    global _status, _checked_at
+    global _status, _checked_at, _failed_probes
     ok = await _probe_census()
     if ok:
+        _failed_probes = 0
         # Same cadence as the probe; skipped while Census is down (the feed
         # lives on the same host, and stale-but-labelled beats churn).
         await _fetch_server_states()
-    new = "up" if ok else "down"
+        new = "up"
+    else:
+        _failed_probes += 1
+        # Hold the previous verdict until the failure streak is real.
+        new = "down" if _failed_probes >= PROBE_FAILURES_TO_TRIP else _status
     changed = new != _status
     _status, _checked_at = new, int(time.time())
     if changed:
         from backend.server import census_events
 
+        if new == "down":
+            _log.warning("[census-health] Census marked DOWN after %d failed probes", _failed_probes)
+        else:
+            _log.info("[census-health] Census marked %s", new.upper())
         census_events.publish({"type": "health", "status": _status, "checked_at": _checked_at})
     return _status
 

@@ -725,3 +725,53 @@ async def test_user_available_is_stored_but_hidden_from_calendar():
     timed = await availability_db.statuses_for_day_with_times("2026-08-01")
     status, stamp = timed["u1"]
     assert status == "available" and stamp > 0
+
+
+# ---------------------------------------------------------------------------
+# API — officer-set availability for placeholder raiders
+# ---------------------------------------------------------------------------
+
+
+def _store_character(name: str, guild_name: str) -> None:
+    from backend.census.store import store as census_store
+
+    conn = census_store.init_db()
+    try:
+        census_store.upsert_character(conn, name, _WORLD, {"guild_name": guild_name, "level": 70}, resolved=True)
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_character_availability_refuses_another_guilds_character(app):
+    """Availability is keyed by (world, character). A placeholder is a typed
+    name, so an officer must not be able to write the calendar of a
+    character the census store knows as another guild's member."""
+    await planning_db.set_role(_WORLD, _GUILD, "Ghosty", "raider", updated_by="u1", placeholder=True, cls="Templar")
+    _store_character("Ghosty", "Some Other Guild")
+    today = dt.date.today().isoformat()
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        r = await _put(
+            app,
+            f"/api/guild/{_GUILD}/raid-planning/availability",
+            {"character_name": "Ghosty", "days": {today: "afk"}},
+        )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_character_availability_allows_own_or_unknown_placeholder(app):
+    await planning_db.set_role(_WORLD, _GUILD, "Shady", "raider", updated_by="u1", placeholder=True, cls="Templar")
+    await planning_db.set_role(_WORLD, _GUILD, "Wispy", "raider", updated_by="u1", placeholder=True, cls="Templar")
+    _store_character("Shady", _GUILD)  # same guild → fine; Wispy is unknown to the store → fine
+    today = dt.date.today().isoformat()
+    p = _planner_patches(officer=True)
+    with p[0], p[1], p[2], p[3], p[4]:
+        for name in ("Shady", "Wispy"):
+            r = await _put(
+                app,
+                f"/api/guild/{_GUILD}/raid-planning/availability",
+                {"character_name": name, "days": {today: "afk"}},
+            )
+            assert r.status_code == 200, r.text

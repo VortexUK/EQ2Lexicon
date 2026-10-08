@@ -40,7 +40,10 @@ _by_world: dict[str, Server] = {}
 
 _active_server: ContextVar[Server | None] = ContextVar("active_server", default=None)
 
-_ALLOW_OVERRIDE = os.getenv("ENV", "dev").lower() not in ("prod", "production")
+# The X-Server / ?server= tenant override is a dev/test convenience. It is
+# only honoured when ENV says so explicitly — an unset ENV used to mean
+# "dev" and let any prod client pick its tenant.
+_ALLOW_OVERRIDE = os.getenv("ENV", "").strip().lower() in ("dev", "development", "local", "test")
 
 
 def _to_server(row: dict) -> Server:

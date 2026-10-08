@@ -406,7 +406,6 @@ async def search_items(
     offset = (page - 1) * per_page
 
     async with pg.aconnection(_ITEMS_SCHEMA, autocommit=True) as db:
-
         # Total count. Every stat JOIN hits item_stats on its (item_id, stat)
         # PRIMARY KEY, so joins can never fan an item out into multiple rows —
         # plain COUNT(*) is exact (no GROUP BY needed).

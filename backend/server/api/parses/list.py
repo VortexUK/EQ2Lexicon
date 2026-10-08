@@ -588,6 +588,15 @@ async def _list_swr(key: str, builder: Callable[[], tuple]) -> tuple[list[dict],
     return await asyncio.shield(_list_build_task(key, builder))
 
 
+# The dataset is always built at the maximum fight cap and sliced per request,
+# so `limit` is not part of the key: every page size shares one build.
+_LIST_INNER_CAP = max(PARSE_LIST_MAX_LIMIT * PARSE_INNER_CAP_MULTIPLIER, PARSE_INNER_CAP_FLOOR)
+
+
+def _list_cache_key(world: str, zone: str | None, size: str | None, search: str | None, before: int | None) -> str:
+    return f"{world}|{zone or ''}|{size or ''}|{search or ''}|{before or ''}"
+
+
 def invalidate_parses_list_cache() -> None:
     """Drop every cached /parses page — call after any mutation that
     changes what the list shows (delete/hide/purge). Uploads are NOT a
@@ -607,11 +616,9 @@ async def prewarm_parses_list() -> None:
     except Exception as exc:
         _log.warning("[parses] list prewarm skipped — registry unavailable: %s", exc)
         return
-    limit = PARSE_LIST_MAX_LIMIT
-    inner_cap = max(limit * PARSE_INNER_CAP_MULTIPLIER, PARSE_INNER_CAP_FLOOR)
     for world in worlds:
-        key = f"{world}|{limit}||||"
-        builder = functools.partial(_build_list_dataset, inner_cap, None, None, world, None, None)
+        key = _list_cache_key(world, None, None, None, None)
+        builder = functools.partial(_build_list_dataset, _LIST_INNER_CAP, None, None, world, None, None)
         try:
             await _list_build_task(key, builder)
         except Exception:
@@ -646,19 +653,16 @@ async def list_parses(
     if size and size not in SIZE_BUCKETS:
         size = None
 
-    # Inner SQL cap: generous enough that even a worst-case 24-mirror raid
-    # would yield well over `limit` fights after grouping. 30x is the magic
-    # number — for limit=500, inner=15000 uploads covers 625 fights at the
-    # 24-mirror worst case, or 15000 unique fights at one-upload-per-fight.
-    inner_cap = max(limit * PARSE_INNER_CAP_MULTIPLIER, PARSE_INNER_CAP_FLOOR)
-
     # Capture the request's active world OUTSIDE the threadpool closure
     # below — explicit, and independent of run_sync's contextvar
     # propagation.
     active_world = current_world()
 
-    builder = functools.partial(_build_list_dataset, inner_cap, zone, size, active_world, search, before)
-    key = f"{active_world}|{limit}|{zone or ''}|{size or ''}|{search or ''}|{before or ''}"
+    # Inner SQL cap: generous enough that even a worst-case 24-mirror raid
+    # yields well over the maximum fight cap after grouping (30x: 15000
+    # uploads covers 625 fights at the 24-mirror worst case).
+    builder = functools.partial(_build_list_dataset, _LIST_INNER_CAP, zone, size, active_world, search, before)
+    key = _list_cache_key(active_world, zone, size, search, before)
     encounters, fights, total_fights = await _list_swr(key, builder)
     fights = fights[:limit]
 
@@ -727,7 +731,7 @@ async def list_parses(
     # count overflowed the fight limit OR the raw SQL window itself was full
     # (older rows never even reached the grouper). The client passes
     # ``next_before`` back as ``before`` to fetch the next window.
-    has_more = total_fights > limit or len(encounters) >= inner_cap
+    has_more = total_fights > limit or len(encounters) >= _LIST_INNER_CAP
     next_before = fights[-1]["started_at"] if (fights and has_more) else None
     return ParsesListResponse(results=results, total=total_fights, next_before=next_before)
 

@@ -35,9 +35,9 @@ class GuildSettingsInput(BaseModel):
     officers_can_delete_parses: bool
 
 
-async def _to_response(settings: dict) -> GuildSettingsResponse:
+async def _to_response(settings: dict, *, include_names: bool = True) -> GuildSettingsResponse:
     name: str | None = None
-    if settings.get("updated_by"):
+    if include_names and settings.get("updated_by"):
         names = await get_display_names_for_discord_ids([settings["updated_by"]])
         name = names.get(settings["updated_by"])
     return GuildSettingsResponse(
@@ -48,10 +48,12 @@ async def _to_response(settings: dict) -> GuildSettingsResponse:
 
 
 @router.get("/guild/{guild_name}/settings", response_model=GuildSettingsResponse)
-async def get_guild_settings(guild_name: str) -> GuildSettingsResponse:
-    """Public — anyone may read a guild's switches."""
+async def get_guild_settings(request: Request, guild_name: str) -> GuildSettingsResponse:
+    """Public — anyone may read a guild's switches. The officer's Discord
+    display name is only shown to signed-in readers."""
     _validate_guild_name(guild_name)
-    return await _to_response(await guild_settings_db.get_settings(current_world(), guild_name))
+    settings = await guild_settings_db.get_settings(current_world(), guild_name)
+    return await _to_response(settings, include_names=bool(request.session.get("user")))
 
 
 @router.put("/guild/{guild_name}/settings", response_model=GuildSettingsResponse)

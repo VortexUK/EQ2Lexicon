@@ -104,7 +104,9 @@ _METRIC_FIELD = {"dps": "encdps", "hps": "enchps"}  # speed handled separately
 # traffic can exhaust the plan's monthly egress. max_age=6h means a stale
 # board serves instantly with a background rebuild; only a completely cold
 # cache builds inline.
-rankings_cache: TTLCache = TTLCache(ttl=600, max_age=6 * 3600, name="rankings", maxsize=4)
+# One entry per world (the kills key) — maxsize is a registry-size bound, not
+# a memory bound; at 4 it silently evicted the fifth world's dataset.
+rankings_cache: TTLCache = TTLCache(ttl=600, max_age=6 * 3600, name="rankings", maxsize=64)
 _KILLS_KEY = "primary_boss_kills"
 
 

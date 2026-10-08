@@ -25,6 +25,10 @@ def subscribe() -> asyncio.Queue:
     return q
 
 
+def subscriber_count() -> int:
+    return len(_subscribers)
+
+
 def unsubscribe(q: asyncio.Queue) -> None:
     _subscribers.discard(q)
     SSE_SUBSCRIBERS.set(len(_subscribers))

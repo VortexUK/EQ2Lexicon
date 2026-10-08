@@ -32,9 +32,36 @@ async def test_probe_marks_down_on_failure(monkeypatch):
         return False
 
     monkeypatch.setattr(ch, "_probe_census", fake_probe)
+    # One lost probe is not an outage: the verdict holds until the streak
+    # reaches PROBE_FAILURES_TO_TRIP.
+    await ch.refresh_health()
+    assert ch.get_state()["status"] == "unknown"
+    assert ch.is_down() is False
     await ch.refresh_health()
     assert ch.get_state()["status"] == "down"
     assert ch.is_down() is True
+
+
+@pytest.mark.asyncio
+async def test_single_failed_probe_keeps_up(monkeypatch):
+    ch._reset_for_test()
+    results = iter([True, False, True])
+
+    async def fake_probe() -> bool:
+        return next(results)
+
+    async def no_states() -> None:
+        return None
+
+    monkeypatch.setattr(ch, "_probe_census", fake_probe)
+    monkeypatch.setattr(ch, "_fetch_server_states", no_states)
+    await ch.refresh_health()
+    assert ch.get_state()["status"] == "up"
+    await ch.refresh_health()  # one blip
+    assert ch.get_state()["status"] == "up"
+    await ch.refresh_health()  # recovered: the streak resets
+    assert ch.get_state()["status"] == "up"
+    assert ch._failed_probes == 0
 
 
 # ---------------------------------------------------------------------------

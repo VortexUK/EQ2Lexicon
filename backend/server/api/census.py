@@ -6,12 +6,17 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from backend.server import census_events, census_health
 
 router = APIRouter(tags=["census"])
+
+# Open streams hold a request slot each; a browser tab opens one. Well above
+# any real audience, well below what would let a scripted client exhaust
+# uvicorn.
+MAX_STREAM_SUBSCRIBERS = 500
 
 
 @router.get("/census/health")
@@ -37,6 +42,17 @@ async def get_server_status() -> dict:
 
 @router.get("/census/stream")
 async def census_stream(request: Request) -> StreamingResponse:
+    """Refresh + health events for the signed-in user's world. Events that
+    carry another world's key are dropped here rather than broadcast (one
+    process serves every subdomain)."""
+    from backend.server.server_context import current_world
+
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if census_events.subscriber_count() >= MAX_STREAM_SUBSCRIBERS:
+        raise HTTPException(status_code=503, detail="Too many open streams")
+    world = current_world()
+
     async def gen():
         q = census_events.subscribe()
         # Prime the client with the current health snapshot.
@@ -47,6 +63,8 @@ async def census_stream(request: Request) -> StreamingResponse:
                     break
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=20)
+                    if event.get("world") not in (None, world):
+                        continue  # another tenant's refresh
                     yield _sse(event)
                 except TimeoutError:
                     yield ": keep-alive\n\n"  # comment ping survives proxy idle timeouts

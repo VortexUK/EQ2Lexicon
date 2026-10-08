@@ -367,3 +367,85 @@ class TestCensusStreamResponse:
         assert isinstance(response, StreamingResponse)
         assert response.media_type == "text/event-stream"
         assert response.headers.get("Cache-Control") == "no-cache"
+
+
+class TestCensusStreamAccess:
+    """The stream is session-gated, capped, and scoped to the request's world."""
+
+    def setup_method(self):
+        census_events._reset_for_test()
+        census_health._reset_for_test()
+
+    def teardown_method(self):
+        census_events._reset_for_test()
+        census_health._reset_for_test()
+
+    async def test_anonymous_request_is_rejected(self):
+        from unittest.mock import MagicMock
+
+        from fastapi import HTTPException
+
+        from backend.server.api.census import census_stream
+
+        fake_request = MagicMock()
+        fake_request.session = {}
+        with pytest.raises(HTTPException) as exc:
+            await census_stream(fake_request)
+        assert exc.value.status_code == 401
+
+    async def test_subscriber_cap_returns_503(self):
+        from unittest.mock import MagicMock
+
+        from fastapi import HTTPException
+
+        from backend.server.api import census as census_api
+
+        fake_request = MagicMock()
+        fake_request.session = {"user": {"id": "u1"}}
+        with patch.object(census_events, "subscriber_count", return_value=census_api.MAX_STREAM_SUBSCRIBERS):
+            with pytest.raises(HTTPException) as exc:
+                await census_api.census_stream(fake_request)
+        assert exc.value.status_code == 503
+
+    async def test_other_worlds_events_are_dropped(self):
+        """One process serves every subdomain: a refresh for another world
+        must not reach this request's stream."""
+        from unittest.mock import MagicMock
+
+        from backend.server.api.census import census_stream
+
+        calls = 0
+
+        async def _is_disconnected():
+            nonlocal calls
+            calls += 1
+            return calls >= 4
+
+        fake_request = MagicMock()
+        fake_request.session = {"user": {"id": "u1"}}
+        fake_request.is_disconnected = _is_disconnected
+
+        seeded = [
+            {"type": "character", "key": "x:Other", "world": "Other", "fetched_at": 1},
+            {"type": "character", "key": "x:Varsoon", "world": "Varsoon", "fetched_at": 2},
+        ]
+        original_subscribe = census_events.subscribe
+
+        def _subscribe_with_seed():
+            q = original_subscribe()
+            for e in seeded:
+                q.put_nowait(e)
+            return q
+
+        with patch("backend.server.api.census.census_events.subscribe", side_effect=_subscribe_with_seed):
+            response = await census_stream(fake_request)
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk if isinstance(chunk, str) else chunk.decode())
+                if len(chunks) >= 2:
+                    break
+
+        # chunk[0] = health prime; chunk[1] = the Varsoon event (Other was dropped)
+        payload = json.loads(chunks[1][len("data: ") :].strip())
+        assert payload["world"] == "Varsoon"
+        assert all(json.loads(c[len("data: ") :].strip()).get("world") != "Other" for c in chunks)
