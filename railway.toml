@@ -1,5 +1,11 @@
 [build]
 builder = "nixpacks"
+# Only redeploy when something that ships in the image changes. Railway reads
+# `watchPatterns` here under [build] — a `watchPaths` key under [deploy] is
+# silently ignored, which is why dashboard/doc commits used to redeploy.
+# gitignore-style, matched from the repo root; negations need a preceding
+# include (`**`).
+watchPatterns = ["**", "!/ops/**", "!/docs/**", "!/.github/**", "!/*.md"]
 
 [deploy]
 # Start sequence (post-Phase-2: every data family lives in Supabase
@@ -33,4 +39,3 @@ restartPolicyMaxRetries = 10
 # handling) + gated cutover here.
 healthcheckPath = "/api/health"
 healthcheckTimeout = 300
-watchPaths = ["**", "!ops/**", "!docs/**"]

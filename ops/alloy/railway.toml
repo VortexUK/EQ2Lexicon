@@ -1,7 +1,9 @@
 [build]
 builder = "dockerfile"
 dockerfilePath = "Dockerfile"
+# Railway reads watchPatterns under [build]; patterns match from the repo
+# root even though this service's root directory is ops/alloy.
+watchPatterns = ["/ops/alloy/**"]
 
 [deploy]
 restartPolicyType = "always"
-watchPaths = ["alloy/**"]
