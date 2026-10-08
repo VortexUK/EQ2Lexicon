@@ -34,7 +34,13 @@ async def run_bot() -> None:
     import discord
 
     from backend.bot.bot import EQ2Bot
+    from backend.server.core import leader
 
+    # Exactly one process may hold the Discord gateway: wait for the leader
+    # lease (the overlapping container of a deploy stands by until the old
+    # one exits). The web half is unaffected.
+    if not await leader.wait_until_leader(stop=_shutdown):
+        return
     bot = EQ2Bot()
     try:
         async with bot:

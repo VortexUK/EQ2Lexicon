@@ -59,6 +59,9 @@ def provision_for_session() -> None:
     # DATABASE_URL is the highest-precedence name pg.dsn() reads, so this
     # guarantees no test can ever write to the .env Supabase DSN.
     os.environ["DATABASE_URL"] = test_dsn
+    # Every test lifespan is "the leader": the advisory-lock lease would
+    # otherwise make parallel test processes stand by for each other.
+    os.environ.setdefault("LEADER_LEASE", "0")
 
     params: dict[str, Any] = conninfo.conninfo_to_dict(test_dsn)
     dbname = str(params.get("dbname") or "eq2lexicon_test")

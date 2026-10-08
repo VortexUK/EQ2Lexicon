@@ -403,19 +403,34 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         from backend.server.api.parses.list import prewarm_parses_list
         from backend.server.api.rankings import prewarm_rankings_kills
 
+        async def _leader_singletons() -> None:
+            """Loops that must run in exactly ONE process: wait for the
+            leader lease (a deploy's overlapping container stands by), then
+            run them together; cancelling this task cancels them all."""
+            from backend.server.core import leader
+
+            if not await leader.wait_until_leader():
+                return
+            await asyncio.gather(
+                refresh_queue.worker_loop(),
+                _parse_cleanup_loop(),
+                raid_live.poll_loop(),
+                xpac_rollover.poll_loop(),
+                recruitment_sweep.sweep_loop(),
+            )
+
+        # Per-process: prewarms (this process serves traffic), the in-memory
+        # cache sweep, the health probe (is_down() is read here) and the lag
+        # sampler. Leader-only: everything that writes or posts.
         tasks: list[asyncio.Task] = [
             asyncio.create_task(prewarm_character_cache(), name="prewarm-character-cache"),
             asyncio.create_task(prewarm_server_stats(), name="prewarm-server-stats"),
             asyncio.create_task(prewarm_rankings_kills(), name="prewarm-rankings-kills"),
             asyncio.create_task(prewarm_parses_list(), name="prewarm-parses-list"),
-            asyncio.create_task(refresh_queue.worker_loop(), name="refresh-queue-worker"),
             asyncio.create_task(_cache_sweep_loop(), name="cache-sweep-loop"),
             asyncio.create_task(census_health.poll_loop(), name="census-health-poll"),
-            asyncio.create_task(_parse_cleanup_loop(), name="parse-cleanup-loop"),
-            asyncio.create_task(raid_live.poll_loop(), name="raid-live-poll"),
-            asyncio.create_task(xpac_rollover.poll_loop(), name="xpac-rollover-poll"),
-            asyncio.create_task(recruitment_sweep.sweep_loop(), name="recruitment-sweep"),
             asyncio.create_task(_event_loop_lag_loop(), name="event-loop-lag"),
+            asyncio.create_task(_leader_singletons(), name="leader-singletons"),
         ]
 
         try:
@@ -427,6 +442,9 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             # Collect cancellation acknowledgements; swallow CancelledError
             # because that's exactly what we asked for.
             await asyncio.gather(*tasks, return_exceptions=True)
+            from backend.server.core import leader
+
+            await asyncio.to_thread(leader.release)
             # Close the shared aiohttp session(s) so the process exits
             # without aiohttp's "Unclosed client session" warning.
             await census_lifecycle.aclose_all()
