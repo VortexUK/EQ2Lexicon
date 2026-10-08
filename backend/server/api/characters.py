@@ -64,8 +64,7 @@ def _store_search_sync(q: str, world: str) -> list[CharNameResult]:
 
 async def _local_search(q: str, world: str) -> list[CharNameResult]:
     """Claims-only fallback, scoped to one world (claims carry a world column)."""
-    async with pg.aconnection() as db:
-        await db.execute(pg.search_path_sql(_USERS_SCHEMA))
+    async with pg.aconnection(_USERS_SCHEMA, autocommit=True) as db:
         async with await db.execute(_SQL["local_search_by_prefix"], (f"{q.lower()}%", world)) as cur:
             rows = await cur.fetchall()
     return [CharNameResult(name=r["character_name"]) for r in rows]

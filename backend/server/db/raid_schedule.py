@@ -33,7 +33,7 @@ class RaidScheduleStore(PgStoreBase):
 
     async def get_schedule(self, world: str, guild_name: str) -> list[dict]:
         """Return this guild's raid teams (ordered) each with a ``raids`` list."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_teams"], (world, guild_name)) as cur:
                 teams = [dict(r) for r in await cur.fetchall()]
             return await RaidScheduleStore._teams_with_slots(db, teams)
@@ -92,7 +92,7 @@ class RaidScheduleStore(PgStoreBase):
     async def list_all_teams_with_twitch(self) -> list[dict]:
         """Every team across all worlds/guilds that has a twitch_login, each with
         its raids. Used by the Twitch-live poller (Part 2)."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_teams_with_twitch"]) as cur:
                 teams = [dict(r) for r in await cur.fetchall()]
             return await RaidScheduleStore._teams_with_slots(db, teams)

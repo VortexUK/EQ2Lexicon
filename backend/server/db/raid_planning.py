@@ -36,7 +36,7 @@ class RaidPlanningStore(PgStoreBase):
 
     async def get_roles(self, world: str, guild_name: str) -> list[dict]:
         """All roster designations for a guild: [{character_name, role, ...}]."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_roles"], (world, guild_name)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
@@ -76,7 +76,7 @@ class RaidPlanningStore(PgStoreBase):
 
     async def get_placements(self, world: str, guild_name: str, team_index: int) -> list[dict]:
         """One team's layout: [{character_name, group_num, slot, sitout}]."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_placements"], (world, guild_name, team_index)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
@@ -129,7 +129,7 @@ class RaidPlanningStore(PgStoreBase):
         """{character_name_lower: role} across every guild on the world —
         the home-page availability panel checks the viewer's claimed
         characters against this to decide whether to show itself."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_roles_for_world"], (world,)) as cur:
                 return {r["name_lower"]: r["role"] for r in await cur.fetchall()}
 
@@ -139,14 +139,14 @@ class RaidPlanningStore(PgStoreBase):
         """{character_name_lower: discord_id} for every approved claim on the
         world — who plays whom, for availability overlay + the duplicate-
         player warning."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_claims_for_world"], (world,)) as cur:
                 return {r["name_lower"]: r["discord_id"] for r in await cur.fetchall()}
 
     async def primary_claims(self, world: str) -> set[str]:
         """Lower-cased names of every primary-claimed character on the world —
         the tie-breaker when a player has several rostered raiders."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_primary_claims_for_world"], (world,)) as cur:
                 return {r["name_lower"] for r in await cur.fetchall()}
 

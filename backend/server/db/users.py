@@ -65,7 +65,7 @@ class UsersStore(PgStoreBase):
 
     async def get_user_access_status(self, discord_id: str) -> str:
         """Return the access_status for a user, or 'pending' if not found."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_access_status"], (discord_id,)) as cur:
                 row = await cur.fetchone()
         return row["access_status"] if row else "pending"
@@ -78,7 +78,7 @@ class UsersStore(PgStoreBase):
         callers handle the fallback display."""
         if not ids:
             return {}
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             # The id list binds as ONE array parameter (= ANY) — no composed
             # placeholder strings and no variable-count limits.
             async with await db.execute(_SQL["select_display_names_by_ids"], (ids,)) as cur:
@@ -87,7 +87,7 @@ class UsersStore(PgStoreBase):
 
     async def list_pending_users(self) -> list[dict]:
         """Return all users with access_status = 'pending', newest first."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["list_pending_users"]) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
@@ -104,14 +104,14 @@ class UsersStore(PgStoreBase):
 
     async def list_all_users(self) -> list[dict]:
         """Return all users with access_status and total claim count, newest first."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["list_all_users_with_claim_count"]) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
     async def get_session_access(self, discord_id: str) -> tuple[str, int] | None:
         """``(access_status, session_epoch)`` for a user, or None when there is no row."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_session_access"], (discord_id,)) as cur:
                 row = await cur.fetchone()
         return (row["access_status"], int(row["session_epoch"])) if row else None
@@ -171,7 +171,7 @@ class UsersStore(PgStoreBase):
 
     async def list_roles_for_user(self, discord_id: str) -> list[str]:
         """All roles assigned to a single user, sorted for stable display."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["list_roles_for_user"],
                 (discord_id,),
@@ -182,7 +182,7 @@ class UsersStore(PgStoreBase):
     async def has_role(self, discord_id: str, role: str) -> bool:
         """Cheap (indexed) existence check — used on the hot path of the editor
         auth dep, so kept as a single-row SELECT rather than reusing list_roles."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["check_has_role"],
                 (discord_id, role),
@@ -235,7 +235,7 @@ class UsersStore(PgStoreBase):
             if status == "pending"
             else "ORDER BY rr.requested_at DESC, rr.id DESC"
         )
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["list_role_requests"].format(where_sql=where_sql, order_sql=order_sql),
                 params,
@@ -247,7 +247,7 @@ class UsersStore(PgStoreBase):
         """Single-row fetch, same shape as list_role_requests entries. Used by the
         admin approve/reject endpoints for the 404 check + the role/discord_id
         payload that the grant flow needs."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["get_role_request"],
                 (request_id,),
@@ -338,7 +338,7 @@ class UsersStore(PgStoreBase):
         Single JOIN'd EXISTS query — indexed on both join keys. Doesn't consider
         admin (synthetic) or officer (dynamic) — those live in the auth dep on
         top of this primitive."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["check_user_has_capability"],
                 (discord_id, capability),
@@ -354,7 +354,7 @@ class UsersStore(PgStoreBase):
 
         Used by the auth dep to decide whether to bother running the dynamic
         officer check at all — if officers don't have the capability, no point."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["check_role_has_capability"],
                 (role, capability),
@@ -366,7 +366,7 @@ class UsersStore(PgStoreBase):
 
         Used by the admin user-list endpoint to join roles in without N+1 queries
         against ``list_roles_for_user``."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["list_all_role_assignments"]) as cur:
                 rows = await cur.fetchall()
         out: dict[str, list[str]] = {}

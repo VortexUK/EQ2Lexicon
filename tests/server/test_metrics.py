@@ -189,7 +189,7 @@ def test_sse_subscribers_gauge_tracks_subscribe_unsubscribe():
 
 
 def test_duration_buckets_reach_60s():
-    assert metrics.HTTP_DURATION_BUCKETS == (0.01, 0.05, 0.1, 0.25, 1.0, 2.5, 5, 10, 30, 60)
+    assert metrics.HTTP_DURATION_BUCKETS == (0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.5, 5, 10, 30, 60)
     assert REGISTRY.get_sample_value("http_request_duration_seconds_bucket", {"path": "/x", "le": "60.0"}) is None
     metrics.HTTP_REQUEST_DURATION.labels(path="/x").observe(32)
     assert REGISTRY.get_sample_value("http_request_duration_seconds_bucket", {"path": "/x", "le": "60.0"}) == 1

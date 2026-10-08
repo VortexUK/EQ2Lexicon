@@ -113,8 +113,7 @@ def erase_user_sync(
     result = ErasureResult(found=False)
 
     schema = users_schema if users_schema is not None else _users_db.SCHEMA
-    with pg.connection() as conn:
-        conn.execute(pg.search_path_sql(schema))
+    with pg.connection(schema) as conn:
         # The users-referencing FKs are DEFERRABLE INITIALLY IMMEDIATE —
         # defer them all so statement order inside this transaction is free.
         conn.execute("SET CONSTRAINTS ALL DEFERRED")
@@ -147,10 +146,11 @@ def erase_user_sync(
         if cur.rowcount:
             result.deleted["users"] = cur.rowcount
 
-        # ---- parses half: SAME transaction, schema switched in place.
-        # SET search_path is transactional, so the whole erasure commits or
-        # rolls back as one unit, so a crash can't leave a half-erased account.
-        conn.execute(pg.search_path_sql(parses_schema if parses_schema is not None else _parses_db.SCHEMA))
+        # ---- parses half: SAME transaction, schema switched in place with
+        # SET LOCAL, so the whole erasure commits or rolls back as one unit
+        # (a crash can't leave a half-erased account) and the connection's
+        # remembered schema (pg.py) is still true once the transaction ends.
+        conn.execute(pg.local_search_path_sql(parses_schema if parses_schema is not None else _parses_db.SCHEMA))
         dsn = f"plugin:{discord_id}"
         cur = conn.execute("UPDATE encounters SET source_dsn = %s WHERE source_dsn = %s", (DELETED_SOURCE_DSN, dsn))
         result.parses_anonymised = cur.rowcount

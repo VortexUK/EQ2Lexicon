@@ -405,8 +405,7 @@ async def search_items(
 
     offset = (page - 1) * per_page
 
-    async with pg.aconnection() as db:
-        await db.execute(pg.search_path_sql(_ITEMS_SCHEMA))
+    async with pg.aconnection(_ITEMS_SCHEMA, autocommit=True) as db:
 
         # Total count. Every stat JOIN hits item_stats on its (item_id, stat)
         # PRIMARY KEY, so joins can never fan an item out into multiple rows —
@@ -518,8 +517,7 @@ async def get_spell_scroll(name: str, tier: str) -> SpellScrollResult:
     # Look up the item in the items catalogue
     if _items.ready():
         scroll_name = f"{name} ({tier})".lower()
-        async with pg.aconnection() as db:
-            await db.execute(pg.search_path_sql(_ITEMS_SCHEMA))
+        async with pg.aconnection(_ITEMS_SCHEMA, autocommit=True) as db:
             cur = await db.execute(
                 "SELECT id FROM items WHERE displayname_lower = %s AND LOWER(typeinfo_name) = 'spellscroll' LIMIT 1",
                 (scroll_name,),

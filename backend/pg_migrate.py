@@ -103,4 +103,7 @@ def run(*, directory: Path | None = None) -> list[str]:
     """Open a connection (pool-less safe) and apply. The app lifespan and
     conftest both call this."""
     with pg.connection() as conn:
-        return apply_migrations(conn, directory=directory)
+        try:
+            return apply_migrations(conn, directory=directory)
+        finally:
+            pg.forget_schema(conn)  # the files SET search_path themselves

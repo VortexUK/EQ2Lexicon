@@ -49,27 +49,27 @@ class FavoritesStore(PgStoreBase):
         """How many users favourited this character. Kept separate from the
         membership lookup so the API layer can cache the count and genuinely skip
         this query (and its connection) on a cache hit."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["count_for_character"], (character_name, world)) as cur:
                 row = await cur.fetchone()
                 return row["n"] if row else 0
 
     async def is_favorited(self, discord_id: str, character_name: str, world: str) -> bool:
         """Point lookup on the UNIQUE index — has this user favourited this character?"""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_is_favorited"], (discord_id, character_name, world)) as cur:
                 return await cur.fetchone() is not None
 
     async def count_user_favorites(self, discord_id: str, world: str) -> int:
         """How many characters this user has favourited on this world."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["count_for_user"], (discord_id, world)) as cur:
                 row = await cur.fetchone()
                 return row["n"] if row else 0
 
     async def list_favorites(self, discord_id: str, world: str) -> list[dict]:
         """The user's favourites on this world, newest first."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_for_user"], (discord_id, world)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 

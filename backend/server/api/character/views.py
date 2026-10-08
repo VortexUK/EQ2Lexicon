@@ -389,8 +389,7 @@ async def _prewarm_for_world(world: str, sem: asyncio.Semaphore) -> None:
     from backend.server.db import SCHEMA as _USERS_SCHEMA
 
     try:
-        async with pg.aconnection() as db:
-            await db.execute(pg.search_path_sql(_USERS_SCHEMA))
+        async with pg.aconnection(_USERS_SCHEMA, autocommit=True) as db:
             async with await db.execute(
                 "SELECT DISTINCT character_name FROM character_claims WHERE status = 'approved' AND world = %s",
                 (world,),

@@ -36,14 +36,14 @@ class DownloadsStore(PgStoreBase):
 
     async def count_for_slug(self, slug: str) -> int:
         """Distinct downloaders for one slug."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["count_for_slug"], (slug,)) as cur:
                 row = await cur.fetchone()
                 return row["n"] if row else 0
 
     async def counts(self) -> dict[str, int]:
         """Distinct-downloader count for every slug that has at least one row."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["count_all"]) as cur:
                 return {row["slug"]: row["n"] for row in await cur.fetchall()}
 

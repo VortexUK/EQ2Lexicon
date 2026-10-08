@@ -39,7 +39,7 @@ class ClaimsStore(PgStoreBase):
         Claims are scoped to (discord_id, world) — a user's Varsoon and Wuoshi
         primaries are completely independent.
         """
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["list_active_claims"],
                 (discord_id, world),
@@ -169,7 +169,7 @@ class ClaimsStore(PgStoreBase):
         claim_id: int,
     ) -> dict | None:
         """Return a single claim joined with its submitting user's info."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["find_claim_with_user"],
                 (claim_id,),
@@ -189,7 +189,7 @@ class ClaimsStore(PgStoreBase):
         Pending claims are sorted oldest-first (queue order).
         All other statuses are sorted newest-first.
         """
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             where_parts: list[str] = []
             params: list = []
             if status:

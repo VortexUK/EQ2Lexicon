@@ -57,7 +57,7 @@ class AvailabilityStore(PgStoreBase):
 
     async def get_range(self, discord_id: str, from_day: str, to_day: str) -> dict[str, str]:
         """{YYYY-MM-DD: 'tentative'|'afk'} for the window. Absent = available."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_range"], (discord_id, from_day, to_day)) as cur:
                 return {r["day"]: r["status"] for r in await cur.fetchall()}
 
@@ -78,7 +78,7 @@ class AvailabilityStore(PgStoreBase):
     async def statuses_for_day(self, day: str) -> dict[str, str]:
         """{discord_id: status} for every user with a non-default entry on
         ``day`` — the raid planner overlays this onto the claims map."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_statuses_for_day"], (day,)) as cur:
                 return {r["discord_id"]: r["status"] for r in await cur.fetchall()}
 
@@ -86,7 +86,7 @@ class AvailabilityStore(PgStoreBase):
         """{discord_id: (status, updated_at)} — for the newest-edit-wins
         merge against officer character entries. Rows without a stamp
         carry updated_at 0, so any stamped officer edit beats them."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_statuses_for_day_with_times"], (day,)) as cur:
                 return {r["discord_id"]: (r["status"], r["updated_at"]) for r in await cur.fetchall()}
 
@@ -109,14 +109,14 @@ class AvailabilityStore(PgStoreBase):
         """{character_name_lower: status} for officer-set entries on ``day``
         (``available`` rows included — consumers checking for 'afk' are
         unaffected; the planner merge drops them after precedence)."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["char_statuses_for_day"], (world, day)) as cur:
                 return {r["character_name"]: r["status"] for r in await cur.fetchall()}
 
     async def char_statuses_for_day_with_times(self, world: str, day: str) -> dict[str, tuple[str, int]]:
         """{character_name_lower: (status, updated_at)} — the officer half
         of the newest-edit-wins planner merge."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["char_statuses_for_day_with_times"], (world, day)) as cur:
                 return {r["character_name"]: (r["status"], r["updated_at"]) for r in await cur.fetchall()}
 

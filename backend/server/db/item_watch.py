@@ -60,7 +60,7 @@ class ItemWatchStore(PgStoreBase):
         world: str = "Varsoon",
     ) -> list[dict]:
         """Return all item watch entries for a guild on a given server, ordered by added_at descending."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["list_for_guild"], (guild_name, world)) as cur:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]

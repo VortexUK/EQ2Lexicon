@@ -70,12 +70,17 @@ class PgStoreBase(SchemaBound):
     correct (and make the commit point explicit)."""
 
     @asynccontextmanager
-    async def _db(self, *, row_factory: bool = True) -> AsyncIterator[Any]:
+    async def _db(self, *, row_factory: bool = True, autocommit: bool = False) -> AsyncIterator[Any]:
         from backend import pg  # deferred: sync-only consumers never pay the import
 
-        async with pg.aconnection() as conn:
-            await conn.execute(pg.search_path_sql(self.schema))
+        async with pg.aconnection(self.schema, autocommit=autocommit) as conn:
             yield conn
+
+    def _read(self) -> Any:
+        """``_db()`` for a method that only SELECTs: autocommit, so the call
+        is one round trip instead of BEGIN + query + COMMIT. Never use it
+        for a block that must be atomic across statements."""
+        return self._db(autocommit=True)
 
 
 class PgConnProxy:
@@ -92,8 +97,7 @@ class PgConnProxy:
         from backend import pg
 
         self._pg = pg
-        self._conn: Any = pg.getconn()
-        self._conn.execute(pg.search_path_sql(schema))
+        self._conn: Any = pg.getconn(schema)
 
     def execute(self, sql: str, params: Any = None) -> Any:
         return self._conn.execute(sql, params)
@@ -178,16 +182,14 @@ class PgCatalogue(SchemaBound):
         goes through :meth:`ready` instead."""
         from backend import pg  # deferred: import-time consumers never pay for a DSN
 
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema, autocommit=True) as conn:
             return conn.execute(sql, params or None).fetchall()
 
     def _fetchone(self, sql: str, params: Sequence | Mapping = ()) -> dict | None:
         """Single-row variant of :meth:`_fetchall`."""
         from backend import pg
 
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema, autocommit=True) as conn:
             return conn.execute(sql, params or None).fetchone()
 
     def _find_exact_then_like(self, exact_sql: str, like_sql: str, name: str) -> list[dict]:
@@ -196,8 +198,7 @@ class PgCatalogue(SchemaBound):
         queries on ONE connection."""
         from backend import pg
 
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema, autocommit=True) as conn:
             rows = conn.execute(exact_sql, (name.lower(),)).fetchall()
             if not rows:
                 rows = conn.execute(like_sql, (f"%{like_escape(name.lower())}%",)).fetchall()

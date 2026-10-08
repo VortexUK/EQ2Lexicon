@@ -32,7 +32,7 @@ class GuildSettingsStore(PgStoreBase):
     async def get_settings(self, world: str, guild_name: str) -> dict:
         """``{officers_can_delete_parses, updated_by, updated_at}`` — the
         defaults (and ``None`` audit fields) when the guild has no row."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_settings"], (world, guild_name)) as cur:
                 row = await cur.fetchone()
         if row is None:
@@ -64,7 +64,7 @@ class GuildSettingsStore(PgStoreBase):
         if not names:
             return {}
         flags = dict.fromkeys(names, True)
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_delete_flags"], (world, names)) as cur:
                 for row in await cur.fetchall():
                     flags[row["guild_name"]] = bool(row["officers_can_delete_parses"])

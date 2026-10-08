@@ -24,7 +24,7 @@ class SiteSettingsStore(PgStoreBase):
         super().__init__(schema)
 
     async def get_setting(self, key: str) -> str | None:
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_setting"], (key,)) as cur:
                 row = await cur.fetchone()
         return None if row is None else str(row["value"])
@@ -39,7 +39,7 @@ class SiteSettingsStore(PgStoreBase):
             await db.commit()
 
     async def all_settings(self) -> dict[str, str]:
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_all"]) as cur:
                 return {str(r["key"]): str(r["value"]) for r in await cur.fetchall()}
 

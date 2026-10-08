@@ -174,7 +174,7 @@ class AttendanceStore(PgStoreBase):
         """The session a snapshot at time ``at`` would merge into — the
         voice poller's "is a raid happening right now?" probe. None when
         nothing is within the merge gap."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["select_live_session"],
                 (world, guild_name, at + MERGE_GAP_S, at - MERGE_GAP_S),
@@ -197,20 +197,20 @@ class AttendanceStore(PgStoreBase):
     async def list_sessions(
         self, world: str, guild_name: str, *, limit: int = 50, before_id: int | None = None
     ) -> list[dict]:
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["select_sessions"], (world, guild_name, before_id, before_id, limit)
             ) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
     async def get_session(self, session_id: int) -> dict | None:
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_session"], (session_id,)) as cur:
                 row = await cur.fetchone()
                 return dict(row) if row else None
 
     async def observations_for_session(self, session_id: int) -> list[dict]:
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_observations"], (session_id,)) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
@@ -218,7 +218,7 @@ class AttendanceStore(PgStoreBase):
         if not session_ids:
             return {}
         out: dict[int, list[dict]] = {sid: [] for sid in session_ids}
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_observations_many"], (session_ids,)) as cur:
                 for r in await cur.fetchall():
                     out[r["session_id"]].append(dict(r))
@@ -242,7 +242,7 @@ class AttendanceStore(PgStoreBase):
 
     async def overrides_for_session(self, session_id: int) -> dict[str, dict]:
         """{character_name_lower: {character_name, category, set_by, set_at}}."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_overrides"], (session_id,)) as cur:
                 return {r["character_name"].lower(): dict(r) for r in await cur.fetchall()}
 
@@ -250,7 +250,7 @@ class AttendanceStore(PgStoreBase):
         if not session_ids:
             return {}
         out: dict[int, dict[str, dict]] = {sid: {} for sid in session_ids}
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_overrides_many"], (session_ids,)) as cur:
                 for r in await cur.fetchall():
                     out[r["session_id"]][r["character_name"].lower()] = dict(r)
@@ -283,7 +283,7 @@ class AttendanceStore(PgStoreBase):
         """{character_name_lower: [{character_name, category, started_at,
         ended_at, set_by}]} ordered by started_at."""
         out: dict[str, list[dict]] = {}
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_segments"], (session_id,)) as cur:
                 for r in await cur.fetchall():
                     out.setdefault(r["character_name"].lower(), []).append(dict(r))
@@ -293,7 +293,7 @@ class AttendanceStore(PgStoreBase):
         if not session_ids:
             return {}
         out: dict[int, dict[str, list[dict]]] = {sid: {} for sid in session_ids}
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_segments_many"], (session_ids,)) as cur:
                 for r in await cur.fetchall():
                     out[r["session_id"]].setdefault(r["character_name"].lower(), []).append(dict(r))

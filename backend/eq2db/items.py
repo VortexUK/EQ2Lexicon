@@ -566,8 +566,7 @@ class ItemCatalogue(PgCatalogue):
         """Return raw Census JSON dict for the closest name match, or None."""
         from backend import pg  # deferred: sync-only consumers never pay the import
 
-        async with pg.aconnection() as db:
-            await db.execute(pg.search_path_sql(self.schema))
+        async with pg.aconnection(self.schema, autocommit=True) as db:
 
             async def _best(where_clause: str, params: tuple) -> dict | None:
                 """
@@ -618,8 +617,7 @@ class ItemCatalogue(PgCatalogue):
         """Return raw Census JSON dict for the given item ID, or None."""
         from backend import pg  # deferred: sync-only consumers never pay the import
 
-        async with pg.aconnection() as db:
-            await db.execute(pg.search_path_sql(self.schema))
+        async with pg.aconnection(self.schema, autocommit=True) as db:
             cur = await db.execute(_SQL["find_by_id_raw_json"], (item_id,))
             row = await cur.fetchone()
             return json.loads(row["raw_json"]) if row else None
@@ -634,8 +632,7 @@ class ItemCatalogue(PgCatalogue):
         from backend import pg  # deferred: sync-only consumers never pay the import
 
         out: dict[int, dict] = {}
-        async with pg.aconnection() as db:
-            await db.execute(pg.search_path_sql(self.schema))
+        async with pg.aconnection(self.schema, autocommit=True) as db:
             cur = await db.execute(_SQL["raw_json_by_ids"], (ids,))
             for row in await cur.fetchall():
                 try:

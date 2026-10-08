@@ -284,8 +284,7 @@ async def search_recipes(
 
     # ── One connection for everything (search_path = recipes; the items
     # schema is referenced schema-qualified inside the SQL) ────────────────────
-    async with pg.aconnection() as db:
-        await db.execute(pg.search_path_sql(_RECIPES_SCHEMA))
+    async with pg.aconnection(_RECIPES_SCHEMA, autocommit=True) as db:
 
         if class_label_slot is not None and class_name:
             cur = await db.execute(_SQL["items_class_labels_matching"], (f"%{class_name.lower()}%",))

@@ -79,7 +79,7 @@ class TokensStore(PgStoreBase):
 
     async def list_api_tokens(self, user_id: str) -> list[dict]:
         """All tokens for a user, newest first. Hash is omitted — UI doesn't need it."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(
                 _SQL["list_for_user"],
                 (user_id,),

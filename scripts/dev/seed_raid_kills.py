@@ -83,8 +83,7 @@ def _read_primary_character() -> tuple[str, str] | None:
     users schema is unreachable/unmigrated).
     """
     try:
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(USERS_SCHEMA))
+        with pg.connection(USERS_SCHEMA, autocommit=True) as conn:
             row = conn.execute(
                 """
                 SELECT discord_id, character_name FROM character_claims

@@ -43,19 +43,16 @@ class ServersStore(SchemaBound):
         }
 
     def list_servers_sync(self) -> list[dict]:
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema, autocommit=True) as conn:
             return [ServersStore._server_row(r) for r in conn.execute(_SQL["list_all"]).fetchall()]
 
     def get_server_by_subdomain_sync(self, subdomain: str) -> dict | None:
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema, autocommit=True) as conn:
             row = conn.execute(_SQL["find_by_subdomain"], (subdomain.lower(),)).fetchone()
             return ServersStore._server_row(row) if row else None
 
     def get_server_by_world_sync(self, world: str) -> dict | None:
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema, autocommit=True) as conn:
             row = conn.execute(_SQL["find_by_world"], (world,)).fetchone()
             return ServersStore._server_row(row) if row else None
 
@@ -69,8 +66,7 @@ class ServersStore(SchemaBound):
         next_xpac: str | None = None,
         next_xpac_dt: str | None = None,
     ) -> None:
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema) as conn:
             conn.execute(
                 _SQL["upsert_server_settings"],
                 (max_level, current_xpac, launch_dt, next_xpac, next_xpac_dt, world),
@@ -82,8 +78,7 @@ class ServersStore(SchemaBound):
         the level cap, stamp the rollover instant (the rankings era-lock
         cutoff) and clear the countdown fields. Guarded on next_xpac still
         being set so a concurrent/repeat call is a no-op."""
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema) as conn:
             cur = conn.execute(_SQL["apply_xpac_rollover"], (current_xpac, max_level, started_dt, world))
             conn.commit()
             return cur.rowcount > 0
@@ -95,8 +90,7 @@ class ServersStore(SchemaBound):
         unknown (i.e. no row matched the second UPDATE — there are never 0 defaults
         after this call succeeds).
         """
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(self.schema))
+        with pg.connection(self.schema) as conn:
             # First clear all, then set the target. Single transaction → never 0 or 2 defaults.
             conn.execute(_SQL["clear_all_defaults"])
             cur = conn.execute(_SQL["set_default_by_world"], (world,))

@@ -65,7 +65,7 @@ class GuildRecruitmentStore(PgStoreBase):
     async def get_profile(self, world: str, guild_name: str) -> dict:
         """The guild's profile with JSON columns decoded; the empty-profile
         defaults when the guild has no row."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_profile"], (world, guild_name)) as cur:
                 row = await cur.fetchone()
         if row is None:
@@ -125,7 +125,7 @@ class GuildRecruitmentStore(PgStoreBase):
     async def get_logo(self, world: str, guild_name: str) -> dict | None:
         """``{logo, logo_media_type, logo_uploaded_at}`` or ``None`` when the
         guild has no row or no logo."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_logo"], (world, guild_name)) as cur:
                 row = await cur.fetchone()
         if row is None:
@@ -162,7 +162,7 @@ class GuildRecruitmentStore(PgStoreBase):
     async def list_recruiting(self, world: str) -> list[dict]:
         """Every recruiting guild in the world (newest edit first), JSON
         decoded, no blobs."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_recruiting"], (world,)) as cur:
                 rows = await cur.fetchall()
         return [
@@ -185,7 +185,7 @@ class GuildRecruitmentStore(PgStoreBase):
 
     async def list_listed_worlds(self) -> list[str]:
         """Every world with at least one recruiting=1 row."""
-        async with self._db() as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_listed_worlds"]) as cur:
                 rows = await cur.fetchall()
         return [row["world"] for row in rows]
@@ -193,7 +193,7 @@ class GuildRecruitmentStore(PgStoreBase):
     async def list_listed_ids(self, world: str) -> list[dict]:
         """``[{guild_id, guild_name}]`` for every row with recruiting=1 —
         the sweep's work list."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_listed_ids"], (world,)) as cur:
                 rows = await cur.fetchall()
         return [{"guild_id": row["guild_id"], "guild_name": row["guild_name"]} for row in rows]

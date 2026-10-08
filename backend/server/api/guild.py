@@ -556,8 +556,7 @@ async def search_guilds(name: str = "") -> GuildSearchResponse:
         return GuildSearchResponse(results=[GuildNameResult(name=n) for n in store_names], total=len(store_names))
 
     # Census failed — fall back to locally-tracked guilds in item_watch
-    async with pg.aconnection() as db:
-        await db.execute(pg.search_path_sql(_USERS_SCHEMA))
+    async with pg.aconnection(_USERS_SCHEMA, autocommit=True) as db:
         async with await db.execute(_SQL["local_guild_search_by_prefix"], (f"{q.lower()}%",)) as cur:
             rows = await cur.fetchall()
 

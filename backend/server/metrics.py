@@ -52,8 +52,11 @@ HTTP_REQUESTS = Counter(
     ["method", "path", "status_code"],
 )
 
-# Top buckets reach 60 s so the known ~32 s cold builds read as a bucket, not ">2.5s".
-HTTP_DURATION_BUCKETS = (0.01, 0.05, 0.1, 0.25, 1.0, 2.5, 5, 10, 30, 60)
+# Top buckets reach 60 s so the known ~32 s cold builds read as a bucket, not
+# ">2.5s". The 0.5 / 0.75 / 1.5 steps exist because histogram_quantile
+# interpolates inside a bucket: with a 0.25 → 1.0 gap, one slow request read
+# as a 962 ms p95 regardless of whether it took 300 ms or 900 ms.
+HTTP_DURATION_BUCKETS = (0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.5, 5, 10, 30, 60)
 
 HTTP_REQUEST_DURATION = Histogram(
     "http_request_duration_seconds",
@@ -256,8 +259,7 @@ class _DBCollector(Collector):
         # a scrape-lifetime connection around. (The P2 metrics split replaces
         # this with 60s-cached counts.)
         try:
-            with pg.connection() as conn:
-                conn.execute(pg.search_path_sql(users_schema))
+            with pg.connection(users_schema, autocommit=True) as conn:
                 for status in ("approved", "pending", "denied"):
                     row = conn.execute(_SQL["count_users_by_access_status"], (status,)).fetchone()
                     g_users.add_metric([status], row["n"] if row else 0)
@@ -271,8 +273,7 @@ class _DBCollector(Collector):
         # soft-deleted) so dashboards can distinguish "live leaderboard rows"
         # from accumulated history.
         try:
-            with pg.connection() as conn:
-                conn.execute(pg.search_path_sql(parses_db.SCHEMA))
+            with pg.connection(parses_db.SCHEMA, autocommit=True) as conn:
                 row = conn.execute(_SQL["count_visible_encounters"]).fetchone()
                 g_parses.add_metric(["visible"], row["n"] if row else 0)
                 row = conn.execute(_SQL["count_hidden_encounters"]).fetchone()
@@ -282,8 +283,7 @@ class _DBCollector(Collector):
 
         # raids schema (Postgres) — strategies + the ACT trigger pack.
         try:
-            with pg.connection() as conn:
-                conn.execute(pg.search_path_sql(raids_db.SCHEMA))
+            with pg.connection(raids_db.SCHEMA, autocommit=True) as conn:
                 row = conn.execute(_SQL["count_raid_encounters"]).fetchone()
                 g_raids.add_metric([], row["n"] if row else 0)
                 row = conn.execute(_SQL["count_act_triggers"]).fetchone()
@@ -314,7 +314,7 @@ class _PgSchemaSizeCollector(Collector):
         try:
             from backend import pg
 
-            with pg.connection() as conn:
+            with pg.connection(autocommit=True) as conn:
                 rows = conn.execute(
                     "SELECT schemaname AS s,"
                     " SUM(pg_total_relation_size((quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass))::bigint AS b"
@@ -327,6 +327,29 @@ class _PgSchemaSizeCollector(Collector):
         except Exception:
             _log.exception("[metrics] pg schema-size collector error")
         yield g_pg
+
+
+class _PgRoundTripCollector(Collector):
+    """One timed ``SELECT 1`` on an already-open pooled connection per
+    scrape: the app-to-Postgres network round trip, which is the unit every
+    pooled call is priced in. Autocommit and no schema change, so the
+    measurement is exactly one round trip."""
+
+    def collect(self):  # type: ignore[override]
+        from backend import pg
+
+        g = GaugeMetricFamily("pg_roundtrip_seconds", "Latency of one SELECT 1 round trip to Postgres")
+        if pg._sync_pool is None or getattr(pg._sync_pool, "closed", False):
+            return
+        try:
+            with pg.connection(autocommit=True) as conn:
+                t0 = time.perf_counter()
+                conn.execute("SELECT 1").fetchone()
+                g.add_metric([], time.perf_counter() - t0)
+        except Exception:
+            _log.exception("[metrics] pg round-trip probe error")
+            return
+        yield g
 
 
 class _PgPoolCollector(Collector):
@@ -390,6 +413,7 @@ def _register_db_collector() -> None:
         REGISTRY.register(_DBCollector())
         REGISTRY.register(_PgSchemaSizeCollector())
         REGISTRY.register(_PgPoolCollector())
+        REGISTRY.register(_PgRoundTripCollector())
         REGISTRY.register(_CensusHealthCollector())
         REGISTRY.register(_ActiveUsersCollector())
         _db_collector_registered = True

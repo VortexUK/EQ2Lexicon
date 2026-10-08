@@ -136,42 +136,125 @@ async def close_pools() -> None:
         _sync_pool = None
 
 
+# ── Schema selection (sticky, session-level) ─────────────────────────────────
+# Every pooled call used to pay BEGIN + SET search_path + query + COMMIT: four
+# round trips to Supabase for one SELECT. Two things cut that:
+#
+#   * The schema is remembered per physical connection (``_SCHEMA_ATTR``) and
+#     the SET is skipped when it already matches — the users schema dominates
+#     traffic, so most checkouts send nothing. The SET runs with autocommit on,
+#     i.e. session-level, so a later rollback can never revert it (an
+#     uncommitted SET inside the implicit transaction was the latent hazard).
+#     A transaction-scoped switch (erasure spans two schemas in one
+#     transaction) uses :func:`local_search_path_sql` and leaves the memo alone.
+#   * ``autocommit=True`` for single-query reads drops the BEGIN/COMMIT pair.
+#     The flag is reset before the connection returns to the pool.
+#
+# Transaction status is IDLE at checkout (the pool rolls back on return, a
+# direct connection is fresh), which is what makes the autocommit toggle a
+# local state change rather than a round trip.
+
+_SCHEMA_ATTR = "_eq2_schema"
+
+
+def _apply_schema_sync(conn: Any, schema: str | None) -> None:
+    if schema is None or getattr(conn, _SCHEMA_ATTR, None) == schema:
+        return
+    was_autocommit = conn.autocommit
+    if not was_autocommit:
+        conn.autocommit = True
+    try:
+        conn.execute(search_path_sql(schema))
+    finally:
+        if not was_autocommit:
+            conn.autocommit = False
+    setattr(conn, _SCHEMA_ATTR, schema)
+
+
+async def _apply_schema_async(conn: Any, schema: str | None) -> None:
+    if schema is None or getattr(conn, _SCHEMA_ATTR, None) == schema:
+        return
+    was_autocommit = conn.autocommit
+    if not was_autocommit:
+        await conn.set_autocommit(True)
+    try:
+        await conn.execute(search_path_sql(schema))
+    finally:
+        if not was_autocommit:
+            await conn.set_autocommit(False)
+    setattr(conn, _SCHEMA_ATTR, schema)
+
+
 @asynccontextmanager
-async def aconnection() -> AsyncIterator[Any]:
+async def aconnection(schema: str | None = None, *, autocommit: bool = False) -> AsyncIterator[Any]:
     # Yields Any on purpose: psycopg's stubs demand LiteralString queries,
     # but the house pattern is named SQL blocks loaded from .sql sidecars.
     """Async checkout: pooled when the lifespan opened pools, else a
     short-lived direct connection (tests / scripts / pre-lifespan bot).
+    ``schema`` selects the family search_path (sticky per connection, see
+    above); ``autocommit=True`` is for single-statement reads. Without it
     psycopg commits on clean ``async with`` exit and rolls back on
     exception — explicit commits inside remain harmless."""
     if _async_pool is not None:
         async with _async_pool.connection() as conn:
-            yield conn
+            await _apply_schema_async(conn, schema)
+            if not autocommit:
+                yield conn
+                return
+            await conn.set_autocommit(True)
+            try:
+                yield conn
+            finally:
+                try:
+                    await conn.set_autocommit(False)
+                except Exception:  # broken connection — the pool discards it
+                    pass
     else:
         async with await psycopg.AsyncConnection.connect(dsn(), row_factory=dict_row) as conn:  # type: ignore[arg-type]
+            await _apply_schema_async(conn, schema)
+            if autocommit:
+                await conn.set_autocommit(True)
             yield conn
 
 
 @contextmanager
-def connection() -> Iterator[Any]:
+def connection(schema: str | None = None, *, autocommit: bool = False) -> Iterator[Any]:
     """Sync twin of :func:`aconnection`."""
     if _sync_pool is not None:
         with _sync_pool.connection() as conn:
-            yield conn
+            _apply_schema_sync(conn, schema)
+            if not autocommit:
+                yield conn
+                return
+            conn.autocommit = True
+            try:
+                yield conn
+            finally:
+                try:
+                    conn.autocommit = False
+                except Exception:  # broken connection — the pool discards it
+                    pass
     else:
         with psycopg.connect(dsn(), row_factory=dict_row) as conn:  # type: ignore[arg-type]
+            _apply_schema_sync(conn, schema)
+            if autocommit:
+                conn.autocommit = True
             yield conn
 
 
-def getconn() -> Any:
+def getconn(schema: str | None = None) -> Any:
     """Caller-owned sync checkout — ALWAYS pair with :func:`putconn`.
     Pooled when the lifespan opened pools, else a direct connection.
     For scoped work prefer the :func:`connection` contextmanager; this
     exists for the catalogue families' caller-owns-connection pattern
     (PgCatalogue.init_db in backend/db_catalogue.py)."""
-    if _sync_pool is not None:
-        return _sync_pool.getconn()
-    return psycopg.connect(dsn(), row_factory=dict_row)  # type: ignore[arg-type]
+    conn = _sync_pool.getconn() if _sync_pool is not None else psycopg.connect(dsn(), row_factory=dict_row)  # type: ignore[arg-type]
+    try:
+        _apply_schema_sync(conn, schema)
+    except Exception:
+        putconn(conn)
+        raise
+    return conn
 
 
 def putconn(conn: Any) -> None:
@@ -188,6 +271,25 @@ def putconn(conn: Any) -> None:
 
 
 def search_path_sql(schema: str) -> pgsql.Composed:
-    """The one statement stores run at checkout — composed so a schema
-    name can never inject (test scratch schemas are generated names)."""
+    """Session-level schema selection — what the checkout helpers run (once
+    per connection per schema). Composed so a schema name can never inject
+    (test scratch schemas are generated names). Prefer passing ``schema``
+    to :func:`connection` / :func:`aconnection` / :func:`getconn` over
+    executing this directly: a direct SET inside a transaction is not
+    reflected in the per-connection memo."""
     return pgsql.SQL("SET search_path TO {}, public").format(pgsql.Identifier(schema))
+
+
+def forget_schema(conn: Any) -> None:
+    """Drop the connection's remembered schema. Call after running SQL that
+    sets search_path directly on a possibly-pooled connection (migrations,
+    the test fixtures' retargeted DDL) so the next scoped checkout re-sends
+    its SET instead of trusting a memo the raw SQL made false."""
+    setattr(conn, _SCHEMA_ATTR, None)
+
+
+def local_search_path_sql(schema: str) -> pgsql.Composed:
+    """Transaction-scoped schema switch (``SET LOCAL``) for the rare
+    multi-schema transaction. Reverts at COMMIT/ROLLBACK, so the
+    connection's remembered schema stays truthful."""
+    return pgsql.SQL("SET LOCAL search_path TO {}, public").format(pgsql.Identifier(schema))

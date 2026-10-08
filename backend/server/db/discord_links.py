@@ -46,7 +46,7 @@ class DiscordLinksStore(PgStoreBase):
             return cur.rowcount > 0
 
     async def get_link(self, discord_guild_id: str) -> dict | None:
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_link"], (discord_guild_id,)) as cur:
                 row = await cur.fetchone()
                 return dict(row) if row else None
@@ -60,7 +60,7 @@ class DiscordLinksStore(PgStoreBase):
     async def list_voice_links(self) -> list[dict]:
         """Every link with voice polling configured — the voice poller's
         per-tick work list."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_voice_links"]) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
@@ -82,7 +82,7 @@ class DiscordLinksStore(PgStoreBase):
     async def list_parse_links(self) -> list[dict]:
         """Every link with parse posting configured — the parse poster's
         per-tick work list."""
-        async with self._db(row_factory=True) as db:
+        async with self._read() as db:
             async with await db.execute(_SQL["select_parse_links"]) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 

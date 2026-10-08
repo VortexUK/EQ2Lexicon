@@ -133,8 +133,7 @@ def pg_conn(schema: str = "users") -> Iterator[Any]:
     """Dict-row sync connection with ``search_path`` set — the test
     seeding / assertion connection.
     Commits on clean exit; ``%s`` params, rows are dicts."""
-    with pg.connection() as conn:
-        conn.execute(pg.search_path_sql(schema))
+    with pg.connection(schema) as conn:
         yield conn
         conn.commit()
 
@@ -189,6 +188,7 @@ class SchemaLeaser:
             for path in self._migrations:
                 conn.execute(pg_migrate.retarget(path.read_text(encoding="utf-8"), name))
             conn.commit()
+            pg.forget_schema(conn)  # the retargeted files SET search_path themselves
         return name
 
     def acquire(self) -> str:
@@ -202,8 +202,7 @@ class SchemaLeaser:
         self._free.append(name)
 
     def _reset(self, name: str) -> None:
-        with pg.connection() as conn:
-            conn.execute(pg.search_path_sql(name))
+        with pg.connection(name) as conn:
             if self._tables is None:
                 rows = conn.execute("SELECT tablename FROM pg_tables WHERE schemaname = %s", (name,)).fetchall()
                 self._tables = sorted(r["tablename"] for r in rows)
