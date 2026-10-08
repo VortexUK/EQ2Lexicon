@@ -191,24 +191,55 @@ def worlds_with_ungrouped(conn: Any) -> list[str]:
     return [r["world"] for r in conn.execute(_SQL["select_worlds_with_ungrouped"]).fetchall()]
 
 
-def backfill_world(conn: Any, world: str) -> int:
+#: How long a ``wait=True`` caller polls for another session's backfill.
+BACKFILL_WAIT_S = 20 * 60.0
+_BACKFILL_POLL_S = 5.0
+
+
+def _ungrouped_count(conn: Any, world: str) -> int:
+    row = conn.execute(_SQL["count_ungrouped"], (world,)).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def backfill_world(conn: Any, world: str, *, wait: bool = False) -> int:
     """Group every ungrouped upload of ``world``. A small set goes through
     :func:`attach_encounter` so stragglers join existing fights; a large set
     (the one-time migration fill) runs the full grouper once with its bulk
     roster prefetch and writes the fights it produces. Commits. Returns the
-    number of uploads grouped."""
-    count_row = conn.execute(_SQL["count_ungrouped"], (world,)).fetchone()
-    pending = int(count_row["n"]) if count_row else 0
+    number of uploads grouped by THIS call.
+
+    One backfill per world runs at a time (advisory lock): two processes (a
+    deploy overlap, the prewarm and the retention sweep) must not group the
+    same rows into two sets of fights. A caller that just needs the rows
+    grouped before it reads (the rankings loader) passes ``wait=True`` and
+    polls until the other session finishes; everyone else skips and picks
+    the rows up next time."""
+    pending = _ungrouped_count(conn, world)
     if pending == 0:
         return 0
-    # One backfill per world at a time: two processes (a deploy overlap, the
-    # prewarm and the retention sweep) must not both group the same rows
-    # into two sets of fights. The loser skips; the rows are picked up next
-    # time it looks.
-    got = conn.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s)) AS ok", (f"fights-backfill:{world}",)).fetchone()
-    if not (got and got["ok"]):
-        _log.info("[fights] backfill for world=%s already running elsewhere — skipping", world)
-        return 0
+    deadline = time.monotonic() + BACKFILL_WAIT_S
+    while True:
+        got = conn.execute(
+            "SELECT pg_try_advisory_xact_lock(hashtext(%s)) AS ok", (f"fights-backfill:{world}",)
+        ).fetchone()
+        if got and got["ok"]:
+            break
+        if not wait:
+            _log.info("[fights] backfill for world=%s already running elsewhere — skipping", world)
+            return 0
+        conn.rollback()  # the probe opened a transaction; don't camp it while polling
+        time.sleep(_BACKFILL_POLL_S)
+        pending = _ungrouped_count(conn, world)
+        if pending == 0:
+            _log.info("[fights] backfill for world=%s finished elsewhere", world)
+            return 0
+        if time.monotonic() > deadline:
+            _log.warning(
+                "[fights] backfill for world=%s still running elsewhere after %.0fs — reading as is",
+                world,
+                BACKFILL_WAIT_S,
+            )
+            return 0
     if pending <= BULK_THRESHOLD:
         ids = [r["id"] for r in conn.execute(_SQL["select_ungrouped_ids"], (world, BULK_THRESHOLD)).fetchall()]
         for eid in ids:

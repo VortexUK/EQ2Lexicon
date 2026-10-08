@@ -265,3 +265,43 @@ def test_sync_fight_replaces_the_fights_kill_in_the_cached_dataset(conn):
     rk.rankings_cache.clear()
     rk._sync_fight_sync(WORLD, fid)
     assert rk.rankings_cache.peek(key) is None
+
+
+def test_waiting_caller_reads_after_another_sessions_backfill(conn, monkeypatch):
+    """The rankings loader must not build an empty board because the
+    retention sweep holds the backfill lock: with wait=True it polls until
+    the rows are grouped (here: the holder releases after a moment)."""
+    import threading
+    import time
+
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from backend import pg
+
+    monkeypatch.setattr(fights, "_BACKFILL_POLL_S", 0.2)
+    monkeypatch.setattr(fights, "BACKFILL_WAIT_S", 10.0)
+    a = seed(conn, uploaded_by="Alpha")
+    holder = psycopg.connect(pg.dsn(), row_factory=dict_row)
+    try:
+        holder.execute(pg.search_path_sql(parses_db.store.schema))  # the leased scratch schema
+        got = holder.execute(
+            "SELECT pg_try_advisory_xact_lock(hashtext(%s)) AS ok", (f"fights-backfill:{WORLD}",)
+        ).fetchone()
+        assert got["ok"] is True
+
+        def _finish_elsewhere() -> None:
+            time.sleep(1.0)
+            fights.attach_encounter(holder, a)  # the "other session" groups the row …
+            holder.commit()  # … and its commit releases the lock
+
+        t = threading.Thread(target=_finish_elsewhere)
+        t.start()
+        t0 = time.monotonic()
+        grouped = fights.backfill_world(conn, WORLD, wait=True)
+        t.join()
+        assert time.monotonic() - t0 >= 0.8
+        assert grouped == 0  # nothing left for this caller
+        assert fight_of(conn, a)["upload_count"] == 1
+    finally:
+        holder.close()

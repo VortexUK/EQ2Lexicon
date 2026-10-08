@@ -701,7 +701,9 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
     t0 = _time.monotonic()
     conn = parses_db.init_db()
     try:
-        grouped = fights.backfill_world(conn, world)
+        # wait=True: if the retention sweep (or an overlapping container) is
+        # mid-backfill, read AFTER it rather than build an empty board.
+        grouped = fights.backfill_world(conn, world, wait=True)
         t_group = _time.monotonic()
         rows = [
             dict(r)
