@@ -97,3 +97,69 @@ def test_failed_migration_rolls_back_and_is_not_recorded(tmp_path: Path) -> None
         with pg.connection() as conn:
             conn.execute("DROP SCHEMA IF EXISTS pgmig_bad CASCADE")
             conn.commit()
+
+
+def test_runner_waits_out_a_conflicting_lock_then_gives_up(tmp_path: Path, monkeypatch) -> None:
+    """Deploys overlap: the outgoing container's long read transaction holds
+    the table a migration wants to ALTER. The runner must wait in short
+    lock_timeout slices (so it never blocks other readers for long) and
+    retry until the holder lets go — and fail cleanly if it never does."""
+    import threading
+    import time
+
+    import psycopg
+
+    (tmp_path / "9003_lock_family.sql").write_text(
+        "create schema if not exists pgmig_lock;\n"
+        "set search_path to pgmig_lock, public;\n"
+        "ALTER TABLE held ADD COLUMN IF NOT EXISTS extra int;\n",
+        encoding="utf-8",
+    )
+    with pg.connection() as conn:
+        conn.execute("CREATE SCHEMA IF NOT EXISTS pgmig_lock")
+        conn.execute("CREATE TABLE IF NOT EXISTS pgmig_lock.held (id int)")
+        conn.commit()
+    monkeypatch.setattr(pg_migrate, "LOCK_TIMEOUT", "1s")
+    monkeypatch.setattr(pg_migrate, "_LOCK_RETRY_SLEEP_S", 0.3)
+    holder = psycopg.connect(pg.dsn())
+    try:
+        holder.execute("SELECT * FROM pgmig_lock.held")  # open transaction → ACCESS SHARE held
+
+        def _release() -> None:
+            time.sleep(3.0)
+            holder.rollback()
+
+        t = threading.Thread(target=_release)
+        t.start()
+        t0 = time.monotonic()
+        applied = pg_migrate.run(directory=tmp_path)
+        waited = time.monotonic() - t0
+        t.join()
+        assert applied == ["9003_lock_family.sql"]
+        assert waited >= 2.5, "the runner should have had to wait for the holder"
+
+        # A holder that never releases: the runner gives up at the deadline
+        # with a clean rollback and no ledger row.
+        (tmp_path / "9004_lock_family.sql").write_text(
+            "create schema if not exists pgmig_lock;\n"
+            "set search_path to pgmig_lock, public;\n"
+            "ALTER TABLE held ADD COLUMN IF NOT EXISTS more int;\n",
+            encoding="utf-8",
+        )
+        holder.execute("SELECT * FROM pgmig_lock.held")
+        with pg.connection() as conn, pytest.raises(psycopg.errors.LockNotAvailable):
+            pg_migrate.apply_migrations(conn, directory=tmp_path, lock_retry_deadline_s=2.0)
+        holder.rollback()
+        with pg.connection() as conn:
+            row = conn.execute(
+                "SELECT 1 AS ok FROM public.schema_migrations WHERE filename = %s", ("9004_lock_family.sql",)
+            ).fetchone()
+            assert row is None
+    finally:
+        holder.close()
+        with pg.connection() as conn:
+            conn.execute("DROP SCHEMA IF EXISTS pgmig_lock CASCADE")
+            conn.execute(
+                "DELETE FROM public.schema_migrations WHERE filename IN ('9003_lock_family.sql', '9004_lock_family.sql')"
+            )
+            conn.commit()
