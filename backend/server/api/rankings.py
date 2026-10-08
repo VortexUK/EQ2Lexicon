@@ -27,6 +27,7 @@ from backend.server.auth_deps import require_user_session as _require_user
 from backend.server.cache import TTLCache
 from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
+from backend.server.metrics import RANKINGS_KILLS_DATASET_SIZE, RANKINGS_REBUILD_SECONDS
 from backend.server.parses.boss import is_boss
 from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_server, current_world
@@ -750,6 +751,8 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
         _EXCLUDED_BY_WORLD[world] = excluded
         result = _apply_era_lock(complete, _era_lock_for(world), _zone_expansion_map())
         total = _time.monotonic() - t0
+        RANKINGS_REBUILD_SECONDS.labels(world=world).observe(total)
+        RANKINGS_KILLS_DATASET_SIZE.labels(world=world).set(len(result))
         # INFO on every rebuild: when a 524 happens, the pasted Railway log
         # must say exactly which phase ate the time.
         _log.info(

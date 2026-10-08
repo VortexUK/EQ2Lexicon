@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from backend.server.core.audit_log import audit_log
 from backend.server.db.servers import store as servers_db
+from backend.server.metrics import mark_loop_ok
 from backend.server.server_context import load_registry
 
 _log = logging.getLogger(__name__)
@@ -118,4 +119,6 @@ async def poll_loop() -> None:
             await check_rollovers()
         except Exception:
             _log.exception("[xpac-rollover] poll failed")
+        else:
+            mark_loop_ok("xpac_rollover")
         await asyncio.sleep(POLL_INTERVAL_S)

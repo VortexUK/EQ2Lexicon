@@ -8,21 +8,26 @@ from __future__ import annotations
 
 import asyncio
 
+from backend.server.metrics import SSE_SUBSCRIBERS
+
 _subscribers: set[asyncio.Queue] = set()
 
 
 def _reset_for_test() -> None:
     _subscribers.clear()
+    SSE_SUBSCRIBERS.set(0)
 
 
 def subscribe() -> asyncio.Queue:
     q: asyncio.Queue = asyncio.Queue(maxsize=100)
     _subscribers.add(q)
+    SSE_SUBSCRIBERS.set(len(_subscribers))
     return q
 
 
 def unsubscribe(q: asyncio.Queue) -> None:
     _subscribers.discard(q)
+    SSE_SUBSCRIBERS.set(len(_subscribers))
 
 
 def publish(event: dict) -> None:

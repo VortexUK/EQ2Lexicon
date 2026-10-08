@@ -91,3 +91,106 @@ def test_parse_age_bucket_boundaries():
     assert metrics.parse_age_bucket(now - 30 * day, now) == "30-90d"
     assert metrics.parse_age_bucket(now - 90 * day, now) == ">90d"
     assert metrics.parse_age_bucket(now + 500, now) == "<7d"  # clock skew clamps
+
+
+# ── Observability additions (2026-10-07 architecture review) ─────────────────
+
+
+class _StubPool:
+    closed = False
+
+    def __init__(self, stats):
+        self._stats = stats
+
+    def get_stats(self):
+        return self._stats
+
+
+def _pool_families():
+    return {f.name: f for f in metrics._PgPoolCollector().collect()}
+
+
+def test_pg_pool_collector_empty_when_pools_closed(monkeypatch):
+    from backend import pg
+
+    monkeypatch.setattr(pg, "_sync_pool", None)
+    monkeypatch.setattr(pg, "_async_pool", None)
+    assert list(metrics._PgPoolCollector().collect()) == []
+
+
+def test_pg_pool_collector_yields_series_for_open_pools(monkeypatch):
+    from backend import pg
+
+    stats = {"pool_size": 5, "pool_available": 2, "requests_waiting": 3, "requests_wait_ms": 1234, "requests_errors": 1}
+    monkeypatch.setattr(pg, "_sync_pool", _StubPool(stats))
+    monkeypatch.setattr(pg, "_async_pool", None)
+    fams = _pool_families()
+    assert set(fams) == {
+        "pg_pool_size",
+        "pg_pool_available",
+        "pg_pool_waiting",
+        "pg_pool_requests_wait_ms",
+        "pg_pool_requests_errors",
+    }
+    assert [(s.labels, s.value) for s in fams["pg_pool_waiting"].samples] == [({"pool": "sync"}, 3)]
+    wait = fams["pg_pool_requests_wait_ms"].samples
+    assert wait[0].name == "pg_pool_requests_wait_ms_total" and wait[0].value == 1234
+
+
+def test_pg_pool_collector_labels_both_pools(monkeypatch):
+    from backend import pg
+
+    monkeypatch.setattr(pg, "_sync_pool", _StubPool({"pool_size": 1}))
+    monkeypatch.setattr(pg, "_async_pool", _StubPool({"pool_size": 4}))
+    samples = _pool_families()["pg_pool_size"].samples
+    assert {s.labels["pool"]: s.value for s in samples} == {"sync": 1, "async": 4}
+
+
+def test_event_loop_lag_metrics_exist_and_observe():
+    metrics.EVENT_LOOP_LAG.set(0.25)
+    assert metrics.EVENT_LOOP_LAG._value.get() == 0.25
+    before = REGISTRY.get_sample_value("event_loop_lag_seconds_hist_count") or 0
+    metrics.EVENT_LOOP_LAG_HIST.observe(0.02)
+    assert REGISTRY.get_sample_value("event_loop_lag_seconds_hist_count") == before + 1
+    assert REGISTRY.get_sample_value("event_loop_lag_seconds_hist_bucket", {"le": "0.05"}) is not None
+
+
+def test_mark_loop_ok_sets_timestamp(monkeypatch):
+    monkeypatch.setattr(metrics.time, "time", lambda: 1_800_000_000.0)
+    metrics.mark_loop_ok("x")
+    assert REGISTRY.get_sample_value("background_loop_last_success_timestamp_seconds", {"loop": "x"}) == 1_800_000_000.0
+
+
+def test_rankings_metrics_exist():
+    metrics.RANKINGS_REBUILD_SECONDS.labels(world="W").observe(3.0)
+    metrics.RANKINGS_KILLS_DATASET_SIZE.labels(world="W").set(42)
+    assert REGISTRY.get_sample_value("rankings_rebuild_seconds_count", {"world": "W"}) >= 1
+    assert REGISTRY.get_sample_value("rankings_rebuild_seconds_bucket", {"world": "W", "le": "300.0"}) >= 1
+    assert REGISTRY.get_sample_value("rankings_kills_dataset_size", {"world": "W"}) == 42
+
+
+def test_sse_subscribers_gauge_tracks_subscribe_unsubscribe():
+    import asyncio
+
+    from backend.server import census_events
+
+    census_events._reset_for_test()
+
+    async def go():
+        q1 = census_events.subscribe()
+        q2 = census_events.subscribe()
+        assert REGISTRY.get_sample_value("sse_subscribers") == 2
+        census_events.unsubscribe(q1)
+        assert REGISTRY.get_sample_value("sse_subscribers") == 1
+        census_events.unsubscribe(q2)
+        assert REGISTRY.get_sample_value("sse_subscribers") == 0
+
+    asyncio.run(go())
+
+
+def test_duration_buckets_reach_60s():
+    assert metrics.HTTP_DURATION_BUCKETS == (0.01, 0.05, 0.1, 0.25, 1.0, 2.5, 5, 10, 30, 60)
+    assert REGISTRY.get_sample_value("http_request_duration_seconds_bucket", {"path": "/x", "le": "60.0"}) is None
+    metrics.HTTP_REQUEST_DURATION.labels(path="/x").observe(32)
+    assert REGISTRY.get_sample_value("http_request_duration_seconds_bucket", {"path": "/x", "le": "60.0"}) == 1
+    assert REGISTRY.get_sample_value("http_request_duration_seconds_bucket", {"path": "/x", "le": "30.0"}) == 0

@@ -16,6 +16,7 @@ from backend.server.core.audit_log import audit_log
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.validation import validate_guild_name
 from backend.server.db.guild_recruitment import store as recruitment_db
+from backend.server.metrics import mark_loop_ok
 
 _log = logging.getLogger(__name__)
 
@@ -78,4 +79,6 @@ async def sweep_loop() -> None:
                 _log.info("[recruitment-sweep] %s", result)
         except Exception:
             _log.exception("[recruitment-sweep] sweep failed")
+        else:
+            mark_loop_ok("recruitment_sweep")
         await asyncio.sleep(_INTERVAL_S)

@@ -15,6 +15,7 @@ from backend.census import failures
 from backend.census.client import _redact_url as _redact_url
 from backend.census.config import CENSUS_BASE_URL as _CENSUS_BASE_URL
 from backend.server.config import SERVICE_ID as _SERVICE_ID
+from backend.server.metrics import mark_loop_ok
 
 _log = logging.getLogger(__name__)
 
@@ -166,4 +167,6 @@ async def poll_loop() -> None:
             await refresh_health()
         except Exception:  # pragma: no cover - defensive
             _log.exception("[census-health] probe error")
+        else:
+            mark_loop_ok("census_health")
         await asyncio.sleep(_POLL_INTERVAL)

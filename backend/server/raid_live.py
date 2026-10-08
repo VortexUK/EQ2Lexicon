@@ -22,6 +22,8 @@ from zoneinfo import ZoneInfo
 
 import aiohttp
 
+from backend.server.metrics import mark_loop_ok
+
 _log = logging.getLogger(__name__)
 
 _POLL_INTERVAL = 90  # seconds
@@ -214,4 +216,6 @@ async def poll_loop() -> None:
             await refresh()
         except Exception:  # pragma: no cover - defensive
             _log.exception("[raid-live] poll error")
+        else:
+            mark_loop_ok("raid_live")
         await asyncio.sleep(_POLL_INTERVAL)

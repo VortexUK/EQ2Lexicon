@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 from backend.core.log_safety import scrub as _scrub
 from backend.server import census_health, census_refresh
+from backend.server.metrics import mark_loop_ok
 
 _log = logging.getLogger(__name__)
 
@@ -140,6 +141,8 @@ async def worker_loop() -> None:
             )
         except Exception:
             _log.exception("[refresh-queue] %s %s failed", job.kind, _scrub(job.name))
+        else:
+            mark_loop_ok("refresh_queue")
         finally:
             _running = None
             _pending.pop(job.key, None)

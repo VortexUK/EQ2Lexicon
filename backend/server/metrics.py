@@ -25,7 +25,7 @@ from prometheus_client import (
     Info,
     disable_created_metrics,
 )
-from prometheus_client.core import GaugeMetricFamily
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from prometheus_client.registry import Collector
 
 from backend.sql_loader import load_sql
@@ -52,11 +52,14 @@ HTTP_REQUESTS = Counter(
     ["method", "path", "status_code"],
 )
 
+# Top buckets reach 60 s so the known ~32 s cold builds read as a bucket, not ">2.5s".
+HTTP_DURATION_BUCKETS = (0.01, 0.05, 0.1, 0.25, 1.0, 2.5, 5, 10, 30, 60)
+
 HTTP_REQUEST_DURATION = Histogram(
     "http_request_duration_seconds",
     "HTTP request latency",
     ["path"],
-    buckets=(0.01, 0.05, 0.1, 0.25, 1.0, 2.5),
+    buckets=HTTP_DURATION_BUCKETS,
 )
 
 # ── Active users ──────────────────────────────────────────────────────────────
@@ -157,6 +160,42 @@ CENSUS_DURATION = Histogram(
     ["endpoint"],
     buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
 )
+
+# ── Event loop, background loops, rankings, SSE ───────────────────────────────
+
+EVENT_LOOP_LAG = Gauge("event_loop_lag_seconds", "Most recent event-loop scheduling lag sample (seconds)")
+EVENT_LOOP_LAG_HIST = Histogram(
+    "event_loop_lag_seconds_hist",
+    "Distribution of event-loop scheduling lag samples (seconds)",
+    buckets=(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10),
+)
+
+BACKGROUND_LOOP_LAST_SUCCESS = Gauge(
+    "background_loop_last_success_timestamp_seconds",
+    "Unix time a lifespan background loop last completed an iteration without raising",
+    ["loop"],
+)
+
+
+def mark_loop_ok(name: str) -> None:
+    """Stamp a background loop's iteration as successfully completed now.
+    ``name`` must come from a fixed set of loop names (bounded cardinality)."""
+    BACKGROUND_LOOP_LAST_SUCCESS.labels(loop=name).set(time.time())
+
+
+RANKINGS_REBUILD_SECONDS = Histogram(
+    "rankings_rebuild_seconds",
+    "Wall time of a full rankings kills-dataset rebuild",
+    ["world"],
+    buckets=(1, 2, 5, 10, 30, 60, 120, 300),
+)
+RANKINGS_KILLS_DATASET_SIZE = Gauge(
+    "rankings_kills_dataset_size",
+    "Number of kills in the last rankings dataset build",
+    ["world"],
+)
+
+SSE_SUBSCRIBERS = Gauge("sse_subscribers", "Currently connected census SSE stream clients")
 
 # ── Application info ──────────────────────────────────────────────────────────
 
@@ -290,6 +329,39 @@ class _PgSchemaSizeCollector(Collector):
         yield g_pg
 
 
+class _PgPoolCollector(Collector):
+    """psycopg pool saturation stats for the sync and async pools, read from
+    ``pool.get_stats()`` at scrape time. Pools that aren't open yield nothing."""
+
+    def collect(self):  # type: ignore[override]
+        from backend import pg
+
+        size = GaugeMetricFamily("pg_pool_size", "Connections currently in the pool", labels=["pool"])
+        avail = GaugeMetricFamily("pg_pool_available", "Idle connections available in the pool", labels=["pool"])
+        waiting = GaugeMetricFamily("pg_pool_waiting", "Requests queued waiting for a connection", labels=["pool"])
+        wait_ms = CounterMetricFamily(
+            "pg_pool_requests_wait_ms", "Cumulative ms requests spent waiting for a connection", labels=["pool"]
+        )
+        errors = CounterMetricFamily(
+            "pg_pool_requests_errors", "Cumulative connection requests that failed (timeout etc.)", labels=["pool"]
+        )
+        for label, pool in (("sync", pg._sync_pool), ("async", pg._async_pool)):
+            if pool is None or getattr(pool, "closed", False):
+                continue
+            try:
+                st = pool.get_stats()
+            except Exception:
+                _log.exception("[metrics] pg pool stats error pool=%s", label)
+                continue
+            size.add_metric([label], st.get("pool_size", 0))
+            avail.add_metric([label], st.get("pool_available", 0))
+            waiting.add_metric([label], st.get("requests_waiting", 0))
+            wait_ms.add_metric([label], st.get("requests_wait_ms", 0))
+            errors.add_metric([label], st.get("requests_errors", 0))
+        if size.samples:
+            yield from (size, avail, waiting, wait_ms, errors)
+
+
 class _CensusHealthCollector(Collector):
     """Read the in-memory census-health state at scrape time and surface it
     as a gauge (1 = up, 0 = down/unknown). Avoids needing a feedback hook
@@ -317,6 +389,7 @@ def _register_db_collector() -> None:
     if not _db_collector_registered:
         REGISTRY.register(_DBCollector())
         REGISTRY.register(_PgSchemaSizeCollector())
+        REGISTRY.register(_PgPoolCollector())
         REGISTRY.register(_CensusHealthCollector())
         REGISTRY.register(_ActiveUsersCollector())
         _db_collector_registered = True
