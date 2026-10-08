@@ -160,3 +160,28 @@ def _sweep_detail_retention(conn, now: int) -> int:
         conn.commit()
         pruned += len(chunk)
     return pruned
+
+
+# Purge tombstones in ingest_log and tamper reports have their own windows,
+# independent of the parse retention tiers.
+TOMBSTONE_RETENTION_DAYS = 30
+TAMPER_REPORT_RETENTION_DAYS = 180
+TAMPER_REPORT_ACKED_RETENTION_DAYS = 90
+
+
+def run_tombstone_sweeps(now: int | None = None) -> dict[str, int]:
+    """Expire ingest_log purge tombstones and old tamper reports. Returns
+    ``{"tombstones_expired": n, "tamper_reports_expired": m}``."""
+    now = int(time.time()) if now is None else now
+    conn = parses_db.init_db()
+    try:
+        tombstones = parses_db.expire_ingest_tombstones(conn, now - TOMBSTONE_RETENTION_DAYS * _DAY_S)
+        tamper = parses_db.expire_tamper_reports(
+            conn,
+            before_any=now - TAMPER_REPORT_RETENTION_DAYS * _DAY_S,
+            before_ack=now - TAMPER_REPORT_ACKED_RETENTION_DAYS * _DAY_S,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"tombstones_expired": tombstones, "tamper_reports_expired": tamper}

@@ -716,13 +716,14 @@ async def test_unhide_random_user_403(app):
 # ---------------------------------------------------------------------------
 
 
-def _hidden(enc_id: int, uploader: str = "OTHER_USER") -> dict:
+def _hidden(enc_id: int, uploader: str = "OTHER_USER", hidden_by: str = "MODERATOR") -> dict:
     return {
         "id": enc_id,
         "guild_name": "Exordium",
         "source_dsn": f"plugin:{uploader}",
         "title": f"Boss {enc_id}",
         "hidden_at": 1700001111,
+        "hidden_by": hidden_by,
     }
 
 
@@ -758,9 +759,10 @@ async def test_batch_unhide_admin_restores_every_id_and_audits(app):
 
 @pytest.mark.asyncio
 async def test_batch_unhide_skips_ids_the_caller_may_not_touch(app):
-    """A plain uploader restores their own upload and the other id is skipped
-    (same rule as the batch delete), never a whole-request 403."""
-    rows = [_hidden(1, uploader="123456789"), _hidden(2)]
+    """The user who hid an encounter restores it; an id someone else hid is
+    skipped (an uploader cannot undo a moderator's hide), never a
+    whole-request 403."""
+    rows = [_hidden(1, uploader="123456789", hidden_by="123456789"), _hidden(2, uploader="123456789")]
     unhide_mock = MagicMock(return_value=True)
 
     async def fake_officer_chars(discord_id, guild):
@@ -908,3 +910,25 @@ async def test_officer_allowed_when_guild_setting_is_default(app):
             r = await client.delete("/api/parses/1")
     assert r.status_code == 200
     delete_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unhide_requires_admin_hider_or_officer():
+    """The uploader alone cannot undo a moderator's hide; the hider can."""
+    from unittest.mock import AsyncMock, patch
+
+    from backend.server.api.parses import delete as mod
+
+    uploader = make_fake_user(id="up-1")
+    hider = make_fake_user(id="off-1")
+    enc = {"id": 1, "guild_name": "Exordium", "source_dsn": "plugin:up-1", "hidden_at": 5, "hidden_by": "off-1"}
+    with patch.object(mod, "_is_admin", return_value=False):
+        assert await mod._can_unhide_encounter(hider, enc, guild_ok={"Exordium": False}) is True
+        assert await mod._can_unhide_encounter(uploader, enc, guild_ok={"Exordium": False}) is False
+        with patch("backend.server.api.guild._officer_chars", new=AsyncMock(return_value={"sihtric"})):
+            with patch.object(
+                mod.guild_settings_db, "officers_can_delete_parses", new=AsyncMock(return_value={"Exordium": True})
+            ):
+                assert await mod._can_unhide_encounter(uploader, enc) is True
+    with patch.object(mod, "_is_admin", return_value=True):
+        assert await mod._can_unhide_encounter(uploader, enc) is True

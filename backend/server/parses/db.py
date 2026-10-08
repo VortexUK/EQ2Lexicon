@@ -56,6 +56,11 @@ class SwingType(IntEnum):
     PROC = 100
 
 
+# Quarantined payloads are evidence, not a second copy of the parse store:
+# anything past this is cut with a marker (a 16 MiB upload otherwise lands
+# in tamper_reports whole, once per retry).
+TAMPER_PAYLOAD_CAP = 512 * 1024
+
 _DAMAGE_SWING_TYPES = [int(SwingType.MELEE), int(SwingType.NONMELEE)]
 _HEAL_SWING_TYPES = [int(SwingType.HEAL)]
 _CURE_SWING_TYPES = [int(SwingType.CURE)]
@@ -253,6 +258,31 @@ class ParsesStore(PgCatalogue):
     # ---------------------------------------------------------------------------
     # Lookup helpers
     # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def claim_encid(conn: Any, act_encid: str, world: str, *, source_dsn: str, ingested_at: int) -> bool:
+        """Take the (world, act_encid) ingest_log row as the insert lock.
+        False when another upload already holds it (or a purge tombstone
+        does) — the caller reports 'skipped' and rolls back."""
+        row = conn.execute(_SQL["claim_encid"], (world, act_encid, ingested_at, source_dsn)).fetchone()
+        return row is not None
+
+    @staticmethod
+    def bind_ingest_log(conn: Any, act_encid: str, encounter_id: int, world: str) -> None:
+        conn.execute(_SQL["bind_ingest_log"], (encounter_id, world, act_encid))
+
+    @staticmethod
+    def expire_ingest_tombstones(conn: Any, before: int) -> int:
+        """Drop purge tombstones (encounter_id NULL) ingested before ``before``."""
+        cur = conn.execute(_SQL["expire_ingest_tombstones"], (before,))
+        return int(cur.rowcount or 0)
+
+    @staticmethod
+    def expire_tamper_reports(conn: Any, *, before_any: int, before_ack: int) -> int:
+        """Drop tamper reports older than ``before_any``, or acknowledged ones
+        older than ``before_ack``."""
+        cur = conn.execute(_SQL["expire_tamper_reports"], (before_any, before_ack))
+        return int(cur.rowcount or 0)
 
     @staticmethod
     def is_ingested(conn: Any, act_encid: str, world: str = "Varsoon") -> bool:
@@ -600,6 +630,11 @@ class ParsesStore(PgCatalogue):
         encid is preserved in the column so admins can correlate retries by
         (world, act_encid) at query time.
         """
+        # One row per (world, act_encid, uploader) — the SQL upserts — and the
+        # stored payload is evidence, not a second parse store: cap it.
+        if len(payload_json) > TAMPER_PAYLOAD_CAP:
+            total = len(payload_json)
+            payload_json = payload_json[:TAMPER_PAYLOAD_CAP] + f"\n…[truncated: {total} bytes total]"
         cur = conn.execute(
             _SQL["insert_tamper_report"],
             (

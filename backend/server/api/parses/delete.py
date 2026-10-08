@@ -68,6 +68,29 @@ async def _can_delete_encounter(user: SessionUser, enc: dict, *, guild_ok: dict[
     return verdict
 
 
+async def _can_unhide_encounter(user: SessionUser, enc: dict, *, guild_ok: dict[str, bool] | None = None) -> bool:
+    """Authorise restoring a hidden encounter: admin, whoever hid it, or an
+    officer of the guild (same switch as deletion). The uploader alone may
+    NOT undo a moderator's hide — that let an uploader route around the
+    officers by re-showing their own parse."""
+    if _is_admin(user) or (enc.get("hidden_by") and enc.get("hidden_by") == user["id"]):
+        return True
+    gname = enc.get("guild_name")
+    if not gname:
+        return False
+    if guild_ok is not None and gname in guild_ok:
+        return guild_ok[gname]
+    from backend.server.api.guild import _officer_chars
+
+    verdict = bool(await _officer_chars(user["id"], gname))
+    if verdict:
+        flags = await guild_settings_db.officers_can_delete_parses(current_world(), [gname])
+        verdict = flags.get(gname, True)
+    if guild_ok is not None:
+        guild_ok[gname] = verdict
+    return verdict
+
+
 def _fetch_encounter_auth_rows(ids: list[int], world: str) -> list[dict]:
     """Fetch the (id, guild_name, source_dsn, title, hidden_at) rows needed to
     authorise a delete, scoped to *world* so a cross-server id returns nothing.
@@ -75,7 +98,8 @@ def _fetch_encounter_auth_rows(ids: list[int], world: str) -> list[dict]:
     conn = parses_db.init_db()
     try:
         rows = conn.execute(
-            "SELECT id, guild_name, source_dsn, title, hidden_at FROM encounters WHERE id = ANY(%s) AND world = %s",
+            "SELECT id, guild_name, source_dsn, title, hidden_at, hidden_by "
+            "FROM encounters WHERE id = ANY(%s) AND world = %s",
             (list(ids), world),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -240,7 +264,7 @@ async def unhide_parses_batch(request: Request, ids: str) -> dict:
         raise HTTPException(status_code=404, detail="No matching parses")
 
     guild_ok: dict[str, bool] = {}
-    allowed_rows = [enc for enc in rows if await _can_delete_encounter(user, enc, guild_ok=guild_ok)]
+    allowed_rows = [enc for enc in rows if await _can_unhide_encounter(user, enc, guild_ok=guild_ok)]
     if not allowed_rows:
         raise HTTPException(status_code=403, detail="Not authorised to unhide these parses")
 
@@ -276,7 +300,7 @@ async def unhide_parse(request: Request, encounter_id: int) -> dict:
     rows = await run_sync(_fetch_encounter_auth_rows, [encounter_id], current_world())
     if not rows:
         raise HTTPException(status_code=404, detail="Parse not found")
-    if not await _can_delete_encounter(user, rows[0]):
+    if not await _can_unhide_encounter(user, rows[0]):
         raise HTTPException(status_code=403, detail="Not authorised to unhide this parse")
 
     def _unhide_sync() -> bool:

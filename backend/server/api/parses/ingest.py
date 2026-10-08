@@ -638,6 +638,11 @@ def _collapse_duplicate_rows(
     return dts, ats
 
 
+class _EncidAlreadyClaimed(Exception):
+    """The (world, act_encid) ingest_log row already exists — another upload
+    or a purge tombstone holds it."""
+
+
 def _check_idempotency_sync(
     conn: Any,
     encid: str,
@@ -657,7 +662,11 @@ def _check_idempotency_sync(
     if not parses_db.is_ingested(conn, encid, world):
         return None
     existing = parses_db.find_encounter_by_act_encid(conn, encid, world)
-    if existing and existing.get("hidden_at") is not None:
+    if existing is None:
+        # ingest_log tombstone: the encounter was purged by an admin. The
+        # encid stays unuploadable until the tombstone expires.
+        _log.warning("[parses-ingest] re-upload of purged encid skipped (world=%s)", world)
+    elif existing.get("hidden_at") is not None:
         # Leave it hidden; surface the evasion attempt in the logs (the actor
         # is captured on the request via the request-context/audit trail).
         _log.warning(
@@ -694,6 +703,11 @@ def _insert_encounter_rows_sync(
     column NULL — the resting state for non-tampered uploads.
     """
     ingested_at = int(time.time())
+    # The (world, act_encid) ingest_log row is the insert lock: a concurrent
+    # retry that lost the race (or a purge tombstone) ends here with
+    # 'skipped' instead of a UNIQUE violation deep in the transaction.
+    if not parses_db.claim_encid(conn, enc.encid, world, source_dsn=source_dsn, ingested_at=ingested_at):
+        raise _EncidAlreadyClaimed(enc.encid)
     # One transaction: the statements below ride the connection's open
     # transaction and the explicit commit at the end closes it. On an
     # exception mid-way the caller's conn.close() returns the connection to
@@ -734,14 +748,7 @@ def _insert_encounter_rows_sync(
     name_to_id = parses_db.insert_combatants_bulk(conn, encounter_id, combatants, snapshots)
     n_dt = parses_db.insert_damage_types_bulk(conn, name_to_id, damage_types)
     n_at = parses_db.insert_attack_types_bulk(conn, name_to_id, attack_types)
-    parses_db.mark_ingested(
-        conn,
-        enc.encid,
-        encounter_id,
-        source_dsn=source_dsn,
-        ingested_at=ingested_at,
-        world=world,
-    )
+    parses_db.bind_ingest_log(conn, enc.encid, encounter_id, world)
     # Classify ally combatants (pet detection) now that the
     # cache-warm snapshot fast-path has populated cls for whatever was
     # already in character_cache. Any cls that fills in later via the
@@ -794,20 +801,26 @@ def _ingest_payload_sync(
         terminal = _check_idempotency_sync(conn, enc.encid, world)
         if terminal is not None:
             return terminal
-        encounter_id, n_dt, n_at = _insert_encounter_rows_sync(
-            conn,
-            enc,
-            combatants=combatants,
-            damage_types=damage_types,
-            attack_types=attack_types,
-            snapshots=snapshots,
-            uploaded_by=uploaded_by,
-            guild_name=guild_name,
-            source_dsn=source_dsn,
-            world=world,
-            client_warnings=payload.client_warnings,
-            uploader_verified=uploader_verified,
-        )
+        try:
+            encounter_id, n_dt, n_at = _insert_encounter_rows_sync(
+                conn,
+                enc,
+                combatants=combatants,
+                damage_types=damage_types,
+                attack_types=attack_types,
+                snapshots=snapshots,
+                uploaded_by=uploaded_by,
+                guild_name=guild_name,
+                source_dsn=source_dsn,
+                world=world,
+                client_warnings=payload.client_warnings,
+                uploader_verified=uploader_verified,
+            )
+        except _EncidAlreadyClaimed:
+            # Lost the (world, act_encid) race to a concurrent retry, or hit
+            # a purge tombstone — same outcome as the idempotency check.
+            conn.rollback()
+            return ("skipped", None, 0, 0, 0)
         return ("inserted", encounter_id, len(combatants), n_dt, n_at)
     finally:
         conn.close()

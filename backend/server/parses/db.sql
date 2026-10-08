@@ -100,7 +100,29 @@ INSERT INTO attack_types (
 
 -- :name mark_ingested
 INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn)
-VALUES (%s, %s, %s, %s, %s);
+VALUES (%s, %s, %s, %s, %s)
+ON CONFLICT (world, act_encid) DO NOTHING;
+
+-- The (world, act_encid) primary key is the insert lock: claim it FIRST in
+-- the ingest transaction (encounter_id NULL), then bind the encounter id.
+-- A concurrent retry loses the claim and reports 'skipped' instead of a
+-- UNIQUE violation mid-transaction.
+-- :name claim_encid
+INSERT INTO ingest_log (world, act_encid, encounter_id, ingested_at, source_dsn)
+VALUES (%s, %s, NULL, %s, %s)
+ON CONFLICT (world, act_encid) DO NOTHING
+RETURNING act_encid;
+
+-- :name bind_ingest_log
+UPDATE ingest_log SET encounter_id = %s WHERE world = %s AND act_encid = %s;
+
+-- Tombstones (encounter purged) expire after their window.
+-- :name expire_ingest_tombstones
+DELETE FROM ingest_log WHERE encounter_id IS NULL AND ingested_at < %s;
+
+-- :name expire_tamper_reports
+DELETE FROM tamper_reports
+WHERE reported_at < %s OR (acknowledged_at IS NOT NULL AND acknowledged_at < %s);
 
 -- ---------------------------------------------------------------------------
 -- Lookup helpers
@@ -243,6 +265,12 @@ INSERT INTO tamper_reports (
     %s, %s, %s,
     %s, %s
 )
+ON CONFLICT (world, act_encid, uploader_discord_id) DO UPDATE SET
+    reason = excluded.reason,
+    reported_at = excluded.reported_at,
+    payload_json = excluded.payload_json,
+    acknowledged_at = NULL,
+    acknowledged_by = NULL
 RETURNING id;
 
 -- {where} composed in Python (filters: world / reason / pending|ack|all).

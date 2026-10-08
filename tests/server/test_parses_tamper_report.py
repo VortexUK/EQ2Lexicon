@@ -243,11 +243,10 @@ async def test_tamper_report_strips_crlf_from_reason_header(app):
 
 
 @pytest.mark.asyncio
-async def test_tamper_report_no_idempotency_two_posts_two_rows(app):
-    """Unlike /ingest (which dedupes by (world, act_encid)), tamper
-    reports keep every attempt — a user retrying a rename via the
-    right-click path after the auto-skip deserves two rows so the
-    admin sees both attempts."""
+async def test_tamper_report_retries_dedupe_into_one_row(app):
+    """A retry for the same (world, encid, uploader) refreshes the existing
+    report instead of storing another full payload (1,635 rows had grown to
+    132 MB of duplicates)."""
     _wipe_tamper_reports()
     payload = _minimal_payload()  # same encid both times
 
@@ -268,10 +267,8 @@ async def test_tamper_report_no_idempotency_two_posts_two_rows(app):
     assert r1.status_code == 201
     assert r2.status_code == 201
     rows = _read_tamper_rows()
-    assert len(rows) == 2
-    # Distinct ids, same encid
-    assert rows[0]["id"] != rows[1]["id"]
-    assert rows[0]["act_encid"] == rows[1]["act_encid"]
+    assert len(rows) == 1
+    assert rows[0]["act_encid"] == payload["encounter"]["encid"]
 
 
 # ---------------------------------------------------------------------------

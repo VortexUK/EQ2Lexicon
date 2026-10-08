@@ -99,10 +99,13 @@ from backend.server.limiter import limiter
 from backend.server.metrics import (
     APP_ERRORS,
     APP_INFO,
+    EVENT_LOOP_LAG,
+    EVENT_LOOP_LAG_HIST,
     HTTP_REQUEST_DURATION,
     HTTP_REQUESTS,
     _register_db_collector,
     check_metrics_auth,
+    mark_loop_ok,
     normalize_http_labels,
     record_user_seen,
     should_track_path,
@@ -336,6 +339,9 @@ async def _validation_exception_handler(request: Request, exc: RequestValidation
     )
 
 
+EVENT_LOOP_LAG_INTERVAL_S = 5.0
+
+
 def create_app(session_secret: str | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -409,6 +415,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             asyncio.create_task(raid_live.poll_loop(), name="raid-live-poll"),
             asyncio.create_task(xpac_rollover.poll_loop(), name="xpac-rollover-poll"),
             asyncio.create_task(recruitment_sweep.sweep_loop(), name="recruitment-sweep"),
+            asyncio.create_task(_event_loop_lag_loop(), name="event-loop-lag"),
         ]
 
         try:
@@ -436,6 +443,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             await asyncio.sleep(CACHE_SWEEP_INTERVAL_S)
             for cache in (character_cache, guild_cache, claim_cache, aa_cache):
                 cache.sweep()
+            mark_loop_ok("cache_sweep")
 
     async def _parse_cleanup_loop() -> None:
         """Periodically run the parses retention sweep (delete aged trash;
@@ -454,6 +462,12 @@ def create_app(session_secret: str | None = None) -> FastAPI:
             except Exception:
                 _log.exception("[retention] parse sweep failed")
             try:
+                swept = await asyncio.to_thread(parse_cleanup.run_tombstone_sweeps)
+                if any(swept.values()):
+                    _log.info("[retention] tombstones %s", swept)
+            except Exception:
+                _log.exception("[retention] tombstone sweep failed")
+            try:
                 # Voice-attendance rows hold Discord ids of everyone in the
                 # raid voice channel; the privacy policy promises 90 days.
                 from backend.server.db.attendance import store as attendance_store
@@ -465,7 +479,23 @@ def create_app(session_secret: str | None = None) -> FastAPI:
                     _log.info("[retention] voice observations pruned=%d", pruned)
             except Exception:
                 _log.exception("[retention] voice-observation sweep failed")
+            mark_loop_ok("parse_cleanup")
             await asyncio.sleep(PARSE_CLEANUP_INTERVAL_S)
+
+    async def _event_loop_lag_loop() -> None:
+        """Every 5 s schedule a 0-delay callback and record how late it fires:
+        the direct signal for a blocked event loop (sync work on the loop
+        thread). CancelledError bubbles out of the await for clean shutdown."""
+        loop = asyncio.get_running_loop()
+        while True:
+            fired: asyncio.Future[float] = loop.create_future()
+            scheduled = loop.time()
+            loop.call_later(0, lambda f=fired: f.done() or f.set_result(loop.time()))
+            lag = max(0.0, await fired - scheduled)
+            EVENT_LOOP_LAG.set(lag)
+            EVENT_LOOP_LAG_HIST.observe(lag)
+            mark_loop_ok("event_loop_lag")
+            await asyncio.sleep(EVENT_LOOP_LAG_INTERVAL_S)
 
     app = FastAPI(
         lifespan=lifespan,
