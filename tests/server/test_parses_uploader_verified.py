@@ -110,8 +110,14 @@ def test_unverified_and_hidden_rows_never_rank(parses_db_path):
             r["id"]: r["uploader_verified"]
             for r in conn.execute("SELECT id, uploader_verified FROM encounters").fetchall()
         }
+        # The raw UPDATEs above bypass the store hooks that keep each fight's
+        # primaries current, so refresh them the way the hooks would.
+        from backend.server.parses import fights
+
+        for f in conn.execute("SELECT id FROM fights").fetchall():
+            fights.refresh_fight(conn, f["id"])
         ranked = conn.execute(
-            _RANKINGS_SQL["list_winning_encounters_with_player_count"].format(player_count_sql="0"),
+            _RANKINGS_SQL["list_primary_winning_kills"].format(player_count_sql="0"),
             ("Varsoon",),
         ).fetchall()
 

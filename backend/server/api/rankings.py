@@ -13,22 +13,23 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import unicodedata
 from collections import defaultdict
 from functools import lru_cache
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from backend.census.constants import FIGHTERS, MAGES, PRIESTS, SCOUTS
 from backend.eq2db.zones import catalogue as zones_db
-from backend.server.api.parses.list import _PLAYER_COUNT_SQL, _group_into_fights
+from backend.server.api.parses.list import _PLAYER_COUNT_SQL
 from backend.server.auth_deps import require_user_session as _require_user
 from backend.server.cache import TTLCache
 from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
 from backend.server.metrics import RANKINGS_KILLS_DATASET_SIZE, RANKINGS_REBUILD_SECONDS
-from backend.server.parses.boss import is_boss
+from backend.server.parses import fights
+from backend.server.parses.boss import boss_key, is_boss
 from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_server, current_world
 from backend.sql_loader import load_sql
@@ -50,43 +51,9 @@ _ARCHETYPE_CLASSES: dict[str, frozenset[str]] = {
     "Mage": MAGES,
 }
 
-# Mirror of frontend normaliseBossName in RankingsPage.tsx — keep in sync.
-# Folds the full set of apostrophe-like and space-like Unicode codepoints
-# we've seen in ACT logs and curator-entered roster data so the boss_index
-# lookup doesn't silently miss on codepoint mismatches.
-_APOSTROPHE_VARIANTS = str.maketrans(
-    {
-        "`": "'",  # U+0060 GRAVE ACCENT
-        "´": "'",  # U+00B4 ACUTE ACCENT
-        "ʹ": "'",  # U+02B9 MODIFIER LETTER PRIME
-        "ʺ": "'",  # U+02BA MODIFIER LETTER DOUBLE PRIME
-        "ʻ": "'",  # U+02BB MODIFIER LETTER TURNED COMMA
-        "ʼ": "'",  # U+02BC MODIFIER LETTER APOSTROPHE
-        "ʽ": "'",  # U+02BD MODIFIER LETTER REVERSED COMMA
-        "ʾ": "'",  # U+02BE MODIFIER LETTER RIGHT HALF RING
-        "ʿ": "'",  # U+02BF MODIFIER LETTER LEFT HALF RING
-        "ˈ": "'",  # U+02C8 MODIFIER LETTER VERTICAL LINE
-        "‘": "'",  # U+2018 LEFT SINGLE QUOTATION MARK
-        "’": "'",  # U+2019 RIGHT SINGLE QUOTATION MARK
-        "‛": "'",  # U+201B SINGLE HIGH-REVERSED-9 QUOTATION MARK
-        "′": "'",  # U+2032 PRIME
-        "＇": "'",  # U+FF07 FULLWIDTH APOSTROPHE
-        " ": " ",  # U+00A0 NO-BREAK SPACE
-        " ": " ",  # U+2009 THIN SPACE
-        " ": " ",  # U+200A HAIR SPACE
-        " ": " ",  # U+202F NARROW NO-BREAK SPACE
-        " ": " ",  # U+205F MEDIUM MATHEMATICAL SPACE
-        "　": " ",  # U+3000 IDEOGRAPHIC SPACE
-    }
-)
-
-
-def _normalise_boss_key(s: str) -> str:
-    """Lowercase + Unicode NFC + collapse apostrophe/space variants. Used
-    as the cache-key shape for boss_index lookups so curator-entered and
-    parse-shipped codepoint variants can never silently miss each other.
-    Frontend mirror: normaliseBossName in RankingsPage.tsx."""
-    return unicodedata.normalize("NFC", s).lower().translate(_APOSTROPHE_VARIANTS).strip()
+# The mob-name normaliser lives in parses/boss.py (shared with fight grouping);
+# the private names stay for the callers and tests that reference them.
+_normalise_boss_key = boss_key
 
 
 # Valid ?size= keys + the GROUP player-count range. Raid is deliberately
@@ -637,11 +604,95 @@ def _apply_era_lock(kills: list[dict], lock: tuple[str, int] | None, zone_xpac: 
     return out
 
 
+def _kill_dict(d: dict, scope: str, combatants: list[dict]) -> dict:
+    return {
+        "id": d["id"],
+        "title": d["title"],
+        "zone": d["zone"],
+        "guild_name": d.get("guild_name"),
+        "started_at": d["started_at"],
+        "duration_s": d["duration_s"],
+        "ingested_at": d.get("ingested_at"),
+        "player_count": d.get("player_count") or 0,
+        "scope": scope,
+        "combatants": combatants,
+    }
+
+
+def _gate_row(row: dict) -> tuple[dict, str] | None:
+    """Scope + boss gate for one primary-winning upload; canonicalises the
+    zone/title. None when the row can never rank."""
+    d = dict(row)
+    scope = _scope_for(d.get("player_count") or 0)
+    if scope is None:
+        return None
+    ok, czone, ctitle = _resolve_boss(d["title"], d["zone"], scope)
+    if not ok:
+        return None
+    d["zone"] = czone
+    d["title"] = ctitle
+    return d, scope
+
+
+def _finish_kill(
+    kill: dict, *, uploaded_by: str | None, lock: tuple[str, int] | None, zone_xpac: dict[str, str]
+) -> tuple[dict | None, dict | None]:
+    """Cut-parse gate then era lock. Returns (kill or None, excluded entry
+    or None) — a cut parse is reported on /api/rankings/excluded."""
+    missing = _missing_required_mobs(kill)
+    if missing:
+        excluded = {
+            "id": kill["id"],
+            "title": kill["title"],
+            "zone": kill["zone"],
+            "guild_name": kill["guild_name"],
+            "started_at": kill["started_at"],
+            "duration_s": kill["duration_s"],
+            "player_count": kill["player_count"],
+            "uploaded_by": uploaded_by,
+            "missing": missing,
+        }
+        if kill["id"] not in _warned_cut_parses:
+            _warned_cut_parses.add(kill["id"])
+            _log.warning(
+                "[rankings] cut-parse excluded: encounter=%s title=%r zone=%r guild=%r "
+                "uploaded_by=%r duration=%ss missing_named=%s",
+                kill["id"],
+                kill["title"],
+                kill["zone"],
+                kill["guild_name"],
+                uploaded_by,
+                kill["duration_s"],
+                ",".join(missing),
+            )
+        return None, excluded
+    if not _apply_era_lock([kill], lock, zone_xpac):
+        return None, None
+    return kill, None
+
+
+def _classify_rows(conn: Any, rows: list[dict]) -> None:
+    """Lazy classification for rows whose combatants still have
+    is_player NULL (never classified, or reset by invalidate_zones_cache);
+    refreshes their player_count so _scope_for sees the real value."""
+    from backend.server.api.parses.list import (  # noqa: PLC0415 — local: avoid import cycle
+        _classify_now,
+        encounters_needing_classification,
+    )
+
+    needy = encounters_needing_classification(conn, [r["id"] for r in rows])
+    for r in rows:
+        if r["id"] in needy and _classify_now(conn, r["id"], r["zone"]):
+            refreshed = conn.execute(_SQL["count_player_combatants_for_encounter"], (r["id"],)).fetchone()
+            r["player_count"] = int(refreshed["n"]) if refreshed else 0
+
+
 def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
-    """Load winning boss-kill encounters, mirror-group them, and return one
-    'primary' (longest) upload per fight with its combatants attached. Hidden
-    and unverified-uploader rows are excluded in SQL. Called from an executor
-    by the async endpoints.
+    """Load one kill per ranking fight — the fight's longest visible,
+    verified, winning upload, as maintained at ingest by parses/fights.py —
+    with its combatants attached. Uploads not yet grouped (pre-migration
+    rows, a failed attach) are grouped first. Called from an executor by the
+    async endpoints.
 
     ``world`` scopes to the active server so each server sees only its own
     leaderboard data."""
@@ -650,129 +701,127 @@ def _load_primary_boss_kills(world: str = "Varsoon") -> list[dict]:
     t0 = _time.monotonic()
     conn = parses_db.init_db()
     try:
-        rows = conn.execute(
-            _SQL["list_winning_encounters_with_player_count"].format(player_count_sql=_PLAYER_COUNT_SQL),
-            (world,),
-        ).fetchall()
-        t_select = _time.monotonic()
-        # Lazy classification: combatants whose is_player flag is still NULL
-        # (never classified, or reset by invalidate_zones_cache) are
-        # classified now. One batched query finds the needy set; only those
-        # run the classifier. The player_count in the SELECT
-        # above uses the same _PLAYER_COUNT_SQL subquery as parses_list —
-        # refresh it here so the post-classifier value drives _scope_for.
-        from backend.server.api.parses.list import (  # noqa: PLC0415 — local: avoid import cycle
-            _classify_now,
-            encounters_needing_classification,
-        )
-
-        rows = [dict(r) for r in rows]
-        needy = encounters_needing_classification(conn, [r["id"] for r in rows])
-        for r in rows:
-            if r["id"] in needy and _classify_now(conn, r["id"], r["zone"]):
-                refreshed = conn.execute(
-                    _SQL["count_player_combatants_for_encounter"],
-                    (r["id"],),
-                ).fetchone()
-                r["player_count"] = int(refreshed["n"]) if refreshed else 0
-        t_classify = _time.monotonic()
-        # Gate + canonicalise per row (scope is known from player_count): raid
-        # bosses resolve against the zones catalogue, everything else via the heuristic.
-        encs: list[dict] = []
-        for r in rows:
-            d = dict(r)
-            scope = _scope_for(d.get("player_count") or 0)
-            if scope is None:
-                continue
-            ok, czone, ctitle = _resolve_boss(d["title"], d["zone"], scope)
-            if not ok:
-                continue
-            d["zone"] = czone
-            d["title"] = ctitle
-            encs.append(d)
-        groups = [
-            (g, scope)
-            for g in _group_into_fights(encs, conn)
-            if (scope := _scope_for(g.get("player_count") or 0)) is not None
-        ]
+        grouped = fights.backfill_world(conn, world)
         t_group = _time.monotonic()
-        combatants_by_enc = parses_db.get_combatants_for_encounters(conn, [g["id"] for g, _ in groups])
-        t_combatants = _time.monotonic()
-        kills = [
-            {
-                "id": g["id"],
-                "title": g["title"],
-                "zone": g["zone"],
-                "guild_name": g.get("guild_name"),
-                "started_at": g["started_at"],
-                "duration_s": g["duration_s"],
-                "ingested_at": g.get("ingested_at"),
-                "player_count": g.get("player_count") or 0,
-                "scope": scope,
-                "combatants": combatants_by_enc.get(g["id"], []),
-            }
-            for g, scope in groups
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                _SQL["list_primary_winning_kills"].format(player_count_sql=_PLAYER_COUNT_SQL), (world,)
+            ).fetchall()
         ]
-        # Cut-parse gate: a multi-mob curated encounter must contain every
-        # curated named, dead, or the kill never ranks (see
-        # _missing_required_mobs). Uploader comes from the primary upload.
-        uploader_by_id = {g["id"]: g.get("uploaded_by") for g, _ in groups}
-        excluded: list[dict] = []
-        complete: list[dict] = []
-        for k in kills:
-            missing = _missing_required_mobs(k)
-            if not missing:
-                complete.append(k)
-                continue
-            excluded.append(
-                {
-                    "id": k["id"],
-                    "title": k["title"],
-                    "zone": k["zone"],
-                    "guild_name": k["guild_name"],
-                    "started_at": k["started_at"],
-                    "duration_s": k["duration_s"],
-                    "player_count": k["player_count"],
-                    "uploaded_by": uploader_by_id.get(k["id"]),
-                    "missing": missing,
-                }
-            )
-            if k["id"] not in _warned_cut_parses:
-                _warned_cut_parses.add(k["id"])
-                _log.warning(
-                    "[rankings] cut-parse excluded: encounter=%s title=%r zone=%r guild=%r "
-                    "uploaded_by=%r duration=%ss missing_named=%s",
-                    k["id"],
-                    k["title"],
-                    k["zone"],
-                    k["guild_name"],
-                    uploader_by_id.get(k["id"]),
-                    k["duration_s"],
-                    ",".join(missing),
-                )
-        _EXCLUDED_BY_WORLD[world] = excluded
-        result = _apply_era_lock(complete, _era_lock_for(world), _zone_expansion_map())
-        total = _time.monotonic() - t0
-        RANKINGS_REBUILD_SECONDS.labels(world=world).observe(total)
-        RANKINGS_KILLS_DATASET_SIZE.labels(world=world).set(len(result))
-        # INFO on every rebuild: when a 524 happens, the pasted Railway log
-        # must say exactly which phase ate the time.
-        _log.info(
-            "[rankings] kills rebuild world=%s: %d encounters -> %d kills (%d cut-parse excluded) in %.1fs "
-            "(select=%.1fs classify=%.1fs group=%.1fs combatants=%.1fs)",
-            world,
-            len(rows),
-            len(result),
-            len(excluded),
-            total,
-            t_select - t0,
-            t_classify - t_select,
-            t_group - t_classify,
-            t_combatants - t_group,
-        )
-        return result
+        t_select = _time.monotonic()
+        _classify_rows(conn, rows)
+        t_classify = _time.monotonic()
+        prepared = [p for p in (_gate_row(r) for r in rows) if p is not None]
+        combatants_by_enc = parses_db.get_combatants_for_encounters(conn, [d["id"] for d, _ in prepared])
+        t_combatants = _time.monotonic()
     finally:
         conn.close()
+    lock = _era_lock_for(world)
+    zone_xpac = _zone_expansion_map()
+    result: list[dict] = []
+    excluded: list[dict] = []
+    for d, scope in prepared:
+        kill, ex = _finish_kill(
+            _kill_dict(d, scope, combatants_by_enc.get(d["id"], [])),
+            uploaded_by=d.get("uploaded_by"),
+            lock=lock,
+            zone_xpac=zone_xpac,
+        )
+        if kill is not None:
+            result.append(kill)
+        if ex is not None:
+            excluded.append(ex)
+    _EXCLUDED_BY_WORLD[world] = excluded
+    total = _time.monotonic() - t0
+    RANKINGS_REBUILD_SECONDS.labels(world=world).observe(total)
+    RANKINGS_KILLS_DATASET_SIZE.labels(world=world).set(len(result))
+    _log.info(
+        "[rankings] kills rebuild world=%s: %d fights -> %d kills (%d cut-parse excluded, %d uploads grouped) "
+        "in %.1fs (group=%.1fs select=%.1fs classify=%.1fs combatants=%.1fs)",
+        world,
+        len(rows),
+        len(result),
+        len(excluded),
+        grouped,
+        total,
+        t_group - t0,
+        t_select - t_group,
+        t_classify - t_select,
+        t_combatants - t_classify,
+    )
+    return result
+
+
+def _sync_fight_sync(world: str, fight_id: int) -> None:
+    """Replace one fight's entry in the cached kills dataset from the DB:
+    drop every kill sourced from the fight's uploads, add the current
+    primary winning upload if it ranks. A cold cache is left alone — the
+    next full build includes the fight."""
+    key = f"{_KILLS_KEY}:{world}"
+    kills = rankings_cache.peek(key)
+    if kills is None:
+        return
+    conn = parses_db.init_db()
+    try:
+        fight = fights.get_fight(conn, fight_id)
+        member_ids = {m["id"] for m in fights.members(conn, fight_id)} if fight else set()
+        new_kill: dict | None = None
+        new_excluded: dict | None = None
+        primary = fight["primary_winning_encounter_id"] if fight else None
+        if primary is not None:
+            row = conn.execute(
+                _SQL["select_primary_winning_kill"].format(player_count_sql=_PLAYER_COUNT_SQL), (primary, world)
+            ).fetchone()
+            if row is not None:
+                rows = [dict(row)]
+                _classify_rows(conn, rows)
+                gated = _gate_row(rows[0])
+                if gated is not None:
+                    d, scope = gated
+                    new_kill, new_excluded = _finish_kill(
+                        _kill_dict(d, scope, parses_db.get_combatants_for_encounter(conn, d["id"])),
+                        uploaded_by=d.get("uploaded_by"),
+                        lock=_era_lock_for(world),
+                        zone_xpac=_zone_expansion_map(),
+                    )
+    finally:
+        conn.close()
+    stale_ids = member_ids | ({primary} if primary is not None else set())
+    kept = [k for k in kills if k["id"] not in stale_ids]
+    if new_kill is not None:
+        kept.append(new_kill)
+        kept.sort(key=lambda k: k["started_at"], reverse=True)
+    rankings_cache.set(key, kept)
+    RANKINGS_KILLS_DATASET_SIZE.labels(world=world).set(len(kept))
+    excluded = [e for e in _EXCLUDED_BY_WORLD.get(world, []) if e["id"] not in stale_ids]
+    if new_excluded is not None:
+        excluded.append(new_excluded)
+    _EXCLUDED_BY_WORLD[world] = excluded
+
+
+def _encounter_world_and_fight(encounter_id: int) -> tuple[str, int] | None:
+    conn = parses_db.init_db()
+    try:
+        row = conn.execute("SELECT world, fight_id FROM encounters WHERE id = %s", (encounter_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None or row["fight_id"] is None:
+        return None
+    return row["world"], row["fight_id"]
+
+
+async def sync_encounter(encounter_id: int) -> None:
+    """After an upload lands or changes: bring its fight's kill in the cached
+    dataset up to date without a full rebuild. Never raises (background)."""
+    try:
+        target = await run_sync(_encounter_world_and_fight, encounter_id)
+        if target is None:
+            return
+        world, fight_id = target
+        await run_sync(_sync_fight_sync, world, fight_id)
+    except Exception as exc:
+        _log.warning("[rankings] incremental sync failed for encounter %s: %s", encounter_id, exc)
 
 
 def _rebuild_kills(world: str) -> list[dict]:

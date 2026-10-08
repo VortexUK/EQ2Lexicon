@@ -39,6 +39,18 @@ from backend.server.server_context import current_world
 _log = logging.getLogger(__name__)
 
 
+def _refresh_rankings() -> None:
+    """Hide/unhide/delete can move a fight's primary: rebuild this world's
+    kills dataset in the background (rare admin actions; a full build is
+    fine here, uploads use the per-fight sync)."""
+    import asyncio  # noqa: PLC0415
+
+    from backend.server.api.rankings import _kills_background_refresh  # noqa: PLC0415 — local: avoid import cycle
+    from backend.server.server_context import current_world  # noqa: PLC0415
+
+    asyncio.create_task(_kills_background_refresh(current_world()))
+
+
 async def _can_delete_encounter(user: SessionUser, enc: dict, *, guild_ok: dict[str, bool] | None = None) -> bool:
     """Authorise deletion of one encounter row (must carry `guild_name` and
     `source_dsn`). Any of: admin, the original uploader, or an officer of the
@@ -192,6 +204,7 @@ async def delete_parses_batch(
     n = await run_sync(_delete_many)
     if n:
         invalidate_parses_list_cache()  # the cached /parses pages now lie
+        _refresh_rankings()  # primaries may have moved
     audit_log(
         "parse_batch_deleted",
         actor=user["id"],
@@ -237,6 +250,7 @@ async def delete_parse(
     removed = await run_sync(_delete_sync)
     if removed:
         invalidate_parses_list_cache()  # the cached /parses pages now lie
+        _refresh_rankings()  # primaries may have moved
         audit_log(
             "parse_deleted",
             actor=user["id"],
@@ -278,6 +292,7 @@ async def unhide_parses_batch(request: Request, ids: str) -> dict:
     n = await run_sync(_unhide_many)
     if n:
         invalidate_parses_list_cache()  # the restored rows must show at once
+        _refresh_rankings()  # primaries may have moved
     audit_log(
         "parse_batch_unhidden",
         actor=user["id"],
@@ -313,6 +328,7 @@ async def unhide_parse(request: Request, encounter_id: int) -> dict:
     restored = await run_sync(_unhide_sync)
     if restored:
         invalidate_parses_list_cache()  # the restored row must show at once
+        _refresh_rankings()  # primaries may have moved
         audit_log(
             "parse_unhidden",
             actor=user["id"],

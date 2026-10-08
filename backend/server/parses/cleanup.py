@@ -21,6 +21,7 @@ import logging
 import os
 import time
 
+from backend.server.parses import fights
 from backend.server.parses.boss import is_boss
 from backend.server.parses.db import store as parses_db
 
@@ -50,61 +51,30 @@ def run_parse_cleanup(now: int | None = None, retention_days: int | None = None)
     days = RETENTION_DAYS if retention_days is None else retention_days
     cutoff = now - days * _DAY_S
 
-    # The grouping helpers live in the API layer; importing them at module load
-    # would invert the api→db layering and risk an import cycle (app.py imports
-    # this module at startup). Import locally — same pattern rankings.py uses.
-    from backend.server.api.parses.list import (  # noqa: PLC0415
-        _PLAYER_COUNT_SQL,
-        _ensure_classified,
-        _group_into_fights,
-    )
-
-    # Same player_count projection list/rankings use, so grouping (and therefore
-    # the chosen primary) matches exactly. `e` is the encounters alias.
-    candidate_sql = (
-        f"SELECT e.*, ({_PLAYER_COUNT_SQL}) AS player_count FROM encounters e WHERE e.world = %s AND e.started_at < %s"
-    )
-
     trash_deleted = 0
     dup_deleted = 0
     conn = parses_db.init_db()
     try:
         worlds = [r["world"] for r in conn.execute("SELECT DISTINCT world FROM encounters").fetchall()]
         for world in worlds:
-            rows = [dict(r) for r in conn.execute(candidate_sql, (world, cutoff)).fetchall()]
-
-            # Trash → delete outright; boss rows are deferred to mirror-grouping.
-            boss_rows: list[dict] = []
+            # Anything not yet grouped (an attach that failed) gets its fight
+            # first, so the collapse below never sees an orphan.
+            fights.backfill_world(conn, world)
+            rows = conn.execute(
+                "SELECT id, title FROM encounters WHERE world = %s AND started_at < %s", (world, cutoff)
+            ).fetchall()
+            # Trash -> delete outright (the store hook refreshes its fight).
             for r in rows:
-                if is_boss(r.get("title")):
-                    boss_rows.append(r)
-                elif parses_db.delete_encounter(conn, r["id"]):
+                if not is_boss(r["title"]) and parses_db.delete_encounter(conn, r["id"]):
                     trash_deleted += 1
-
-            if not boss_rows:
-                continue
-
-            # Classify unclassified combatants (is_player NULL) so player_count
-            # and the top-N gate see the right flags — mirrors rankings/list.
-            for r in boss_rows:
-                if _ensure_classified(conn, r["id"], r.get("zone")):
-                    refreshed = conn.execute(
-                        "SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1",
-                        (r["id"],),
-                    ).fetchone()
-                    r["player_count"] = int(refreshed["n"]) if refreshed else 0
-
-            for g in _group_into_fights(boss_rows, conn):
-                # Keep the canonical (longest overall) AND the longest winning
-                # upload (= the rankings primary) so no leaderboard link breaks.
-                keep_ids = {g["id"]}
-                winning = [u for u in g["uploads"] if u.get("success_level") == 1]
-                if winning:
-                    keep_ids.add(max(winning, key=lambda u: u["duration_s"])["id"])
-                for u in g["uploads"]:
-                    if u["id"] in keep_ids or u.get("hidden_at") is not None:
+            # Boss fights: keep the list canonical AND the rankings primary so
+            # no leaderboard link breaks; hidden uploads are never deleted.
+            for f in fights.aged_fights(conn, world, cutoff):
+                keep = {f["primary_encounter_id"], f["primary_winning_encounter_id"]}
+                for m in fights.members(conn, f["id"]):
+                    if m["id"] in keep or m.get("hidden_at") is not None:
                         continue
-                    if parses_db.delete_encounter(conn, u["id"]):
+                    if parses_db.delete_encounter(conn, m["id"]):
                         dup_deleted += 1
 
         detail_pruned = _sweep_detail_retention(conn, now)

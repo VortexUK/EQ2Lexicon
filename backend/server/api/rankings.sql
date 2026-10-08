@@ -50,18 +50,27 @@ SELECT name_lower, expansion_short FROM zones WHERE expansion_short IS NOT NULL;
 -- parses schema (Postgres) — winning-encounters scan + player_count refresh
 -- ---------------------------------------------------------------------------
 
--- :name list_winning_encounters_with_player_count
--- Every world-scoped winning encounter, most-recent-first. The
--- player_count_sql template parameter is the shared subquery from
--- parses/list.py (avoids a separate JOIN per row). Hidden (soft-deleted)
--- and unverified-uploader rows never rank.
+-- :name list_primary_winning_kills
+-- One row per fight that ranks: its longest visible, verified, winning
+-- upload (primary_winning_encounter_id, maintained at ingest by
+-- parses/fights.py), most-recent-first. The player_count_sql template
+-- parameter is the shared subquery from parses/list.py.
 SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by,
-       e.started_at, e.duration_s, e.success_level, e.ingested_at,
+       e.started_at, e.duration_s, e.success_level, e.ingested_at, e.fight_id,
+       ({player_count_sql}) AS player_count
+FROM fights f
+JOIN encounters e ON e.id = f.primary_winning_encounter_id
+WHERE f.world = %s
+ORDER BY e.started_at DESC;
+
+-- :name select_primary_winning_kill
+-- The same projection for ONE upload (the incremental per-fight sync).
+SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by,
+       e.started_at, e.duration_s, e.success_level, e.ingested_at, e.fight_id,
        ({player_count_sql}) AS player_count
 FROM encounters e
-WHERE e.success_level = 1 AND e.world = %s
-  AND e.hidden_at IS NULL AND e.uploader_verified = 1
-ORDER BY e.started_at DESC;
+WHERE e.id = %s AND e.world = %s
+  AND e.hidden_at IS NULL AND e.uploader_verified = 1 AND e.success_level = 1;
 
 -- :name count_player_combatants_for_encounter
 -- Refresh the player count for one encounter after the lazy backfill

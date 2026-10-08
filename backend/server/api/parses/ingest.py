@@ -41,7 +41,7 @@ from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
 from backend.server.db import get_active_claims
 from backend.server.limiter import client_ip, limiter, upload_rate_key
-from backend.server.parses import plausibility
+from backend.server.parses import fights, plausibility
 from backend.server.parses.db import store as parses_db
 from backend.server.parses.models import (
     AttackType,
@@ -357,6 +357,13 @@ def _update_snapshots_sync(encounter_id: int, snapshots: dict[str, CombatantSnap
         conn.close()
 
 
+async def _sync_rankings_for_encounter(encounter_id: int) -> None:
+    """Refresh just this upload's fight in the cached rankings dataset."""
+    from backend.server.api.rankings import sync_encounter  # noqa: PLC0415 — local: avoid import cycle
+
+    await sync_encounter(encounter_id)
+
+
 async def _backfill_encounter_guild(encounter_id: int, uploader: str, world: str | None) -> None:
     """Background: retry a Census guild lookup that failed at ingest time.
 
@@ -392,6 +399,7 @@ async def _backfill_encounter_guild(encounter_id: int, uploader: str, world: str
 
         await run_sync(_set_guild)
         _log.info("Background guild backfill set encounter %s guild_name=%r", encounter_id, result)
+        await _sync_rankings_for_encounter(encounter_id)  # the guild moved it to another fight
     except Exception as exc:
         _log.warning("Background guild backfill failed for encounter %s: %s", encounter_id, exc)
 
@@ -758,6 +766,8 @@ def _insert_encounter_rows_sync(
     zone_category = _classify_zone(enc.zone)
     classification = classify_combatants(rows, zone_category)
     parses_db.update_combatant_is_player(conn, classification)
+    # Group the upload with its mirrors now that its roster is classified.
+    fights.attach_encounter(conn, encounter_id)
     conn.commit()
     return encounter_id, n_dt, n_at
 
@@ -1195,6 +1205,9 @@ async def ingest_parse(
     # Schedule the full (Census-backed) resolution off the response path for
     # fresh inserts. Skipped rows already have their snapshots, and an empty
     # name list has nothing to do.
+    if status in ("inserted", "revived") and encounter_id is not None:
+        # The fight's rankings entry, without a full rebuild.
+        background.add_task(_sync_rankings_for_encounter, encounter_id)
     if status in ("inserted", "revived") and encounter_id is not None and player_names:
         background.add_task(
             _resolve_and_update_snapshots,

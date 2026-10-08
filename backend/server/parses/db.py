@@ -19,6 +19,7 @@ from enum import IntEnum
 from typing import Any
 
 from backend.db_catalogue import PgCatalogue
+from backend.server.parses import fights
 from backend.server.parses.models import AttackType, Combatant, CombatantSnapshot, DamageType, Encounter
 from backend.sql_loader import load_sql
 
@@ -378,7 +379,10 @@ class ParsesStore(PgCatalogue):
         """Delete one encounter. Returns True if a row was removed, False if not
         found. ON DELETE CASCADE handles combatants / damage_types / attack_types
         / ingest_log."""
+        fight_id = fights.fight_id_of(conn, encounter_id)
         cur = conn.execute(_SQL["delete_encounter"], (encounter_id,))
+        if fight_id is not None:
+            fights.refresh_fight(conn, fight_id)  # primaries move; an emptied fight goes
         conn.commit()
         return cur.rowcount > 0
 
@@ -392,6 +396,10 @@ class ParsesStore(PgCatalogue):
             _SQL["soft_delete_encounter"],
             (hidden_at, hidden_by, encounter_id),
         )
+        if cur.rowcount:
+            fight_id = fights.fight_id_of(conn, encounter_id)
+            if fight_id is not None:
+                fights.refresh_fight(conn, fight_id)  # a hidden upload can't be a primary
         conn.commit()
         return cur.rowcount > 0
 
@@ -404,6 +412,10 @@ class ParsesStore(PgCatalogue):
             _SQL["unhide_encounter"],
             (encounter_id,),
         )
+        if cur.rowcount:
+            fight_id = fights.fight_id_of(conn, encounter_id)
+            if fight_id is not None:
+                fights.refresh_fight(conn, fight_id)
         conn.commit()
         return cur.rowcount > 0
 
@@ -414,6 +426,9 @@ class ParsesStore(PgCatalogue):
             _SQL["set_encounter_guild_name"],
             (guild_name, encounter_id),
         )
+        if cur.rowcount:
+            # The guild is part of the fight key: leave the old fight, group again.
+            fights.reattach_encounter(conn, encounter_id)
         conn.commit()
         return cur.rowcount > 0
 
