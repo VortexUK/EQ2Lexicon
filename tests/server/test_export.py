@@ -132,6 +132,29 @@ async def test_export_rankings_rows_and_class_filter(app, users_db):
 
 
 @pytest.mark.asyncio
+async def test_export_rankings_paginates_with_absolute_ranks(app, users_db):
+    _grant_api(users_db)
+    kills = [
+        _kill(1, [_combatant("A", "Wizard", 500), _combatant("B", "Wizard", 400), _combatant("C", "Wizard", 300)]),
+    ]
+    with _auth_patch(), patch("backend.server.api.export._kills_swr", new=AsyncMock(return_value=kills)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            base = {"size": "raid", "zone": "Veeshan's Peak", "boss": "Phara Dar", "metric": "dps"}
+            r1 = await c.get("/api/export/v1/rankings", params={**base, "limit": 2})
+            r2 = await c.get("/api/export/v1/rankings", params={**base, "limit": 2, "offset": 2})
+            bad = await c.get("/api/export/v1/rankings", params={**base, "limit": 0})
+    assert r1.status_code == 200 and r2.status_code == 200
+    b1, b2 = r1.json(), r2.json()
+    assert (b1["total"], b1["limit"], b1["offset"]) == (3, 2, 0)
+    assert [(row["rank"], row["name"]) for row in b1["rows"]] == [(1, "A"), (2, "B")]
+    assert [(row["rank"], row["name"]) for row in b2["rows"]] == [(3, "C")]
+    assert b2["total"] == 3
+    # percentiles are computed over the whole board, not the page
+    assert b2["rows"][0]["percentile"] == 60
+    assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_export_rankings_rejects_bad_metric(app, users_db):
     _grant_api(users_db)
     with _auth_patch():

@@ -65,15 +65,14 @@ _SCOPES: dict[str, tuple[int, int]] = {"group": (2, 6), "raid": (7, 24)}
 _SCOPE_LABELS = {"group": "Group", "raid": "Raid"}
 _METRIC_FIELD = {"dps": "encdps", "hps": "enchps"}  # speed handled separately
 
-# Cache of the expensive load+group step (boards are cheap on top). Do not
-# shorten ttl=600 lightly: each rebuild reads every winning kill's combatants
-# from Postgres (tens of MB of Supabase egress), so a short ttl under constant
-# traffic can exhaust the plan's monthly egress. max_age=6h means a stale
-# board serves instantly with a background rebuild; only a completely cold
-# cache builds inline.
-# One entry per world (the kills key) — maxsize is a registry-size bound, not
-# a memory bound; at 4 it silently evicted the fifth world's dataset.
-rankings_cache: TTLCache = TTLCache(ttl=600, max_age=6 * 3600, name="rankings", maxsize=64)
+# Cache of the kills dataset. Freshness no longer depends on this ttl:
+# every upload patches its own fight in through sync_encounter, and
+# hide/unhide/delete schedule a rebuild. The hourly full rebuild is the
+# reconciler — each one still pulls every ranking kill's combatants from
+# Postgres (tens of MB of Supabase egress), so do not shorten it to chase
+# freshness. max_age=6h means a stale board serves instantly with a
+# background rebuild; only a completely cold cache builds inline.
+rankings_cache: TTLCache = TTLCache(ttl=3600, max_age=6 * 3600, name="rankings", maxsize=64)
 _KILLS_KEY = "primary_boss_kills"
 
 

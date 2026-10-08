@@ -96,23 +96,58 @@ const ADORN_COLOR: Record<string, string> = {
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
+// One request per item id, however many hovers race for it; a failed load is
+// remembered for NEGATIVE_TTL_MS so a hover loop over a missing item can't
+// hammer /api/item.
 
 const _cache = new Map<string, ItemDetail>()
+const _inflight = new Map<string, Promise<ItemDetail | null>>()
+const _failedUntil = new Map<string, number>()
+export const NEGATIVE_TTL_MS = 60_000
 
 /** Read an already-fetched item without triggering a network request. */
 export function getCachedItem(id: string): ItemDetail | undefined {
   return _cache.get(id)
 }
 
+/** Resolve an item: cached, or the single in-flight request for it, or a
+ *  fresh fetch. Resolves null (never rejects) when the item can't be loaded. */
+export function loadItem(id: string): Promise<ItemDetail | null> {
+  const hit = _cache.get(id)
+  if (hit) return Promise.resolve(hit)
+  const failed = _failedUntil.get(id)
+  if (failed !== undefined) {
+    if (failed > Date.now()) return Promise.resolve(null)
+    _failedUntil.delete(id)
+  }
+  const pending = _inflight.get(id)
+  if (pending) return pending
+  const p = fetch(`/api/item/${id}`)
+    .then(r => (r.ok ? (r.json() as Promise<ItemDetail>) : null))
+    .then(data => {
+      if (data) _cache.set(id, data)
+      else _failedUntil.set(id, Date.now() + NEGATIVE_TTL_MS)
+      return data
+    })
+    .catch(() => {
+      _failedUntil.set(id, Date.now() + NEGATIVE_TTL_MS)
+      return null
+    })
+    .finally(() => _inflight.delete(id))
+  _inflight.set(id, p)
+  return p
+}
+
 /** Populate the cache for `id` if not already present (fire-and-forget safe). */
 export async function prefetchItem(id: string): Promise<void> {
-  if (_cache.has(id)) return
-  try {
-    const r = await fetch(`/api/item/${id}`)
-    if (!r.ok) return
-    const data: ItemDetail = await r.json()
-    _cache.set(id, data)
-  } catch { /* swallow network errors */ }
+  await loadItem(id)
+}
+
+/** Test seam. */
+export function _resetItemCacheForTest(): void {
+  _cache.clear()
+  _inflight.clear()
+  _failedUntil.clear()
 }
 
 // ── Tooltip portal ────────────────────────────────────────────────────────────
@@ -124,16 +159,22 @@ export function ItemTooltip({ state }: { state: TooltipState }) {
   const [loading, setLoading] = useState(!_cache.has(state.itemId))
 
   useEffect(() => {
-    if (_cache.has(state.itemId)) {
-      setItem(_cache.get(state.itemId)!)
+    const hit = _cache.get(state.itemId)
+    if (hit) {
+      setItem(hit)
       setLoading(false)
       return
     }
+    // Guard against the hover moving on before this item's load resolves:
+    // a stale resolution must not overwrite the newer item.
+    let cancelled = false
     setLoading(true)
-    fetch(`/api/item/${state.itemId}`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then((data: ItemDetail) => { _cache.set(state.itemId, data); setItem(data); setLoading(false) })
-      .catch(() => setLoading(false))
+    loadItem(state.itemId).then(data => {
+      if (cancelled) return
+      setItem(data)
+      setLoading(false)
+    })
+    return () => { cancelled = true }
   }, [state.itemId])
 
   const { ref, position } = useTooltipPosition({ x: state.x, y: state.y, width: TIP_W, marginX: 16, marginY: 8 })

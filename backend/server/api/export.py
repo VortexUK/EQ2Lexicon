@@ -75,6 +75,11 @@ class ExportRankingsResponse(BaseModel):
     zone: str
     boss: str
     metric: str
+    # Pagination (additive, 2026-10-08): `total` is the full board size,
+    # `rows` is the window [offset, offset+limit); ranks are absolute.
+    total: int = 0
+    limit: int = 200
+    offset: int = 0
     rows: list[ExportRankingRow]
 
 
@@ -148,9 +153,13 @@ async def export_rankings(
     boss: str,
     metric: str = "dps",
     class_name: str | None = Query(None, alias="class"),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
 ) -> ExportRankingsResponse:
     """Per-character best-parse board for one boss — the same curated
-    primary-kill dataset the site ranks on."""
+    primary-kill dataset the site ranks on. Paginated with ``limit`` /
+    ``offset`` (defaults keep the pre-pagination shape for small boards);
+    ``total`` says how many rows the board has."""
     await _require_api_consumer(request)
     if metric not in ("dps", "hps"):
         raise HTTPException(status_code=400, detail="metric must be 'dps' or 'hps'")
@@ -161,6 +170,7 @@ async def export_rankings(
     if class_name:
         rows = [r for r in rows if r["cls"] == class_name]
     _apply_percentiles(rows, score_key="score", higher_better=True)
+    page = rows[offset : offset + limit]
 
     return ExportRankingsResponse(
         world=world,
@@ -168,9 +178,12 @@ async def export_rankings(
         zone=zone,
         boss=boss,
         metric=metric,
+        total=len(rows),
+        limit=limit,
+        offset=offset,
         rows=[
             ExportRankingRow(
-                rank=i + 1,
+                rank=offset + i + 1,
                 name=r["name"],
                 guild_name=r.get("guild_name"),
                 cls=r.get("cls"),
@@ -182,7 +195,7 @@ async def export_rankings(
                 player_count=r.get("size"),
                 started_at=r["started_at"],
             )
-            for i, r in enumerate(rows)
+            for i, r in enumerate(page)
         ],
     )
 
