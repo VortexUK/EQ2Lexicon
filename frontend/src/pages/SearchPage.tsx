@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { safeSetParams } from '../lib/searchParams'
 import { Card } from '../components/ui'
 import { useDebounce } from '../hooks/useDebounce'
 
@@ -56,9 +57,9 @@ function NameSearchPage({ config }: { config: SearchConfig }) {
     const current = searchParams.get('q') ?? ''
     if (q === current) return
     if (q) {
-      setSearchParams({ q }, { replace: true })
+      safeSetParams(setSearchParams as (...a: unknown[]) => void, [{ q }, { replace: true }])
     } else {
-      setSearchParams({}, { replace: true })
+      safeSetParams(setSearchParams as (...a: unknown[]) => void, [{}, { replace: true }])
     }
   }, [query]) // eslint-disable-line react-hooks/exhaustive-deps
 

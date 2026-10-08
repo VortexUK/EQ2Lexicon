@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ItemTooltip, useItemTooltip } from '../components/ItemTooltip'
 import { Button, Card } from '../components/ui'
+import { safeSetParams } from '../lib/searchParams'
 import { itemRarityColor } from '../rarityColors'
 import ItemSearchFilters, { ItemSearchQuery, StatFilter } from './items/ItemSearchFilters'
 
@@ -120,10 +121,17 @@ export default function ItemSearchPage() {
       const v = f.value.trim()
       p.append('sf', v ? `${f.stat}:${f.op}:${v}` : f.stat)
     }
-    setSearchParams(p, { replace: true })
+    safeSetParams(setSearchParams as (...a: unknown[]) => void, [p, { replace: true }])
   }, [activeQuery, sortBy, sortDir, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Search execution ──────────────────────────────────────────────────────
+
+  // Each search aborts the previous in-flight request and carries a sequence
+  // number; a response that is no longer the latest is dropped so a slow older
+  // search can never overwrite newer results (or the URL page).
+  const searchSeq = useRef(0)
+  const searchCtrl = useRef<AbortController | null>(null)
+  useEffect(() => () => searchCtrl.current?.abort(), [])
 
   async function runSearch(query: ItemSearchQuery, p: number, sb: string, sd: 'asc' | 'desc') {
     const params = new URLSearchParams()
@@ -149,22 +157,30 @@ export default function ItemSearchPage() {
       params.append('stat_filter', v ? `${f.stat}:${f.op}:${v}` : f.stat)
     }
 
+    searchCtrl.current?.abort()
+    const ctrl = new AbortController()
+    searchCtrl.current = ctrl
+    const seq = ++searchSeq.current
+    const isStale = () => seq !== searchSeq.current
+
     setLoading(true)
     setError(null)
     setSearched(true)
     try {
-      const res = await fetch(`/api/items/search?${params}`, { credentials: 'include' })
+      const res = await fetch(`/api/items/search?${params}`, { credentials: 'include', signal: ctrl.signal })
       if (!res.ok) {
         const detail = (await res.json().catch(() => ({}))).detail ?? `Error ${res.status}`
-        setError(detail)
+        if (!isStale()) setError(detail)
         return
       }
-      setResults(await res.json())
+      const data = await res.json()
+      if (isStale()) return
+      setResults(data)
       setPage(p)
     } catch {
-      setError('Network error — please try again.')
+      if (!isStale()) setError('Network error — please try again.')
     } finally {
-      setLoading(false)
+      if (!isStale()) setLoading(false)
     }
   }
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useDebounce } from '../hooks/useDebounce'
 import { useSearchParams } from 'react-router-dom'
+import { safeSetParams } from '../lib/searchParams'
 
 import { FilterPill } from '../components/FilterPill'
 import { Button } from '../components/ui'
@@ -205,7 +206,7 @@ export default function ParsesPage() {
     if (size) p.size = size
     if (bossesOnly) p.bosses = '1'
     if (search) p.q = search
-    setSearchParams(p, { replace: true })
+    safeSetParams(setSearchParams as (...a: unknown[]) => void, [p, { replace: true }])
   }, [size, bossesOnly, search, setSearchParams])
 
   // Optimistic local removal after a successful delete — avoids a full

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 
+import { usePolling } from '../hooks/usePolling'
 import { useServer } from '../hooks/useServer'
 
 /**
@@ -52,22 +53,17 @@ export default function ServerStatus() {
   const displayName = server?.displayName
   const [data, setData] = useState<ServerStatusData | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    const load = () =>
-      fetch('/api/census/server-status', { credentials: 'include' })
-        .then(r => (r.ok ? r.json() : null))
-        .then(d => {
-          if (!cancelled && d) setData(d as ServerStatusData)
-        })
-        .catch(() => {})
-    load()
-    const t = setInterval(load, REFRESH_MS)
-    return () => {
-      cancelled = true
-      clearInterval(t)
+  // Public endpoint (the footer also renders for logged-out visitors), so no
+  // session gate — just visibility-aware, jittered, non-overlapping polling.
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/census/server-status', { credentials: 'include' })
+      if (r.ok) setData(await r.json() as ServerStatusData)
+    } catch {
+      /* keep the last known state */
     }
   }, [])
+  usePolling(load, REFRESH_MS)
 
   const state = data?.state ?? 'unknown'
   const { colour, glow, suffix, describe } = presentState(state)

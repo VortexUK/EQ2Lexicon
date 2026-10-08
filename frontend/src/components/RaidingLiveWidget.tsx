@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+
+import { usePolling } from '../hooks/usePolling'
 
 interface LiveEntry {
   guild_name: string
@@ -26,20 +28,17 @@ export default function RaidingLiveWidget() {
   // who minimises the dropdown isn't re-opened on the next poll.
   const autoOpenedRef = useRef(false)
 
-  useEffect(() => {
-    let cancelled = false
-    async function poll() {
-      try {
-        const res = await fetch('/api/raiding-live', { credentials: 'include' })
-        if (res.ok && !cancelled) setLive(await res.json())
-      } catch {
-        /* transient — keep the last known list */
-      }
+  // Visibility-aware, jittered, non-overlapping poll. The widget is only mounted
+  // inside the authenticated Layout, so no extra session gate is needed here.
+  const poll = useCallback(async () => {
+    try {
+      const res = await fetch('/api/raiding-live', { credentials: 'include' })
+      if (res.ok) setLive(await res.json())
+    } catch {
+      /* transient — keep the last known list */
     }
-    poll()
-    const id = setInterval(poll, POLL_MS)
-    return () => { cancelled = true; clearInterval(id) }
   }, [])
+  usePolling(poll, POLL_MS)
 
   // Auto-expand once when a raid goes live; reset when the list empties so the
   // next live session expands again. The user can still minimise in between.

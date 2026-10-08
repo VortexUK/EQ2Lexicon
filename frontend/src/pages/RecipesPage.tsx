@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLazyFetch } from '../hooks/useFetch'
 import { useSearchParams } from 'react-router-dom'
+import { safeSetParams } from '../lib/searchParams'
 import { Button } from '../components/ui'
 import { FilterDropdown, groupedFromHeaders } from '../components/FilterDropdown'
 import {
@@ -54,7 +55,7 @@ export default function RecipesPage() {
     if (tier)       p.tier        = tier
     if (craftClass) p.craft_class = craftClass
     if (className)  p.cls         = className
-    setSearchParams(p, { replace: true })
+    safeSetParams(setSearchParams as (...a: unknown[]) => void, [p, { replace: true }])
   }, [q, tier, craftClass, className, setSearchParams])
 
   // ── Persist shopping list ─────────────────────────────────────────────────────

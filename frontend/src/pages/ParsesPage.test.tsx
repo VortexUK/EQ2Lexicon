@@ -5,7 +5,7 @@
  * Mocks /api/parses via global fetch so we don't need the backend running.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -262,5 +262,24 @@ describe('ParsesPage pagination', () => {
     renderPage()
     await screen.findByText('Exordium')
     expect(screen.queryByRole('button', { name: /Load older parses/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('ParsesPage URL mirror', () => {
+  it('keeps responding to typing when setSearchParams throws a SecurityError', async () => {
+    vi.resetModules()
+    vi.doMock('react-router-dom', async () => {
+      const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+      const throwingSet = () => { throw new DOMException('History API quota exhausted', 'SecurityError') }
+      return { ...actual, useSearchParams: () => [new URLSearchParams(), throwingSet] as const }
+    })
+    mockFetch([])
+    const { default: ThrowingParsesPage } = await import('./ParsesPage')
+    const { MemoryRouter: Router } = await import('react-router-dom')
+    render(<Router><ThrowingParsesPage /></Router>)
+    const input = screen.getByPlaceholderText('Search by encounter, zone, or uploader…') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'enynti' } })
+    expect(input.value).toBe('enynti')
+    vi.doUnmock('react-router-dom')
   })
 })
