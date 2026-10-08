@@ -35,7 +35,10 @@ class TestSchema:
         indexes = {r["indexname"] for r in rows}
         assert "idx_encounters_started_desc" in indexes
         assert "idx_attack_types_damage_desc" in indexes
-        assert "idx_combatants_ally" in indexes
+        # 0021 drops the two dead combatants indexes (no reader; ingest paid for them).
+        assert "idx_combatants_ally" not in indexes
+        assert "idx_combatants_name" not in indexes
+        assert "idx_combatants_rankings_cover" in indexes
 
     def test_migrations_idempotent(self):
         """Re-running the migration runner on an already-migrated database is
