@@ -23,7 +23,7 @@ ORDER BY day;
 -- its most recent history day. DISTINCT ON picks that row;
 -- idx_guild_history_latest makes it an ordered index scan.
 -- :name select_latest_member_counts
-SELECT DISTINCT ON (name_lower) name_lower, members, day
+SELECT DISTINCT ON (name_lower) name_lower, members, accounts, day
 FROM guild_history
 WHERE world = %s AND name_lower = ANY(%s)
 ORDER BY name_lower, day DESC;

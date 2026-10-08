@@ -93,8 +93,18 @@ export interface GuildHistoryResponse {
 
 export interface GuildSettings {
   officers_can_delete_parses: boolean
+  /** Effective officer ranks (Census rank ids; 0 = leader, always included). */
+  officer_rank_ids: number[]
+  /** True when the leader set the ranks explicitly (else the site default 0+1). */
+  officer_rank_ids_custom: boolean
   updated_at: number | null
   updated_by_name: string | null
+}
+
+/** A guild rank as seen on the roster — feeds the settings tab's rank picker. */
+export interface GuildRank {
+  id: number
+  name: string
 }
 
 /** GET/PUT /api/guild/{name}/recruitment — the officer-editable profile. */

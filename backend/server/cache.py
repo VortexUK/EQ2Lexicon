@@ -28,6 +28,7 @@ CacheName = Literal[
     "progression",
     "parses-list",
     "item",
+    "officer_ranks",
 ]
 
 

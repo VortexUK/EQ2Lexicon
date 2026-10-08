@@ -7,6 +7,8 @@ themselves, and a later setting is the well-worn ADD COLUMN path.
 
 ``officers_can_delete_parses`` (default ON): a leader can turn it off so
 that only the leader, admins and each parse's own uploader may delete.
+``officer_rank_ids`` (default NULL = ranks 0 and 1): which Census rank ids
+the site treats as officers for this guild.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from backend.db_catalogue import PgStoreBase
+from backend.server.constants import OFFICER_RANK_IDS
 from backend.server.db import SCHEMA
 from backend.sql_loader import load_sql
 
@@ -36,24 +39,48 @@ class GuildSettingsStore(PgStoreBase):
             async with await db.execute(_SQL["select_settings"], (world, guild_name)) as cur:
                 row = await cur.fetchone()
         if row is None:
-            return {**DEFAULT_GUILD_SETTINGS, "updated_by": None, "updated_at": None}
+            return {**DEFAULT_GUILD_SETTINGS, "officer_rank_ids": None, "updated_by": None, "updated_at": None}
         return {
             "officers_can_delete_parses": bool(row["officers_can_delete_parses"]),
+            # None = site default; a list = the leader's explicit choice.
+            "officer_rank_ids": list(row["officer_rank_ids"]) if row["officer_rank_ids"] is not None else None,
             "updated_by": row["updated_by"],
             "updated_at": row["updated_at"],
         }
 
     async def upsert_settings(
-        self, world: str, guild_name: str, *, officers_can_delete_parses: bool, updated_by: str
+        self,
+        world: str,
+        guild_name: str,
+        *,
+        officers_can_delete_parses: bool,
+        updated_by: str,
+        officer_rank_ids: list[int] | None = None,
     ) -> dict:
-        """Write the guild's switches and return the stored state."""
+        """Write the guild's switches and return the stored state.
+        ``officer_rank_ids=None`` stores the site default."""
         async with self._db() as db:
             await db.execute(
                 _SQL["upsert_settings"],
-                (world, guild_name, 1 if officers_can_delete_parses else 0, updated_by),
+                (world, guild_name, 1 if officers_can_delete_parses else 0, officer_rank_ids, updated_by),
             )
             await db.commit()
         return await self.get_settings(world, guild_name)
+
+    async def officer_rank_ids_for(self, world: str, guild_names: Iterable[str]) -> dict[str, frozenset[int]]:
+        """``{guild_name: officer rank ids}`` for every name asked — the
+        site default (OFFICER_RANK_IDS) for guilds with no row or a NULL
+        choice. One IN-query; empty input returns ``{}``."""
+        names = sorted({g for g in guild_names if g})
+        if not names:
+            return {}
+        ranks: dict[str, frozenset[int]] = dict.fromkeys(names, OFFICER_RANK_IDS)
+        async with self._read() as db:
+            async with await db.execute(_SQL["select_officer_rank_ids"], (world, names)) as cur:
+                for row in await cur.fetchall():
+                    if row["officer_rank_ids"] is not None:
+                        ranks[row["guild_name"]] = frozenset(int(i) for i in row["officer_rank_ids"])
+        return ranks
 
     async def officers_can_delete_parses(self, world: str, guild_names: Iterable[str]) -> dict[str, bool]:
         """One IN-query for the hot paths (the /parses permission pass and

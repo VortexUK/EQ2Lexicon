@@ -15,7 +15,11 @@ import { fmtRelative } from '../formatters'
 import { useFetch } from '../hooks/useFetch'
 import { usePagedSearch } from '../hooks/usePagedSearch'
 import { useClasses } from '../useClasses'
+import { WEEKDAYS, minutesToHHMM } from '../lib/timezone'
 import { tagLabel } from './guild/GuildRecruitmentTab'
+
+interface RecruitingRaidSlot { days: number[]; start_min: number; end_min: number; label: string | null }
+interface RecruitingRaidTeam { name: string; primary_tz: string; raids: RecruitingRaidSlot[] }
 
 interface RecruitingGuild {
   guild_name: string
@@ -28,11 +32,33 @@ interface RecruitingGuild {
   has_logo: boolean
   logo_uploaded_at: number | null
   member_count: number | null
+  account_count: number | null
+  raid_teams: RecruitingRaidTeam[]
 }
 
 interface RecruitingList {
   guilds: RecruitingGuild[]
   available_tags: string[]
+}
+
+/** "80 accounts · 208 characters" — accounts first: an alt-heavy guild is far
+ *  smaller than its character count suggests. Either half may be unknown. */
+function sizeLine(g: RecruitingGuild): string {
+  const parts: string[] = []
+  if (g.account_count != null) parts.push(`${g.account_count} account${g.account_count === 1 ? '' : 's'}`)
+  if (g.member_count != null) parts.push(`${g.member_count} character${g.member_count === 1 ? '' : 's'}`)
+  return parts.join(' · ')
+}
+
+/** One team's slots as "Tue, Thu 20:00–23:00 (Europe/London)". Times are the
+ *  team's own; the guild page's schedule tab converts to the viewer's zone. */
+function scheduleSummary(t: RecruitingRaidTeam): string {
+  const dayName = (n: number) => WEEKDAYS.find(d => d.n === n)?.label ?? String(n)
+  const slots = t.raids.map(r => {
+    const days = [...r.days].sort((a, b) => a - b).map(dayName).join(', ')
+    return `${days} ${minutesToHHMM(r.start_min)}–${minutesToHHMM(r.end_min)}`
+  })
+  return `${slots.join(' · ')} (${t.primary_tz})`
 }
 
 function GuildCard({ g }: { g: RecruitingGuild }) {
@@ -61,10 +87,10 @@ function GuildCard({ g }: { g: RecruitingGuild }) {
           >
             {g.guild_name}
           </Link>
-          <div className="text-[0.78rem] text-text-muted mt-0.5">
-            {g.member_count != null ? `${g.member_count} characters · ` : ''}
-            {g.updated_at != null ? `updated ${fmtRelative(g.updated_at)}` : ''}
-          </div>
+          {sizeLine(g) && <div className="text-[0.78rem] text-text-muted mt-0.5">{sizeLine(g)}</div>}
+          {g.updated_at != null && (
+            <div className="text-[0.78rem] text-text-muted">updated {fmtRelative(g.updated_at)}</div>
+          )}
         </div>
       </div>
 
@@ -72,6 +98,20 @@ function GuildCard({ g }: { g: RecruitingGuild }) {
         <div className="flex items-center gap-1.5 flex-wrap">
           {g.tags.map(t => (
             <Badge key={t} variant="gold">{tagLabel(t)}</Badge>
+          ))}
+        </div>
+      )}
+
+      {g.raid_teams.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {g.raid_teams.map(t => (
+            <div key={t.name} className="text-[0.78rem] text-text-muted">
+              <span className="text-[0.68rem] uppercase tracking-[0.06em] mr-1">Raids</span>
+              <Link to={`/guild/${encodeURIComponent(g.guild_name)}?tab=raids`} className="text-text">
+                {g.raid_teams.length > 1 ? `${t.name}: ` : ''}
+                {scheduleSummary(t)}
+              </Link>
+            </div>
           ))}
         </div>
       )}

@@ -30,6 +30,7 @@ from backend.server.core.text_moderation import contains_blocked_term, sanitize_
 from backend.server.core.validation import DISCORD_INVITE_RE, validate_character_name
 from backend.server.db import get_display_names_for_discord_ids
 from backend.server.db.guild_recruitment import store as recruitment_db
+from backend.server.db.raid_schedule import store as raid_schedule_db
 from backend.server.limiter import limiter, upload_rate_key
 from backend.server.server_context import current_world
 
@@ -105,6 +106,19 @@ class LogoUploadResponse(BaseModel):
     logo_uploaded_at: int
 
 
+class RecruitingRaidSlot(BaseModel):
+    days: list[int]
+    start_min: int
+    end_min: int
+    label: str | None = None
+
+
+class RecruitingRaidTeam(BaseModel):
+    name: str
+    primary_tz: str
+    raids: list[RecruitingRaidSlot]
+
+
 class RecruitingGuildEntry(BaseModel):
     guild_name: str
     description: str
@@ -115,7 +129,13 @@ class RecruitingGuildEntry(BaseModel):
     updated_at: int | None = None
     has_logo: bool = False
     logo_uploaded_at: int | None = None
+    # From the census guild_history mirror: characters on the roster and the
+    # distinct accounts behind them (an alt-heavy guild is far smaller than
+    # its character count suggests). None when the store has never seen it.
     member_count: int | None = None
+    account_count: int | None = None
+    # The guild's public raid schedule (teams + slots), empty when unset.
+    raid_teams: list[RecruitingRaidTeam] = []
 
 
 class RecruitingListResponse(BaseModel):
@@ -440,17 +460,34 @@ async def list_recruiting(request: Request) -> RecruitingListResponse:
     world = current_world()
     rows = await recruitment_db.list_recruiting(world)
 
-    counts: dict[str, int] = {}
+    counts: dict[str, dict[str, int | None]] = {}
+    schedules: dict[str, list[dict]] = {}
     if rows:
 
-        def _read_counts() -> dict[str, int]:
+        def _read_counts() -> dict[str, dict[str, int | None]]:
             conn = census_store.init_db()
             try:
-                return census_store.latest_guild_member_counts(conn, world, [r["guild_name"].lower() for r in rows])
+                return census_store.latest_guild_counts(conn, world, [r["guild_name"].lower() for r in rows])
             finally:
                 conn.close()
 
         counts = await run_sync(_read_counts)
+        schedules = await raid_schedule_db.get_schedules(world, [r["guild_name"] for r in rows])
+
+    def _teams(guild_name: str) -> list[RecruitingRaidTeam]:
+        return [
+            RecruitingRaidTeam(
+                name=t["name"],
+                primary_tz=t["primary_tz"],
+                raids=[
+                    RecruitingRaidSlot(
+                        days=list(r["days"] or []), start_min=r["start_min"], end_min=r["end_min"], label=r.get("label")
+                    )
+                    for r in t.get("raids", [])
+                ],
+            )
+            for t in schedules.get(guild_name, [])
+        ]
 
     return RecruitingListResponse(
         guilds=[
@@ -464,7 +501,9 @@ async def list_recruiting(request: Request) -> RecruitingListResponse:
                 updated_at=r["updated_at"],
                 has_logo=r["has_logo"],
                 logo_uploaded_at=r["logo_uploaded_at"],
-                member_count=counts.get(r["guild_name"].lower()),
+                member_count=(counts.get(r["guild_name"].lower()) or {}).get("members"),
+                account_count=(counts.get(r["guild_name"].lower()) or {}).get("accounts"),
+                raid_teams=_teams(r["guild_name"]),
             )
             for r in rows
         ],

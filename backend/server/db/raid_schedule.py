@@ -38,6 +38,28 @@ class RaidScheduleStore(PgStoreBase):
                 teams = [dict(r) for r in await cur.fetchall()]
             return await RaidScheduleStore._teams_with_slots(db, teams)
 
+    async def get_schedules(self, world: str, guild_names: list[str]) -> dict[str, list[dict]]:
+        """``{guild_name: teams}`` for many guilds in two statements (the
+        recruiting browse page). Guilds without a schedule are absent."""
+        names = sorted({g for g in guild_names if g})
+        if not names:
+            return {}
+        async with self._read() as db:
+            async with await db.execute(_SQL["select_teams_for_guilds"], (world, names)) as cur:
+                teams = [dict(r) for r in await cur.fetchall()]
+            if not teams:
+                return {}
+            by_id = {t["id"]: t for t in teams}
+            for t in teams:
+                t["raids"] = []
+            async with await db.execute(_SQL["select_slots_for_teams"], (list(by_id),)) as cur:
+                for r in await cur.fetchall():
+                    by_id[r["team_id"]]["raids"].append(dict(r))
+        out: dict[str, list[dict]] = {}
+        for t in teams:
+            out.setdefault(t["guild_name"], []).append(t)
+        return out
+
     async def replace_schedule(
         self,
         world: str,

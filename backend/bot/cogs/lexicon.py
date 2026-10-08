@@ -29,11 +29,13 @@ _log = logging.getLogger(__name__)
 _WORLD_CHOICES = [app_commands.Choice(name=w, value=w) for w in sorted(ALLOWED_SERVERS)]
 
 
-async def _caller_is_guild_officer(discord_id: str, world: str, members) -> bool:
+async def _caller_is_guild_officer(discord_id: str, world: str, members, guild_name: str | None = None) -> bool:
     """True when the Discord user holds an approved site claim on a member of
-    ``members`` whose Census rank is an officer rank (site admins pass)."""
+    ``members`` whose Census rank is an officer rank for ``guild_name`` (the
+    leader's officer_rank_ids setting, default 0+1); site admins pass."""
     from backend.server.auth_deps import ADMIN_IDS  # noqa: PLC0415 — keep the bot's import graph light
     from backend.server.db import get_active_claims  # noqa: PLC0415
+    from backend.server.db.guild_settings import store as guild_settings_db  # noqa: PLC0415
 
     if discord_id in ADMIN_IDS:
         return True
@@ -41,7 +43,10 @@ async def _caller_is_guild_officer(discord_id: str, world: str, members) -> bool
     mine = {c["character_name"].lower() for c in claims["approved"]}
     if not mine:
         return False
-    return any(m.name.lower() in mine and m.rank_id in OFFICER_RANK_IDS for m in members)
+    ranks = OFFICER_RANK_IDS
+    if guild_name:
+        ranks = (await guild_settings_db.officer_rank_ids_for(world, [guild_name])).get(guild_name, OFFICER_RANK_IDS)
+    return any(m.name.lower() in mine and m.rank_id in ranks for m in members)
 
 
 class LexiconCog(commands.Cog):
@@ -78,7 +83,7 @@ class LexiconCog(commands.Cog):
         # A link routes this Discord server's voice attendance into the EQ2
         # guild's sessions, so manage_guild in SOME Discord server is not
         # enough: the caller must be an officer of THAT guild on the site.
-        if not await _caller_is_guild_officer(str(interaction.user.id), world.value, data.members):
+        if not await _caller_is_guild_officer(str(interaction.user.id), world.value, data.members, data.name):
             await interaction.followup.send(
                 f"Only an officer of **{data.name}** can link it: claim an officer-ranked character "
                 f"of the guild on the site first.",

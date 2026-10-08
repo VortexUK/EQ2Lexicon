@@ -34,7 +34,7 @@ def users_db(users_schema: str) -> str:
 
 async def test_defaults_when_no_row(users_db):
     got = await gs.get_settings("Varsoon", "Exordium")
-    assert got == {"officers_can_delete_parses": True, "updated_by": None, "updated_at": None}
+    assert got == {"officers_can_delete_parses": True, "officer_rank_ids": None, "updated_by": None, "updated_at": None}
 
 
 async def test_upsert_round_trips_and_stamps_actor(users_db):
@@ -54,6 +54,42 @@ async def test_flags_query_defaults_absent_guilds_and_scopes_by_world(users_db):
     await gs.upsert_settings("Wuoshi", "Remnant", officers_can_delete_parses=False, updated_by="lead-2")
     flags = await gs.officers_can_delete_parses("Varsoon", ["Exordium", "Remnant", "Nobody", ""])
     assert flags == {"Exordium": False, "Remnant": True, "Nobody": True}
+
+
+async def test_officer_rank_ids_round_trip_and_bulk_defaults(users_db):
+    from backend.server.constants import OFFICER_RANK_IDS
+
+    assert await gs.officer_rank_ids_for("Varsoon", []) == {}
+    stored = await gs.upsert_settings(
+        "Varsoon", "Exordium", officers_can_delete_parses=True, updated_by="lead-1", officer_rank_ids=[0, 1, 2]
+    )
+    assert stored["officer_rank_ids"] == [0, 1, 2]
+    ranks = await gs.officer_rank_ids_for("Varsoon", ["Exordium", "Nobody"])
+    assert ranks == {"Exordium": frozenset({0, 1, 2}), "Nobody": OFFICER_RANK_IDS}
+    # None stores the site default again.
+    back = await gs.upsert_settings("Varsoon", "Exordium", officers_can_delete_parses=True, updated_by="lead-1")
+    assert back["officer_rank_ids"] is None
+    assert (await gs.officer_rank_ids_for("Varsoon", ["Exordium"]))["Exordium"] == OFFICER_RANK_IDS
+
+
+async def test_officer_chars_honours_the_guilds_rank_setting(users_db):
+    """A three-rank leadership (junior/senior/leader): rank 2 counts once
+    the leader says so."""
+    from backend.server.api import guild as guild_api
+
+    guild_api.invalidate_officer_ranks("Exordium", "Varsoon")
+    claims = AsyncMock(return_value={"approved": [{"character_name": "Junior"}]})
+    with (
+        patch("backend.server.api.guild.get_active_claims", claims),
+        patch("backend.server.api.guild._roster_rank_map", AsyncMock(return_value={"junior": 2})),
+    ):
+        assert await guild_api._officer_chars("disc", "Exordium") == set()
+        await gs.upsert_settings(
+            "Varsoon", "Exordium", officers_can_delete_parses=True, updated_by="lead-1", officer_rank_ids=[0, 1, 2]
+        )
+        guild_api.invalidate_officer_ranks("Exordium", "Varsoon")  # what the PUT route does
+        assert await guild_api._officer_chars("disc", "Exordium") == {"junior"}
+    guild_api.invalidate_officer_ranks("Exordium", "Varsoon")
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +163,13 @@ async def test_get_is_public_and_returns_defaults(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/guild/Exordium/settings")
     assert r.status_code == 200
-    assert r.json() == {"officers_can_delete_parses": True, "updated_at": None, "updated_by_name": None}
+    assert r.json() == {
+        "officers_can_delete_parses": True,
+        "officer_rank_ids": [0, 1],
+        "officer_rank_ids_custom": False,
+        "updated_at": None,
+        "updated_by_name": None,
+    }
 
 
 async def test_put_requires_auth(app):
@@ -180,3 +222,23 @@ async def test_put_rejects_a_bad_guild_name(app):
                 cookies=_cookies(_LEADER),
             )
     assert bad.status_code == 400
+
+
+async def test_put_officer_rank_ids_always_includes_the_leader_and_validates(app):
+    from backend.server.api import guild as guild_api
+
+    r, audit = await _put(app, {"officers_can_delete_parses": True, "officer_rank_ids": [2, 1, 2]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["officer_rank_ids"] == [0, 1, 2]  # rank 0 added, deduped, sorted
+    assert body["officer_rank_ids_custom"] is True
+    assert audit.call_args.kwargs["officer_rank_ids"] == "0,1,2"
+    assert (await guild_api.officer_rank_ids("Exordium", "Varsoon")) == frozenset({0, 1, 2})
+
+    bad, _ = await _put(app, {"officers_can_delete_parses": True, "officer_rank_ids": [0, 99]})
+    assert bad.status_code == 400
+
+    reset, _ = await _put(app, {"officers_can_delete_parses": True, "officer_rank_ids": None})
+    assert reset.json()["officer_rank_ids"] == [0, 1]
+    assert reset.json()["officer_rank_ids_custom"] is False
+    guild_api.invalidate_officer_ranks("Exordium", "Varsoon")

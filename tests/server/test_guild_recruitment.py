@@ -470,16 +470,48 @@ async def test_recruiting_list_joins_member_counts_from_guild_history(app, censu
     # imported) at the leased schema; seed it through a scoped conn.
     cs = CensusStore(census_schema)
     conn = cs.init_db()
-    cs.upsert_guild_history(conn, "Alpha", _WORLD, {"members": 55}, now=1_800_000_000, retention_days=400)
-    cs.upsert_guild_history(conn, "Alpha", _WORLD, {"members": 61}, now=1_800_100_000, retention_days=400)
+    cs.upsert_guild_history(
+        conn, "Alpha", _WORLD, {"members": 55, "accounts": 30}, now=1_800_000_000, retention_days=400
+    )
+    cs.upsert_guild_history(
+        conn, "Alpha", _WORLD, {"members": 61, "accounts": 24}, now=1_800_100_000, retention_days=400
+    )
     conn.close()
     await _save_profile(gid=1, name="Alpha")
     await _save_profile(gid=2, name="NoHistory")
+    # Alpha's public raid schedule rides along on the card.
+    from backend.server.db import upsert_user
+    from backend.server.db.raid_schedule import store as rs
+
+    await upsert_user(discord_id="disc-1", discord_name="D1", discord_username="d1", avatar=None)
+    await rs.replace_schedule(
+        _WORLD,
+        "Alpha",
+        [
+            {
+                "name": "Team 1",
+                "primary_tz": "Europe/London",
+                "twitch_login": None,
+                "raids": [{"days": [2, 4], "start_min": 1200, "end_min": 1380, "label": "Prog"}],
+            }
+        ],
+        "disc-1",
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/recruiting")
     by_name = {g["guild_name"]: g for g in r.json()["guilds"]}
     assert by_name["Alpha"]["member_count"] == 61  # latest day wins
+    assert by_name["Alpha"]["account_count"] == 24
+    assert by_name["Alpha"]["raid_teams"] == [
+        {
+            "name": "Team 1",
+            "primary_tz": "Europe/London",
+            "raids": [{"days": [2, 4], "start_min": 1200, "end_min": 1380, "label": "Prog"}],
+        }
+    ]
     assert by_name["NoHistory"]["member_count"] is None
+    assert by_name["NoHistory"]["account_count"] is None
+    assert by_name["NoHistory"]["raid_teams"] == []
 
 
 # ---------------------------------------------------------------------------

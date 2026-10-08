@@ -6,6 +6,13 @@ SELECT * FROM raid_teams WHERE world = %s AND guild_name = %s ORDER BY team_inde
 -- :name select_slots
 SELECT * FROM raid_slots WHERE team_id = %s ORDER BY slot_index;
 
+-- :name select_teams_for_guilds
+-- The recruiting browse page: every listed guild's teams in one statement.
+SELECT * FROM raid_teams WHERE world = %s AND guild_name = ANY(%s) ORDER BY guild_name, team_index;
+
+-- :name select_slots_for_teams
+SELECT * FROM raid_slots WHERE team_id = ANY(%s) ORDER BY team_id, slot_index;
+
 -- :name select_teams_with_twitch
 SELECT * FROM raid_teams WHERE twitch_login IS NOT NULL AND twitch_login <> '';
 

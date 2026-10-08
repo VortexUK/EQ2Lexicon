@@ -462,6 +462,15 @@ export default function GuildPage() {
   const [roster, setRoster] = useState<GuildData | null>(null)
   const [rosterError, setRosterError] = useState<string | null>(null)
   const [rosterLoading, setRosterLoading] = useState(true)
+  // Distinct (rank_id, rank name) pairs on the roster, in rank order — the
+  // settings tab's officer-rank picker. Census only lists ranks that are in use.
+  const rosterRanks = useMemo(() => {
+    const seen = new Map<number, string>()
+    for (const m of roster?.members ?? []) {
+      if (m.rank_id != null && !seen.has(m.rank_id)) seen.set(m.rank_id, m.rank ?? `Rank ${m.rank_id + 1}`)
+    }
+    return [...seen.entries()].sort((a, b) => a[0] - b[0]).map(([id, name]) => ({ id, name }))
+  }, [roster])
 
   // Spell check state
   const {
@@ -816,7 +825,7 @@ export default function GuildPage() {
       {/* Guild settings — leader (rank 0) or admin; enforced server-side too */}
       {tab === 'settings' && canEditSettings && guildName && (
         <Card className="p-0">
-          <GuildSettingsTab guildName={guildName} />
+          <GuildSettingsTab guildName={guildName} ranks={rosterRanks} />
         </Card>
       )}
     </main>

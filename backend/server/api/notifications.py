@@ -19,7 +19,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from backend.server.api.guild import _OFFICER_RANKS, _roster_rank_map_cached
+from backend.server.api.guild import _roster_rank_map_cached, officer_rank_ids
 from backend.server.auth_deps import ADMIN_IDS as _ADMIN_IDS  # canonical source
 from backend.server.cache import character_cache
 from backend.server.core.cache_keys import char_cache_key
@@ -87,7 +87,8 @@ async def get_notifications(request: Request) -> NotificationsResponse:
                 if rank_map is None:
                     continue  # cold roster cache — background warm in flight
                 # Check officer status inline (avoids a redundant second call)
-                if not any(rank_map.get(n) in _OFFICER_RANKS for n in approved_lower):
+                ranks = await officer_rank_ids(guild_name)
+                if not any(rank_map.get(n) in ranks for n in approved_lower):
                     continue
 
                 new_ids = {

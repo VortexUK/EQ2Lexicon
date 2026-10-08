@@ -476,7 +476,7 @@ async def _compute_permissions(
     # background warm is kicked inside _roster_rank_map_cached); explicit
     # DELETE actions still authorise against the full fetch in delete.py.
     # Local imports dodge the circular dependency through api.guild.
-    from backend.server.api.guild import _OFFICER_RANKS, _roster_rank_map_cached  # noqa: PLC0415
+    from backend.server.api.guild import _roster_rank_map_cached, officer_rank_ids  # noqa: PLC0415
     from backend.server.db import get_active_claims  # noqa: PLC0415
 
     user_id = user["id"]
@@ -488,8 +488,9 @@ async def _compute_permissions(
     officer_of: set[str] = set()
     if approved and guild_list:
         rank_maps = await asyncio.gather(*(_roster_rank_map_cached(g) for g in guild_list))
-        for g, rank_map in zip(guild_list, rank_maps, strict=True):
-            if rank_map and any(rank_map.get(n) in _OFFICER_RANKS for n in approved):
+        rank_sets = await asyncio.gather(*(officer_rank_ids(g) for g in guild_list))
+        for g, rank_map, ranks in zip(guild_list, rank_maps, rank_sets, strict=True):
+            if rank_map and any(rank_map.get(n) in ranks for n in approved):
                 officer_of.add(g)
     if officer_of:
         # A guild leader can switch officer deletes off (guild_settings).

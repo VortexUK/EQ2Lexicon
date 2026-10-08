@@ -257,20 +257,28 @@ class CensusStore(PgCatalogue):
         ]
 
     @staticmethod
-    def latest_guild_member_counts(conn: Any, world: str, names_lower: Iterable[str]) -> dict[str, int]:
-        """Latest-known member count for each requested guild, keyed by
-        name_lower; guilds with no history rows are simply absent. One
-        DISTINCT ON pass over the wanted guilds' history (indexed per
+    def latest_guild_counts(conn: Any, world: str, names_lower: Iterable[str]) -> dict[str, dict[str, int | None]]:
+        """Latest-known ``{"members", "accounts"}`` for each requested guild,
+        keyed by name_lower; guilds with no history rows are simply absent.
+        One DISTINCT ON pass over the wanted guilds' history (indexed per
         guild, not a walk of every row on the world). Feeds the recruiting
-        browse cards."""
+        browse cards — accounts is the honest size of an alt-heavy guild."""
         wanted = sorted(set(names_lower))
         if not wanted:
             return {}
-        out: dict[str, int] = {}
+        out: dict[str, dict[str, int | None]] = {}
         for r in conn.execute(_SQL["select_latest_member_counts"], (world, wanted)).fetchall():
-            if r["members"] is not None:
-                out[r["name_lower"]] = int(r["members"])
+            out[r["name_lower"]] = {
+                "members": int(r["members"]) if r["members"] is not None else None,
+                "accounts": int(r["accounts"]) if r["accounts"] is not None else None,
+            }
         return out
+
+    @staticmethod
+    def latest_guild_member_counts(conn: Any, world: str, names_lower: Iterable[str]) -> dict[str, int]:
+        """Member-count-only view of :meth:`latest_guild_counts`."""
+        counts = CensusStore.latest_guild_counts(conn, world, names_lower)
+        return {name: int(c["members"]) for name, c in counts.items() if c["members"] is not None}
 
     # ── Character AAs ────────────────────────────────────────────────────────
 

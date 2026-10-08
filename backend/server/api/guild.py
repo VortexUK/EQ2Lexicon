@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from backend import pg
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _scrub
-from backend.server.cache import guild_cache
+from backend.server.cache import TTLCache, guild_cache
 from backend.server.constants import GUILD_HISTORY_RETENTION_DAYS, OFFICER_RANK_IDS
 from backend.server.core.cache_keys import (
     guild_adorns_key,
@@ -43,7 +43,30 @@ from backend.server.guild_cache import _overview_to_char_response  # noqa: E402,
 router = APIRouter(tags=["guild"])
 
 
-_OFFICER_RANKS = OFFICER_RANK_IDS  # rank_ids that count as "officer"
+_OFFICER_RANKS = OFFICER_RANK_IDS  # the SITE DEFAULT officer rank_ids — guilds may override (officer_rank_ids)
+
+# Per-guild officer ranks are a leader setting (guild_settings.officer_rank_ids).
+# The hot paths (officer-status, every officer-gated route, the notification
+# poll) read them through this short cache; the settings PUT invalidates.
+_officer_ranks_cache: TTLCache = TTLCache(ttl=60, max_age=60, name="officer_ranks", maxsize=512)
+
+
+async def officer_rank_ids(guild_name: str, world: str | None = None) -> frozenset[int]:
+    """Which Census rank ids count as officers for ``guild_name``."""
+    from backend.server.db.guild_settings import store as guild_settings_db  # noqa: PLC0415 — avoid import cycle
+
+    world = world or current_world()
+    key = f"{world}|{guild_name}"
+    cached = _officer_ranks_cache.get(key)
+    if cached is not None:
+        return cached
+    ranks = (await guild_settings_db.officer_rank_ids_for(world, [guild_name])).get(guild_name, OFFICER_RANK_IDS)
+    _officer_ranks_cache.set(key, ranks)
+    return ranks
+
+
+def invalidate_officer_ranks(guild_name: str, world: str) -> None:
+    _officer_ranks_cache.delete(f"{world}|{guild_name}")
 
 
 def _validate_guild_name(guild_name: str) -> None:
@@ -228,7 +251,7 @@ async def _roster_rank_map_cached(guild_name: str) -> dict[str, int | None] | No
 async def _officer_chars(discord_id: str, guild_name: str) -> set[str]:
     """
     Return the set of this user's approved character names (lower-cased) that
-    hold an officer rank (rank_id in _OFFICER_RANKS) in the named guild.
+    hold an officer rank (the guild's officer_rank_ids setting, default 0+1) in the named guild.
     Empty set means the user is not an officer of this guild.
     """
     claims_data = await get_active_claims(discord_id, world=current_world())
@@ -236,7 +259,8 @@ async def _officer_chars(discord_id: str, guild_name: str) -> set[str]:
     if not approved:
         return set()
     rank_map = await _roster_rank_map(guild_name)
-    return {name for name in approved if rank_map.get(name) in _OFFICER_RANKS}
+    ranks = await officer_rank_ids(guild_name)
+    return {name for name in approved if rank_map.get(name) in ranks}
 
 
 _LEADER_RANK = 0  # Census rank_list: rank_id 0 is the guild leader

@@ -29,6 +29,8 @@ _FACADE_EXEMPT = {
     "list_favorites",
     "get_schedule",
     "replace_schedule",
+    "get_schedules",  # recruiting list: bulk read via the store instance
+    "officer_rank_ids_for",  # guild_settings: bulk read via the store instance
     "list_all_teams_with_twitch",
     # downloads domain bypasses the facade too (route uses the store directly)
     "record_download",
