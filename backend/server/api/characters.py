@@ -62,10 +62,11 @@ def _store_search_sync(q: str, world: str) -> list[CharNameResult]:
     return [CharNameResult(**r) for r in rows]
 
 
-async def _local_search(q: str) -> list[CharNameResult]:
+async def _local_search(q: str, world: str) -> list[CharNameResult]:
+    """Claims-only fallback, scoped to one world (claims carry a world column)."""
     async with pg.aconnection() as db:
         await db.execute(pg.search_path_sql(_USERS_SCHEMA))
-        async with await db.execute(_SQL["local_search_by_prefix"], (f"{q.lower()}%",)) as cur:
+        async with await db.execute(_SQL["local_search_by_prefix"], (f"{q.lower()}%", world)) as cur:
             rows = await cur.fetchall()
     return [CharNameResult(name=r["character_name"]) for r in rows]
 
@@ -126,7 +127,7 @@ async def search_characters(request: Request, name: str = "") -> CharSearchRespo
     # site users).
     if store_hits:
         return CharSearchResponse(results=store_hits, total=len(store_hits), source="store")
-    results = await _local_search(q)
+    results = await _local_search(q, world)
     return CharSearchResponse(results=results, total=len(results), source="local")
 
 

@@ -11,7 +11,7 @@ from backend import pg
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub as _scrub
 from backend.server.cache import guild_cache
-from backend.server.constants import GUILD_HISTORY_RETENTION_DAYS
+from backend.server.constants import GUILD_HISTORY_RETENTION_DAYS, OFFICER_RANK_IDS
 from backend.server.core.cache_keys import (
     guild_adorns_key,
     guild_history_key,
@@ -43,7 +43,7 @@ from backend.server.guild_cache import _overview_to_char_response  # noqa: E402,
 router = APIRouter(tags=["guild"])
 
 
-_OFFICER_RANKS = frozenset({0, 1})  # rank_ids that count as "officer"
+_OFFICER_RANKS = OFFICER_RANK_IDS  # rank_ids that count as "officer"
 
 
 def _validate_guild_name(guild_name: str) -> None:

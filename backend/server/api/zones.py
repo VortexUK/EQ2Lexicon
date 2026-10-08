@@ -187,7 +187,7 @@ async def get_progress(user: SessionUser = Depends(require_user_session)) -> Rai
             killed_encounters={},
         )
 
-    killed = await run_sync(_compute_progress_sync, guild_name)
+    killed = await run_sync(_compute_progress_sync, guild_name, _current_world())
     return RaidProgressResponse(
         guild_name=guild_name,
         character_name=character_name,
@@ -246,21 +246,21 @@ async def _resolve_primary_guild(discord_id: str) -> tuple[str | None, str | Non
 
     # Fallback: the parses pipeline already resolved + froze the guild on every
     # encounter the user has uploaded. Most-recent wins (handles guild changes).
-    guild = await run_sync(_most_recent_parsed_guild_sync, discord_id)
+    guild = await run_sync(_most_recent_parsed_guild_sync, discord_id, _current_world())
     return char_name, guild
 
 
-def _most_recent_parsed_guild_sync(discord_id: str) -> str | None:
-    """Most recent non-null guild_name this user has uploaded a parse for."""
+def _most_recent_parsed_guild_sync(discord_id: str, world: str) -> str | None:
+    """Most recent non-null guild_name this user has uploaded a parse for on ``world``."""
     conn = parses_db.init_db()
     try:
-        row = conn.execute(_SQL["most_recent_parsed_guild"], (discord_id,)).fetchone()
+        row = conn.execute(_SQL["most_recent_parsed_guild"], (f"plugin:{discord_id}", world)).fetchone()
     finally:
         conn.close()
     return row["guild_name"] if row else None
 
 
-def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
+def _compute_progress_sync(guild_name: str, world: str) -> dict[str, list[KilledEncounter]]:
     """Per-encounter progress for one guild.
 
     Returns ``{zone_name: [{encounter_name, kill_count, last_kill_id, last_kill_at}, …]}``.
@@ -280,7 +280,7 @@ def _compute_progress_sync(guild_name: str) -> dict[str, list[KilledEncounter]]:
     try:
         kills = [
             (row["id"], row["title"].lower(), row["started_at"])
-            for row in pconn.execute(_SQL["list_kills_for_guild"], (guild_name,)).fetchall()
+            for row in pconn.execute(_SQL["list_kills_for_guild"], (guild_name, world)).fetchall()
             if row["title"]
         ]
     finally:

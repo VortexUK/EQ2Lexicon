@@ -6,6 +6,7 @@
 SELECT DISTINCT character_name
 FROM character_claims
 WHERE LOWER(character_name) LIKE %s
+  AND world = %s
   AND status IN ('approved', 'pending')
 ORDER BY character_name
 LIMIT 50;

@@ -7,15 +7,19 @@
 -- Runs against the Postgres parses schema. (No literal binding markers in
 -- comments: psycopg's binder counts them textually, comments included —
 -- this exact block 500'd /api/zones/progress until the mention was cut.)
+-- Uploads are attributed to the account via source_dsn ('plugin:<discord id>');
+-- uploaded_by holds the logger CHARACTER name, so matching the discord id
+-- against it never hit.
 SELECT guild_name FROM encounters
-WHERE uploaded_by = %s AND guild_name IS NOT NULL AND hidden_at IS NULL
+WHERE source_dsn = %s AND world = %s AND guild_name IS NOT NULL AND hidden_at IS NULL
 ORDER BY started_at DESC LIMIT 1;
 
 -- :name list_kills_for_guild
--- Every winning row for a guild as (id, title, started_at). Caller filters
--- out NULL titles in Python. Postgres parses schema.
+-- Every winning row for a guild ON ONE WORLD as (id, title, started_at) —
+-- same-named guilds on two servers must not pool their progress. Caller
+-- filters out NULL titles in Python. Postgres parses schema.
 SELECT id, title, started_at FROM encounters
-WHERE guild_name = %s AND success_level = 1 AND hidden_at IS NULL;
+WHERE guild_name = %s AND world = %s AND success_level = 1 AND hidden_at IS NULL;
 
 -- :name match_encounter_mobs_by_titles
 -- For a set of mob_lower titles (bound as one text[] parameter), resolve

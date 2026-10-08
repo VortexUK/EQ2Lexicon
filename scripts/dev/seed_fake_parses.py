@@ -226,9 +226,6 @@ def main() -> None:
     args = ap.parse_args()
 
     conn = parses_store.init_db()
-    # PRAGMA is SQLite syntax and Postgres rejects it: this line must go
-    # before the script can run against the parses schema.
-    conn.execute("PRAGMA foreign_keys=OFF")
     try:
         if args.wipe:
             wipe(conn)

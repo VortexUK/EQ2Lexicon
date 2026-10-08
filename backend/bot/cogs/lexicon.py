@@ -18,6 +18,7 @@ from discord.ext import commands
 
 from backend.bot.guild_context import FALLBACK_WORLD, resolve_guild_context
 from backend.census.config import ALLOWED_SERVERS
+from backend.server.constants import OFFICER_RANK_IDS
 from backend.server.db.discord_links import store as links_store
 
 if TYPE_CHECKING:
@@ -26,6 +27,21 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 _WORLD_CHOICES = [app_commands.Choice(name=w, value=w) for w in sorted(ALLOWED_SERVERS)]
+
+
+async def _caller_is_guild_officer(discord_id: str, world: str, members) -> bool:
+    """True when the Discord user holds an approved site claim on a member of
+    ``members`` whose Census rank is an officer rank (site admins pass)."""
+    from backend.server.auth_deps import ADMIN_IDS  # noqa: PLC0415 — keep the bot's import graph light
+    from backend.server.db import get_active_claims  # noqa: PLC0415
+
+    if discord_id in ADMIN_IDS:
+        return True
+    claims = await get_active_claims(discord_id, world=world)
+    mine = {c["character_name"].lower() for c in claims["approved"]}
+    if not mine:
+        return False
+    return any(m.name.lower() in mine and m.rank_id in OFFICER_RANK_IDS for m in members)
 
 
 class LexiconCog(commands.Cog):
@@ -56,6 +72,16 @@ class LexiconCog(commands.Cog):
         if data is None or not data.members:
             await interaction.followup.send(
                 f"No guild named **{guild}** found on **{world.value}** — check the spelling.",
+                ephemeral=True,
+            )
+            return
+        # A link routes this Discord server's voice attendance into the EQ2
+        # guild's sessions, so manage_guild in SOME Discord server is not
+        # enough: the caller must be an officer of THAT guild on the site.
+        if not await _caller_is_guild_officer(str(interaction.user.id), world.value, data.members):
+            await interaction.followup.send(
+                f"Only an officer of **{data.name}** can link it: claim an officer-ranked character "
+                f"of the guild on the site first.",
                 ephemeral=True,
             )
             return

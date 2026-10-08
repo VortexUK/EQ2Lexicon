@@ -69,6 +69,11 @@ PARSE_INNER_CAP_FLOOR: int = 2000
 # uploads needs a wider view than a casual reader).
 ADMIN_PARSE_LIST_MAX_LIMIT: int = 1000
 
+# Census guild rank_ids that count as "officer" on the site (0 = leader,
+# 1 = the first officer rank). Shared by the web officer checks and the
+# bot's /lexicon link gate so the two can never disagree.
+OFFICER_RANK_IDS: frozenset[int] = frozenset({0, 1})
+
 
 # --- API tokens -----------------------------------------------------------
 
