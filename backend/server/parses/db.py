@@ -827,20 +827,40 @@ class ParsesStore(PgCatalogue):
         return [r["world"] for r in conn.execute(_SQL["select_worlds_with_winning_kills_since"], (since,)).fetchall()]
 
     @staticmethod
-    def encounters_with_player_since(conn: Any, world: str, name_lower: str, since: int) -> list[dict]:
-        return [
-            dict(r)
-            for r in conn.execute(_SQL["select_encounters_with_player_since"], (world, name_lower, since)).fetchall()
-        ]
-
-    @staticmethod
-    def encounters_hidden_by_audit_with_player(conn: Any, world: str, name_lower: str, hidden_by: str) -> list[dict]:
+    def encounters_with_player_since(
+        conn: Any, world: str, name_lower: str, since: int, report_reason: str
+    ) -> list[dict]:
         return [
             dict(r)
             for r in conn.execute(
-                _SQL["select_encounters_hidden_by_audit_with_player"], (world, name_lower, hidden_by)
+                _SQL["select_encounters_with_player_since"], (world, name_lower, since, report_reason)
             ).fetchall()
         ]
+
+    @staticmethod
+    def get_encounter_for_audit(conn: Any, encounter_id: int, world: str) -> dict | None:
+        row = conn.execute(_SQL["select_encounter_for_audit"], (encounter_id, world)).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def encounters_barred_with_player(conn: Any, world: str, name_lower: str, reason: str) -> list[dict]:
+        return [
+            dict(r)
+            for r in conn.execute(_SQL["select_encounters_barred_with_player"], (world, name_lower, reason)).fetchall()
+        ]
+
+    @staticmethod
+    def unbar_encounter(conn: Any, encounter_id: int, reason: str) -> bool:
+        cur = conn.execute(_SQL["unbar_encounter"], (encounter_id, reason))
+        return cur.rowcount > 0
+
+    @staticmethod
+    def fights_with_audit_bars(conn: Any, reasons: list[str]) -> list[int]:
+        return [r["fight_id"] for r in conn.execute(_SQL["select_fights_with_audit_bars"], (reasons,)).fetchall()]
+
+    @staticmethod
+    def unbar_all_for_reasons(conn: Any, reasons: list[str]) -> int:
+        return conn.execute(_SQL["unbar_all_for_reasons"], (reasons,)).rowcount
 
     @staticmethod
     def has_other_active_flag(conn: Any, world: str, encounter_id: int, except_name_lower: str) -> bool:

@@ -1120,43 +1120,11 @@ async def ingest_parse(
             guild_name=None,
         )
 
-    # A participant barred by the spell audit (out-of-era or unverifiable
-    # spells): the whole parse is quarantined into tamper_reports, never stored.
+    # Participants flagged by the spell audit. The upload is ALWAYS stored;
+    # after the insert it is barred from the rankings and reported.
     flagged = await spell_audit.flagged_participants(
         parse_world, [str(r.name or "") for r in body.combatants if _to_bool_tf(r.ally)]
     )
-    if flagged:
-        discord_id = str(user.get("id") or "")
-        discord_name = str(user.get("discord_name") or user.get("username") or "")
-        report_id = await run_sync(
-            _quarantine_encounter_sync,
-            body,
-            typed_enc,
-            world=parse_world,
-            reason=spell_audit.REASON_SPELLS,
-            uploader=uploader,
-            discord_id=discord_id,
-            discord_name=discord_name,
-        )
-        audit_log(
-            "parse_quarantined",
-            actor=discord_id,
-            report_id=report_id,
-            reason=spell_audit.TAMPER_REASON,
-            logger=uploader,
-            world=parse_world,
-            encid=body.encounter.encid,
-            flagged=",".join(flagged),
-        )
-        return IngestResponse(
-            status="quarantined",
-            encounter_id=None,
-            act_encid=body.encounter.encid,
-            combatants=0,
-            damage_types=0,
-            attack_types=0,
-            guild_name=None,
-        )
 
     # Guild resolve — cache/census_store only (any age). The response path
     # never waits on Census (plugin HttpClient timeout is 20 s): a never-seen
@@ -1248,6 +1216,15 @@ async def ingest_parse(
     # Schedule the full (Census-backed) resolution off the response path for
     # fresh inserts. Skipped rows already have their snapshots, and an empty
     # name list has nothing to do.
+    if flagged and status in ("inserted", "revived") and encounter_id is not None:
+        await run_sync(spell_audit.bar_uploaded_parse_sync, parse_world, encounter_id, flagged)
+        audit_log(
+            "parse_ranking_barred",
+            actor=str(user.get("id") or ""),
+            encounter_id=encounter_id,
+            world=parse_world,
+            flagged=",".join(flagged),
+        )
     if status in ("inserted", "revived") and encounter_id is not None:
         # The fight's rankings entry, without a full rebuild.
         background.add_task(_sync_rankings_for_encounter, encounter_id)

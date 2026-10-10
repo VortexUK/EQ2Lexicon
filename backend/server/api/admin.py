@@ -952,7 +952,7 @@ class FlagCharacterInput(BaseModel):
 class FlagActionResponse(BaseModel):
     ok: bool = True
     new: bool = False
-    hidden: int = 0
+    barred: int = 0
     reports: int = 0
     restored: int = 0
 
@@ -1000,7 +1000,7 @@ async def list_flagged_characters_admin(
 
 @router.post("/admin/flagged-characters", response_model=FlagActionResponse)
 async def flag_character_admin(request: Request, body: FlagCharacterInput) -> FlagActionResponse:
-    """Manual flag: bars the character and hides/reports their parses since
+    """Manual flag: bars the character's parses from the rankings (and reports them) since
     the cutoff, exactly like an audit hit."""
     admin = _require_admin(request)
     name = body.name.strip()
@@ -1013,13 +1013,13 @@ async def flag_character_admin(request: Request, body: FlagCharacterInput) -> Fl
         details={"note": (body.note or "").strip() or None, "by": admin["id"]},
         by=admin["id"],
     )
-    return FlagActionResponse(new=result["new"], hidden=result["hidden"], reports=result["reports"])
+    return FlagActionResponse(new=result["new"], barred=result["barred"], reports=result["reports"])
 
 
 @router.delete("/admin/flagged-characters/{name}", response_model=FlagActionResponse)
 async def clear_flagged_character_admin(request: Request, name: str) -> FlagActionResponse:
-    """Clear a flag and restore the parses it hid (unless another flagged
-    character is in them)."""
+    """Clear a flag; parses barred only by it rank again (unless another
+    flagged character is in them)."""
     admin = _require_admin(request)
     if validate_character_name(name.strip()) is None:
         raise HTTPException(status_code=400, detail="name must be a plain character name (letters, 1-15)")

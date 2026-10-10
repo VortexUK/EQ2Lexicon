@@ -1,32 +1,33 @@
-"""Spell audit: bar characters carrying out-of-era spells from the boards.
+"""Spell audit: keep parses with out-of-era spells OFF THE RANKINGS.
 
 A 2026-10 TLE event bug let Ancient-tier spells drop and scribe — tiers no
 character on these servers can have legitimately (Master is the era's
 ceiling; Grandmaster is a legitimate per-10-levels pick). A character found
-with one is flagged, and the rule is kill-level: EVERY parse since the
-cutoff the character played in is hidden (so it leaves the list and the
-rankings) and a tamper report is filed per parse so admins see it in the
-same working set as the plugin's own tamper detections. Clearing a flag
-restores those parses unless another flagged character is in them.
+with one is flagged, and the rule is kill-level: every parse since the
+cutoff the character played in is barred from the rankings and a tamper
+report is filed per parse so admins see it in the tamper working set.
+
+THIS NEVER TOUCHES UPLOADS OR VISIBILITY. A barred parse is stored, listed
+and viewable like any other; it is only stamped ``ranking_barred_at`` so it
+can never be a fight's ranking primary. Nothing here hides, deletes or
+refuses a parse.
 
 A character Census cannot show us at all is unverifiable and is flagged the
-same way with reason ``census_hidden``; that flag lifts itself (parses
-restored) the first time a sweep sees the character clean. An
-``out_of_era_spells`` flag is sticky — a scribed spell can't be unscribed —
-until an admin clears it.
+same way with reason ``census_hidden``; that flag lifts itself the first
+time a sweep sees the character clean. An ``out_of_era_spells`` flag is
+sticky until an admin clears it.
+
+Independently, every parse started inside the incident window
+(SPELL_AUDIT_SINCE .. SPELL_AUDIT_UNTIL) is stamped at ingest and does not
+rank while the filter is on.
+
+EVERYTHING IS REVERSIBLE: SPELL_AUDIT_ENABLED=0 lifts every bar at startup
+(lift_all_sync) and all parses rank again.
 
 Detection: the sweep pulls the Census spell list of every player in a
 winning kill since the cutoff, at most once a day per character, paced so
 it never crowds the request path. A Census miss is retried once and only
-counts as "hidden" while Census is healthy, so a flaky hour can't bar a
-guild. New uploads are checked against the active flags at ingest and
-quarantined (never stored) when one matches. Census only refreshes a
-character on logout, so a cheater who hasn't logged out yet shows clean
-until they do; the next sweep catches them and the enforcement reaches
-back to the cutoff.
-
-Everything that writes goes through the parses store; the rankings cache is
-refreshed in the background after an enforcement or a restore.
+counts as "hidden" while Census is healthy.
 """
 
 from __future__ import annotations
@@ -40,29 +41,33 @@ from typing import Any
 from backend.census import failures
 from backend.census.models import SpellEntry
 from backend.server import census_health
-from backend.server.constants import SPELL_AUDIT_DISALLOWED_TIERS, SPELL_AUDIT_SINCE_TS, SPELL_AUDIT_UNTIL_TS
+from backend.server.constants import (
+    SPELL_AUDIT_DISALLOWED_TIERS,
+    SPELL_AUDIT_ENABLED,
+    SPELL_AUDIT_SINCE_TS,
+    SPELL_AUDIT_UNTIL_TS,
+)
 from backend.server.core.audit_log import audit_log
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
 from backend.server.metrics import mark_loop_ok
+from backend.server.parses import fights
 from backend.server.parses.db import store as parses_db
 
 _log = logging.getLogger(__name__)
 
-#: encounters.hidden_by marker + default flagged_by.
+#: Default flagged_by.
 SOURCE = "spell-audit"
 #: Flag reasons.
 REASON_SPELLS = "out_of_era_spells"
 REASON_HIDDEN = "census_hidden"
 REASON_MANUAL = "manual"
-#: Flags the sweep never lifts on its own.
-STICKY_REASONS = frozenset({REASON_SPELLS, REASON_MANUAL})
-#: Tamper-report reason code (the ingest quarantine prefixes server-side
-#: detections with ``server_``; the frontend labels it).
+#: Tamper-report reason code (the frontend labels it).
 TAMPER_REASON = f"server_{REASON_SPELLS}"
+#: encounters.ranking_barred_reason values.
+INCIDENT_REASON = "spell_exploit_window"
+FLAG_BAR_REASON = "flagged_character"
 
-#: Sweep cadence: shortly after startup, then every 6 h; a character is
-#: re-checked at most once a day. One Census call per second.
 _STARTUP_DELAY_S = 2 * 60
 _INTERVAL_S = 6 * 3600
 RESCAN_AFTER_S = 24 * 3600
@@ -75,16 +80,10 @@ def since_ts() -> int:
     return SPELL_AUDIT_SINCE_TS
 
 
-#: encounters.ranking_barred_reason for parses started inside the window.
-INCIDENT_REASON = "spell_exploit_window"
-
-
 def in_incident_window(started_at: int) -> bool:
     """True while the exploit embargo covers ``started_at``: from the cutoff
-    until SPELL_AUDIT_UNTIL (open-ended while unset). A parse in the window
-    is stamped ranking_barred_at at ingest and never ranks, whatever happens
-    to the flags later."""
-    if started_at < SPELL_AUDIT_SINCE_TS:
+    until SPELL_AUDIT_UNTIL (open-ended while unset)."""
+    if not SPELL_AUDIT_ENABLED or started_at < SPELL_AUDIT_SINCE_TS:
         return False
     return SPELL_AUDIT_UNTIL_TS is None or started_at < SPELL_AUDIT_UNTIL_TS
 
@@ -106,60 +105,82 @@ def _uploader_discord_id(source_dsn: str | None) -> str:
     return dsn.removeprefix("plugin:") if dsn.startswith("plugin:") else ""
 
 
-# ── Enforcement (sync, own connection) ───────────────────────────────────────
+# ── Enforcement: stamp + report. Never hides, never deletes. ─────────────────
+
+
+def _bar_and_report(conn: Any, world: str, e: dict, flagged: list[str], details: Any, now: int) -> None:
+    """Stamp one stored parse as never-ranking (kept if already stamped),
+    refresh its fight so it stops being the ranking primary, and file the
+    tamper report. The parse stays visible."""
+    parses_db.bar_encounter_from_rankings(conn, e["id"], reason=FLAG_BAR_REASON, now=now)
+    fight_id = fights.fight_id_of(conn, e["id"])
+    if fight_id is not None:
+        fights.refresh_fight(conn, fight_id)
+    payload = {
+        "encounter_id": e["id"],
+        "act_encid": e["act_encid"],
+        "flagged_characters": flagged,
+        "details": details,
+        "enforced_at": now,
+    }
+    parses_db.insert_tamper_report(
+        conn,
+        world=world,
+        act_encid=e["act_encid"],
+        title=e["title"] or "",
+        zone=e["zone"],
+        started_at=e["started_at"],
+        ended_at=e["ended_at"],
+        duration_s=e["duration_s"],
+        total_damage=e["total_damage"],
+        encdps=e["encdps"],
+        reason=TAMPER_REASON,
+        reported_at=now,
+        uploader_logger_name=e.get("uploaded_by") or "",
+        uploader_discord_id=_uploader_discord_id(e.get("source_dsn")),
+        uploader_discord_name="",
+        guild_name=e.get("guild_name"),
+        payload_json=json.dumps(payload, separators=(",", ":")),
+    )
 
 
 def enforce_sync(world: str, name_lower: str, details_json: str | None, *, now: int | None = None) -> dict[str, int]:
-    """Hide every visible parse since the cutoff that ``name_lower`` played
-    in and file a tamper report per parse. Idempotent: already-hidden
-    parses are not touched. Returns ``{"hidden": n, "reports": m}``."""
+    """Bar from the rankings every parse since the cutoff that ``name_lower``
+    played in, and file a tamper report per parse. Idempotent: parses that
+    already carry the report are skipped. Returns ``{"barred", "reports"}``."""
     now = int(time.time()) if now is None else now
-    hidden = reports = 0
+    details = json.loads(details_json) if details_json else None
+    n = 0
     conn = parses_db.init_db()
     try:
-        rows = parses_db.encounters_with_player_since(conn, world, name_lower, since_ts())
-        for e in rows:
-            if not parses_db.soft_delete_encounter(conn, e["id"], now, SOURCE):
-                continue
-            hidden += 1
-            payload = {
-                "encounter_id": e["id"],
-                "act_encid": e["act_encid"],
-                "flagged_character": name_lower,
-                "details": json.loads(details_json) if details_json else None,
-                "enforced_at": now,
-            }
-            parses_db.insert_tamper_report(
-                conn,
-                world=world,
-                act_encid=e["act_encid"],
-                title=e["title"] or "",
-                zone=e["zone"],
-                started_at=e["started_at"],
-                ended_at=e["ended_at"],
-                duration_s=e["duration_s"],
-                total_damage=e["total_damage"],
-                encdps=e["encdps"],
-                reason=TAMPER_REASON,
-                reported_at=now,
-                uploader_logger_name=e.get("uploaded_by") or "",
-                uploader_discord_id=_uploader_discord_id(e.get("source_dsn")),
-                uploader_discord_name="",
-                guild_name=e.get("guild_name"),
-                payload_json=json.dumps(payload, separators=(",", ":")),
-            )
-            reports += 1
+        for e in parses_db.encounters_with_player_since(conn, world, name_lower, since_ts(), TAMPER_REASON):
+            _bar_and_report(conn, world, e, [name_lower], details, now)
+            n += 1
         conn.commit()
     finally:
         conn.close()
-    return {"hidden": hidden, "reports": reports}
+    return {"barred": n, "reports": n}
+
+
+def bar_uploaded_parse_sync(world: str, encounter_id: int, flagged: list[str]) -> bool:
+    """A just-stored upload with flagged participants: keep it, bar it from
+    the rankings, file the tamper report."""
+    conn = parses_db.init_db()
+    try:
+        e = parses_db.get_encounter_for_audit(conn, encounter_id, world)
+        if e is None:
+            return False
+        _bar_and_report(conn, world, e, flagged, None, int(time.time()))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 def flag_sync(
     world: str, name: str, *, reason: str, details: dict | list | None, by: str = SOURCE, now: int | None = None
 ) -> dict[str, Any]:
-    """Record (or re-activate) a flag and enforce it. Returns the enforcement
-    counters plus ``new`` (False when the flag was already active)."""
+    """Record (or re-activate) a flag and enforce it."""
     now = int(time.time()) if now is None else now
     name_lower = name.lower()
     details_json = json.dumps(details, separators=(",", ":")) if details is not None else None
@@ -181,15 +202,16 @@ def flag_sync(
             world=world,
             character=name,
             reason=reason,
-            hidden=counters["hidden"],
+            barred=counters["barred"],
             reports=counters["reports"],
         )
     return {"new": not was_active, **counters}
 
 
 def clear_sync(world: str, name: str, *, by: str, now: int | None = None) -> dict[str, Any]:
-    """Clear a flag and restore the parses it hid, except those another
-    active flag still covers. Returns ``{"cleared": bool, "restored": n}``."""
+    """Clear a flag. Parses barred only because of a flag (not the incident
+    window, whose stamp is permanent) rank again unless another active flag
+    still covers them. Returns ``{"cleared": bool, "restored": n}``."""
     now = int(time.time()) if now is None else now
     name_lower = name.lower()
     restored = 0
@@ -197,11 +219,13 @@ def clear_sync(world: str, name: str, *, by: str, now: int | None = None) -> dic
     try:
         cleared = parses_db.clear_flagged_character(conn, world, name_lower, cleared_at=now, cleared_by=by)
         if cleared:
-            for e in parses_db.encounters_hidden_by_audit_with_player(conn, world, name_lower, SOURCE):
+            for e in parses_db.encounters_barred_with_player(conn, world, name_lower, FLAG_BAR_REASON):
                 if parses_db.has_other_active_flag(conn, world, e["id"], name_lower):
                     continue
-                if parses_db.unhide_encounter(conn, e["id"]):
+                if parses_db.unbar_encounter(conn, e["id"], FLAG_BAR_REASON):
                     restored += 1
+                    if e.get("fight_id") is not None:
+                        fights.refresh_fight(conn, e["fight_id"])
         conn.commit()
     finally:
         conn.close()
@@ -211,18 +235,15 @@ def clear_sync(world: str, name: str, *, by: str, now: int | None = None) -> dic
 
 
 async def _refresh_after_change(world: str) -> None:
-    """Hidden rows left/joined the dataset: the list cache lies and the
-    rankings need a rebuild (hide/unhide already refreshed the fights)."""
-    from backend.server.api.parses.list import invalidate_parses_list_cache  # noqa: PLC0415 — avoid import cycle
-    from backend.server.api.rankings import _kills_background_refresh  # noqa: PLC0415
+    """Ranking primaries moved: rebuild this world's kills dataset."""
+    from backend.server.api.rankings import _kills_background_refresh  # noqa: PLC0415 — avoid import cycle
 
-    invalidate_parses_list_cache()
     await _kills_background_refresh(world)
 
 
 async def flag_character(world: str, name: str, *, reason: str, details: dict | list | None, by: str) -> dict:
     result = await run_sync(flag_sync, world, name, reason=reason, details=details, by=by)
-    if result["hidden"]:
+    if result["barred"]:
         asyncio.create_task(_refresh_after_change(world))
     return result
 
@@ -237,7 +258,7 @@ async def clear_character(world: str, name: str, *, by: str) -> dict:
 async def flagged_participants(world: str, names: list[str]) -> list[str]:
     """Which of ``names`` carry an active flag on ``world`` (lower-cased)."""
     wanted = sorted({n.strip().lower() for n in names if n and n.strip()})
-    if not wanted:
+    if not wanted or not SPELL_AUDIT_ENABLED:
         return []
 
     def _query() -> list[str]:
@@ -248,6 +269,25 @@ async def flagged_participants(world: str, names: list[str]) -> list[str]:
             conn.close()
 
     return await run_sync(_query)
+
+
+def lift_all_sync() -> dict[str, int]:
+    """Remove EVERY ranking bar this feature placed (window stamps and flag
+    bars) and recompute the affected fights, so all those parses rank again.
+    Flags and tamper reports are left as records. Idempotent."""
+    reasons = [INCIDENT_REASON, FLAG_BAR_REASON]
+    conn = parses_db.init_db()
+    try:
+        fight_ids = parses_db.fights_with_audit_bars(conn, reasons)
+        unbarred = parses_db.unbar_all_for_reasons(conn, reasons)
+        for fid in fight_ids:
+            fights.refresh_fight(conn, fid)
+        conn.commit()
+    finally:
+        conn.close()
+    if unbarred:
+        audit_log("spell_audit_lifted", actor=SOURCE, parses=unbarred, fights=len(fight_ids))
+    return {"unbarred": unbarred, "fights": len(fight_ids)}
 
 
 # ── The sweep ────────────────────────────────────────────────────────────────
@@ -269,7 +309,6 @@ async def scan_character(client: Any, world: str, name: str) -> list[dict] | Non
 
 
 async def _apply_scan(world: str, row: dict, bad: list[dict] | None) -> str:
-    """Turn one scan result into flag state. Returns the scan result code."""
     active = row.get("active_reason")
     if bad is None:
         if active != REASON_HIDDEN:
@@ -285,14 +324,12 @@ async def _apply_scan(world: str, row: dict, bad: list[dict] | None) -> str:
         await flag_character(world, row["name"], reason=REASON_SPELLS, details={"spells": bad}, by=SOURCE)
         return "flagged"
     if active == REASON_HIDDEN:
-        # Visible and clean now: the unverifiable flag lifts itself.
         await clear_character(world, row["name"], by=SOURCE)
     return "clean"
 
 
 async def run_spell_audit(*, force_rescan: bool = False) -> dict[str, Any]:
-    """One pass over every world with winning kills since the cutoff.
-    Returns counters for the log line / the admin button."""
+    """One pass over every world with winning kills since the cutoff."""
     if census_health.is_down():
         return {"scanned": 0, "flagged": 0, "hidden": 0, "errors": 0, "skipped": "census down"}
     now = int(time.time())
@@ -350,8 +387,19 @@ def _record_scan(world: str, name_lower: str, scanned_at: int, result: str) -> N
 
 
 async def audit_loop() -> None:
-    """Lifespan background task (leader-only). CancelledError bubbles out
-    of the sleeps for clean shutdown."""
+    """Lifespan background task (leader-only). With SPELL_AUDIT_ENABLED=0
+    it lifts every bar once and exits."""
+    if not SPELL_AUDIT_ENABLED:
+        try:
+            result = await run_sync(lift_all_sync)
+            _log.info("[spell-audit] disabled — bars lifted: %s", result)
+            if result["unbarred"]:
+                from backend.server.api.rankings import prewarm_rankings_kills  # noqa: PLC0415
+
+                await prewarm_rankings_kills()
+        except Exception:
+            _log.exception("[spell-audit] lift failed")
+        return
     await asyncio.sleep(_STARTUP_DELAY_S)
     while True:
         try:

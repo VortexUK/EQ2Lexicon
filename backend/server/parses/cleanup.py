@@ -71,7 +71,13 @@ def run_parse_cleanup(now: int | None = None, retention_days: int | None = None)
             # no leaderboard link breaks; hidden uploads are never deleted.
             for f in fights.aged_fights(conn, world, cutoff):
                 keep = {f["primary_encounter_id"], f["primary_winning_encounter_id"]}
-                for m in fights.members(conn, f["id"]):
+                members = fights.members(conn, f["id"])
+                # A ranking-barred fight has no winning primary on the row, but
+                # the bar is reversible: keep its longest winning upload too.
+                wins = [m for m in members if m.get("success_level") == 1 and m.get("hidden_at") is None]
+                if wins:
+                    keep.add(max(wins, key=lambda m: (m["duration_s"], -m["started_at"], -m["id"]))["id"])
+                for m in members:
                     if m["id"] in keep or m.get("hidden_at") is not None:
                         continue
                     if parses_db.delete_encounter(conn, m["id"]):

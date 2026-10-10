@@ -407,20 +407,32 @@ LIMIT %s;
 SELECT DISTINCT world FROM encounters WHERE success_level = 1 AND started_at >= %s;
 
 -- :name select_encounters_with_player_since
--- Visible parses since the cutoff the character played in (any outcome:
--- a flagged character's losses leave the list too).
+-- Parses since the cutoff the character played in that do not yet carry the
+-- audit's tamper report (the idempotency marker). Visibility is irrelevant.
 SELECT DISTINCT e.id, e.act_encid, e.title, e.zone, e.started_at, e.ended_at, e.duration_s,
        e.total_damage, e.encdps, e.uploaded_by, e.source_dsn, e.guild_name
 FROM encounters e
 JOIN combatants c ON c.encounter_id = e.id
 WHERE e.world = %s AND c.is_player = 1 AND lower(c.name) = %s
-  AND e.started_at >= %s AND e.hidden_at IS NULL;
+  AND e.started_at >= %s
+  AND NOT EXISTS (
+      SELECT 1 FROM tamper_reports t
+      WHERE t.world = e.world AND t.act_encid = e.act_encid AND t.reason = %s);
 
--- :name select_encounters_hidden_by_audit_with_player
-SELECT DISTINCT e.id
+-- :name select_encounter_for_audit
+SELECT e.id, e.act_encid, e.title, e.zone, e.started_at, e.ended_at, e.duration_s,
+       e.total_damage, e.encdps, e.uploaded_by, e.source_dsn, e.guild_name
+FROM encounters e WHERE e.id = %s AND e.world = %s;
+
+-- :name select_encounters_barred_with_player
+SELECT DISTINCT e.id, e.fight_id
 FROM encounters e
 JOIN combatants c ON c.encounter_id = e.id
-WHERE e.world = %s AND c.is_player = 1 AND lower(c.name) = %s AND e.hidden_by = %s;
+WHERE e.world = %s AND c.is_player = 1 AND lower(c.name) = %s AND e.ranking_barred_reason = %s;
+
+-- :name unbar_encounter
+UPDATE encounters SET ranking_barred_at = NULL, ranking_barred_reason = NULL
+WHERE id = %s AND ranking_barred_reason = %s;
 
 -- :name select_other_active_flag_in_encounter
 SELECT 1 AS hit
@@ -433,3 +445,11 @@ LIMIT 1;
 -- Permanent: never cleared by code (an admin would do it by hand, knowingly).
 UPDATE encounters SET ranking_barred_at = %s, ranking_barred_reason = %s
 WHERE id = %s AND ranking_barred_at IS NULL;
+
+-- :name select_fights_with_audit_bars
+SELECT DISTINCT fight_id FROM encounters
+WHERE ranking_barred_reason = ANY(%s) AND fight_id IS NOT NULL;
+
+-- :name unbar_all_for_reasons
+UPDATE encounters SET ranking_barred_at = NULL, ranking_barred_reason = NULL
+WHERE ranking_barred_reason = ANY(%s);
