@@ -70,7 +70,8 @@ SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by,
        ({player_count_sql}) AS player_count
 FROM encounters e
 WHERE e.id = %s AND e.world = %s
-  AND e.hidden_at IS NULL AND e.uploader_verified = 1 AND e.success_level = 1;
+  AND e.hidden_at IS NULL AND e.uploader_verified = 1 AND e.success_level = 1
+  AND e.ranking_barred_at IS NULL;
 
 -- :name count_player_combatants_for_encounter
 -- Refresh the player count for one encounter after the lazy backfill

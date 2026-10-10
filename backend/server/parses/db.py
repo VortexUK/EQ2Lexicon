@@ -777,6 +777,12 @@ class ParsesStore(PgCatalogue):
     # ── Spell audit (backend/server/spell_audit.py) ─────────────────────────
 
     @staticmethod
+    def bar_encounter_from_rankings(conn: Any, encounter_id: int, *, reason: str, now: int) -> bool:
+        """Stamp a parse as never-ranking. Returns True when the stamp was new."""
+        cur = conn.execute(_SQL["bar_encounter_from_rankings"], (now, reason, encounter_id))
+        return cur.rowcount > 0
+
+    @staticmethod
     def get_flagged_character(conn: Any, world: str, name_lower: str) -> dict | None:
         row = conn.execute(_SQL["select_flagged_character"], (world, name_lower)).fetchone()
         return dict(row) if row else None

@@ -40,7 +40,7 @@ from typing import Any
 from backend.census import failures
 from backend.census.models import SpellEntry
 from backend.server import census_health
-from backend.server.constants import SPELL_AUDIT_DISALLOWED_TIERS, SPELL_AUDIT_SINCE_TS
+from backend.server.constants import SPELL_AUDIT_DISALLOWED_TIERS, SPELL_AUDIT_SINCE_TS, SPELL_AUDIT_UNTIL_TS
 from backend.server.core.audit_log import audit_log
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.executor import run_sync
@@ -73,6 +73,20 @@ _SCAN_BATCH = 2000
 
 def since_ts() -> int:
     return SPELL_AUDIT_SINCE_TS
+
+
+#: encounters.ranking_barred_reason for parses started inside the window.
+INCIDENT_REASON = "spell_exploit_window"
+
+
+def in_incident_window(started_at: int) -> bool:
+    """True while the exploit embargo covers ``started_at``: from the cutoff
+    until SPELL_AUDIT_UNTIL (open-ended while unset). A parse in the window
+    is stamped ranking_barred_at at ingest and never ranks, whatever happens
+    to the flags later."""
+    if started_at < SPELL_AUDIT_SINCE_TS:
+        return False
+    return SPELL_AUDIT_UNTIL_TS is None or started_at < SPELL_AUDIT_UNTIL_TS
 
 
 def disallowed_tiers() -> frozenset[str]:

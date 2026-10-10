@@ -121,6 +121,13 @@ SPELL_AUDIT_SINCE_TS: int = int(
     .replace(tzinfo=_dt.UTC)
     .timestamp()
 )
+# When the embargo is lifted, set SPELL_AUDIT_UNTIL (ISO datetime, UTC):
+# parses started after it rank again; everything started inside the window
+# keeps its permanent ranking_barred_at stamp. Unset = the window is open.
+_until = os.getenv("SPELL_AUDIT_UNTIL", "").strip()
+SPELL_AUDIT_UNTIL_TS: int | None = (
+    int(_dt.datetime.fromisoformat(_until).replace(tzinfo=_dt.UTC).timestamp()) if _until else None
+)
 SPELL_AUDIT_DISALLOWED_TIERS: tuple[str, ...] = tuple(
     t.strip() for t in os.getenv("SPELL_AUDIT_TIERS", "Ancient,Celestial").split(",") if t.strip()
 )

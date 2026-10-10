@@ -767,6 +767,10 @@ def _insert_encounter_rows_sync(
     zone_category = _classify_zone(enc.zone)
     classification = classify_combatants(rows, zone_category)
     parses_db.update_combatant_is_player(conn, classification)
+    # Inside the spell-exploit window every parse is permanently barred from
+    # the rankings (stays in the list; never a fight's ranking primary).
+    if spell_audit.in_incident_window(_to_unix(enc.started_at)):
+        parses_db.bar_encounter_from_rankings(conn, encounter_id, reason=spell_audit.INCIDENT_REASON, now=ingested_at)
     # Group the upload with its mirrors now that its roster is classified.
     fights.attach_encounter(conn, encounter_id)
     conn.commit()
