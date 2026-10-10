@@ -17,7 +17,7 @@ same rules as the list grouper in backend/server/api/parses/list.py:
 The fight row carries two primaries, recomputed whenever a member changes:
 ``primary_encounter_id`` is the longest visible upload (the list's canonical
 row) and ``primary_winning_encounter_id`` the longest visible, verified,
-winning upload (the rankings kill). Ties go to the earliest start, matching
+winning, not ranking-barred upload (the rankings kill). Ties go to the earliest start, matching
 the grouper's chronological "promote only when strictly longer".
 
 The full grouper remains the bulk path: :func:`backfill_world` groups every
@@ -56,7 +56,13 @@ def _canonical(members: list[dict]) -> dict:
 def _primaries(members: list[dict]) -> tuple[int | None, int | None]:
     visible = [m for m in members if m.get("hidden_at") is None]
     primary = _canonical(visible)["id"] if visible else None
-    winning = [m for m in visible if m.get("success_level") == 1 and (m.get("uploader_verified") or 0) == 1]
+    # The ranking primary: visible, verified, winning, and not stamped as
+    # barred (the spell-exploit window) — a barred fight ranks nothing.
+    winning = [
+        m
+        for m in visible
+        if m.get("success_level") == 1 and (m.get("uploader_verified") or 0) == 1 and m.get("ranking_barred_at") is None
+    ]
     primary_winning = _canonical(winning)["id"] if winning else None
     return primary, primary_winning
 

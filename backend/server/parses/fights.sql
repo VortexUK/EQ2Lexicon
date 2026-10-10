@@ -28,6 +28,7 @@ WHERE id = %s;
 
 -- :name select_fight_members
 SELECT e.id, e.uploaded_by, e.started_at, e.duration_s, e.hidden_at, e.uploader_verified, e.success_level,
+       e.ranking_barred_at,
        (SELECT COUNT(*) FROM combatants c WHERE c.encounter_id = e.id AND c.is_player = 1) AS player_count
 FROM encounters e
 WHERE e.fight_id = %s

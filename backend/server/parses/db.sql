@@ -428,3 +428,8 @@ FROM combatants c
 JOIN flagged_characters f ON f.world = %s AND f.name_lower = lower(c.name) AND f.cleared_at IS NULL
 WHERE c.encounter_id = %s AND c.is_player = 1 AND f.name_lower <> %s
 LIMIT 1;
+
+-- :name bar_encounter_from_rankings
+-- Permanent: never cleared by code (an admin would do it by hand, knowingly).
+UPDATE encounters SET ranking_barred_at = %s, ranking_barred_reason = %s
+WHERE id = %s AND ranking_barred_at IS NULL;

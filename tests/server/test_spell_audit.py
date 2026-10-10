@@ -307,3 +307,50 @@ async def test_admin_run_starts_a_sweep(app):
             r = await client.post("/api/admin/spell-audit/run?force_rescan=true")
     assert r.status_code == 200 and r.json() == {"started": True}
     run.assert_called_once_with(force_rescan=True)
+
+
+# ── the incident window: a permanent ranking bar ─────────────────────────────
+
+
+def test_incident_window_is_open_ended_until_lifted(monkeypatch):
+    assert spell_audit.in_incident_window(SINCE - 1) is False
+    assert spell_audit.in_incident_window(SINCE) is True
+    assert spell_audit.in_incident_window(SINCE + 10**7) is True  # open while SPELL_AUDIT_UNTIL is unset
+    monkeypatch.setattr(spell_audit, "SPELL_AUDIT_UNTIL_TS", SINCE + 1000)
+    assert spell_audit.in_incident_window(SINCE + 999) is True
+    assert spell_audit.in_incident_window(SINCE + 1000) is False
+
+
+def test_barred_parse_is_never_a_fights_ranking_primary_even_after_restore():
+    from backend.server.parses import fights
+
+    conn = _conn()
+    try:
+        eid = _seed(conn, started_at=SINCE + 100, players=["Cheater", "Clean"])
+        fights.attach_encounter(conn, eid)
+        conn.commit()
+        fid = fights.fight_id_of(conn, eid)
+        assert fid is not None
+        assert fights.get_fight(conn, fid)["primary_winning_encounter_id"] == eid  # ranks before the stamp
+
+        assert parses_db.store.bar_encounter_from_rankings(
+            conn, eid, reason=spell_audit.INCIDENT_REASON, now=SINCE + 200
+        )
+        assert parses_db.store.bar_encounter_from_rankings(conn, eid, reason="x", now=SINCE + 300) is False
+        fights.refresh_fight(conn, fid)
+        conn.commit()
+        f = fights.get_fight(conn, fid)
+        assert f["primary_encounter_id"] == eid  # still the list's canonical row …
+        assert f["primary_winning_encounter_id"] is None  # … but never a ranking kill
+
+        # Flag → hide → clear → restore: the parse comes back to the list but
+        # the stamp keeps it off the boards.
+        spell_audit.flag_sync(WORLD, "Cheater", reason=spell_audit.REASON_SPELLS, details=None)
+        assert _hidden_by(conn, eid) == spell_audit.SOURCE
+        spell_audit.clear_sync(WORLD, "Cheater", by="admin-1")
+        assert _hidden_by(conn, eid) is None
+        assert fights.get_fight(conn, fid)["primary_winning_encounter_id"] is None
+        row = conn.execute("SELECT ranking_barred_reason FROM encounters WHERE id = %s", (eid,)).fetchone()
+        assert row["ranking_barred_reason"] == spell_audit.INCIDENT_REASON
+    finally:
+        conn.close()
