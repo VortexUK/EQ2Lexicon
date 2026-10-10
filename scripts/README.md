@@ -90,6 +90,7 @@ export → agent → apply polish passes for strategy text are described in
 scripts/dev_backend.ps1                                          # uvicorn --reload with the right flags
 scripts/dev_frontend.ps1                                         # vite dev server
 uv run python scripts/dev/seed_fake_parses.py --character X      # fake rankings data (--wipe removes it)
+uv run python scripts/dev/replay_refused_uploads.py              # dry run: uploads the spell audit refused on 2026-10-10 (--apply restores them; idempotent)
 uv run python scripts/dev/grafana_pull.py panels|data|render     # pull Grafana Cloud metrics (GRAFANA_URL/TOKEN in .env)
 ```
 
