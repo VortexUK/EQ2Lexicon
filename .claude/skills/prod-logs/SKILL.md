@@ -53,5 +53,10 @@ once is printed with its real values, which can include a Discord user id or a c
 IP. That is personal data: do not copy it into a reply, a commit or an issue; describe
 the event instead.
 
+The same goes for test fixtures and examples. This repo is public: when a test needs a
+log line, write a synthetic one. Use documentation ranges for addresses (`203.0.113.x`,
+`2001:db8::`), made-up ids, and placeholder character and guild names. Never paste a
+line from production into a file.
+
 Production currently logs in the text format, so the level and the `[tag]` are parsed
 from the message itself and Railway's own level filter is not used.
