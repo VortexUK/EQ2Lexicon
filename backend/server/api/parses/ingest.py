@@ -18,6 +18,7 @@ from fastapi import BackgroundTasks, Depends, HTTPException, Request
 
 from backend.census.store import store as census_store
 from backend.core.log_safety import scrub
+from backend.server import spell_audit
 from backend.server.api.parses import router
 from backend.server.api.parses.list import _classify_zone
 from backend.server.api.parses.models import (
@@ -1105,6 +1106,44 @@ async def ingest_parse(
             encid=body.encounter.encid,
         )
         # Normal-looking 201 — the parse simply never reaches the board.
+        return IngestResponse(
+            status="quarantined",
+            encounter_id=None,
+            act_encid=body.encounter.encid,
+            combatants=0,
+            damage_types=0,
+            attack_types=0,
+            guild_name=None,
+        )
+
+    # A participant barred by the spell audit (out-of-era or unverifiable
+    # spells): the whole parse is quarantined into tamper_reports, never stored.
+    flagged = await spell_audit.flagged_participants(
+        parse_world, [str(r.name or "") for r in body.combatants if _to_bool_tf(r.ally)]
+    )
+    if flagged:
+        discord_id = str(user.get("id") or "")
+        discord_name = str(user.get("discord_name") or user.get("username") or "")
+        report_id = await run_sync(
+            _quarantine_encounter_sync,
+            body,
+            typed_enc,
+            world=parse_world,
+            reason=spell_audit.REASON_SPELLS,
+            uploader=uploader,
+            discord_id=discord_id,
+            discord_name=discord_name,
+        )
+        audit_log(
+            "parse_quarantined",
+            actor=discord_id,
+            report_id=report_id,
+            reason=spell_audit.TAMPER_REASON,
+            logger=uploader,
+            world=parse_world,
+            encid=body.encounter.encid,
+            flagged=",".join(flagged),
+        )
         return IngestResponse(
             status="quarantined",
             encounter_id=None,

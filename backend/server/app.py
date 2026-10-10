@@ -399,7 +399,14 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         APP_INFO.info({"world": _WORLD, "version": "0.1.0"})
 
         # ---- async background tasks (tracked so shutdown can cancel) ----
-        from backend.server import census_health, raid_live, recruitment_sweep, refresh_queue, xpac_rollover
+        from backend.server import (
+            census_health,
+            raid_live,
+            recruitment_sweep,
+            refresh_queue,
+            spell_audit,
+            xpac_rollover,
+        )
         from backend.server.api.parses.list import prewarm_parses_list
         from backend.server.api.rankings import prewarm_rankings_kills
 
@@ -417,6 +424,7 @@ def create_app(session_secret: str | None = None) -> FastAPI:
                 raid_live.poll_loop(),
                 xpac_rollover.poll_loop(),
                 recruitment_sweep.sweep_loop(),
+                spell_audit.audit_loop(),
             )
 
         # Per-process: prewarms (this process serves traffic), the in-memory

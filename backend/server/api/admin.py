@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.server import server_context
+from backend.server import server_context, spell_audit
 from backend.server.api.claim import invalidate_user_claim_cache_all_worlds
 from backend.server.api.role_requests import RoleRequestEntry
 from backend.server.auth_deps import KNOWN_ROLES
 from backend.server.auth_deps import require_admin as _require_admin
-from backend.server.constants import ADMIN_PARSE_LIST_MAX_LIMIT
+from backend.server.constants import ADMIN_PARSE_LIST_MAX_LIMIT, SPELL_AUDIT_DISALLOWED_TIERS
 from backend.server.core import session_access
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
-from backend.server.core.validation import DISCORD_INVITE_RE
+from backend.server.core.validation import DISCORD_INVITE_RE, validate_character_name
 from backend.server.db import (
     bump_session_epoch,
     delete_claim,
@@ -918,3 +920,120 @@ async def update_site_settings(body: SiteSettingsUpdate, request: Request) -> Si
     await set_site_setting(DISCORD_INVITE_URL_KEY, url, updated_by=admin["id"])
     audit_log("site_settings_updated", actor=admin["id"], key=DISCORD_INVITE_URL_KEY, value=url or "")
     return SiteSettingsResponse(discord_invite_url=await get_site_setting(DISCORD_INVITE_URL_KEY))
+
+
+# ---------------------------------------------------------------------------
+# Spell audit — flagged characters (backend/server/spell_audit.py)
+# ---------------------------------------------------------------------------
+
+
+class FlaggedCharacterItem(BaseModel):
+    world: str
+    name: str
+    reason: str
+    details: Any = None  # the offending spells, or a note
+    flagged_at: int
+    flagged_by: str
+    cleared_at: int | None = None
+    cleared_by: str | None = None
+
+
+class FlaggedCharacterListResponse(BaseModel):
+    results: list[FlaggedCharacterItem]
+    since: int  # the enforcement cutoff (unix seconds)
+    tiers: list[str]
+
+
+class FlagCharacterInput(BaseModel):
+    name: str = Field(min_length=1, max_length=32)
+    note: str | None = Field(default=None, max_length=300)
+
+
+class FlagActionResponse(BaseModel):
+    ok: bool = True
+    new: bool = False
+    hidden: int = 0
+    reports: int = 0
+    restored: int = 0
+
+
+def _flag_item(r: dict) -> FlaggedCharacterItem:
+    details = None
+    if r.get("details"):
+        try:
+            details = json.loads(r["details"])
+        except ValueError:
+            details = r["details"]
+    return FlaggedCharacterItem(
+        world=r["world"],
+        name=r["name"],
+        reason=r["reason"],
+        details=details,
+        flagged_at=r["flagged_at"],
+        flagged_by=r["flagged_by"],
+        cleared_at=r.get("cleared_at"),
+        cleared_by=r.get("cleared_by"),
+    )
+
+
+@router.get("/admin/flagged-characters", response_model=FlaggedCharacterListResponse)
+async def list_flagged_characters_admin(
+    request: Request, include_cleared: bool = False
+) -> FlaggedCharacterListResponse:
+    _require_admin(request)
+    world = current_world()
+
+    def _query() -> list[dict]:
+        conn = parses_db.init_db()
+        try:
+            return parses_db.list_flagged_characters(conn, world, include_cleared=include_cleared)
+        finally:
+            conn.close()
+
+    rows = await run_sync(_query)
+    return FlaggedCharacterListResponse(
+        results=[_flag_item(r) for r in rows],
+        since=spell_audit.since_ts(),
+        tiers=list(SPELL_AUDIT_DISALLOWED_TIERS),
+    )
+
+
+@router.post("/admin/flagged-characters", response_model=FlagActionResponse)
+async def flag_character_admin(request: Request, body: FlagCharacterInput) -> FlagActionResponse:
+    """Manual flag: bars the character and hides/reports their parses since
+    the cutoff, exactly like an audit hit."""
+    admin = _require_admin(request)
+    name = body.name.strip()
+    if validate_character_name(name) is None:
+        raise HTTPException(status_code=400, detail="name must be a plain character name (letters, 1-15)")
+    result = await spell_audit.flag_character(
+        current_world(),
+        name,
+        reason=spell_audit.REASON_MANUAL,
+        details={"note": (body.note or "").strip() or None, "by": admin["id"]},
+        by=admin["id"],
+    )
+    return FlagActionResponse(new=result["new"], hidden=result["hidden"], reports=result["reports"])
+
+
+@router.delete("/admin/flagged-characters/{name}", response_model=FlagActionResponse)
+async def clear_flagged_character_admin(request: Request, name: str) -> FlagActionResponse:
+    """Clear a flag and restore the parses it hid (unless another flagged
+    character is in them)."""
+    admin = _require_admin(request)
+    if validate_character_name(name.strip()) is None:
+        raise HTTPException(status_code=400, detail="name must be a plain character name (letters, 1-15)")
+    result = await spell_audit.clear_character(current_world(), name.strip(), by=admin["id"])
+    if not result["cleared"]:
+        raise HTTPException(status_code=404, detail="No active flag for that character")
+    return FlagActionResponse(restored=result["restored"])
+
+
+@router.post("/admin/spell-audit/run")
+async def run_spell_audit_admin(request: Request, force_rescan: bool = False) -> dict:
+    """Start a sweep now (background). ``force_rescan`` ignores the daily
+    per-character throttle."""
+    admin = _require_admin(request)
+    audit_log("spell_audit_run_requested", actor=admin["id"], force_rescan=force_rescan)
+    asyncio.create_task(spell_audit.run_spell_audit(force_rescan=force_rescan))
+    return {"started": True}

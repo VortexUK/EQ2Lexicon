@@ -121,6 +121,7 @@ export const TAMPER_REASON_VARIANT: Record<string, 'danger' | 'warning' | 'muted
   title_enemy_mismatch:    'danger',
   stale_encounter:         'warning',
   recent_import_activity:  'warning',
+  server_out_of_era_spells: 'danger',
 }
 
 /** Human-readable label for the admin UI. The server stores the wire
@@ -129,6 +130,7 @@ export const TAMPER_REASON_LABEL: Record<string, string> = {
   title_enemy_mismatch:    'Rename detected',
   stale_encounter:         'Stale (imported)',
   recent_import_activity:  'Import UI active',
+  server_out_of_era_spells: 'Flagged character (spell audit)',
 }
 
 export interface RoleRequest {

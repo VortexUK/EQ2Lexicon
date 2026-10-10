@@ -14,6 +14,9 @@ visible.
 
 from __future__ import annotations
 
+import datetime as _dt
+import os
+
 # --- Cache TTLs ------------------------------------------------------------
 
 # stale-while-revalidate window for character/guild/aa caches.
@@ -105,3 +108,19 @@ VOICE_OBSERVATION_RETENTION_DAYS: int = 90
 # 15-minute guild refresh; the 1-year range pill needs 365, 400 leaves slack.
 # Pruned on write, scoped to the guild being refreshed.
 GUILD_HISTORY_RETENTION_DAYS: int = 400
+
+# ── Spell audit (backend/server/spell_audit.py) ────────────────────────────
+# A 2026-10 TLE event bug let out-of-era spell tiers drop and scribe. Any
+# character carrying one is barred from the boards: every parse since the
+# cutoff they played in is hidden and reported. Master is the era's ceiling;
+# Grandmaster is a legitimate pick (one per 10 levels), so it stays allowed.
+# Both knobs are env-overridable: SPELL_AUDIT_SINCE (ISO date/datetime, UTC
+# when no offset is given) and SPELL_AUDIT_TIERS (comma-separated tier names).
+SPELL_AUDIT_SINCE_TS: int = int(
+    _dt.datetime.fromisoformat(os.getenv("SPELL_AUDIT_SINCE", "2026-10-09T00:00:00+00:00"))
+    .replace(tzinfo=_dt.UTC)
+    .timestamp()
+)
+SPELL_AUDIT_DISALLOWED_TIERS: tuple[str, ...] = tuple(
+    t.strip() for t in os.getenv("SPELL_AUDIT_TIERS", "Ancient,Celestial").split(",") if t.strip()
+)

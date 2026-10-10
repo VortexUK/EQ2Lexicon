@@ -8,6 +8,7 @@ import { ParsesAdminTable } from './admin/ParsesAdminTable'
 import { ServersSection } from './admin/ServersSection'
 import { SiteSettingsSection } from './admin/SiteSettingsSection'
 import { TamperReportsTable } from './admin/TamperReportsTable'
+import { FlaggedCharactersSection } from './admin/FlaggedCharactersSection'
 import type { UserItem, ClaimDetail, RoleRequest } from './admin/types'
 import { SECTION_TITLE_CLS } from './admin/types'
 
@@ -126,6 +127,11 @@ export default function AdminPage() {
               they represent active attempts to upload tampered parses
               that the plugin already blocked at the source. The table
               manages its own fetch + acknowledge flow. */}
+          {/* Spell audit — characters barred from the boards; feeds tamper reports */}
+          <div className={SECTION_CLS}>
+            <FlaggedCharactersSection />
+          </div>
+
           <div className={SECTION_CLS}>
             <TamperReportsTable />
           </div>

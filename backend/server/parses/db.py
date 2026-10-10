@@ -774,6 +774,75 @@ class ParsesStore(PgCatalogue):
         conn.commit()
         return cur.rowcount
 
+    # ── Spell audit (backend/server/spell_audit.py) ─────────────────────────
+
+    @staticmethod
+    def get_flagged_character(conn: Any, world: str, name_lower: str) -> dict | None:
+        row = conn.execute(_SQL["select_flagged_character"], (world, name_lower)).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def upsert_flagged_character(
+        conn: Any, *, world: str, name: str, reason: str, details: str | None, flagged_at: int, flagged_by: str
+    ) -> None:
+        conn.execute(
+            _SQL["upsert_flagged_character"], (world, name.lower(), name, reason, details, flagged_at, flagged_by)
+        )
+
+    @staticmethod
+    def clear_flagged_character(conn: Any, world: str, name_lower: str, *, cleared_at: int, cleared_by: str) -> bool:
+        cur = conn.execute(_SQL["clear_flagged_character"], (cleared_at, cleared_by, world, name_lower))
+        return cur.rowcount > 0
+
+    @staticmethod
+    def list_flagged_characters(conn: Any, world: str, *, include_cleared: bool = False) -> list[dict]:
+        return [dict(r) for r in conn.execute(_SQL["list_flagged_characters"], (world, include_cleared)).fetchall()]
+
+    @staticmethod
+    def active_flags_among(conn: Any, world: str, names_lower: list[str]) -> list[str]:
+        if not names_lower:
+            return []
+        rows = conn.execute(_SQL["select_active_flags_among"], (world, list(names_lower))).fetchall()
+        return sorted(r["name_lower"] for r in rows)
+
+    @staticmethod
+    def record_spell_scan(conn: Any, world: str, name_lower: str, scanned_at: int, result: str) -> None:
+        conn.execute(_SQL["record_spell_scan"], (world, name_lower, scanned_at, result))
+
+    @staticmethod
+    def spell_scan_candidates(conn: Any, world: str, since: int, rescan_before: int, limit: int) -> list[dict]:
+        return [
+            dict(r)
+            for r in conn.execute(_SQL["select_spell_scan_candidates"], (world, since, rescan_before, limit)).fetchall()
+        ]
+
+    @staticmethod
+    def worlds_with_winning_kills_since(conn: Any, since: int) -> list[str]:
+        return [r["world"] for r in conn.execute(_SQL["select_worlds_with_winning_kills_since"], (since,)).fetchall()]
+
+    @staticmethod
+    def encounters_with_player_since(conn: Any, world: str, name_lower: str, since: int) -> list[dict]:
+        return [
+            dict(r)
+            for r in conn.execute(_SQL["select_encounters_with_player_since"], (world, name_lower, since)).fetchall()
+        ]
+
+    @staticmethod
+    def encounters_hidden_by_audit_with_player(conn: Any, world: str, name_lower: str, hidden_by: str) -> list[dict]:
+        return [
+            dict(r)
+            for r in conn.execute(
+                _SQL["select_encounters_hidden_by_audit_with_player"], (world, name_lower, hidden_by)
+            ).fetchall()
+        ]
+
+    @staticmethod
+    def has_other_active_flag(conn: Any, world: str, encounter_id: int, except_name_lower: str) -> bool:
+        row = conn.execute(
+            _SQL["select_other_active_flag_in_encounter"], (world, encounter_id, except_name_lower)
+        ).fetchone()
+        return row is not None
+
     @staticmethod
     def delete_acknowledged_tamper_reports(conn: Any, world: str) -> int:
         """Hard-delete already-acknowledged reports for a world to reclaim

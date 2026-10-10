@@ -341,3 +341,90 @@ WHERE combatant_id IN (SELECT id FROM combatants WHERE encounter_id = ANY(%s));
 
 -- :name mark_detail_pruned
 UPDATE encounters SET detail_pruned_at = %s WHERE id = ANY(%s);
+
+-- ---------------------------------------------------------------------------
+-- Spell audit (backend/server/spell_audit.py): flagged characters, scans,
+-- and the parses they played in.
+-- ---------------------------------------------------------------------------
+
+-- :name select_flagged_character
+SELECT world, name_lower, name, reason, details, flagged_at, flagged_by, cleared_at, cleared_by
+FROM flagged_characters WHERE world = %s AND name_lower = %s;
+
+-- :name upsert_flagged_character
+-- Re-flagging a cleared character re-activates it with a fresh flagged_at;
+-- re-flagging an active one keeps the original flagged_at.
+INSERT INTO flagged_characters (world, name_lower, name, reason, details, flagged_at, flagged_by)
+VALUES (%s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (world, name_lower) DO UPDATE SET
+    name = excluded.name,
+    reason = excluded.reason,
+    details = excluded.details,
+    flagged_at = CASE WHEN flagged_characters.cleared_at IS NULL THEN flagged_characters.flagged_at ELSE excluded.flagged_at END,
+    flagged_by = excluded.flagged_by,
+    cleared_at = NULL,
+    cleared_by = NULL;
+
+-- :name clear_flagged_character
+UPDATE flagged_characters SET cleared_at = %s, cleared_by = %s
+WHERE world = %s AND name_lower = %s AND cleared_at IS NULL;
+
+-- :name list_flagged_characters
+-- Active first (newest flag first), then cleared.
+SELECT world, name_lower, name, reason, details, flagged_at, flagged_by, cleared_at, cleared_by
+FROM flagged_characters
+WHERE world = %s AND (%s OR cleared_at IS NULL)
+ORDER BY (cleared_at IS NOT NULL), flagged_at DESC;
+
+-- :name select_active_flags_among
+SELECT name_lower FROM flagged_characters
+WHERE world = %s AND cleared_at IS NULL AND name_lower = ANY(%s);
+
+-- :name record_spell_scan
+INSERT INTO spell_audit_scans (world, name_lower, scanned_at, result)
+VALUES (%s, %s, %s, %s)
+ON CONFLICT (world, name_lower) DO UPDATE SET scanned_at = excluded.scanned_at, result = excluded.result;
+
+-- :name select_spell_scan_candidates
+-- Players in winning kills since the cutoff, not scanned since the rescan
+-- bound. Sticky flags (out-of-era spells, manual) are never re-scanned; a
+-- census_hidden flag is, so it can lift itself once the character shows.
+SELECT lower(c.name) AS name_lower, min(c.name) AS name, max(f.reason) AS active_reason
+FROM combatants c
+JOIN encounters e ON e.id = c.encounter_id
+LEFT JOIN flagged_characters f
+       ON f.world = e.world AND f.name_lower = lower(c.name) AND f.cleared_at IS NULL
+WHERE e.world = %s AND e.success_level = 1 AND c.is_player = 1 AND e.started_at >= %s
+  AND (f.name_lower IS NULL OR f.reason = 'census_hidden')
+  AND NOT EXISTS (
+      SELECT 1 FROM spell_audit_scans s
+      WHERE s.world = e.world AND s.name_lower = lower(c.name) AND s.scanned_at >= %s)
+GROUP BY lower(c.name)
+ORDER BY lower(c.name)
+LIMIT %s;
+
+-- :name select_worlds_with_winning_kills_since
+SELECT DISTINCT world FROM encounters WHERE success_level = 1 AND started_at >= %s;
+
+-- :name select_encounters_with_player_since
+-- Visible parses since the cutoff the character played in (any outcome:
+-- a flagged character's losses leave the list too).
+SELECT DISTINCT e.id, e.act_encid, e.title, e.zone, e.started_at, e.ended_at, e.duration_s,
+       e.total_damage, e.encdps, e.uploaded_by, e.source_dsn, e.guild_name
+FROM encounters e
+JOIN combatants c ON c.encounter_id = e.id
+WHERE e.world = %s AND c.is_player = 1 AND lower(c.name) = %s
+  AND e.started_at >= %s AND e.hidden_at IS NULL;
+
+-- :name select_encounters_hidden_by_audit_with_player
+SELECT DISTINCT e.id
+FROM encounters e
+JOIN combatants c ON c.encounter_id = e.id
+WHERE e.world = %s AND c.is_player = 1 AND lower(c.name) = %s AND e.hidden_by = %s;
+
+-- :name select_other_active_flag_in_encounter
+SELECT 1 AS hit
+FROM combatants c
+JOIN flagged_characters f ON f.world = %s AND f.name_lower = lower(c.name) AND f.cleared_at IS NULL
+WHERE c.encounter_id = %s AND c.is_player = 1 AND f.name_lower <> %s
+LIMIT 1;
