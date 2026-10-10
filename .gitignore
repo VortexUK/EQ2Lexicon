@@ -302,8 +302,11 @@ test_*.png
 # Local log dumps
 logs/
 
-# Claude Code
-.claude/
+# Claude Code: skills and path-scoped rules are versioned with the code they
+# describe; settings, worktrees and everything else stay machine-local.
+.claude/*
+!.claude/skills/
+!.claude/rules/
 
 # Frontend build output and dependencies
 frontend/dist/

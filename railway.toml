@@ -5,7 +5,7 @@ builder = "nixpacks"
 # silently ignored, which is why dashboard/doc commits used to redeploy.
 # gitignore-style, matched from the repo root; negations need a preceding
 # include (`**`).
-watchPatterns = ["**", "!/ops/**", "!/docs/**", "!/.github/**", "!/*.md"]
+watchPatterns = ["**", "!/ops/**", "!/docs/**", "!/.github/**", "!/.claude/**", "!/*.md"]
 
 [deploy]
 # Start sequence (post-Phase-2: every data family lives in Supabase
