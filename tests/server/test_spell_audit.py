@@ -262,6 +262,9 @@ async def test_ingest_stores_a_parse_with_a_flagged_participant_and_bars_it(app)
             "backend.server.api.parses.ingest.spell_audit.flagged_participants", new=AsyncMock(return_value=["cheater"])
         ),
         patch("backend.server.api.parses.ingest.spell_audit.bar_uploaded_parse_sync", new=bar),
+        # The post-response fill would call live Census for the payload's players.
+        patch("backend.server.api.parses.ingest._resolve_and_update_snapshots", new=AsyncMock()),
+        patch("backend.server.api.parses.ingest._sync_rankings_for_encounter", new=AsyncMock()),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
