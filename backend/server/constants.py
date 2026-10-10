@@ -117,7 +117,8 @@ GUILD_HISTORY_RETENTION_DAYS: int = 400
 # Both knobs are env-overridable: SPELL_AUDIT_SINCE (ISO date/datetime, UTC
 # when no offset is given) and SPELL_AUDIT_TIERS (comma-separated tier names).
 SPELL_AUDIT_SINCE_TS: int = int(
-    _dt.datetime.fromisoformat(os.getenv("SPELL_AUDIT_SINCE", "2026-10-09T00:00:00+00:00"))
+    # The event went live at 00:01 Pacific on 2026-10-09 = 07:01 UTC.
+    _dt.datetime.fromisoformat(os.getenv("SPELL_AUDIT_SINCE", "2026-10-09T07:01:00+00:00"))
     .replace(tzinfo=_dt.UTC)
     .timestamp()
 )
