@@ -129,6 +129,10 @@ _until = os.getenv("SPELL_AUDIT_UNTIL", "").strip()
 SPELL_AUDIT_UNTIL_TS: int | None = (
     int(_dt.datetime.fromisoformat(_until).replace(tzinfo=_dt.UTC).timestamp()) if _until else None
 )
+# The whole filter is one switch. SPELL_AUDIT_ENABLED=0 stops stamping and
+# sweeping, and at startup removes every bar this feature placed, so all
+# parses rank again. Nothing the filter does is destructive.
+SPELL_AUDIT_ENABLED: bool = os.getenv("SPELL_AUDIT_ENABLED", "1").strip().lower() not in ("0", "false", "no")
 SPELL_AUDIT_DISALLOWED_TIERS: tuple[str, ...] = tuple(
     t.strip() for t in os.getenv("SPELL_AUDIT_TIERS", "Ancient,Celestial").split(",") if t.strip()
 )

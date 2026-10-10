@@ -3,7 +3,8 @@
  *
  * A character found with an out-of-era spell tier (the 2026-10 TLE event
  * bug), or one Census cannot show us at all, is barred: every parse since
- * the cutoff they played in is hidden and filed as a tamper report. Admins
+ * the cutoff they played in is barred from the rankings and filed as a tamper report
+ * (the parse itself stays uploaded and visible). Admins
  * see the flags here, can add one by hand, clear one (which restores the
  * parses unless another flagged character is in them) and run a sweep now.
  */
@@ -66,7 +67,7 @@ export function FlaggedCharactersSection() {
     setBusy(true)
     setMsg(null)
     try {
-      const r = await handle<{ new: boolean; hidden: number; reports: number }>(
+      const r = await handle<{ new: boolean; barred: number; reports: number }>(
         await fetch('/api/admin/flagged-characters', {
           method: 'POST',
           credentials: 'include',
@@ -74,7 +75,7 @@ export function FlaggedCharactersSection() {
           body: JSON.stringify({ name: name.trim(), note: note.trim() || null }),
         }),
       )
-      setMsg(`${r.new ? 'Flagged' : 'Already flagged'} — ${r.hidden} parse(s) hidden, ${r.reports} report(s) filed.`)
+      setMsg(`${r.new ? 'Flagged' : 'Already flagged'} — ${r.barred} parse(s) barred from rankings, ${r.reports} report(s) filed.`)
       setName('')
       setNote('')
       await load()
@@ -86,14 +87,14 @@ export function FlaggedCharactersSection() {
   }
 
   async function clear(c: FlaggedCharacter) {
-    if (!window.confirm(`Clear the flag on ${c.name}? Parses it hid are restored unless another flagged character is in them.`)) return
+    if (!window.confirm(`Clear the flag on ${c.name}? Parses barred only by it rank again unless another flagged character is in them.`)) return
     setBusy(true)
     setMsg(null)
     try {
       const r = await handle<{ restored: number }>(
         await fetch(`/api/admin/flagged-characters/${encodeURIComponent(c.name)}`, { method: 'DELETE', credentials: 'include' }),
       )
-      setMsg(`Cleared ${c.name} — ${r.restored} parse(s) restored.`)
+      setMsg(`Cleared ${c.name} — ${r.restored} parse(s) rank again.`)
       await load()
     } catch (err) {
       setMsg(toErrorMessage(err))
@@ -126,8 +127,8 @@ export function FlaggedCharactersSection() {
         {data && (
           <p className="text-[0.8rem] text-text-muted m-0">
             Characters carrying {data.tiers.join(' / ')} spells, or that Census cannot show, are barred: every parse
-            since {fmtLocalDateTime(data.since)} they played in is hidden and filed under tamper reports. Clearing a flag
-            restores those parses.
+            since {fmtLocalDateTime(data.since)} they played in is barred from the rankings and filed under tamper reports. The parses stay
+            uploaded and visible.
           </p>
         )}
 
