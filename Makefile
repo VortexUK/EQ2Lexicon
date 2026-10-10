@@ -49,6 +49,7 @@ test:
 # Stops on the first failure (Make default).
 check:
 	cd frontend && ./node_modules/.bin/tsc -b
+	cd frontend && ./node_modules/.bin/vitest run --reporter=dot
 	uv run --frozen ruff format --check .
 	uv run --frozen ruff check .
 	uv run --frozen pyright

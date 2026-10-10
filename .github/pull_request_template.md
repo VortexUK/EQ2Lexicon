@@ -13,10 +13,7 @@ CLAUDE.md (Codebase notes) and the persisted memory file.
 ## Linked plan / spec / issue
 
 <!--
-If this PR implements a brainstormed plan, link the spec + plan:
-  - Spec:  docs/superpowers/specs/YYYY-MM-DD-...md
-  - Plan:  docs/superpowers/plans/YYYY-MM-DD-...md
-Otherwise link any related GitHub issue.
+Link the related GitHub issue, and the ADR under docs/decisions/ if this PR implements one.
 -->
 
 ## Pre-push gate
@@ -29,14 +26,15 @@ Otherwise link any related GitHub issue.
 
 <!-- Tick the ones that apply; delete the rest. -->
 
-- [ ] **Schema change** — migration added to `parses/db.py:_MIGRATIONS` (or the relevant module) and is idempotent on a pre-migration DB shape
-- [ ] **New env var** — also added to `.env.example` and documented in `CLAUDE.md`
+- [ ] **Schema change**: a new `db/migrations/NNNN_<family>.sql` (never an edit to an applied one), idempotent and lock-short; `tests/test_pg_migrate.py` green
+- [ ] **New env var**: also added to `.env.example` and `docs/runbooks/deploy.md`
 - [ ] **Backend route uses `run_sync`** — any call to `current_world()` / `current_server()` is captured *outside* the threadpool closure (see the 2026-05-31 hotfix; `run_sync` now propagates contextvars, but explicit capture is still the convention)
 - [ ] **Census-dependent code path** — covered by an in-memory fixture or mocked; no live Census calls in tests
-- [ ] **DB artifact** (`.db` file) — NOT committed; built locally and uploaded to the Railway volume separately
+- [ ] **Catalogue data**: refreshed by running the download / build scripts against the database (`docs/runbooks/catalogue-refresh.md`); no data files committed
 - [ ] **Frontend visual change** — built and eyeballed locally; screenshots in this PR body if non-trivial
 - [ ] **New ui/ primitive or hook** — exported from the barrel (`frontend/src/components/ui/index.ts` etc.)
 - [ ] **Per-server-aware feature** — works on Varsoon AND Wuoshi subdomains (or the active per-server context propagates correctly)
+- [ ] **New convention or feature notes**: written in the module docstring, a `.claude/rules/` file or a skill, not added to `CLAUDE.md`
 
 ## Deployment notes
 

@@ -1,0 +1,46 @@
+---
+paths:
+  - "backend/server/parses/**"
+  - "backend/server/api/parses/**"
+  - "backend/server/api/rankings.*"
+  - "backend/server/api/export.py"
+  - "backend/server/spell_audit.py"
+  - "backend/server/api/zones.py"
+  - "backend/server/core/gzip_request.py"
+  - "backend/server/core/client_throttle.py"
+---
+
+# Parses: ACT ingest, fights, rankings, export
+
+## ACT plugin upload (`POST /api/parses/ingest`)
+
+The [EQ2LexiconACTPlugin](https://github.com/VortexUK/EQ2LexiconACTPlugin) sends each finished encounter here as an ACT-shaped JSON payload (`backend/server/api/parses/ingest.py:ingest_parse`). Bearer-token auth via `require_user_session_or_token`.
+
+**`logger_server` field (plugin v0.1.10+ , server-side override added 2026-05-25)**:
+
+Plugin auto-detects the EQ2 server from its log file path (`<install>/logs/<server>/eq2log_<character>.txt`) and stamps it as `logger_server` on every upload. The server uses it to override `EQ2_WORLD` for the Census guild lookup — so a Varsoon-configured deployment correctly resolves a Kaladim character's guild without needing per-deployment world config.
+
+Backward compat: absent / null / empty `logger_server` → falls back to `EQ2_WORLD` env var as before. Older plugin versions and the local-ingest path keep working unchanged. The override path lives in `_resolve_uploader_guild_async(uploader, world=None, *, allow_census=False)`.
+
+**Gzip uploads (plugin v0.1.16+, server 2026-07-28)**: `GzipRequestMiddleware` (backend/server/core/gzip_request.py, pure ASGI) transparently inflates any request with `Content-Encoding: gzip` before FastAPI parsing and the HMAC check see the body — the signature contract stays "HMAC over the uncompressed JSON" for both formats, and plain uploads pass through untouched (old plugins unaffected). 16 MiB decompressed cap (413), bad gzip → 400. Rationale: 282 KB ACT payloads on a ~120 kbit/s throttled route couldn't finish inside the plugin's HttpClient timeout; gzip is 10–20×.
+
+**Zero-Census response path (2026-07-28)**: the ingest handler never awaits Census before responding. Guild resolve is cache→census_store only (any age); a never-seen uploader returns CENSUS_UNAVAILABLE → commit with `guild_name=NULL` → `_backfill_encounter_guild` (BackgroundTasks, `allow_census=True`) does the live lookup + roster prewarm after the response. Combatant snapshots were already cache-only inline with background fill. Rationale: the plugin's HttpClient timeout is 20 s ([UploadClient.cs:52](https://github.com/VortexUK/EQ2LexiconACTPlugin/blob/main/src/Core/UploadClient.cs)) and one degraded inline Census call blew it — the upload "failed" client-side while the server committed anyway.
+
+**HMAC payload signing (v0.1.8+ plugin, server-side validator added 2026-05-25, strict mode same day)**:
+
+Plugin computes `HMAC-SHA256(body_bytes, api_token)` and ships it as `X-Lexicon-Signature` (lowercase hex). Server reads the bearer token from the Authorization header, recomputes the HMAC over `await request.body()`, and `hmac.compare_digest`s against the header. Mismatch → 401.
+
+Runs in **strict** mode (`_validate_payload_signature`): on token auth the header is required — absence is a 401 whose `detail` includes the releases URL so the user knows to update. Browsers (session-cookie auth) skip validation since they have no token-style key, but sending the header from a session client is a 400 (confused client > silent accept). The rollout went straight to strict because the user base is small and all pre-alpha; if you ever need an opportunistic-mode reintroduction, restore the `if not sig_header: return` early-out under a feature flag.
+
+Threat model: the legitimate token holder can sign anything — this doesn't stop a user forging their own parse. What it does stop is (a) casual payload tampering by editing JSON in a debugging proxy, (b) MITM mutation of the body in flight, (c) replay using only a stolen token without the protocol knowledge to sign. Real integrity has to come from server-side sanity checks (DPS-vs-level caps, plausible encounter duration, cross-validation) layered on top.
+
+**Raid-only client filter (2026-09-30)**: `GET /api/zones/raid-bosses` (public, 30/min, `Cache-Control: max-age=3600`) returns `{version, bosses[]}` — every curated raid-zone (`raid_x4`/`raid_x2`) mob name normalised with the rankings' `_normalise_boss_key` (lowercase, NFC, apostrophe variants collapsed), `version` = content hash. Built by `rankings._raid_boss_names` (lru, cleared by `invalidate_zones_cache`). EQ2Parser's "Upload only raid fights" option syncs it and uploads a fight when its title is on the list OR it had 7+ player allies (the rankings' raid scope). Keep the normaliser and the 7-player floor in step with `_SCOPES` / `_normalise_boss_key`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `backend/server/api/export.py` | Read-only third-party export API (issue #219, "Warboard"): versioned `/api/export/v1/{filters,rankings,parses/{ids}/abilities}`. Auth = bearer token + admin-granted `api` role (KNOWN_ROLES; admins pass) — opt-in, attributable, revocable two ways. Reuses the rankings kills dataset + `_encounter_detail_sync`; player rows use the rankings' `_is_player_combatant` predicate so ranked characters always appear; never exposes `source_dsn`/uploader discord ids. Pydantic models are the stable contract — breaking changes go to /v2/, never mutate v1. Token-keyed rate limits (300/hour). |
+| `backend/server/parses/fights.py` | Fights = the mirror-group an upload belongs to, decided ONCE at ingest (`attach_encounter`, called from `_insert_encounter_rows_sync`) against the few existing `fights` rows sharing world + `boss_key(title)` + guild inside `PARSE_MIRROR_WINDOW_S`, with the list grouper's rules (different uploader, window, top-N roster containment vs the fight's longest upload). Table `parses.fights` (migration 0022) carries `primary_encounter_id` (longest visible upload = list canonical) and `primary_winning_encounter_id` (longest visible+verified+winning = the rankings kill), recomputed by `refresh_fight` from the store hooks (`delete_encounter`, `soft_delete_encounter`, `unhide_encounter`; `set_encounter_guild_name` re-attaches because guild is part of the key). `backfill_world` groups any `fight_id IS NULL` rows (bulk grouper above `BULK_THRESHOLD`, under a per-world advisory lock) — the rankings loader calls it first, so pre-migration rows and seeded test rows need no special casing. Rankings read `fights JOIN encounters ON primary_winning_encounter_id` (no regrouping) and `rankings.sync_encounter` patches one fight's kill into the cached dataset after each upload (BackgroundTasks), so boards update within seconds while the hourly SWR rebuild (ttl=3600; each one pulls every ranking kill's combatants, so don't shorten it) stays as the reconciler. The retention sweep collapses aged fights to their two primaries. |
+| `backend/server/spell_audit.py` | Spell audit (2026-10-10): the TLE event bug let out-of-era spell tiers (Ancient/Celestial; Grandmaster is legitimate) drop and scribe. Rule is KILL-LEVEL: a flagged character bars every parse since the cutoff (`SPELL_AUDIT_SINCE_TS`, env `SPELL_AUDIT_SINCE`, default 2026-10-09T00:00Z) they played in — `enforce_sync` soft-hides it (`hidden_by='spell-audit'`) and files a tamper report per parse (reason `server_out_of_era_spells`, payload = the evidence JSON); clearing restores unless another active flag covers the parse. Tables `parses.flagged_characters` (reason `out_of_era_spells` sticky / `census_hidden` lifts itself when the character shows clean / `manual`) + `spell_audit_scans` (migration 0024). Sweep (`audit_loop`, leader singleton, 6 h, 1 Census call/s): every player in a winning kill since the cutoff, at most daily; a Census miss is retried once and counts as hidden only while Census is healthy. Ingest checks participants against active flags and quarantines the upload. Admin: `GET/POST/DELETE /api/admin/flagged-characters`, `POST /api/admin/spell-audit/run` → `pages/admin/FlaggedCharactersSection.tsx`. |
+| `backend/server/parses/cleanup.py` | Parses retention sweeps (`run_parse_cleanup`). Rows: trash (non-boss) hard-deleted `PARSE_RETENTION_DAYS` after the fight; named (boss) fights keep only the primary (longest) upload after the same window. Reuses `_group_into_fights` (rankings-safe); never touches soft-deleted rows. **Detail**: kept fights' `attack_types`+`damage_types` are dropped on a zone-tier schedule (`_classify_zone`: curated raid 30d / curated group-instance 14d / other 7d, env-overridable `PARSE_DETAIL_RETENTION_*_DAYS`); `encounters.detail_pruned_at` is stamped and the parse page shows a "breakdown pruned" notice. encounters+combatants (rankings/list/character pages) live forever. The cutover copy script applies the same tiers at initial load. Run periodically by `app.py:_parse_cleanup_loop`. |
