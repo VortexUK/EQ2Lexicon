@@ -19,7 +19,11 @@ current raid members and the online guild members, each with a
 `first_seen` / `last_seen` pair, plus the zones seen. It uses the same upload
 contract as parse ingest (bearer token, HMAC over the uncompressed JSON, gzip
 handled by middleware). The server resolves and verifies the uploader's guild
-itself; the client never asserts its own guild.
+itself; the client never asserts its own guild. `logger_name` and
+`logger_server` (and the `character` / `server` parameters of
+`GET /api/attendance/mains`) carry the same length bounds as on parse ingest:
+longer than 15 / 31 characters is a 422, the wrong shape a 400
+([parse-ingest.md](parse-ingest.md#name-shapes-and-lengths)).
 
 Before storing, the route probes the guild's raid schedule over the snapshot's
 window. The resulting `scheduled` flag and `team_index` are frozen on the

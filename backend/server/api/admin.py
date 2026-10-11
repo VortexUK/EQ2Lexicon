@@ -18,7 +18,7 @@ from backend.server.constants import ADMIN_PARSE_LIST_MAX_LIMIT, SPELL_AUDIT_DIS
 from backend.server.core import session_access
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
-from backend.server.core.validation import DISCORD_INVITE_RE, validate_character_name
+from backend.server.core.validation import DISCORD_INVITE_RE, printable_label, validate_character_name
 from backend.server.db import (
     bump_session_epoch,
     delete_claim,
@@ -110,8 +110,10 @@ class AdminParseItem(BaseModel):
     # Soft signals the client attached at upload time. The ACT plugin
     # (v0.1.15+) sends "folder_hint_mismatch"; EQ2Parser sends the
     # log-provenance stamps "log_writer_eq2" or "log_writer_unverified",
-    # plus a bare "log_foreign_holder". None when the upload carried none;
-    # admin UI renders a ⚠ chip when non-empty.
+    # plus a bare "log_foreign_holder". None when the upload carried none.
+    # Returned as stored; which values count as a warning is decided by the
+    # admin UI alone (frontend/src/clientWarnings.ts: "log_writer_eq2" is
+    # the good case, so the ⚠ chip ignores it).
     client_warnings: list[str] | None = None
 
 
@@ -121,7 +123,15 @@ class TamperReportItem(BaseModel):
     summary + uploader info."""
 
     id: int
+    # The world the report is STORED under. For a routed report that is the
+    # active server. For an unrouted one it is whatever the uploader's
+    # logger_server left behind: untrusted text, bounded and stripped of
+    # non-printable characters at ingest and again on the way out
+    # (_unrouted_world_label). Show it as text, never as markup.
     world: str
+    # True when ``world`` is not one of the served worlds, so this report
+    # belongs to no server's panel and is listed on every panel instead.
+    unrouted: bool = False
     act_encid: str
     title: str
     zone: str | None = None
@@ -146,7 +156,12 @@ class TamperReportItem(BaseModel):
 
 class TamperReportListResponse(BaseModel):
     results: list[TamperReportItem]
-    pending_count: int  # always the count of unacknowledged (regardless of filter)
+    # Unacknowledged reports of the ACTIVE server, regardless of the filter
+    # in view. It is what acknowledge-all flips, so it excludes unrouted rows.
+    pending_count: int
+    # Unacknowledged unrouted reports (the same number on every server's
+    # panel), regardless of the filter in view.
+    unrouted_pending_count: int = 0
 
 
 class AcknowledgeResponse(BaseModel):
@@ -521,6 +536,18 @@ def _decode_client_warnings(raw: str | None) -> list[str] | None:
 # Tamper-report audit panel
 # ---------------------------------------------------------------------------
 
+# The tamper-report route cleans and bounds the world it stores
+# (tamper_report._world_for_report), but rows written before it did hold
+# logger_server as sent, up to the model's old 64-character bound.
+_LEGACY_STORED_WORLD_MAX = 64
+
+
+def _unrouted_world_label(stored: str | None) -> str:
+    """The stored world of an unrouted report, as the panel shows it:
+    untrusted upload text, so non-printable characters are removed and the
+    length is capped here as well, whatever the row holds."""
+    return printable_label(stored, _LEGACY_STORED_WORLD_MAX) or "unknown"
+
 
 @router.get("/admin/tamper-reports", response_model=TamperReportListResponse)
 async def list_tamper_reports_admin(
@@ -530,34 +557,49 @@ async def list_tamper_reports_admin(
     limit: int = 200,
 ) -> TamperReportListResponse:
     """Tamper reports for the active server, pending-only by default;
-    ``reason`` filters to one code. ``pending_count`` is ALWAYS the total
-    unacknowledged count, regardless of the filter in view.
+    ``reason`` filters to one code. ``pending_count`` is ALWAYS the active
+    server's total unacknowledged count, regardless of the filter in view.
+
+    The listing also carries the UNROUTED reports, each marked
+    ``unrouted=True`` and sorted after the server's own: reports whose stored
+    world is not a served world (``server_context.served_worlds``). The
+    tamper-report route does not gate ``logger_server``, so a report can be
+    stored under a missing, malformed or unserved server name; scoping this
+    listing to ``current_world()`` alone left those visible on no panel.
+    They show on every server's panel and are counted separately in
+    ``unrouted_pending_count``. Acknowledging one by id or in a batch works
+    as for any report; acknowledge-all and purge stay scoped to the active
+    server and do not touch them (they age out with the retention sweep).
     """
     _require_admin(request)
     limit = max(1, min(limit, ADMIN_PARSE_LIST_MAX_LIMIT))
     world = current_world()
+    served = server_context.served_worlds()
 
-    def _query() -> tuple[list[dict], int]:
+    def _query() -> tuple[list[dict], int, int]:
         conn = parses_db.init_db()
         try:
-            rows = parses_db.list_tamper_reports(
+            rows = parses_db.list_tamper_reports_for_panel(
                 conn,
                 world=world,
+                served_worlds=served,
                 reason=reason,
                 status=status,
                 limit=limit,
             )
             pending = parses_db.count_pending_tamper_reports(conn, world=world)
-            return rows, pending
+            unrouted_pending = parses_db.count_pending_unrouted_tamper_reports(conn, served)
+            return rows, pending, unrouted_pending
         finally:
             conn.close()
 
-    rows, pending_count = await run_sync(_query)
+    rows, pending_count, unrouted_pending_count = await run_sync(_query)
     return TamperReportListResponse(
         results=[
             TamperReportItem(
                 id=r["id"],
-                world=r["world"],
+                world=_unrouted_world_label(r["world"]) if r["unrouted"] else r["world"],
+                unrouted=bool(r["unrouted"]),
                 act_encid=r["act_encid"],
                 title=r["title"],
                 zone=r["zone"],
@@ -578,6 +620,7 @@ async def list_tamper_reports_admin(
             for r in rows
         ],
         pending_count=pending_count,
+        unrouted_pending_count=unrouted_pending_count,
     )
 
 

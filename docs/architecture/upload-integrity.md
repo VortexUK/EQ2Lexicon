@@ -46,7 +46,9 @@ Details that matter when changing this code:
 `logger_server` is detected by the client from its log path and is required.
 Missing → 400 asking the user to update the plugin (for EQ2Parser, where the
 cause is a log sitting directly in the game's `logs` folder, the text says to
-use `logs/<server>/`); malformed → 400; not in `ALLOWED_SERVERS` (compared
+use `logs/<server>/`); longer than 31 characters → 422 from the request model
+(see [parse-ingest.md](parse-ingest.md#name-shapes-and-lengths)); malformed →
+400; not in `ALLOWED_SERVERS` (compared
 case-insensitively, stored in original casing) → 403 listing the allowed
 servers, with `X-Lexicon-Reject: server-not-allowed` so EQ2Parser does not
 mistake it for a rejected token (see
@@ -83,9 +85,15 @@ ingest.
 - The reason is required, stripped of CR/LF and capped at 200 characters (the
   plugin applies the same rule). Codes outside `KNOWN_TAMPER_REASONS` are
   accepted and logged, so new plugin heuristics need no server change.
-- `logger_name` must be a valid character name; `logger_server` is recorded
-  after shape sanitisation but is **not** checked against the allowlist — a
-  report from an unexpected server is still evidence.
+- `logger_name` must be a valid character name. `logger_server` is **not**
+  checked against the allowlist (a report from an unexpected server is still
+  evidence), so the `world` a report is stored under is not always a served
+  one (`_world_for_report`): a value with the server-name shape is stored as
+  sent, in the casing sent; any other value is stored with its non-printable
+  characters removed (CR, LF, NUL, invisible and bidirectional characters),
+  cut to 31 characters; a missing or empty one is stored as `unknown`. The
+  request model refuses anything longer than 31 characters (422) before that,
+  and the value as sent stays in `payload_json`.
 - Timestamps that fail to parse are stored as 0 rather than rejecting the
   report: it is evidence, not a leaderboard row.
 - The plugin is fire-and-forget here and never shows the response, so the
@@ -100,8 +108,20 @@ reasons start with `server_`), so admins review both in one place.
 All routes are admin-only and scoped to the active server (`current_world()`):
 
 - `GET /api/admin/tamper-reports` — pending reports by default, optionally
-  filtered by reason. `pending_count` is always the total unacknowledged count,
-  whatever filter is in view, so the panel header needs no second request.
+  filtered by reason. `pending_count` is always the active server's total
+  unacknowledged count, whatever filter is in view, so the panel header needs
+  no second request.
+- **Unrouted reports.** A report whose stored world is not a served world
+  (`server_context.served_worlds()`: the registry's worlds) belongs to no
+  server's panel: a missing `logger_server`, a malformed one, an unserved
+  server, or a served name in another casing. The listing returns those on
+  every server's panel, after the server's own reports, each with
+  `unrouted: true` and the stored value in `world`; `unrouted_pending_count`
+  counts them apart from `pending_count`. The stored value is untrusted upload
+  text: the route returns it printable and capped, and the page renders it as
+  text beside an "Unrouted" badge. Acknowledging by id or by batch works on
+  them; acknowledge-all and purge do not (they are scoped to the active
+  server), and the retention sweep expires them like any other report.
 - `POST …/{id}/acknowledge`, `POST …/acknowledge-batch` (up to 500 ids) and
   `POST …/acknowledge-all` — one-way; the acknowledging admin is stamped on
   the row. Acknowledge-all exists for spam floods that would take too many

@@ -16,15 +16,28 @@ from __future__ import annotations
 import re
 
 # EQ2 character names are letters only, max 15 chars. Daybreak's naming rules.
+# CHARACTER_NAME_MAX_LENGTH is the same 15 as a number, for the request
+# models that carry an uploader's character name (max_length on the field).
+CHARACTER_NAME_MAX_LENGTH = 15
 CHARACTER_NAME_RE = re.compile(r"^[A-Za-z]{1,15}$")
 
 # EQ2 server names: a letter, then letters, digits, spaces, apostrophes,
 # hyphens, underscores. Max 31 chars: the leading letter plus up to 30 more.
-# This is the effective limit wherever sanitize_world gates a server name
-# (parse ingest, attendance). It is NOT the same number as the Pydantic
-# limit: IngestRequest.logger_server allows max_length=64, so a 32-64 char
-# value passes the model and is then refused here as malformed. The
-# tamper-report route records a value that fails this shape as sent.
+#
+# MIRRORED: EQ2Parser (the desktop parser) mirrors this pattern and its
+# 31-character bound in its upload client (LexiconUploadClient, EQ2Parser
+# repo). A change to the pattern or to WORLD_NAME_MAX_LENGTH needs the same
+# change there, or the two sides disagree about which server names can be
+# uploaded.
+#
+# This is the one limit for a server name. The request models that carry one
+# (IngestRequest.logger_server for parse ingest and tamper reports,
+# AttendanceIngestRequest.logger_server, the `server` query parameter of
+# GET /api/attendance/mains) declare max_length=WORLD_NAME_MAX_LENGTH, so a
+# longer value is refused by the model as too long (422) and never reaches
+# sanitize_world. tests/server/test_validation.py pins the number to the
+# pattern.
+WORLD_NAME_MAX_LENGTH = 31
 WORLD_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 '_-]{0,30}$")
 
 # Guild names allow spaces and apostrophes. Looser than character names by
@@ -66,6 +79,22 @@ def sanitize_world(world: str | None) -> str | None:
     if not candidate:
         return None
     return candidate if WORLD_NAME_RE.match(candidate) else None
+
+
+def printable_label(value: str | None, max_length: int) -> str:
+    """Untrusted text reduced to a short label that is safe to store, log and
+    show: every non-printable character is removed (control characters such
+    as CR, LF, TAB and NUL; invisible and bidirectional format characters;
+    exotic separators), then it is trimmed and cut to ``max_length``.
+
+    Returns "" when nothing is left. This is NOT a shape check: use it only
+    where a value that failed one must still be kept as evidence (the world
+    of a tamper report). It does not make the text safe to use as markup,
+    in a URL or in a cache key."""
+    if not value:
+        return ""
+    printable = "".join(ch for ch in value if ch.isprintable())
+    return printable.strip()[:max_length].strip()
 
 
 def validate_guild_name(name: str | None) -> str | None:

@@ -1077,6 +1077,137 @@ async def test_other_attendance_refusals_have_no_reject_header(app):
 
 
 # ---------------------------------------------------------------------------
+# Length bounds on the parser-facing routes (ingest body + mains query)
+#
+# logger_name / logger_server had no max_length at all, and neither did the
+# mains query parameters. They now carry the bounds the route's validators
+# enforce (character name 15, server name 31): over-long is the model's 422,
+# the wrong shape inside the bound is still the route's 400.
+# ---------------------------------------------------------------------------
+
+_SERVER_31 = "V" * 31
+_NAME_15 = "A" * 15
+
+
+def _too_long_fields(response) -> list[tuple[str, str]]:
+    return [(str(e["loc"][-1]), e["type"]) for e in response.json()["detail"]]
+
+
+@pytest.mark.asyncio
+async def test_ingest_logger_server_of_31_reaches_the_tracked_server_check(app):
+    """31 characters passes the model and the server-name pattern, so the
+    refusal is the tagged 403 about the server, not a length or shape one."""
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        res = await _post_ingest(app, _ingest_payload(logger_server=_SERVER_31))
+    assert res.status_code == 403, res.text
+    assert res.json()["detail"] == f"Server '{_SERVER_31}' is not tracked here."
+    assert res.headers.get(_REJECT) == "server-not-tracked"
+
+
+@pytest.mark.asyncio
+async def test_ingest_logger_server_of_32_is_too_long(app):
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        res = await _post_ingest(app, _ingest_payload(logger_server="V" * 32))
+    assert res.status_code == 422, res.text
+    assert _too_long_fields(res) == [("logger_server", "string_too_long")]
+    assert _REJECT not in res.headers
+
+
+@pytest.mark.asyncio
+async def test_ingest_logger_name_of_15_is_accepted_and_16_is_too_long(app):
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        ok = await _post_ingest(app, _ingest_payload(logger_name=_NAME_15))
+        too_long = await _post_ingest(app, _ingest_payload(logger_name="A" * 16))
+    assert ok.status_code == 201, ok.text
+    assert too_long.status_code == 422, too_long.text
+    assert _too_long_fields(too_long) == [("logger_name", "string_too_long")]
+
+
+@pytest.mark.asyncio
+async def test_ingest_wrong_shape_inside_the_bound_is_still_a_400(app):
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        bad_server = await _post_ingest(app, _ingest_payload(logger_server="../etc/passwd"))
+        bad_name = await _post_ingest(app, _ingest_payload(logger_name="alice bob"))
+    assert bad_server.status_code == 400
+    assert bad_server.json()["detail"] == "logger_server is missing or malformed."
+    assert bad_name.status_code == 400
+    assert bad_name.json()["detail"] == "logger_name is invalid."
+
+
+@pytest.mark.asyncio
+async def test_ingest_overlong_member_name_is_dropped_not_refused(app):
+    """Member names are deliberately NOT bounded in the model: a mangled
+    /who line must cost one row, never the snapshot."""
+    payload = _ingest_payload(
+        raid_members=[
+            {"name": "Tanky", "first_seen": _B, "last_seen": _B + 600},
+            {"name": "A" * 400, "first_seen": _B, "last_seen": _B + 600},
+        ],
+        online_guildies=[],
+    )
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        res = await _post_ingest(app, payload)
+    assert res.status_code == 201, res.text
+    assert res.json()["raid_members"] == 1
+
+
+async def _get_mains_for(app, *, character: str, server: str):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        return await c.get(
+            "/api/attendance/mains",
+            params={"character": character, "server": server},
+            headers=_MAINS_AUTH,
+        )
+
+
+@pytest.mark.asyncio
+async def test_mains_server_of_31_reaches_the_tracked_server_check(app):
+    p1, p2, _ = _ingest_patches()
+    with p1, p2:
+        res = await _get_mains_for(app, character="Menludiir", server=_SERVER_31)
+    assert res.status_code == 403, res.text
+    assert res.json()["detail"] == f"Server '{_SERVER_31}' is not tracked here."
+    assert res.headers.get(_REJECT) == "server-not-tracked"
+
+
+@pytest.mark.asyncio
+async def test_mains_server_of_32_is_too_long(app):
+    p1, p2, _ = _ingest_patches()
+    with p1, p2:
+        res = await _get_mains_for(app, character="Menludiir", server="V" * 32)
+    assert res.status_code == 422, res.text
+    assert _too_long_fields(res) == [("server", "string_too_long")]
+
+
+@pytest.mark.asyncio
+async def test_mains_character_of_15_is_accepted_and_16_is_too_long(app):
+    p1, p2, _ = _ingest_patches()
+    with p1, p2:
+        ok = await _get_mains_for(app, character=_NAME_15, server=_WORLD)
+        too_long = await _get_mains_for(app, character="A" * 16, server=_WORLD)
+    assert ok.status_code == 200, ok.text
+    assert too_long.status_code == 422, too_long.text
+    assert _too_long_fields(too_long) == [("character", "string_too_long")]
+
+
+@pytest.mark.asyncio
+async def test_mains_wrong_shape_inside_the_bound_is_still_a_400(app):
+    p1, p2, _ = _ingest_patches()
+    with p1, p2:
+        bad_server = await _get_mains_for(app, character="Menludiir", server="../etc/passwd")
+        bad_name = await _get_mains_for(app, character="alice bob", server=_WORLD)
+    assert bad_server.status_code == 400
+    assert bad_server.json()["detail"] == "server is missing or malformed."
+    assert bad_name.status_code == 400
+    assert bad_name.json()["detail"] == "character is invalid."
+
+
+# ---------------------------------------------------------------------------
 # Voice cross-check: live-session probe, voice recording, in_voice
 # ---------------------------------------------------------------------------
 

@@ -298,6 +298,130 @@ async def test_tamper_report_rejects_bad_logger_name(app):
 
 
 # ---------------------------------------------------------------------------
+# logger_server: bounded by the model, never stored raw, never gated
+#
+# The route does not check the allowlist (a report from another server is
+# still evidence), so the stored world can be a name no server serves. It is
+# untrusted upload text: the model bounds its length (31, the server-name
+# pattern's own) and a value that fails the shape is cleaned before it is
+# stored. The admin listing shows those rows as unrouted
+# (tests/server/test_admin_tamper_reports.py).
+# ---------------------------------------------------------------------------
+
+
+async def _post_report(app, payload: dict):
+    with patch(
+        "backend.server.api.parses.tamper_report.require_user_session_or_token",
+        _fake_require_user,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            return await client.post(
+                "/api/parses/tamper-report",
+                **_signed_with_reason(payload, reason="title_enemy_mismatch"),
+            )
+
+
+@pytest.mark.asyncio
+async def test_tamper_report_logger_server_of_31_is_stored(app):
+    """31 characters is the longest server name: accepted, stored as sent."""
+    longest = "V" * 31
+    r = await _post_report(app, _minimal_payload(logger_server=longest))
+    assert r.status_code == 201, r.text
+    assert [row["world"] for row in _read_tamper_rows()] == [longest]
+
+
+@pytest.mark.asyncio
+async def test_tamper_report_logger_server_of_32_is_too_long(app):
+    """One past the bound is the model's 422 and nothing is stored: no
+    string longer than the bound can reach the world column."""
+    r = await _post_report(app, _minimal_payload(logger_server="V" * 32))
+    assert r.status_code == 422, r.text
+    assert [(str(e["loc"][-1]), e["type"]) for e in r.json()["detail"]] == [("logger_server", "string_too_long")]
+    assert _read_tamper_rows() == []
+
+
+@pytest.mark.asyncio
+async def test_tamper_report_logger_name_of_16_is_too_long(app):
+    payload = _minimal_payload()
+    payload["logger_name"] = "A" * 16
+    r = await _post_report(app, payload)
+    assert r.status_code == 422, r.text
+    assert _read_tamper_rows() == []
+
+
+@pytest.mark.asyncio
+async def test_tamper_report_unserved_server_name_is_stored_as_sent(app):
+    """A well-formed name the site does not serve is not refused here."""
+    r = await _post_report(app, _minimal_payload(logger_server="Antonia Bayle"))
+    assert r.status_code == 201, r.text
+    assert [row["world"] for row in _read_tamper_rows()] == ["Antonia Bayle"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [None, "", "   "])
+async def test_tamper_report_missing_logger_server_is_stored_as_unknown(app, missing):
+    r = await _post_report(app, _minimal_payload(logger_server=missing))
+    assert r.status_code == 201, r.text
+    assert [row["world"] for row in _read_tamper_rows()] == ["unknown"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("hostile", "stored"),
+    [
+        ("Varsoon\r\naudit: forged", "Varsoonaudit: forged"),  # CR/LF: would start a new log line
+        ("Var\x00soon", "Varsoon"),  # NUL: Postgres text cannot hold it
+        ("‮noosraV", "noosraV"),  # right-to-left override
+        ("\r\n\t", "unknown"),  # nothing printable left
+        ("<script>alert(1)</script>", "<script>alert(1)</script>"),  # printable: kept, escaped by the page
+        ("../../etc/passwd", "../../etc/passwd"),
+    ],
+)
+async def test_tamper_report_malformed_logger_server_is_cleaned_before_storing(app, hostile, stored):
+    r = await _post_report(app, _minimal_payload(logger_server=hostile))
+    assert r.status_code == 201, r.text
+    rows = _read_tamper_rows()
+    assert [row["world"] for row in rows] == [stored]
+    assert len(rows[0]["world"]) <= 31
+    assert rows[0]["world"].isprintable()
+    # The value as sent is still in the evidence payload.
+    assert json.loads(rows[0]["payload_json"])["logger_server"] == hostile
+
+
+@pytest.mark.asyncio
+async def test_tamper_report_hostile_logger_server_cannot_forge_a_log_line(app, caplog):
+    """A logger_server carrying CR/LF cannot start a line of its own in the
+    logs: the forged text never follows a line break in any record written
+    while the report is handled, in the message or in a structured field."""
+    hostile = "Varsoon\r\naudit: forged"  # 23 characters: inside the model's bound
+    with caplog.at_level("DEBUG"):
+        r = await _post_report(app, _minimal_payload(logger_server=hostile))
+    assert r.status_code == 201, r.text
+
+    received = [rec for rec in caplog.records if getattr(rec, "action", None) == "tamper_report.received"]
+    assert len(received) == 1  # the audit event was written, so the loop below has something to check
+    for rec in caplog.records:
+        texts = [rec.getMessage(), *(v for v in vars(rec).values() if isinstance(v, str))]
+        for text in texts:
+            assert "\naudit: forged" not in text
+            assert "\raudit: forged" not in text
+    assert "\naudit: forged" not in caplog.text
+
+
+def test_world_for_report_unit():
+    from backend.server.api.parses.tamper_report import UNKNOWN_WORLD, _world_for_report
+
+    assert _world_for_report("Varsoon") == "Varsoon"
+    assert _world_for_report("  varsoon  ") == "varsoon"  # shape-valid: stored in the casing sent
+    assert _world_for_report(None) == UNKNOWN_WORLD
+    assert _world_for_report("") == UNKNOWN_WORLD
+    # Defence in depth: the model already refuses anything past 31, but the
+    # helper bounds what it returns whatever it is handed.
+    assert _world_for_report("1" + "x" * 500) == "1" + "x" * 30
+    assert len(_world_for_report("\x00" * 10 + "9" * 500)) == 31
+
+
+# ---------------------------------------------------------------------------
 # Auth gate (HMAC validation reuse from ingest — pin one negative case)
 # ---------------------------------------------------------------------------
 

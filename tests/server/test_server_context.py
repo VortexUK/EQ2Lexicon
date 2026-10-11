@@ -29,6 +29,18 @@ def test_current_world_default_outside_request():
     assert sc.current_world() == "Varsoon"
 
 
+def test_served_worlds_is_the_registry():
+    assert set(sc.served_worlds()) == {"Varsoon", "Wuoshi"}
+
+
+def test_served_worlds_includes_the_active_world_when_the_registry_is_empty(monkeypatch):
+    # An empty registry synthesises a default server; its world still has a
+    # panel, so a row stored under it must not count as unrouted.
+    monkeypatch.setattr(sc, "_by_world", {})
+    monkeypatch.setattr(sc, "_by_subdomain", {})
+    assert sc.served_worlds() == [sc.current_world()]
+
+
 def test_contextvar_roundtrip():
     wuoshi = sc.resolve_host("wuoshi.eq2lexicon.com")
     token = sc.set_active_server(wuoshi)

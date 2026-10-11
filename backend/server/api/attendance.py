@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import cast
+from typing import Annotated, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.server import attendance as derive
@@ -34,6 +34,7 @@ from backend.server.auth_deps import is_admin, require_user_session_or_token
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
 from backend.server.core.session_user import SessionUser, TokenUser
+from backend.server.core.validation import CHARACTER_NAME_MAX_LENGTH, WORLD_NAME_MAX_LENGTH
 from backend.server.db import get_display_names_for_discord_ids, has_role
 from backend.server.db.attendance import MAX_SESSION_SPAN_S, MERGE_GAP_S, ROLLOVER_S
 from backend.server.db.attendance import store as attendance_db
@@ -63,15 +64,26 @@ _MAX_WINDOW_S = 12 * 3600
 async def _ensure_subscriber(user: SessionUser | TokenUser) -> None:
     """Limited-preview gate: every attendance route (uploads, mains, guild
     views) needs the 'subscriber' role while the feature is dark for the
-    wider userbase. Admins always pass. The parser treats the 403 like any
-    other failure — uploads stay quiet, DKP falls back to the bulk grant."""
+    wider userbase. Admins always pass.
+
+    The 403 is deliberately untagged (no ``REJECT_HEADER``): it is
+    account-level. By the rule documented on ``REJECT_HEADER`` in
+    api/parses/ingest.py, the header marks a refusal that another request
+    from the same token could get past, and nothing from a token without the
+    role gets past this gate.
+
+    What the parser does with it: its attendance snapshot and its raid-mains
+    lookup are sent outside the parse-upload queue and a failure of either
+    is ignored, so this 403 does NOT pause parse uploads (the queue's pause
+    on an untagged 403 applies to responses to parse uploads only). The
+    parser also asks /api/auth/whoami for the role first and sends no
+    snapshot without it, so it normally never sees this response. With no
+    mains table its DKP falls back to the bulk raid grant."""
     if is_admin(cast("SessionUser", user)):  # id-only check — token shape is fine
         return
     if not await has_role(str(user["id"]), "subscriber"):
-        # Deliberately NO REJECT_HEADER: the gate is on the account, so every
-        # attendance request from this token is refused until an admin grants
-        # the role. No other snapshot could succeed; the client should stop
-        # sending them.
+        # No REJECT_HEADER: see the docstring. Every attendance request from
+        # this token is refused until an admin grants the role.
         raise HTTPException(status_code=403, detail="Attendance tracking is in limited preview.")
 
 
@@ -82,8 +94,14 @@ class AttendanceMemberIn(BaseModel):
 
 
 class AttendanceIngestRequest(BaseModel):
-    logger_name: str
-    logger_server: str
+    # Bounded at the lengths the route's validators enforce (character-name
+    # shape 15, server-name pattern 31): a longer value is a 422 from the
+    # model. A shorter value of the wrong shape, or an empty one, is still
+    # the route's 400. The member names in the two lists below are NOT
+    # bounded here on purpose: _clean_members drops a bad row silently, and
+    # a max_length would turn one mangled /who line into a refused snapshot.
+    logger_name: str = Field(max_length=CHARACTER_NAME_MAX_LENGTH)
+    logger_server: str = Field(max_length=WORLD_NAME_MAX_LENGTH)
     guild_name: str | None = None  # informational only — server resolves + verifies
     sent_at: int
     raid_members: list[AttendanceMemberIn] = Field(default_factory=list, max_length=_MAX_RAID)
@@ -400,7 +418,11 @@ async def reconstruct_attendance(request: Request, guild_name: str, body: Recons
 
 @router.get("/attendance/mains")
 @limiter.limit("30/minute")
-async def get_raid_mains(request: Request, character: str, server: str) -> dict:
+async def get_raid_mains(
+    request: Request,
+    character: Annotated[str, Query(max_length=CHARACTER_NAME_MAX_LENGTH)],
+    server: Annotated[str, Query(max_length=WORLD_NAME_MAX_LENGTH)],
+) -> dict:
     """The parser's DKP-substitution table: {rostered character → raid main}.
 
     Raiders map to themselves; raid alts map to their owner's main (the
@@ -408,7 +430,11 @@ async def get_raid_mains(request: Request, character: str, server: str) -> dict:
     parser can award DKP to the main even when the player is on an alt.
     Best effort — unclaimed alts map to themselves. Auth + guild resolution
     mirror the ingest route (bearer token; guild resolved from the logging
-    character server-side)."""
+    character server-side).
+
+    ``character`` and ``server`` carry the same length bounds as the ingest
+    body's logger_name / logger_server: over-long is a 422 before auth, the
+    wrong shape is the 400 below."""
     user = await require_user_session_or_token(request)
     await _ensure_subscriber(user)
 

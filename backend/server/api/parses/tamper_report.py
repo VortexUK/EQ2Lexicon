@@ -21,6 +21,7 @@ from backend.server.auth_deps import require_user_session_or_token
 from backend.server.core.audit_log import audit_log
 from backend.server.core.executor import run_sync
 from backend.server.core.session_user import TokenUser
+from backend.server.core.validation import WORLD_NAME_MAX_LENGTH, printable_label
 from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
 from backend.server.limiter import limiter
@@ -61,6 +62,36 @@ def _sanitize_reason(raw: str | None) -> str:
     if len(cleaned) > _MAX_REASON_LENGTH:
         cleaned = cleaned[:_MAX_REASON_LENGTH]
     return cleaned
+
+
+#: Stored when the report carries no usable logger_server at all.
+UNKNOWN_WORLD = "unknown"
+
+
+def _world_for_report(raw: str | None) -> str:
+    """The ``world`` a tamper report is stored under.
+
+    ``logger_server`` is untrusted upload text and is NOT checked against the
+    allowlist here (a report from an unexpected server is still evidence):
+
+      * a value with the server-name shape (``sanitize_world``) is stored as
+        sent, in the casing sent;
+      * any other value is kept as evidence but made harmless first
+        (``printable_label``): non-printable characters (control characters
+        such as CR, LF and NUL, and invisible or bidirectional format
+        characters) are removed and the rest is cut to
+        ``WORLD_NAME_MAX_LENGTH``;
+      * missing, empty or nothing left after that: ``UNKNOWN_WORLD``.
+
+    Only the first kind can equal a served world, and only when the casing
+    matches. Everything else is "unrouted": no server's panel owns it, so
+    ``GET /api/admin/tamper-reports`` lists it on every server's panel,
+    marked as such. The value as sent stays in the row's ``payload_json``.
+    """
+    sanitized = _sanitize_world(raw)
+    if sanitized is not None:
+        return sanitized
+    return printable_label(raw, WORLD_NAME_MAX_LENGTH) or UNKNOWN_WORLD
 
 
 def _insert_tamper_report_sync(
@@ -183,12 +214,11 @@ async def report_tamper(
             detail="logger_name must be 1-15 letters (the EQ2 character-name shape).",
         )
 
-    # Logger_server: best-effort sanitise but don't gate. A tamper attempt
-    # from a non-allowlisted server is still evidence; the admin reads
-    # the value as-is.
-    raw_server = (body.logger_server or "").strip()
-    sanitized_server = _sanitize_world(raw_server) if raw_server else None
-    world_for_report = sanitized_server or raw_server or "unknown"
+    # Logger_server: not gated against the allowlist (a tamper attempt from
+    # another server is still evidence), but never stored raw: see
+    # _world_for_report. The model already bounds it at the server-name
+    # length, so an over-long value is a 422 before this point.
+    world_for_report = _world_for_report(body.logger_server)
 
     # Resolve uploader discord identity from the auth path. Session and
     # token both surface `id` (Discord ID) and `username`. discord_name

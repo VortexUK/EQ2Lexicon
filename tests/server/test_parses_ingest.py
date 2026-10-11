@@ -118,8 +118,11 @@ async def test_ingest_returns_skipped_on_duplicate(app):
 
 @pytest.mark.asyncio
 async def test_ingest_revived_status_schedules_background(app):
-    # A 'revived' status (re-upload of a soft-deleted parse) must also
-    # schedule the background snapshot resolution, same as 'inserted'.
+    # A 'revived' status must also schedule the background snapshot
+    # resolution, same as 'inserted'. Only this mock produces 'revived':
+    # the real _ingest_payload_sync never returns it (a re-upload of a
+    # soft-deleted parse is 'skipped', see the test below, and the comment
+    # in ingest_parse where the route branches on the status).
     sync_result = ("revived", 7, 0, 0, 0)
     resolve_mock = AsyncMock(return_value={})  # background resolver
     cached_mock = MagicMock(return_value={})  # cache-only sync path
@@ -1112,3 +1115,93 @@ def test_damage_type_rows_get_the_same_fallbacks():
     (out,) = _damage_types_from_payload([row], "ENC1")
     assert out.dps == 350.0
     assert out.crit_perc == 20.0
+
+
+# ---------------------------------------------------------------------------
+# One length limit for a server name and for a character name
+#
+# The model's max_length is the validator's own bound (server-name pattern 31,
+# character-name shape 15). The model used to allow 64 for both, so a 32-64
+# character server name passed it and was then refused by the route as
+# "malformed" (400). Too long is now the model's 422, as it always was past
+# 64; a value inside the bound with the wrong shape is still the route's 400.
+# ---------------------------------------------------------------------------
+
+_SERVER_31 = "V" * 31  # the longest name the server-name pattern accepts
+_NAME_15 = "A" * 15  # the longest character name
+
+
+def _too_long_fields(response) -> list[tuple[str, str]]:
+    """(field, error type) for each entry of a 422's detail list."""
+    return [(str(e["loc"][-1]), e["type"]) for e in response.json()["detail"]]
+
+
+@pytest.mark.asyncio
+async def test_ingest_logger_server_of_31_passes_the_model_and_the_shape(app):
+    """31 characters is inside both bounds, so the request gets as far as the
+    allowlist: a 403 about the server, not a length or shape refusal."""
+    payload = _minimal_payload(logger_server=_SERVER_31)
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 403, r.text
+    assert _SERVER_31 in r.json()["detail"]
+    assert r.headers.get("X-Lexicon-Reject") == "server-not-allowed"
+
+
+@pytest.mark.asyncio
+async def test_ingest_logger_server_of_32_is_too_long(app):
+    payload = _minimal_payload(logger_server="V" * 32)
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 422, r.text
+    assert _too_long_fields(r) == [("logger_server", "string_too_long")]
+    # Only the upload-scoped 403s carry the reject header; a 422 never does.
+    assert "X-Lexicon-Reject" not in r.headers
+
+
+@pytest.mark.asyncio
+async def test_ingest_logger_name_of_15_is_accepted(app):
+    payload = _minimal_payload()
+    payload["logger_name"] = _NAME_15
+    with (
+        patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user),
+        patch("backend.server.api.parses.ingest._resolve_uploader_guild_async", new=AsyncMock(return_value=None)),
+        patch("backend.server.api.parses.ingest._resolve_combatant_snapshots", new=AsyncMock(return_value={})),
+        patch(
+            "backend.server.api.parses.ingest._ingest_payload_sync",
+            new=MagicMock(return_value=("inserted", 1, 1, 0, 0)),
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
+async def test_ingest_logger_name_of_16_is_too_long(app):
+    payload = _minimal_payload()
+    payload["logger_name"] = "A" * 16
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 422, r.text
+    assert _too_long_fields(r) == [("logger_name", "string_too_long")]
+
+
+@pytest.mark.asyncio
+async def test_ingest_wrong_shape_inside_the_bound_is_still_a_400(app):
+    """The model bounds length only. A short value of the wrong shape keeps
+    the route's own 400 and its text, for the server and for the name."""
+    bad_server = _minimal_payload(logger_server="../etc/passwd")
+    bad_name = _minimal_payload()
+    bad_name["logger_name"] = "alice bob"
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r_server = await client.post("/api/parses/ingest", **_signed_post_kwargs(bad_server))
+            r_name = await client.post("/api/parses/ingest", **_signed_post_kwargs(bad_name))
+    assert r_server.status_code == 400
+    assert r_server.json()["detail"] == "logger_server '../etc/passwd' is malformed."
+    assert r_name.status_code == 400
+    assert r_name.json()["detail"] == "logger_name must be 1-15 letters (the EQ2 character-name shape)."

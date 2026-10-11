@@ -35,6 +35,40 @@ payload that is allowed in.
 8. **Insert** in one transaction on the executor, then two optional background
    tasks after the response.
 
+## Name shapes and lengths
+
+One limit each, defined in `backend/server/core/validation.py`:
+
+| Value | Shape | Longest |
+|---|---|---|
+| Server name (`logger_server`, `server`) | `WORLD_NAME_RE`: `^[A-Za-z][A-Za-z0-9 '_-]{0,30}$` | 31 (`WORLD_NAME_MAX_LENGTH`) |
+| Character name (`logger_name`, `character`) | `CHARACTER_NAME_RE`: `^[A-Za-z]{1,15}$` | 15 (`CHARACTER_NAME_MAX_LENGTH`) |
+
+EQ2Parser mirrors the server-name pattern and length in its upload client;
+change both repos together.
+
+The request models carry the same numbers as `max_length`, so the two layers
+cannot disagree: `IngestRequest` (parse ingest and the tamper report, which
+share it), `AttendanceIngestRequest`, and the `character` / `server` query
+parameters of `GET /api/attendance/mains`.
+
+- **Too long** is refused by the model: **422**, `detail` is Pydantic's error
+  list (`string_too_long` on the field), before auth runs.
+- **Inside the length, wrong shape** is refused by the route: **400** with its
+  usual text (`logger_server '…' is malformed.`, `logger_name must be 1-15
+  letters…`).
+
+Both are client errors and neither carries `X-Lexicon-Reject`; EQ2Parser
+drops the one upload and keeps its queue running for either. Before
+2026-10-11 the models allowed 64 characters (parse ingest) or any length
+(attendance), so an over-long name was reported as "malformed" (400). Clients
+take the server from the log's folder name and the character from ACT or the
+log's file name, so in practice none sends a value this long.
+
+Member names inside an attendance snapshot (`raid_members`,
+`online_guildies`) are deliberately not bounded by the model: a bad row is
+dropped by `_clean_members`, never the snapshot.
+
 ## Refusals about the upload
 
 EQ2Parser's upload queue reads a 401 or 403 as "the API token was rejected"
@@ -145,6 +179,51 @@ two servers is two encounters. A repeat upload returns `status="skipped"` and:
   plugin; `log_writer_eq2` or `log_writer_unverified`, plus a bare
   `log_foreign_holder`, from EQ2Parser) is deduplicated, each entry truncated
   to 64 characters, and stored as JSON. The values are stored as sent.
+
+## Meanings shared with the clients
+
+Three payload values are numbers or short strings whose meaning is agreed
+with the ACT plugin and EQ2Parser, not derived here. The server stores each
+as sent. Change a meaning in both repos together.
+
+**`encounter.success`** (stored as `encounters.success_level`), ACT's
+`GetEncounterSuccessLevel()`: the plugin passes it through, EQ2Parser
+reimplements the rule.
+
+| Value | Meaning |
+|---|---|
+| 0 | unknown |
+| 1 | win: the main enemy died and at least one ally player survived |
+| 2 | partial / unclear: exactly one of those two is true |
+| 3 | loss: the enemy lived and no player survived (a wipe) |
+
+Every rule (rankings, retention, spell audit, kill progress, the bot's
+posting filter) tests `== 1` only; 2 and 3 differ in display alone. The
+display mappings: the single frontend one is `frontend/src/encounterOutcome.ts`
+(win green, partial amber, loss red); the bot has its own in
+`backend/bot/render.py` (`build_parse_post`: only 3 is a wipe). The full
+definition is the comment on `IngestEncounter.success` in
+`backend/server/api/parses/models.py`.
+
+**`attack_types[].swingtype`** says which tab a row belongs to. Both clients
+send 1 (melee), 2 (spell or skill damage), 3 (heal) and 20 (cure). Threat is
+100 from the ACT plugin and 16 from EQ2Parser, and the readers select both.
+EQ2Parser also sends 13 (power replenish) and, up to v0.5.7, 30 (its own
+status-effect category); those rows are stored and shown on no tab. The
+detailed table, with the readers, is the comment block above `SwingType` in
+`backend/server/parses/db.py`: keep that one current, not a copy here.
+
+**`attack_types[].resist`** is free text that carries a second meaning on
+two swing types: on a heal row the heal type (`Hitpoints` for a regular heal,
+`Absorption` for a ward), and on a threat row the threat kind (`Increase` or
+`Decrease`; absent on EQ2Parser rows up to v0.5.7, shown as a dash). The
+parse page reads it for those two only (`heal_type`, `kind`); on every other
+row it is stored and passed through by the export API as sent.
+
+`client_warnings` values are in the same class; which of them count as a
+warning is decided only for display, in `frontend/src/clientWarnings.ts`
+(`log_writer_eq2`, the game holding the log, is the good case and raises no
+chip in the admin parses table; an unknown value does).
 
 ## Pet detection
 

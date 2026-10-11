@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from backend.server.core.validation import CHARACTER_NAME_MAX_LENGTH, WORLD_NAME_MAX_LENGTH
+
 # ---------------------------------------------------------------------------
 # Response models — GET /parses and GET /parses/{id}
 # ---------------------------------------------------------------------------
@@ -395,12 +397,18 @@ class IngestRequest(BaseModel):
     Column names match the ACT export keys; the plugin's PayloadBuilder (in
     the EQ2LexiconACTPlugin repo) is the canonical wire-shape reference."""
 
-    logger_name: str = Field(min_length=1, max_length=64)
+    # The uploading character. The bound is the character-name shape's own
+    # (15), so a longer value is refused here as too long (422) instead of
+    # passing the model and being refused by the route as the wrong shape.
+    logger_name: str = Field(min_length=1, max_length=CHARACTER_NAME_MAX_LENGTH)
     # EQ2 server the upload came from (Varsoon, Kaladim, Butcherblock,
     # …), detected by the plugin from the log file's parent directory.
     # Optional in the model, but the ingest route rejects a missing value
-    # (400) and checks it against ALLOWED_SERVERS.
-    logger_server: str | None = Field(default=None, max_length=64)
+    # (400) and checks it against ALLOWED_SERVERS. The bound is the
+    # server-name pattern's own (31, WORLD_NAME_RE): a longer value is a 422
+    # from the model. This model is also the tamper-report body, so the
+    # bound holds there as well.
+    logger_server: str | None = Field(default=None, max_length=WORLD_NAME_MAX_LENGTH)
     encounter: IngestEncounter
     # Size caps mirror the plugin's own limits and sit far above any real
     # raid (a 24-player raid is ~50 combatants incl. pets/enemies; sub-rows
@@ -433,7 +441,8 @@ class IngestRequest(BaseModel):
 class IngestResponse(BaseModel):
     # 'inserted', 'skipped' (already ingested) or 'quarantined' (the
     # plausibility gate filed it as a tamper report; still a 201). 'revived'
-    # is handled by the route but no code path produces it today.
+    # is never returned: see the comment in ingest_parse (ingest.py) where
+    # the route branches on it.
     status: str
     encounter_id: int | None  # our internal id (None for skipped and quarantined)
     act_encid: str

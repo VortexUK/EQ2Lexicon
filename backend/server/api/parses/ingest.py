@@ -1277,9 +1277,21 @@ async def ingest_parse(
             ),
         ) from exc
 
-    # Schedule the full (Census-backed) resolution off the response path for
-    # fresh inserts. Skipped rows already have their snapshots, and an empty
-    # name list has nothing to do.
+    # Follow-up work runs for a freshly stored upload only. A skipped one
+    # already has its snapshots, and an empty name list has nothing to do.
+    #
+    # "revived" in the four checks below: NOTHING PRODUCES IT TODAY.
+    # _ingest_payload_sync returns only "inserted" or "skipped" (both of its
+    # exits through _check_idempotency_sync and _EncidAlreadyClaimed are
+    # "skipped"), and "quarantined" is returned further up without reaching
+    # here. It is what a re-upload of a soft-deleted parse used to return
+    # when re-uploading un-hid it; that behaviour was removed on purpose
+    # (docs/architecture/parse-ingest.md, Idempotency: a re-upload never
+    # un-hides). The branches were left in place, and the only thing that
+    # exercises them is tests/server/test_parses_ingest.py, through a mocked
+    # _ingest_payload_sync. Treat them as an unused hook: a new producer
+    # must return a non-None encounter_id with the status, or these checks
+    # skip it.
     if flagged and status in ("inserted", "revived") and encounter_id is not None:
         await run_sync(spell_audit.bar_uploaded_parse_sync, parse_world, encounter_id, flagged)
         audit_log(

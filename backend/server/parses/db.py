@@ -733,6 +733,50 @@ class ParsesStore(PgCatalogue):
         return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
 
     @staticmethod
+    def list_tamper_reports_for_panel(
+        conn: Any,
+        *,
+        world: str,
+        served_worlds: list[str],
+        reason: str | None = None,
+        status: str = "pending",
+        limit: int = 200,
+    ) -> list[dict]:
+        """The admin panel's listing for ``world``: its own reports, then the
+        unrouted ones (stored world not in ``served_worlds``), each row
+        carrying a boolean ``unrouted``.
+
+        The tamper-report route does not gate ``logger_server``, so a report
+        can be stored under a world no server serves; a plain ``world = X``
+        listing would show it on no panel at all. ``status`` and ``reason``
+        filter both kinds, as in ``list_tamper_reports``. Rows come without
+        ``payload_json``. The server's own rows sort first (each group
+        newest-first), so a flood of unrouted rows cannot crowd them out of
+        ``limit``.
+        """
+        served = list(dict.fromkeys([*served_worlds, world]))  # world is never unrouted
+        extra = ""
+        params: list = [world, world, served]
+        if reason is not None:
+            extra += " AND reason = %s"
+            params.append(reason)
+        if status == "pending":
+            extra += " AND acknowledged_at IS NULL"
+        elif status == "ack":
+            extra += " AND acknowledged_at IS NOT NULL"
+        elif status != "all":
+            raise ValueError(f"unknown status {status!r}")
+        sql = _SQL["list_tamper_reports_for_panel"].format(extra=extra)
+        return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
+
+    @staticmethod
+    def count_pending_unrouted_tamper_reports(conn: Any, served_worlds: list[str]) -> int:
+        """Unacknowledged reports stored under a world not in
+        ``served_worlds``: the ones every panel lists as unrouted."""
+        row = conn.execute(_SQL["count_pending_unrouted_tamper_reports"], (list(served_worlds),)).fetchone()
+        return int(row["n"]) if row else 0
+
+    @staticmethod
     def acknowledge_tamper_report(
         conn: Any,
         report_id: int,

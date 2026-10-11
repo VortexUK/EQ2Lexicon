@@ -141,6 +141,16 @@ def get_server() -> Server:
     return current_server()
 
 
+def served_worlds() -> list[str]:
+    """Every world that has an admin panel of its own: the registry's worlds
+    plus the active one (which is a synthesised default when the registry is
+    empty). A world-scoped row stored under any other value is reachable from
+    no server's pages; the tamper-report listing uses this to find those."""
+    worlds = dict.fromkeys(_by_world)
+    worlds[current_world()] = None
+    return list(worlds)
+
+
 def list_public_servers() -> list[dict]:
     """Public server list for the frontend switcher."""
     return [{"world": s.world, "subdomain": s.subdomain, "display_name": s.display_name} for s in _by_world.values()]

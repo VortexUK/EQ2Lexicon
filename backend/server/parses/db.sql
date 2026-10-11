@@ -288,6 +288,33 @@ FROM tamper_reports
 ORDER BY reported_at DESC
 LIMIT %s;
 
+-- The admin panel's listing for one server: that server's reports, then the
+-- "unrouted" ones. A report is unrouted when its stored world is not one of
+-- the served worlds (the tamper-report route does not gate logger_server),
+-- so no server's panel would list it; every panel lists it instead, flagged.
+-- Params: active world (flag), active world, served worlds, [extra], limit.
+-- The server's own rows sort first so unrouted rows can never push them out
+-- of the LIMIT. payload_json is left out: the panel does not show it and a
+-- row's payload can be half a megabyte. {extra} is composed in Python
+-- (reason / pending|ack). Comment kept OUTSIDE the block, as above.
+-- :name list_tamper_reports_for_panel
+SELECT id, world, act_encid, title, zone,
+       started_at, ended_at, duration_s,
+       total_damage, encdps,
+       reason, reported_at,
+       uploader_logger_name, uploader_discord_id, uploader_discord_name,
+       guild_name,
+       acknowledged_at, acknowledged_by,
+       (world <> %s) AS unrouted
+FROM tamper_reports
+WHERE (world = %s OR world <> ALL(%s)){extra}
+ORDER BY unrouted, reported_at DESC
+LIMIT %s;
+
+-- Pending reports stored under a world no server serves (see above).
+-- :name count_pending_unrouted_tamper_reports
+SELECT COUNT(*) AS n FROM tamper_reports WHERE acknowledged_at IS NULL AND world <> ALL(%s);
+
 -- :name acknowledge_tamper_report
 UPDATE tamper_reports
    SET acknowledged_at = %s, acknowledged_by = %s
