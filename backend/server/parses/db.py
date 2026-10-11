@@ -833,7 +833,7 @@ class ParsesStore(PgCatalogue):
         return [
             dict(r)
             for r in conn.execute(
-                _SQL["select_encounters_with_player_since"], (world, name_lower, since, report_reason)
+                _SQL["select_encounters_with_player_since"], (report_reason, world, name_lower, since)
             ).fetchall()
         ]
 
@@ -857,6 +857,17 @@ class ParsesStore(PgCatalogue):
     @staticmethod
     def fights_with_audit_bars(conn: Any, reasons: list[str]) -> list[int]:
         return [r["fight_id"] for r in conn.execute(_SQL["select_fights_with_audit_bars"], (reasons,)).fetchall()]
+
+    @staticmethod
+    def bar_window_encounters(conn: Any, since: int, until: int | None, *, reason: str, now: int) -> list[int | None]:
+        """Stamp every unbarred parse started in [since, until). Returns the
+        fight id of each stamped row (None for an ungrouped one)."""
+        rows = conn.execute(_SQL["bar_window_encounters"], (now, reason, since, until, until)).fetchall()
+        return [r["fight_id"] for r in rows]
+
+    @staticmethod
+    def active_flags_all(conn: Any) -> list[dict]:
+        return [dict(r) for r in conn.execute(_SQL["select_active_flags_all"]).fetchall()]
 
     @staticmethod
     def unbar_all_for_reasons(conn: Any, reasons: list[str]) -> int:

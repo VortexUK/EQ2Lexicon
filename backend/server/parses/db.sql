@@ -407,17 +407,32 @@ LIMIT %s;
 SELECT DISTINCT world FROM encounters WHERE success_level = 1 AND started_at >= %s;
 
 -- :name select_encounters_with_player_since
--- Parses since the cutoff the character played in that do not yet carry the
--- audit's tamper report (the idempotency marker). Visibility is irrelevant.
+-- Parses since the cutoff the character played in that still need the bar
+-- or the tamper report. `reported` says the report already exists, so a
+-- re-apply after a lift re-stamps without filing a second one.
 SELECT DISTINCT e.id, e.act_encid, e.title, e.zone, e.started_at, e.ended_at, e.duration_s,
-       e.total_damage, e.encdps, e.uploaded_by, e.source_dsn, e.guild_name
+       e.total_damage, e.encdps, e.uploaded_by, e.source_dsn, e.guild_name, r.reported
 FROM encounters e
 JOIN combatants c ON c.encounter_id = e.id
+CROSS JOIN LATERAL (
+    SELECT EXISTS (
+        SELECT 1 FROM tamper_reports t
+        WHERE t.world = e.world AND t.act_encid = e.act_encid AND t.reason = %s) AS reported) r
 WHERE e.world = %s AND c.is_player = 1 AND lower(c.name) = %s
   AND e.started_at >= %s
-  AND NOT EXISTS (
-      SELECT 1 FROM tamper_reports t
-      WHERE t.world = e.world AND t.act_encid = e.act_encid AND t.reason = %s);
+  AND (e.ranking_barred_at IS NULL OR NOT r.reported);
+
+-- :name bar_window_encounters
+-- Stamp every not-yet-barred parse started inside the incident window. The
+-- upper bound is open while the window is (NULL).
+UPDATE encounters SET ranking_barred_at = %s, ranking_barred_reason = %s
+WHERE ranking_barred_at IS NULL AND started_at >= %s
+  AND (%s::bigint IS NULL OR started_at < %s::bigint)
+RETURNING fight_id;
+
+-- :name select_active_flags_all
+SELECT world, name_lower, details FROM flagged_characters
+WHERE cleared_at IS NULL ORDER BY world, name_lower;
 
 -- :name select_encounter_for_audit
 SELECT e.id, e.act_encid, e.title, e.zone, e.started_at, e.ended_at, e.duration_s,

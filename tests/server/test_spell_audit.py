@@ -349,3 +349,46 @@ def test_lift_all_restores_every_barred_parse_to_the_rankings():
         assert spell_audit.lift_all_sync() == {"unbarred": 0, "fights": 0}  # idempotent
     finally:
         conn.close()
+
+
+def test_reapply_puts_the_filter_back_after_a_lift(monkeypatch):
+    """Switching the filter back on must be retroactive: window parses and
+    flagged characters' parses are barred again, with no second report."""
+    monkeypatch.setattr(spell_audit, "SPELL_AUDIT_UNTIL_TS", SINCE + 1500)
+    conn = _conn()
+    try:
+        before = _seed(conn, started_at=SINCE - 100, players=["Cheater"], uploaded_by="Bravo")
+        windowed = _seed(conn, started_at=SINCE + 1000, players=["Clean"])
+        after = _seed(conn, started_at=SINCE + 2000, players=["Cheater"], uploaded_by="Alpha")  # window closed
+
+        assert spell_audit.reapply_sync() == {"window": 1, "flags": 0}
+        spell_audit.flag_sync(WORLD, "Cheater", reason=spell_audit.REASON_SPELLS, details=None)
+        assert _state(conn, windowed) == {"visible": True, "barred": spell_audit.INCIDENT_REASON, "ranks": False}
+        assert _state(conn, after) == {"visible": True, "barred": spell_audit.FLAG_BAR_REASON, "ranks": False}
+        assert len(_reports(conn)) == 1
+
+        assert spell_audit.lift_all_sync() == {"unbarred": 2, "fights": 2}
+        assert _state(conn, windowed)["ranks"] is True and _state(conn, after)["ranks"] is True
+
+        assert spell_audit.reapply_sync() == {"window": 1, "flags": 1}
+        assert _state(conn, windowed) == {"visible": True, "barred": spell_audit.INCIDENT_REASON, "ranks": False}
+        assert _state(conn, after) == {"visible": True, "barred": spell_audit.FLAG_BAR_REASON, "ranks": False}
+        assert _state(conn, before) == {"visible": True, "barred": None, "ranks": True}  # before the cutoff
+        assert len(_reports(conn)) == 1  # the report on record is not refiled
+        assert spell_audit.reapply_sync() == {"window": 0, "flags": 0}  # idempotent
+    finally:
+        conn.close()
+
+
+def test_flagging_while_the_filter_is_off_records_the_flag_but_bars_nothing(monkeypatch):
+    monkeypatch.setattr(spell_audit, "SPELL_AUDIT_ENABLED", False)
+    conn = _conn()
+    try:
+        eid = _seed(conn, started_at=SINCE + 1000, players=["Cheater"])
+        result = spell_audit.flag_sync(WORLD, "Cheater", reason=spell_audit.REASON_MANUAL, details=None, by="admin-1")
+        assert result == {"new": True, "barred": 0, "reports": 0}
+        assert spell_audit.reapply_sync() == {"window": 0, "flags": 0}
+        assert _state(conn, eid) == {"visible": True, "barred": None, "ranks": True}
+        assert _reports(conn) == []
+    finally:
+        conn.close()

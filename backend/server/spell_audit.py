@@ -21,8 +21,9 @@ Independently, every parse started inside the incident window
 (SPELL_AUDIT_SINCE .. SPELL_AUDIT_UNTIL) is stamped at ingest and does not
 rank while the filter is on.
 
-EVERYTHING IS REVERSIBLE: SPELL_AUDIT_ENABLED=0 lifts every bar at startup
-(lift_all_sync) and all parses rank again.
+EVERYTHING IS REVERSIBLE, BOTH WAYS: SPELL_AUDIT_ENABLED=0 lifts every bar
+at startup (lift_all_sync) and all parses rank again; setting it back to 1
+re-applies the filter to the parses already stored (reapply_sync).
 
 Detection: the sweep pulls the Census spell list of every player in a
 winning kill since the cutoff, at most once a day per character, paced so
@@ -108,14 +109,19 @@ def _uploader_discord_id(source_dsn: str | None) -> str:
 # ── Enforcement: stamp + report. Never hides, never deletes. ─────────────────
 
 
-def _bar_and_report(conn: Any, world: str, e: dict, flagged: list[str], details: Any, now: int) -> None:
+def _bar_and_report(
+    conn: Any, world: str, e: dict, flagged: list[str], details: Any, now: int, *, report: bool = True
+) -> None:
     """Stamp one stored parse as never-ranking (kept if already stamped),
     refresh its fight so it stops being the ranking primary, and file the
-    tamper report. The parse stays visible."""
+    tamper report unless one is already on record (``report=False``). The
+    parse stays visible."""
     parses_db.bar_encounter_from_rankings(conn, e["id"], reason=FLAG_BAR_REASON, now=now)
     fight_id = fights.fight_id_of(conn, e["id"])
     if fight_id is not None:
         fights.refresh_fight(conn, fight_id)
+    if not report:
+        return
     payload = {
         "encounter_id": e["id"],
         "act_encid": e["act_encid"],
@@ -146,20 +152,25 @@ def _bar_and_report(conn: Any, world: str, e: dict, flagged: list[str], details:
 
 def enforce_sync(world: str, name_lower: str, details_json: str | None, *, now: int | None = None) -> dict[str, int]:
     """Bar from the rankings every parse since the cutoff that ``name_lower``
-    played in, and file a tamper report per parse. Idempotent: parses that
-    already carry the report are skipped. Returns ``{"barred", "reports"}``."""
+    played in, and file a tamper report per parse that has none. Idempotent:
+    a parse that is barred and reported is skipped; one whose bar was lifted
+    is stamped again without a second report. Does nothing while the filter
+    is switched off. Returns ``{"barred": parses touched, "reports": filed}``."""
+    if not SPELL_AUDIT_ENABLED:
+        return {"barred": 0, "reports": 0}
     now = int(time.time()) if now is None else now
     details = json.loads(details_json) if details_json else None
-    n = 0
+    touched = filed = 0
     conn = parses_db.init_db()
     try:
         for e in parses_db.encounters_with_player_since(conn, world, name_lower, since_ts(), TAMPER_REASON):
-            _bar_and_report(conn, world, e, [name_lower], details, now)
-            n += 1
+            _bar_and_report(conn, world, e, [name_lower], details, now, report=not e["reported"])
+            touched += 1
+            filed += not e["reported"]
         conn.commit()
     finally:
         conn.close()
-    return {"barred": n, "reports": n}
+    return {"barred": touched, "reports": filed}
 
 
 def bar_uploaded_parse_sync(world: str, encounter_id: int, flagged: list[str]) -> bool:
@@ -290,6 +301,40 @@ def lift_all_sync() -> dict[str, int]:
     return {"unbarred": unbarred, "fights": len(fight_ids)}
 
 
+def reapply_sync() -> dict[str, int]:
+    """Put the filter in force over what is ALREADY stored: stamp every
+    unbarred parse in the incident window, then re-bar the parses of every
+    active flag. This is what makes switching SPELL_AUDIT_ENABLED back to 1
+    retroactive after a lift (and covers uploads that arrived while it was
+    off). Existing tamper reports are not refiled. Idempotent: a no-op once
+    everything is stamped. Returns ``{"window": n, "flags": m}``."""
+    if not SPELL_AUDIT_ENABLED:
+        return {"window": 0, "flags": 0}
+    now = int(time.time())
+    conn = parses_db.init_db()
+    try:
+        fight_ids = parses_db.bar_window_encounters(
+            conn, SPELL_AUDIT_SINCE_TS, SPELL_AUDIT_UNTIL_TS, reason=INCIDENT_REASON, now=now
+        )
+        for fid in sorted({f for f in fight_ids if f is not None}):
+            fights.refresh_fight(conn, fid)
+        active = parses_db.active_flags_all(conn)
+        conn.commit()
+    finally:
+        conn.close()
+    window = len(fight_ids)
+    flags = sum(enforce_sync(f["world"], f["name_lower"], f["details"], now=now)["barred"] for f in active)
+    if window or flags:
+        audit_log("spell_audit_reapplied", actor=SOURCE, window=window, flags=flags)
+    return {"window": window, "flags": flags}
+
+
+async def _rebuild_all_rankings() -> None:
+    from backend.server.api.rankings import prewarm_rankings_kills  # noqa: PLC0415 — avoid import cycle
+
+    await prewarm_rankings_kills()
+
+
 # ── The sweep ────────────────────────────────────────────────────────────────
 
 
@@ -387,19 +432,26 @@ def _record_scan(world: str, name_lower: str, scanned_at: int, result: str) -> N
 
 
 async def audit_loop() -> None:
-    """Lifespan background task (leader-only). With SPELL_AUDIT_ENABLED=0
-    it lifts every bar once and exits."""
+    """Lifespan background task (leader-only). The switch works both ways
+    at startup: SPELL_AUDIT_ENABLED=0 lifts every bar once and exits;
+    enabled, it first re-applies the filter to what is already stored
+    (retroactive after a lift), then sweeps."""
     if not SPELL_AUDIT_ENABLED:
         try:
             result = await run_sync(lift_all_sync)
             _log.info("[spell-audit] disabled — bars lifted: %s", result)
             if result["unbarred"]:
-                from backend.server.api.rankings import prewarm_rankings_kills  # noqa: PLC0415
-
-                await prewarm_rankings_kills()
+                await _rebuild_all_rankings()
         except Exception:
             _log.exception("[spell-audit] lift failed")
         return
+    try:
+        result = await run_sync(reapply_sync)
+        if result["window"] or result["flags"]:
+            _log.info("[spell-audit] filter re-applied to stored parses: %s", result)
+            await _rebuild_all_rankings()
+    except Exception:
+        _log.exception("[spell-audit] re-apply failed")
     await asyncio.sleep(_STARTUP_DELAY_S)
     while True:
         try:
