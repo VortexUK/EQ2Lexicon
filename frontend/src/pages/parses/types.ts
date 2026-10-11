@@ -39,7 +39,7 @@ export interface ParseEncounterSummary {
   encdps: number
   kills: number
   deaths: number
-  success_level: number      // ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
+  success_level: number      // ACT enum: 0=unknown, 1=win, 2=partial/unclear, 3=loss (encounterOutcome.ts)
   combatant_count: number
   player_count: number
   // Backend-computed Raid / Dungeon / Other bucket (see

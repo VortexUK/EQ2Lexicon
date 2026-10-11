@@ -5,9 +5,12 @@
  * cls / multi-word fallback heuristic). Bucket-promoted combatants
  * (is_player=true but cls=null) render in the Allies section identical
  * to Census-resolved players.
+ *
+ * Also here: the title colour per ACT outcome (1 win / 2 partial / 3 loss)
+ * and the per-combatant Threat tab's null-kind placeholder.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import ParsePage from './ParsePage'
@@ -91,7 +94,7 @@ function combatant(o: Partial<MockCombatant> & Pick<MockCombatant, 'id' | 'name'
   } as MockCombatant
 }
 
-function mockFetch(combatants: MockCombatant[]) {
+function mockFetch(combatants: MockCombatant[], successLevel = 1) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -114,7 +117,7 @@ function mockFetch(combatants: MockCombatant[]) {
           encdps: 100,
           kills: 1,
           deaths: 0,
-          success_level: 1,
+          success_level: successLevel,
           hidden: false,
           uploaded_by: 'tester',
           uploader_discord_id: null,
@@ -170,5 +173,66 @@ describe('ParsePage Allies/Pets split', () => {
     renderPage()
     expect(await screen.findByText('Venekor')).toBeInTheDocument()
     expect(screen.getByText('Enemies')).toBeInTheDocument()
+  })
+})
+
+// ACT's success level: 1 = win, 2 = partial / unclear, 3 = loss. The title
+// once showed 2 in red and 3 in amber (the two were the wrong way round).
+describe('ParsePage title colour by outcome', () => {
+  async function titleColor(successLevel: number): Promise<string> {
+    mockFetch([combatant({ id: 1, name: 'Alpha', ally: true, is_player: true })], successLevel)
+    renderPage()
+    const title = await screen.findByRole('heading', { level: 1, name: 'Test Boss' })
+    return title.style.color
+  }
+
+  it('shows a win (1) in the success colour', async () => {
+    expect(await titleColor(1)).toBe('var(--color-success)')
+  })
+
+  it('shows a partial outcome (2) in the warning colour', async () => {
+    expect(await titleColor(2)).toBe('var(--color-warning)')
+  })
+
+  it('shows a loss (3) in the danger colour', async () => {
+    expect(await titleColor(3)).toBe('var(--color-danger)')
+  })
+
+  it('keeps the gold heading when the outcome is unknown (0)', async () => {
+    expect(await titleColor(0)).toBe('var(--gold)')
+  })
+})
+
+// Threat rows from EQ2Parser up to v0.5.7 (swing type 16) carry no `resist`, so
+// `kind` arrives null; the ACT plugin's rows say 'Increase' / 'Decrease'.
+describe('ParsePage Threat tab', () => {
+  it('lists threat rows and shows a dash for a null kind', async () => {
+    mockFetch([
+      combatant({
+        id: 1, name: 'Tankee', ally: true, is_player: true,
+        top_threats: [
+          { ability_name: 'Taunt', value: 50000, procs: 4, max_proc: 900, kind: null },
+          { ability_name: 'Undeniable Malice', value: 27240, procs: 10, max_proc: 5000, kind: 'Increase' },
+        ],
+      }),
+    ])
+    renderPage()
+    const name = await screen.findByText('Tankee')
+    // The name link stops propagation; click the row itself to expand it.
+    fireEvent.click(name.closest('.cursor-pointer')!)
+
+    expect(screen.getByRole('button', { name: 'Threat' })).toBeEnabled()
+    // No damage, heal or cure rows, so the panel lands on the Threat tab.
+    const kindOf = (ability: string) => screen.getByText(ability).parentElement!.lastElementChild!.textContent
+    expect(kindOf('Taunt')).toBe('—')
+    expect(kindOf('Undeniable Malice')).toBe('Increase')
+  })
+
+  it('keeps the Threat tab disabled when a combatant has no threat rows', async () => {
+    mockFetch([combatant({ id: 1, name: 'Tankee', ally: true, is_player: true })])
+    renderPage()
+    const name = await screen.findByText('Tankee')
+    fireEvent.click(name.closest('.cursor-pointer')!)
+    expect(screen.getByRole('button', { name: 'Threat' })).toBeDisabled()
   })
 })

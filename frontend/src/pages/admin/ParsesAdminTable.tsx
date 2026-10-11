@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui'
 import { fmtLocalDate, fmtLocalDateTime } from '../../formatters'
+import { outcomeLabel } from '../../encounterOutcome'
 import { PARSE_BATCH_CHUNK_SIZE } from '../parses/api'
 import {
   type AdminParse,
@@ -10,15 +11,6 @@ import {
 } from './types'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-function resultLabel(successLevel: number): string {
-  switch (successLevel) {
-    case 1:  return 'win'
-    case 2:  return 'loss'
-    case 3:  return 'mixed'
-    default: return '—'
-  }
-}
 
 // Page size of GET /api/admin/parses (mirrors the backend default limit).
 // A full page implies more history below it — the Load-older button pages
@@ -358,12 +350,15 @@ export function ParsesAdminTable() {
                       </span>
                     )}
                     {p.client_warnings && p.client_warnings.length > 0 && (
-                      // Soft-warning chip for parses the plugin flagged at
-                      // upload time (e.g. folder_hint_mismatch). The hard
-                      // tamper signals are NOT here — those landed in the
-                      // tamper-reports table and never reached encounters.
-                      // Title tooltip shows the codes for admins who want
-                      // the detail; the chip itself stays compact.
+                      // Soft-warning chip for parses the uploading client
+                      // stamped at upload time. ACT plugin:
+                      // folder_hint_mismatch. EQ2Parser: log_writer_eq2 or
+                      // log_writer_unverified on every upload, plus a bare
+                      // log_foreign_holder. The hard tamper signals are NOT
+                      // here — those landed in the tamper-reports table and
+                      // never reached encounters. Title tooltip shows the
+                      // codes for admins who want the detail; the chip
+                      // itself stays compact.
                       <span
                         className="ml-2 bg-warning/15 text-warning border border-warning/40 rounded px-1.5 py-0.5 text-[0.7rem] uppercase tracking-[0.05em] align-middle"
                         title={`Client warnings: ${p.client_warnings.join(', ')}`}
@@ -378,7 +373,8 @@ export function ParsesAdminTable() {
                   <td className={`${TD_CLS} text-text-muted`}>{p.uploaded_by ?? '—'}</td>
                   <td className={`${TD_CLS} text-text-muted whitespace-nowrap`}>{fmtLocalDate(p.started_at)}</td>
                   <td className={`${TD_CLS} text-center text-text-muted`}>{p.player_count}</td>
-                  <td className={`${TD_CLS} text-text-muted`}>{resultLabel(p.success_level)}</td>
+                  {/* win / partial / loss / — : the shared mapping in encounterOutcome.ts */}
+                  <td className={`${TD_CLS} text-text-muted`}>{outcomeLabel(p.success_level)}</td>
                   <td className={`${TD_CLS} whitespace-nowrap`}>
                     {p.hidden && (
                       <Button

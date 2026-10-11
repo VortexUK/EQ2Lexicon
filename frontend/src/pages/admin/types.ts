@@ -57,7 +57,7 @@ export interface AdminParse {
   guild_name:    string | null
   uploaded_by:   string | null
   started_at:    number
-  success_level: number   // 1=win, 2=loss, 3=mixed, 0=unknown
+  success_level: number   // 1=win, 2=partial/unclear, 3=loss, 0=unknown (encounterOutcome.ts)
   player_count:  number
   hidden:        boolean
   /** Soft-delete provenance: when + who (discord id and resolved display
@@ -65,9 +65,13 @@ export interface AdminParse {
   hidden_at:     number | null
   hidden_by:     string | null
   hidden_by_name: string | null
-  /** Soft warnings the plugin (v0.1.15+) attached at upload time —
-   *  currently just `"folder_hint_mismatch"`. null when no warnings
-   *  on this parse; the admin row renders a ⚠ chip when non-empty.
+  /** Soft signals the uploading client attached at upload time, stored
+   *  as sent. ACT plugin (v0.1.15+): `"folder_hint_mismatch"`.
+   *  EQ2Parser: exactly one of `"log_writer_eq2"` /
+   *  `"log_writer_unverified"` on every upload, plus a bare
+   *  `"log_foreign_holder"` when a process other than EQ2 or ACT held
+   *  the log. null when no warnings on this parse; the admin row
+   *  renders a ⚠ chip when non-empty.
    *  The hard tamper signals (rename, import) DON'T appear here —
    *  those land in /admin/tamper-reports instead because they
    *  blocked the leaderboard upload entirely. */

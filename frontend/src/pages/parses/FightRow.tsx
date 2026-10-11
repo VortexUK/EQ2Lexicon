@@ -13,6 +13,7 @@ import { Badge } from '../../components/ui'
 import { UploaderTag } from '../../components/UploaderTag'
 import Caret from '../../components/Caret'
 import { fmtDuration, fmtLocalTime, fmtNum } from '../../formatters'
+import { outcomeColor } from '../../encounterOutcome'
 import { isBoss } from '../ParsesPage'
 
 import { deleteBatch, deleteOne } from './api'
@@ -37,12 +38,9 @@ export function FightRow({ fight, onDeleted }: FightRowProps) {
   // is false for them (they still get their per-upload trash in the expansion).
   const canDeleteAll = isMirror && fight.uploads.length > 0 && fight.uploads.every(u => u.permissions.can_delete)
 
-  // ACT outcome: 1 = win (green), 2 = loss (red), 3 = mixed (gold), 0 = unknown.
-  const titleColor =
-    e.success_level === 1 ? 'var(--success, #4caf50)'
-    : e.success_level === 2 ? 'var(--danger, #e57373)'
-    : e.success_level === 3 ? 'var(--warning, #d8a657)'
-    : 'var(--text)'
+  // ACT outcome (encounterOutcome.ts): 1 = win (success), 2 = partial
+  // (warning), 3 = loss (danger), 0 = unknown (plain text).
+  const titleColor = outcomeColor(e.success_level, 'var(--text)')
   // Boss rows get a subtle yellow tint so they stand out at a glance.
   // Applied per-cell because the grid cells are direct siblings — no row
   // wrapper to style.

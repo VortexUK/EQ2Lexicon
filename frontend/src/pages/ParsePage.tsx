@@ -9,6 +9,7 @@ import Caret from '../components/Caret'
 import { UploaderTag } from '../components/UploaderTag'
 import { useClasses } from '../useClasses'
 import { fmtDuration, fmtLocalDateTime, fmtNum } from '../formatters'
+import { outcomeColor } from '../encounterOutcome'
 import { percentileColor } from '../percentileColors'
 import { Card } from '../components/ui'
 import { CombatantDetailPanel } from './parse/CombatantDetailPanel'
@@ -73,7 +74,7 @@ interface ParseDetail {
   encdps: number
   kills: number
   deaths: number
-  success_level: number    // ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
+  success_level: number    // ACT enum: 0=unknown, 1=win, 2=partial/unclear, 3=loss (see encounterOutcome.ts)
   hidden?: boolean
   // Who uploaded this specific parse — character name + Discord identity.
   // Both Discord fields are null on pre-plugin / local uploads.
@@ -222,13 +223,9 @@ export default function ParsePage() {
 // ── Header ────────────────────────────────────────────────────────────────────
 
 function Header({ data, raidZoneCanonical }: { data: ParseDetail; raidZoneCanonical: string | null }) {
-  // Match the /parses list title-colour rule for visual consistency.
-  // 1=win→green, 2=loss→red, 3=mixed→gold-warning, 0=unknown→default gold.
-  const titleColor =
-    data.success_level === 1 ? 'var(--success, #4caf50)'
-    : data.success_level === 2 ? 'var(--danger, #e57373)'
-    : data.success_level === 3 ? 'var(--warning, #d8a657)'
-    : 'var(--gold)'
+  // Same title-colour rule as the /parses list (encounterOutcome.ts):
+  // 1=win→success, 2=partial→warning, 3=loss→danger, 0=unknown→default gold.
+  const titleColor = outcomeColor(data.success_level, 'var(--gold)')
   return (
     <section className="mb-[1.4rem]">
       <div className="flex items-start justify-between gap-3 flex-wrap">

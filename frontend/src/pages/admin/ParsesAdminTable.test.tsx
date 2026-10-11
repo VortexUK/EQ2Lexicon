@@ -124,3 +124,39 @@ describe('ParsesAdminTable bulk unhide', () => {
     expect(calls.filter(c => c.method === 'POST')).toHaveLength(0)
   })
 })
+
+// ACT's success level: 1 = win, 2 = partial / unclear, 3 = loss. The column
+// once read 2 as "loss" and 3 as "mixed".
+describe('ParsesAdminTable Result column', () => {
+  const RESULT_COL = 8  // checkbox, #, Title, Zone, Guild, Uploader, Date, Players, Result
+
+  async function resultFor(successLevel: number): Promise<string | null> {
+    mockFetch([{ ...parse(1, false), success_level: successLevel }])
+    renderTable()
+    const row = (await screen.findByText('Boss 1')).closest('tr')!
+    return row.cells[RESULT_COL].textContent
+  }
+
+  it('has Result as the ninth column', async () => {
+    mockFetch([parse(1, false)])
+    renderTable()
+    await screen.findByText('Boss 1')
+    expect(screen.getAllByRole('columnheader')[RESULT_COL]).toHaveTextContent('Result')
+  })
+
+  it('labels 1 "win"', async () => {
+    expect(await resultFor(1)).toBe('win')
+  })
+
+  it('labels 2 "partial", not "loss"', async () => {
+    expect(await resultFor(2)).toBe('partial')
+  })
+
+  it('labels 3 "loss", not "mixed"', async () => {
+    expect(await resultFor(3)).toBe('loss')
+  })
+
+  it('shows a dash for 0 (unknown)', async () => {
+    expect(await resultFor(0)).toBe('—')
+  })
+})
