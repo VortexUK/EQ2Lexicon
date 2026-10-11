@@ -932,6 +932,151 @@ async def test_guild_views_require_subscriber_role(app):
 
 
 # ---------------------------------------------------------------------------
+# X-Lexicon-Reject on the parser-facing routes (ingest + mains)
+#
+# EQ2Parser pauses its uploads on a 401/403 unless this header says the
+# refusal is about the request (this character, this server) and not the
+# account. Tagged: server-not-tracked, no-guild here and no-claim (tested in
+# test_parses_uploader_verified.py, where the claim binding is switched on).
+# Untagged: the subscriber gate and the auth layer's "Account not approved".
+# Status codes and detail texts are pinned exactly: the header is additive.
+# ---------------------------------------------------------------------------
+
+_REJECT = "X-Lexicon-Reject"
+_MAINS_AUTH = {"Authorization": "Bearer eq2c_test_token"}
+
+
+async def _get_mains(app, *, server: str = _WORLD, headers: dict | None = None):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        return await c.get(
+            "/api/attendance/mains",
+            params={"character": "Menludiir", "server": server},
+            headers=headers or _MAINS_AUTH,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ingest_untracked_server_is_tagged_server_not_tracked(app):
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        res = await _post_ingest(app, _ingest_payload(logger_server="Antonia Bayle"))
+    assert res.status_code == 403
+    assert res.json()["detail"] == "Server 'Antonia Bayle' is not tracked here."
+    assert res.headers.get(_REJECT) == "server-not-tracked"
+
+
+@pytest.mark.asyncio
+async def test_ingest_unguilded_is_tagged_no_guild(app):
+    p1, p2, p3 = _ingest_patches(guild=None)
+    with p1, p2, p3:
+        res = await _post_ingest(app, _ingest_payload())
+    assert res.status_code == 403
+    assert res.json()["detail"] == "'Menludiir' has no guild — attendance uploads are guild-scoped."
+    assert res.headers.get(_REJECT) == "no-guild"
+
+
+@pytest.mark.asyncio
+async def test_mains_untracked_server_is_tagged_server_not_tracked(app):
+    p1, p2, _ = _ingest_patches()
+    with p1, p2:
+        res = await _get_mains(app, server="Antonia Bayle")
+    assert res.status_code == 403
+    assert res.json()["detail"] == "Server 'Antonia Bayle' is not tracked here."
+    assert res.headers.get(_REJECT) == "server-not-tracked"
+
+
+@pytest.mark.asyncio
+async def test_mains_unguilded_is_tagged_no_guild(app):
+    p1, p2, _ = _ingest_patches(guild=None)
+    with p1, p2:
+        res = await _get_mains(app)
+    assert res.status_code == 403
+    assert res.json()["detail"] == "'Menludiir' has no guild."
+    assert res.headers.get(_REJECT) == "no-guild"
+
+
+@pytest.mark.asyncio
+async def test_subscriber_gate_403_is_not_tagged(app):
+    """The limited-preview gate is on the account: no snapshot from this
+    token can succeed, so the client is right to stop. No header, even when
+    the request would also have tripped a tagged refusal further down."""
+    _, p2, p3 = _ingest_patches(guild=None)
+    with patch("backend.server.api.attendance.require_user_session_or_token", _fake_require_nonsub), p2, p3:
+        ingest = await _post_ingest(app, _ingest_payload(logger_server="Antonia Bayle"))
+        mains = await _get_mains(app, server="Antonia Bayle")
+    for res in (ingest, mains):
+        assert res.status_code == 403
+        assert res.json()["detail"] == "Attendance tracking is in limited preview."
+        assert _REJECT not in res.headers
+
+
+@pytest.mark.asyncio
+async def test_unapproved_account_403_is_not_tagged(app):
+    """The auth layer's own 403 (a valid token whose owner is pending or
+    denied) is account-level on both routes."""
+    pending_row = {
+        "token_id": 2,
+        "user_id": "discord-pending",
+        "discord_id": "discord-pending",
+        "discord_name": "PendingBob",
+        "discord_username": "pendingbob",
+        "token_name": "Parser",
+        "access_status": "pending",
+        "avatar": None,
+        "revoked_at": None,
+    }
+    with patch("backend.server.auth_deps.users_db.lookup_api_token", new=AsyncMock(return_value=pending_row)):
+        ingest = await _post_ingest(app, _ingest_payload(logger_server="Antonia Bayle"))
+        mains = await _get_mains(app, server="Antonia Bayle")
+    for res in (ingest, mains):
+        assert res.status_code == 403
+        assert res.json()["detail"] == "Account not approved"
+        assert _REJECT not in res.headers
+
+
+@pytest.mark.asyncio
+async def test_attendance_success_has_no_reject_header(app):
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        ingest = await _post_ingest(app, _ingest_payload())
+        mains = await _get_mains(app)
+    assert ingest.status_code == 201, ingest.text
+    assert mains.status_code == 200, mains.text
+    assert _REJECT not in ingest.headers
+    assert _REJECT not in mains.headers
+
+
+@pytest.mark.asyncio
+async def test_other_attendance_refusals_have_no_reject_header(app):
+    """Only the three upload-scoped 403s are tagged: not the 400 (no valid
+    members), the 401 (bad signature), the 422 (implausible window) or the
+    503 (Census down)."""
+    from backend.server.api.attendance import CENSUS_UNAVAILABLE
+
+    now = int(time.time())
+    p1, p2, p3 = _ingest_patches()
+    with p1, p2, p3:
+        garbage = await _post_ingest(
+            app,
+            _ingest_payload(raid_members=[{"name": "!!", "first_seen": _B, "last_seen": _B}], online_guildies=[]),
+        )
+        wide = await _post_ingest(
+            app,
+            _ingest_payload(raid_members=[{"name": "Tanky", "first_seen": now - 20 * 3600, "last_seen": now}]),
+        )
+        kwargs = _signed_post_kwargs(_ingest_payload())
+        kwargs["headers"]["X-Lexicon-Signature"] = "0" * 64
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            bad_sig = await c.post("/api/attendance/ingest", **kwargs)
+    p1, p2, p3 = _ingest_patches(guild=CENSUS_UNAVAILABLE)
+    with p1, p2, p3:
+        census_down = await _post_ingest(app, _ingest_payload())
+    assert [r.status_code for r in (garbage, wide, bad_sig, census_down)] == [400, 422, 401, 503]
+    for res in (garbage, wide, bad_sig, census_down):
+        assert _REJECT not in res.headers
+
+
+# ---------------------------------------------------------------------------
 # Voice cross-check: live-session probe, voice recording, in_voice
 # ---------------------------------------------------------------------------
 

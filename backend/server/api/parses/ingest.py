@@ -704,12 +704,18 @@ def _insert_encounter_rows_sync(
     """Insert encounter + all sub-rows in a single transaction.
     Returns (encounter_id, n_damage_types, n_attack_types).
 
-    ``client_warnings`` (plugin v0.1.15+) is the optional soft-warning
-    list — currently just ``["folder_hint_mismatch"]`` when ACT's
-    per-encounter FolderHint doesn't match the detected logger_server.
-    When non-empty, the deduplicated + sanitised list is stored as a
-    JSON-encoded string on the encounters row. Empty / None leaves the
-    column NULL — the resting state for non-tampered uploads.
+    ``client_warnings`` is the optional soft-signal list, and each client
+    sends its own values. The ACT plugin (v0.1.15+) sends
+    ``folder_hint_mismatch`` when ACT's per-encounter FolderHint doesn't
+    match the detected logger_server. EQ2Parser sends log-provenance
+    stamps on every upload: exactly one of ``log_writer_eq2`` (the EQ2
+    process held the log) or ``log_writer_unverified`` (it did not, for
+    example a backlog parse), plus a bare ``log_foreign_holder`` when some
+    other process held it. The values are stored as sent, never
+    interpreted here. When non-empty, the deduplicated + sanitised list is
+    stored as a JSON-encoded string on the encounters row. Empty / None
+    leaves the column NULL, which is the resting state for an ACT upload;
+    an EQ2Parser upload normally carries a stamp.
     """
     ingested_at = int(time.time())
     # The (world, act_encid) ingest_log row is the insert lock: a concurrent
@@ -888,6 +894,66 @@ def _quarantine_encounter_sync(
 # changing one side without the other breaks HMAC validation.
 PLUGIN_SIGNATURE_HEADER = "X-Lexicon-Signature"
 
+# Response header on a refusal that is about THIS upload, not about the
+# caller's credentials or account. EQ2Parser mirrors the name
+# (LexiconUploadClient in the EQ2Parser repo); changing one side without the
+# other silently loses the signal. The parser's upload queue pauses every
+# upload on a 401, and on a 403 WITHOUT this header, until the user steps in
+# (released parsers up to v0.5.7 pause on any 403). This header tells it the
+# refusal is confined to the one upload, so the rest of the queue keeps going.
+#
+# The rule: send it, with a short lowercase machine code, only where a
+# different upload from the same token could succeed (the log is from a
+# server the site does not serve, the logging character is not claimed or
+# has no guild). Never send it where the refusal applies to the account as a
+# whole (token invalid or revoked, account not approved, a role gate):
+# pausing is the right client behaviour there. Only 403s carry it today; a
+# 400, 401, 413, 422 or 429 never does. It is additive: the status code and
+# `detail` are unchanged, so the ACT plugin and released parsers see no
+# difference. Codes in use: server-not-allowed (here), server-not-tracked,
+# no-claim, no-guild (backend/server/api/attendance.py).
+REJECT_HEADER = "X-Lexicon-Reject"
+
+# EQ2Parser identifies itself only by User-Agent ("EQ2Parser/<version>").
+# Matched as client_throttle matches: case-insensitive prefix.
+_PARSER_USER_AGENT_PREFIX = "eq2parser/"
+
+
+def _is_eq2parser(request: Request) -> bool:
+    """True when the request comes from EQ2Parser rather than the ACT plugin.
+
+    Used only to pick error text: the parser shows ``detail`` verbatim in its
+    status line, and "update the ACT plugin" is wrong advice for someone who
+    does not run it. It is not a security signal (a User-Agent is whatever
+    the client says it is), and the header value is never echoed into a
+    response or a log line."""
+    user_agent = (request.headers.get("user-agent") or "").strip().lower()
+    return user_agent.startswith(_PARSER_USER_AGENT_PREFIX)
+
+
+def _missing_signature_detail(request: Request) -> str:
+    if _is_eq2parser(request):
+        return (
+            f"This upload was not signed (no {PLUGIN_SIGNATURE_HEADER} header). Update EQ2Parser to the latest version."
+        )
+    return (
+        f"{PLUGIN_SIGNATURE_HEADER} is required for plugin uploads. "
+        "Update the EQ2 Lexicon ACT plugin to v0.1.8 or later: "
+        "https://github.com/VortexUK/EQ2LexiconACTPlugin/releases/latest"
+    )
+
+
+def _missing_logger_server_detail(request: Request) -> str:
+    if _is_eq2parser(request):
+        # The parser reads the server from the log's parent folder, so the
+        # field is empty when the log sits directly in the game's logs folder.
+        return (
+            "This upload has no server (logger_server is missing). EQ2Parser reads the "
+            "server from the log file's folder: the log must be in the game's "
+            "logs/<server>/ folder, not directly in logs."
+        )
+    return "logger_server is required. Please update the EQ2 Lexicon ACT plugin to v0.1.14 or later."
+
 
 async def _validate_payload_signature(
     request: Request,
@@ -895,7 +961,8 @@ async def _validate_payload_signature(
 ) -> None:
     """Token auth requires X-Lexicon-Signature = hex HMAC-SHA256(raw body, token).
 
-      * token-auth + header missing  → 401 (force plugin update)
+      * token-auth + header missing  → 401 (force a client update; the text
+        names the ACT plugin or EQ2Parser, see ``_missing_signature_detail``)
       * token-auth + header present  → must verify; mismatch is 401
       * session-auth + header present → 400 (confused client)
       * session-auth + header absent → allowed (browser uploads, if any)
@@ -926,14 +993,7 @@ async def _validate_payload_signature(
             user["id"],
             client_ip(request),
         )
-        raise HTTPException(
-            status_code=401,
-            detail=(
-                f"{PLUGIN_SIGNATURE_HEADER} is required for plugin uploads. "
-                "Update the EQ2 Lexicon ACT plugin to v0.1.8 or later: "
-                "https://github.com/VortexUK/EQ2LexiconACTPlugin/releases/latest"
-            ),
-        )
+        raise HTTPException(status_code=401, detail=_missing_signature_detail(request))
 
     auth_header = request.headers.get("authorization") or ""
     if not auth_header.lower().startswith("bearer "):
@@ -1029,15 +1089,13 @@ async def ingest_parse(
     # Server allowlist gate — strict: a payload without logger_server is a
     # misconfigured client to surface, not a request to silently fall back
     # to EQ2_WORLD. Three rejection cases, most-actionable first:
-    #   1. logger_server missing/empty   → 400, "update your plugin"
+    #   1. logger_server missing/empty   → 400, "update your plugin" (the
+    #      ACT plugin) or "the log is not in a server folder" (EQ2Parser)
     #   2. logger_server malformed shape → 400, "logger_server is bad"
     #   3. logger_server not in allow set → 403, with the allowed list
     raw_server = (body.logger_server or "").strip()
     if not raw_server:
-        raise HTTPException(
-            status_code=400,
-            detail="logger_server is required. Please update the EQ2 Lexicon ACT plugin to v0.1.14 or later.",
-        )
+        raise HTTPException(status_code=400, detail=_missing_logger_server_detail(request))
     sanitized_server = _sanitize_world(raw_server)
     if sanitized_server is None:
         raise HTTPException(
@@ -1051,12 +1109,18 @@ async def ingest_parse(
     if sanitized_server.lower() not in _ALLOWED_SERVERS_LOWER:
         # Sort the allowed list so the error message renders
         # deterministically — same display order as /auth/whoami.
+        #
+        # REJECT_HEADER: this refusal is about the upload (which server the
+        # log came from), not the token. The same token uploads fine from a
+        # character on an allowed server, so the parser must not pause its
+        # whole queue on it.
         raise HTTPException(
             status_code=403,
             detail=(
                 f"Server '{sanitized_server}' is not on the allowed list. "
                 f"Allowed: {', '.join(sorted(_ALLOWED_SERVERS))}."
             ),
+            headers={REJECT_HEADER: "server-not-allowed"},
         )
 
     # After the strict gate, sanitized_server is a guaranteed-valid,

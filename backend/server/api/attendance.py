@@ -22,6 +22,7 @@ from backend.server.api.guild import _validate_guild_name
 from backend.server.api.parses.ingest import (
     _ALLOWED_SERVERS_LOWER,
     CENSUS_UNAVAILABLE,
+    REJECT_HEADER,
     _resolve_uploader_guild_async,
     _sanitize_world,
     _uploader_claimed,
@@ -67,6 +68,10 @@ async def _ensure_subscriber(user: SessionUser | TokenUser) -> None:
     if is_admin(cast("SessionUser", user)):  # id-only check — token shape is fine
         return
     if not await has_role(str(user["id"]), "subscriber"):
+        # Deliberately NO REJECT_HEADER: the gate is on the account, so every
+        # attendance request from this token is refused until an admin grants
+        # the role. No other snapshot could succeed; the client should stop
+        # sending them.
         raise HTTPException(status_code=403, detail="Attendance tracking is in limited preview.")
 
 
@@ -134,14 +139,28 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
     world = _sanitize_world(body.logger_server)
     if not world:
         raise HTTPException(status_code=400, detail="logger_server is missing or malformed.")
+    # The three 403s below carry REJECT_HEADER (see its comment in
+    # api/parses/ingest.py): each is about the character or server in THIS
+    # snapshot, and the same token succeeds from another character.
     if world.lower() not in _ALLOWED_SERVERS_LOWER:
-        raise HTTPException(status_code=403, detail=f"Server '{world}' is not tracked here.")
+        # server-not-tracked: the log is from a server the site does not
+        # serve. A snapshot logged on a served server would be accepted.
+        raise HTTPException(
+            status_code=403,
+            detail=f"Server '{world}' is not tracked here.",
+            headers={REJECT_HEADER: "server-not-tracked"},
+        )
     # Attendance writes land in the logger's GUILD, so the logger must be a
     # character this account has an approved claim on (admins excepted).
     if not is_admin(user) and not await _uploader_claimed(str(user["id"]), logger_name, world):
+        # no-claim: this logging character is not an approved claim of the
+        # account on this world. A snapshot logged on a character the account
+        # has claimed would be accepted, and so are this account's parse
+        # uploads (parse ingest stores an unclaimed logger as unverified).
         raise HTTPException(
             status_code=403,
             detail=f"'{logger_name}' is not a character claimed by your account on {world}.",
+            headers={REJECT_HEADER: "no-claim"},
         )
 
     # The uploader's guild is resolved server-side (cache/store first; one
@@ -152,8 +171,12 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
             status_code=503, detail="Census unavailable — could not verify your guild. Try again shortly."
         )
     if not isinstance(guild, str) or not guild:
+        # no-guild: this character is unguilded, so there is no guild to file
+        # the snapshot under. A guilded character of the same account works.
         raise HTTPException(
-            status_code=403, detail=f"'{logger_name}' has no guild — attendance uploads are guild-scoped."
+            status_code=403,
+            detail=f"'{logger_name}' has no guild — attendance uploads are guild-scoped.",
+            headers={REJECT_HEADER: "no-guild"},
         )
 
     import time as _time
@@ -395,14 +418,28 @@ async def get_raid_mains(request: Request, character: str, server: str) -> dict:
     world = _sanitize_world(server)
     if not world:
         raise HTTPException(status_code=400, detail="server is missing or malformed.")
+    # Same classification as the ingest route: both 403s below are about the
+    # character/server asked for, not the token, so they carry REJECT_HEADER.
+    # (This route has no claim check, so there is no no-claim refusal here.)
     if world.lower() not in _ALLOWED_SERVERS_LOWER:
-        raise HTTPException(status_code=403, detail=f"Server '{world}' is not tracked here.")
+        # server-not-tracked: asking for a character on a served server works.
+        raise HTTPException(
+            status_code=403,
+            detail=f"Server '{world}' is not tracked here.",
+            headers={REJECT_HEADER: "server-not-tracked"},
+        )
 
     guild = await _resolve_uploader_guild_async(name.capitalize(), world, allow_census=True)
     if guild is CENSUS_UNAVAILABLE:
         raise HTTPException(status_code=503, detail="Census unavailable — try again shortly.")
     if not isinstance(guild, str) or not guild:
-        raise HTTPException(status_code=403, detail=f"'{name}' has no guild.")
+        # no-guild: an unguilded character has no roster to map; the same
+        # token gets a table for a guilded character.
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{name}' has no guild.",
+            headers={REJECT_HEADER: "no-guild"},
+        )
 
     role_rows = await planning_db.get_roles(world, guild)
     claims = await planning_db.claims_map(world)

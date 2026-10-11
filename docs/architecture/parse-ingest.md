@@ -22,7 +22,9 @@ payload that is allowed in.
    letters). This keeps garbage out of Census URLs and blocks `:` injection
    into the `"name:world"` cache keys.
 4. **Server allowlist**: `logger_server` is required, shape-checked and must be
-   in `ALLOWED_SERVERS` (case-insensitive). It becomes the parse's `world`.
+   in `ALLOWED_SERVERS` (case-insensitive). It becomes the parse's `world`. A
+   server outside the list is a 403 with the `X-Lexicon-Reject` header set to
+   `server-not-allowed` (see [Refusals about the upload](#refusals-about-the-upload)).
 5. **Plausibility gate**: REJECT → 400, QUARANTINE → stored as a tamper report
    and answered with a normal-looking 201.
 6. **Claim binding** (`_uploader_claimed`): the logger must be a character the
@@ -32,6 +34,40 @@ payload that is allowed in.
 7. **Guild + snapshot lookup from cache/store only** (see below).
 8. **Insert** in one transaction on the executor, then two optional background
    tasks after the response.
+
+## Refusals about the upload
+
+EQ2Parser's upload queue reads a 401 or 403 as "the API token was rejected"
+and pauses every upload until the user steps in. Some 403s say nothing about
+the token: a user whose alt logs on a server the site does not serve would
+have the whole queue paused by that alt's first fight.
+
+Those refusals carry the response header `X-Lexicon-Reject` (`REJECT_HEADER`
+in `ingest.py`) with a short lowercase machine code. The parser mirrors the
+header name in its `LexiconUploadClient`; change both sides together.
+
+| Route | Refusal | Code |
+|---|---|---|
+| `POST /api/parses/ingest` | 403, `logger_server` not in `ALLOWED_SERVERS` | `server-not-allowed` |
+| `POST /api/attendance/ingest`, `GET /api/attendance/mains` | see [attendance.md](attendance.md#refusals) | `server-not-tracked`, `no-claim`, `no-guild` |
+
+The rule for adding one: the header goes on a refusal only when a different
+upload from the same token could succeed. A refusal that applies to the
+account as a whole (invalid or revoked token, account not approved, a role
+gate) never carries it, because pausing is the right client behaviour there.
+The header is additive: status code and `detail` are unchanged, so the ACT
+plugin and already-released parsers see no difference. No 400, 401, 413, 422
+or 429 carries it.
+
+The only 403 the auth layer itself returns on these routes is `Account not
+approved` (`require_user_session_or_token`, a valid token whose owner is
+pending or denied). It is account-level and untagged.
+
+Two `detail` texts depend on the client, picked by a `User-Agent` prefix match
+(`EQ2Parser/`, `_is_eq2parser`), because the parser shows `detail` verbatim
+and its users do not run the ACT plugin: the missing-signature 401 and the
+missing-`logger_server` 400. Every other client gets the original ACT-plugin
+wording. The User-Agent is never echoed into a response or a log line.
 
 ## The response path never waits on Census
 
@@ -105,8 +141,10 @@ two servers is two encounters. A repeat upload returns `status="skipped"` and:
 - Numbers are clamped to the Postgres bigint range and non-finite floats become
   0, so garbage degrades to a value the plausibility gate can judge instead of
   crashing the insert.
-- `client_warnings` (soft plugin signals such as `folder_hint_mismatch`) is
-  deduplicated, each entry truncated to 64 characters, and stored as JSON.
+- `client_warnings` (soft client signals: `folder_hint_mismatch` from the ACT
+  plugin; `log_writer_eq2` or `log_writer_unverified`, plus a bare
+  `log_foreign_holder`, from EQ2Parser) is deduplicated, each entry truncated
+  to 64 characters, and stored as JSON. The values are stored as sent.
 
 ## Pet detection
 

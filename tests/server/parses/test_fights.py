@@ -142,7 +142,7 @@ def test_late_straggler_attaches_via_any_member(conn):
 
 
 def test_primaries_skip_hidden_unverified_and_losing_uploads(conn):
-    a = seed(conn, uploaded_by="Alpha", duration_s=60, success_level=2)  # loss
+    a = seed(conn, uploaded_by="Alpha", duration_s=60, success_level=2)  # not a win (2 = partial; only 1 wins)
     b = seed(conn, uploaded_by="Bravo", started_at=BASE + 1, duration_s=90, uploader_verified=0)
     c = seed(conn, uploaded_by="Charlie", started_at=BASE + 2, duration_s=70)
     for x in (a, b, c):

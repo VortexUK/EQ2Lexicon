@@ -470,6 +470,60 @@ def test_detail_ability_dps_uses_fight_duration(parses_db_path):
     assert dtype["dps"] == pytest.approx(1_040_928 / 434)
 
 
+@pytest.mark.asyncio
+async def test_detail_threat_tab_reads_both_clients_swing_types(app, parses_db_path):
+    """The ACT plugin sends threat as swing_type 100; EQ2Parser sends ACT's
+    native 16. Both reach `top_threats` on the detail route (real store, no
+    stub), a parser row's missing `resist` serves as kind=null, 'All' rollups
+    stay out, and the parser's 13 (power replenish) / 30 (status effect) rows
+    appear in no list."""
+    from backend.server.parses import db as pdb
+    from backend.server.server_context import default_server
+
+    world = default_server().world
+    conn = pdb.store.init_db()
+    try:
+        conn.execute(
+            "INSERT INTO encounters (id, world, act_encid, title, started_at, ended_at, duration_s, "
+            "source_dsn, ingested_at) OVERRIDING SYSTEM VALUE "
+            "VALUES (1, %s, 'E1', 'Tarinax', 0, 434, 434, 'eq2act', 1)",
+            (world,),
+        )
+        conn.execute(
+            "INSERT INTO combatants (id, encounter_id, name, ally, is_player) OVERRIDING SYSTEM VALUE "
+            "VALUES (10, 1, 'Tankee', 1, 1)"
+        )
+        conn.executemany(
+            "INSERT INTO attack_types (combatant_id, swing_type, attack_name, damage, hits, swings, max_hit, resist) "
+            "VALUES (10, %s, %s, %s, 4, 4, 900, %s)",
+            [
+                (1, "slash", 9000, "slashing"),
+                (16, "Taunt", 50000, None),  # EQ2Parser threat, no kind yet
+                (100, "Undeniable Malice", 27240, "Increase"),  # ACT plugin threat
+                (16, "All", 888888, None),
+                (13, "Mana Flow", 60000, None),
+                (30, "Stupefy", 70000, None),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with patch("backend.server.api.parses.list._require_user", _fake_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/parses/1")
+
+    assert r.status_code == 200
+    tankee = next(c for c in r.json()["combatants"] if c["name"] == "Tankee")
+    assert [(t["ability_name"], t["value"], t["kind"]) for t in tankee["top_threats"]] == [
+        ("Taunt", 50000, None),
+        ("Undeniable Malice", 27240, "Increase"),
+    ]
+    assert [a["attack_name"] for a in tankee["top_attacks"]] == ["slash"]
+    assert tankee["top_heals"] == []
+    assert tankee["top_cures"] == []
+
+
 # ---------------------------------------------------------------------------
 # /parses SWR cache — repeated views serve cached, mutations invalidate
 # ---------------------------------------------------------------------------

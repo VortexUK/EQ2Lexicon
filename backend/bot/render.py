@@ -259,7 +259,7 @@ class ParsePost:
     footer: str
 
 
-#: Embed accent colours (kill / wipe / unknown-mixed).
+#: Embed accent colours (kill / wipe / partial-or-unknown).
 _COLOR_KILL = 0x2EA043
 _COLOR_WIPE = 0xD64545
 _COLOR_NEUTRAL = 0xC9A227
@@ -296,11 +296,14 @@ def build_parse_post(fight: dict, players: list[dict], url: str | None) -> Parse
 
     ``fight`` is a mirror-grouped encounter dict (canonical upload fields +
     ``uploads``); ``players`` its ally player combatants."""
+    # ACT success level: 1 = win, 3 = loss (the enemy lived and no player
+    # survived: a wipe), 2 = partial / unclear, 0 = unknown. Only 3 is a wipe;
+    # 2 shares the neutral treatment with 0.
     success = fight.get("success_level") or 0
     emoji, color = (
-        ("✅", _COLOR_KILL) if success == 1 else ("💀", _COLOR_WIPE) if success == 2 else ("⚔️", _COLOR_NEUTRAL)
+        ("✅", _COLOR_KILL) if success == 1 else ("💀", _COLOR_WIPE) if success == 3 else ("⚔️", _COLOR_NEUTRAL)
     )
-    wipe = " (wipe)" if success == 2 else ""
+    wipe = " (wipe)" if success == 3 else ""
     title = f"{emoji} {fight.get('title') or 'Unknown encounter'} — {_fmt_fight_duration(fight.get('duration_s') or 0)}{wipe}"
 
     raid_dps = sum(p.get("encdps") or 0 for p in players)

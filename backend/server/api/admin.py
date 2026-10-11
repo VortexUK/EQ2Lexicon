@@ -107,9 +107,11 @@ class AdminParseItem(BaseModel):
     hidden_at: int | None = None
     hidden_by: str | None = None
     hidden_by_name: str | None = None
-    # Soft warnings the plugin (v0.1.15+) attached at upload time —
-    # currently just "folder_hint_mismatch". None when the parse had no
-    # warnings; admin UI renders a ⚠ chip when non-empty.
+    # Soft signals the client attached at upload time. The ACT plugin
+    # (v0.1.15+) sends "folder_hint_mismatch"; EQ2Parser sends the
+    # log-provenance stamps "log_writer_eq2" or "log_writer_unverified",
+    # plus a bare "log_foreign_holder". None when the upload carried none;
+    # admin UI renders a ⚠ chip when non-empty.
     client_warnings: list[str] | None = None
 
 

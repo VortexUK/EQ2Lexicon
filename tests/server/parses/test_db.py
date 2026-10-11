@@ -630,6 +630,99 @@ class TestSwingTypeSplit:
         assert names == ["Undeniable Malice"]
         assert threats[0]["resist"] == "Increase"
 
+    # EQ2Parser (the desktop parser) sends ACT's native threat swing type, 16;
+    # the ACT plugin maps the same bucket to 100. Both must reach the Threat
+    # tab. The parser also sends 13 (power replenish) and 30 (its own
+    # status-effect category), which are stored and selected by nothing.
+
+    @staticmethod
+    def _add_rows(conn, cid, rows):
+        """rows: (swing_type, attack_name, damage, resist)."""
+        conn.executemany(
+            "INSERT INTO attack_types (combatant_id, victim, swing_type, attack_name, "
+            "damage, hits, swings, crit_hits, max_hit, resist) "
+            "VALUES (%s, '', %s, %s, %s, 3, 3, 0, 900, %s)",
+            [(cid, swing_type, name, damage, resist) for swing_type, name, damage, resist in rows],
+        )
+
+    def test_threat_swing_types_cover_both_clients(self):
+        assert int(parses_db.SwingType.THREAT) == 16
+        assert int(parses_db.SwingType.PROC) == 100
+        assert sorted(parses_db._THREAT_SWING_TYPES) == [16, 100]
+
+    def test_top_threats_includes_parser_swing_type_16(self, parses_db_conn):
+        """A swing_type=16 row (EQ2Parser) lands in the threat list beside the
+        swing_type=100 row (ACT plugin), which is still returned. The parser
+        does not send `resist` yet, so its kind is NULL."""
+        cid = self._seed(parses_db_conn)
+        self._add_rows(parses_db_conn, cid, [(16, "Taunt", 50000, None)])
+        threats = parses_db.store.get_top_threats_for_combatant(parses_db_conn, cid)
+        # Sorted by damage DESC across both swing types.
+        assert [(t["attack_name"], t["swing_type"]) for t in threats] == [("Taunt", 16), ("Undeniable Malice", 100)]
+        assert threats[0]["resist"] is None
+        assert threats[1]["resist"] == "Increase"
+
+    def test_top_threats_excludes_All_rollup_for_both_swing_types(self, parses_db_conn):
+        cid = self._seed(parses_db_conn)
+        self._add_rows(
+            parses_db_conn,
+            cid,
+            [(16, "Taunt", 50000, None), (16, "All", 888888, None), (100, "All", 999999, "All")],
+        )
+        threats = parses_db.store.get_top_threats_for_combatant(parses_db_conn, cid)
+        assert [t["attack_name"] for t in threats] == ["Taunt", "Undeniable Malice"]
+
+    def test_power_and_status_effect_rows_appear_in_no_list(self, parses_db_conn):
+        """Swing types 13 and 30 are stored and shown on no tab: not damage,
+        not heals, not cures, not threat."""
+        cid = self._seed(parses_db_conn)
+        self._add_rows(
+            parses_db_conn,
+            cid,
+            [(13, "Mana Flow", 60000, None), (30, "Stupefy", 70000, None)],
+        )
+        stored = parses_db_conn.execute(
+            "SELECT attack_name FROM attack_types WHERE combatant_id = %s AND swing_type IN (13, 30) "
+            "ORDER BY swing_type",
+            (cid,),
+        ).fetchall()
+        assert [r["attack_name"] for r in stored] == ["Mana Flow", "Stupefy"]
+
+        store = parses_db.store
+        single = {
+            "top_attacks": store.get_top_attacks_for_combatant(parses_db_conn, cid),
+            "top_heals": store.get_top_heals_for_combatant(parses_db_conn, cid),
+            "top_cures": store.get_top_cures_for_combatant(parses_db_conn, cid),
+            "top_threats": store.get_top_threats_for_combatant(parses_db_conn, cid),
+        }
+        bulk = store.get_detail_breakdowns_bulk(parses_db_conn, [cid])
+        for key, rows in single.items():
+            for listed in (rows, bulk[key][cid]):
+                names = {r["attack_name"] for r in listed}
+                assert not names & {"Mana Flow", "Stupefy"}, key
+        # The lists the seed rows belong to are otherwise unchanged.
+        assert [r["attack_name"] for r in single["top_attacks"]] == ["crush", "Smite"]
+        assert [r["attack_name"] for r in single["top_heals"]] == ["Reverence", "Stonewill"]
+        assert [r["attack_name"] for r in single["top_cures"]] == ["Cure"]
+        assert [r["attack_name"] for r in single["top_threats"]] == ["Undeniable Malice"]
+
+    def test_bulk_threats_match_the_single_combatant_getter(self, parses_db_conn):
+        """The parse detail page reads the bulk variant: it must select both
+        threat swing types and drop 'All' exactly like the single getter."""
+        cid = self._seed(parses_db_conn)
+        self._add_rows(
+            parses_db_conn,
+            cid,
+            [(16, "Taunt", 50000, None), (16, "All", 888888, None), (100, "All", 999999, "All")],
+        )
+        bulk = parses_db.store.get_detail_breakdowns_bulk(parses_db_conn, [cid])
+        assert [(t["attack_name"], t["swing_type"]) for t in bulk["top_threats"][cid]] == [
+            ("Taunt", 16),
+            ("Undeniable Malice", 100),
+        ]
+        # A threat row never leaks into the damage list.
+        assert [a["attack_name"] for a in bulk["top_attacks"][cid]] == ["crush", "Smite"]
+
     def test_no_heals_returns_empty(self, parses_db_conn):
         enc = _sample_encounter()
         eid = parses_db.store.insert_encounter(

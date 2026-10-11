@@ -153,7 +153,12 @@ class Encounter:
     encdps: float
     kills: int
     deaths: int
-    # ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=loss, 3=mixed.
+    # ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=partial/unclear
+    # (exactly one of "main enemy died" / "an ally player survived" is true),
+    # 3=loss (enemy lived, no player survived). Full rule beside
+    # IngestEncounter.success in backend/server/api/parses/models.py. The
+    # column comment in db/migrations/0002_parses.sql ("2=loss, 3=mixed") has
+    # 2 and 3 swapped and is left as written (applied migration).
     # Defaults to 0 (unknown) for callers that can't compute it.
     success_level: int = 0
 
@@ -356,7 +361,12 @@ class AttackType:
     encid: str
     combatant_name: str  # ACT column is `attacker`
     victim: str | None
-    swing_type: int  # 100='All' rollup (filtered at ingest); 1=melee; 2=spell, etc.
+    # 1=melee, 2=spell/skill, 3=heal, 20=cure. Threat is 100 from the ACT
+    # plugin (type='All' at 100 is the rollup, filtered at ingest) and 16
+    # from EQ2Parser. EQ2Parser also sends 13 (power replenish) and, up to
+    # v0.5.7, 30 (its own status-effect category): stored, shown on no tab. Full table:
+    # backend/server/parses/db.py, above SwingType.
+    swing_type: int
     attack_name: str  # ACT column is `type`
     started_at: datetime | None
     ended_at: datetime | None

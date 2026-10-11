@@ -32,29 +32,44 @@ _EMPTY_SNAPSHOT = CombatantSnapshot()
 SCHEMA = "parses"
 
 
-# ACT swing_type semantics confirmed against real EQ2 data:
+# swing_type semantics confirmed against real EQ2 data. Two clients upload
+# (the ACT plugin and EQ2Parser, the desktop parser) and they agree on every
+# value except threat:
 #   1   = melee auto-attack
 #   2   = skill/spell damage
 #   3   = heal events (resist column: 'Hitpoints' regular heal, 'Absorption' ward)
 #   20  = cures (resist='relieves'; the `damage` column is the number of
 #         detrimental effects removed)
+#   16  = threat as EQ2Parser sends it: ACT's own swing type for threat.
+#         `resist` is NULL on rows from EQ2Parser up to v0.5.7; later
+#         builds send 'Increase' / 'Decrease' (and 'Hitpoints' /
+#         'Absorption' on heals, as the plugin does).
 #   100 + type='All'  = aggregate rollup (filtered out at ingest)
-#   100 + type!='All' = threat / buff procs (resist='Increase' for threat
-#                       boosters like 'Undeniable Malice')
+#   100 + type!='All' = threat / buff procs as the ACT PLUGIN sends them: it
+#                       maps ACT's "Threat (Out)" bucket to 100
+#                       (resist='Increase' for threat boosters like
+#                       'Undeniable Malice', 'Decrease' for reducers)
+# EQ2Parser also sends values no reader selects — the rows are stored and
+# shown on no tab:
+#   13  = power replenish
+#   30  = the parser's own status-effect category (builds up to v0.5.7 only;
+#         later builds keep it local and do not upload it)
 # ACT writes everything as 'AttackType' rows at depth 4 — we split by
 # swing_type at query so each category gets its own UI tab.
 
 
 class SwingType(IntEnum):
-    """ACT swingtype column values — confirmed against ACT's attacktype_table
-    column semantics (see the comment block immediately above this class
-    for the full enumeration)."""
+    """swingtype column values the readers select on — confirmed against
+    ACT's attacktype_table column semantics (see the comment block
+    immediately above this class for the full enumeration, including which
+    client sends which threat value)."""
 
     MELEE = 1
     NONMELEE = 2
     HEAL = 3
+    THREAT = 16  # EQ2Parser (ACT's native threat swing type)
     CURE = 20
-    PROC = 100
+    PROC = 100  # ACT plugin's threat / buff-proc bucket
 
 
 # Quarantined payloads are evidence, not a second copy of the parse store:
@@ -65,7 +80,9 @@ TAMPER_PAYLOAD_CAP = 512 * 1024
 _DAMAGE_SWING_TYPES = [int(SwingType.MELEE), int(SwingType.NONMELEE)]
 _HEAL_SWING_TYPES = [int(SwingType.HEAL)]
 _CURE_SWING_TYPES = [int(SwingType.CURE)]
-_THREAT_SWING_TYPES = [int(SwingType.PROC)]  # callers should additionally filter type != 'All'
+# Both clients' threat values (ACT plugin 100, EQ2Parser 16). The threat SQL
+# blocks take this list as a parameter and filter attack_name <> 'All'.
+_THREAT_SWING_TYPES = [int(SwingType.PROC), int(SwingType.THREAT)]
 
 
 class ParsesStore(PgCatalogue):
@@ -501,9 +518,9 @@ class ParsesStore(PgCatalogue):
         combatant_id: int,
         limit: int = 10,
     ) -> list[dict]:
-        """Threat / buff-proc rows (swing_type=100, type != 'All'). For threat
-        procs the `damage` column is the threat-increase value; `hits` is
-        proc count."""
+        """Threat / buff-proc rows (swing_type 100 from the ACT plugin or 16
+        from EQ2Parser, type != 'All'). For threat procs the `damage` column
+        is the threat-increase value; `hits` is proc count."""
         rows = conn.execute(
             _SQL["get_top_threats"],
             (combatant_id, _THREAT_SWING_TYPES, limit),
@@ -597,8 +614,8 @@ class ParsesStore(PgCatalogue):
     ) -> None:
         """Set (or clear) the client_warnings JSON blob on an encounter.
 
-        Pass ``None`` (or an empty string) when the plugin didn't send any
-        warnings — the column stays NULL, which is the "no warnings" sentinel
+        Pass ``None`` (or an empty string) when the client (ACT plugin or
+        EQ2Parser) sent none — the column stays NULL, which is the "no warnings" sentinel
         the admin table uses to decide whether to render the ⚠ chip.
 
         Caller is responsible for serialising the list of warning strings to

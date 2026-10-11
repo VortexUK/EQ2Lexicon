@@ -18,8 +18,13 @@ import re
 # EQ2 character names are letters only, max 15 chars. Daybreak's naming rules.
 CHARACTER_NAME_RE = re.compile(r"^[A-Za-z]{1,15}$")
 
-# EQ2 server names: letters, digits, spaces, apostrophes, hyphens, underscores.
-# Max 30 chars to match the Pydantic max_length=30 on logger_server.
+# EQ2 server names: a letter, then letters, digits, spaces, apostrophes,
+# hyphens, underscores. Max 31 chars: the leading letter plus up to 30 more.
+# This is the effective limit wherever sanitize_world gates a server name
+# (parse ingest, attendance). It is NOT the same number as the Pydantic
+# limit: IngestRequest.logger_server allows max_length=64, so a 32-64 char
+# value passes the model and is then refused here as malformed. The
+# tamper-report route records a value that fails this shape as sent.
 WORLD_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 '_-]{0,30}$")
 
 # Guild names allow spaces and apostrophes. Looser than character names by

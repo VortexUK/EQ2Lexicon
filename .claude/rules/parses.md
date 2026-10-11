@@ -20,7 +20,15 @@ The [EQ2LexiconACTPlugin](https://github.com/VortexUK/EQ2LexiconACTPlugin) sends
 
 Plugin auto-detects the EQ2 server from its log file path (`<install>/logs/<server>/eq2log_<character>.txt`) and stamps it as `logger_server` on every upload. The server uses it to override `EQ2_WORLD` for the Census guild lookup — so a Varsoon-configured deployment correctly resolves a Kaladim character's guild without needing per-deployment world config.
 
-Backward compat: absent / null / empty `logger_server` → falls back to `EQ2_WORLD` env var as before. Older plugin versions and the local-ingest path keep working unchanged. The override path lives in `_resolve_uploader_guild_async(uploader, world=None, *, allow_census=False)`.
+`logger_server` is required on the route (no backward-compat fallback): absent / null / empty → 400, malformed shape → 400, not in `ALLOWED_SERVERS` → 403. The validated value is the parse's `world`. Only the helpers keep a default: `_resolve_uploader_guild_async(uploader, world=None, *, allow_census=False)` and the snapshot resolvers fall back to `EQ2_WORLD` when called with no usable world, which the route never does. Detail: `docs/architecture/upload-integrity.md`.
+
+**Mirrored with EQ2Parser — change both repos together** (the parser's half is `LexiconUploadClient`):
+
+- `X-Lexicon-Signature` (`PLUGIN_SIGNATURE_HEADER`), also mirrored by the ACT plugin.
+- `X-Lexicon-Reject` (`REJECT_HEADER` in `ingest.py`, 2026-10-11): response header on a refusal that is about THIS upload, not the caller's account. The parser pauses its whole queue on a 401/403 unless it is present. Add it (short lowercase code) only where a different upload from the same token could succeed; never on an account-level refusal (token, `Account not approved`, the attendance `subscriber` gate). Additive: status and `detail` never change. Codes: `server-not-allowed` (parse ingest), `server-not-tracked` / `no-claim` / `no-guild` (`backend/server/api/attendance.py`, ingest and mains). Table: `docs/architecture/parse-ingest.md`.
+- `client_warnings` values: ACT plugin `folder_hint_mismatch`; EQ2Parser `log_writer_eq2` / `log_writer_unverified` plus a bare `log_foreign_holder`. Stored as sent.
+- The `EQ2Parser/` User-Agent prefix (`_is_eq2parser`): picks parser-appropriate `detail` text for the missing-signature 401 and missing-`logger_server` 400. Other clients keep the ACT-plugin wording byte-for-byte; never echo the User-Agent.
+- The raid-boss list normaliser and 7-player floor (below).
 
 **Gzip uploads (plugin v0.1.16+, server 2026-07-28)**: `GzipRequestMiddleware` (backend/server/core/gzip_request.py, pure ASGI) transparently inflates any request with `Content-Encoding: gzip` before FastAPI parsing and the HMAC check see the body — the signature contract stays "HMAC over the uncompressed JSON" for both formats, and plain uploads pass through untouched (old plugins unaffected). 16 MiB decompressed cap (413), bad gzip → 400. Rationale: 282 KB ACT payloads on a ~120 kbit/s throttled route couldn't finish inside the plugin's HttpClient timeout; gzip is 10–20×.
 
@@ -30,7 +38,7 @@ Backward compat: absent / null / empty `logger_server` → falls back to `EQ2_WO
 
 Plugin computes `HMAC-SHA256(body_bytes, api_token)` and ships it as `X-Lexicon-Signature` (lowercase hex). Server reads the bearer token from the Authorization header, recomputes the HMAC over `await request.body()`, and `hmac.compare_digest`s against the header. Mismatch → 401.
 
-Runs in **strict** mode (`_validate_payload_signature`): on token auth the header is required — absence is a 401 whose `detail` includes the releases URL so the user knows to update. Browsers (session-cookie auth) skip validation since they have no token-style key, but sending the header from a session client is a 400 (confused client > silent accept). The rollout went straight to strict because the user base is small and all pre-alpha; if you ever need an opportunistic-mode reintroduction, restore the `if not sig_header: return` early-out under a feature flag.
+Runs in **strict** mode (`_validate_payload_signature`): on token auth the header is required — absence is a 401 whose `detail` includes the releases URL so the user knows to update (EQ2Parser is told to update EQ2Parser instead). Browsers (session-cookie auth) skip validation since they have no token-style key, but sending the header from a session client is a 400 (confused client > silent accept). The rollout went straight to strict because the user base is small and all pre-alpha; if you ever need an opportunistic-mode reintroduction, restore the `if not sig_header: return` early-out under a feature flag.
 
 Threat model: the legitimate token holder can sign anything — this doesn't stop a user forging their own parse. What it does stop is (a) casual payload tampering by editing JSON in a debugging proxy, (b) MITM mutation of the body in flight, (c) replay using only a stolen token without the protocol knowledge to sign. Real integrity has to come from server-side sanity checks (DPS-vs-level caps, plausible encounter duration, cross-validation) layered on top.
 

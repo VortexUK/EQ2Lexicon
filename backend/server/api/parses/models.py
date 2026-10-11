@@ -68,7 +68,7 @@ class ParseEncounterSummary(BaseModel):
     encdps: float
     kills: int
     deaths: int
-    success_level: int  # ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
+    success_level: int  # ACT enum: 0=unknown, 1=win, 2=partial/unclear, 3=loss (see IngestEncounter.success)
     combatant_count: int
     player_count: int  # ally combatants with single-word names, excluding 'Unknown'
     # Backed by backend/server/api/parses/list.py:_classify_zone — Raid / Dungeon /
@@ -133,14 +133,19 @@ class CureSummary(BaseModel):
 
 
 class ThreatSummary(BaseModel):
-    """Threat / buff proc (swing_type=100, type != 'All'). For threat
-    procs `value` is the threat amount; `procs` is how many times it fired."""
+    """Threat / buff proc (type != 'All'): swing_type=100 from the ACT plugin
+    (it maps ACT's "Threat (Out)" bucket to 100) or 16 from EQ2Parser (ACT's
+    own threat swing type). For threat procs `value` is the threat amount;
+    `procs` is how many times it fired."""
 
     ability_name: str
     value: int
     procs: int
     max_proc: int
-    kind: str | None  # ACT's `resist` column — 'Increase' for threat procs
+    # The row's `resist` column: 'Increase' / 'Decrease' from the ACT plugin.
+    # None for rows from EQ2Parser up to v0.5.7 (later builds send it); the
+    # page shows a dash.
+    kind: str | None
 
 
 class DamageTypeBreakdown(BaseModel):
@@ -213,7 +218,7 @@ class ParseDetailResponse(BaseModel):
     encdps: float
     kills: int
     deaths: int
-    success_level: int  # ACT enum: 0=unknown, 1=win, 2=loss, 3=mixed
+    success_level: int  # ACT enum: 0=unknown, 1=win, 2=partial/unclear, 3=loss (see IngestEncounter.success)
     # Who uploaded this specific parse. ``uploaded_by`` is the character
     # name (kept for backward compatibility and "whose POV is this?");
     # ``uploader_discord_id`` + ``uploader_display_name`` carry the
@@ -321,6 +326,11 @@ class IngestAttackType(BaseModel):
     attacker: str = ""
     type: str = ""  # attack name, e.g. "Crushing Blow"
     victim: str | None = None
+    # Stored as sent. Both clients: 1 melee, 2 spell/skill damage, 3 heal,
+    # 20 cure. Threat is 100 from the ACT plugin and 16 from EQ2Parser, and
+    # the readers select both. EQ2Parser also sends 13 (power replenish) and,
+    # up to v0.5.7, 30 (its own status-effect category): stored, shown on no tab. Full
+    # table: backend/server/parses/db.py, above SwingType.
     swingtype: int | None = None
     starttime: str | None = None
     endtime: str | None = None
@@ -361,7 +371,20 @@ class IngestEncounter(BaseModel):
     encdps: float = 0
     kills: int = 0
     deaths: int = 0
-    # ACT's GetEncounterSuccessLevel(): 0=unknown, 1=win, 2=loss, 3=mixed.
+    # ACT's GetEncounterSuccessLevel(). The ACT plugin passes ACT's number
+    # through untouched; EQ2Parser reimplements the same rule:
+    #   0 = indeterminate
+    #   1 = win: the main enemy died AND at least one ally player survived
+    #   2 = partial / unclear: exactly one of those two is true (the enemy
+    #       died but every player died at some point, or the enemy lived and
+    #       at least one player never died)
+    #   3 = loss: the enemy lived and no player survived (a wipe)
+    # Stored as encounters.success_level. Every rule on the site (rankings,
+    # retention, spell audit, kill progress, the bot's posting filter) tests
+    # == 1 only; 2 and 3 differ in display alone. The comment beside the
+    # column in db/migrations/0002_parses.sql has 2 and 3 the wrong way round
+    # ("2=loss, 3=mixed") and stays as written: applied migrations are never
+    # edited.
     success: int = 0
 
 
@@ -388,12 +411,18 @@ class IngestRequest(BaseModel):
     combatants: list[IngestCombatant] = Field(default_factory=list, max_length=512)
     damage_types: list[IngestDamageType] = Field(default_factory=list, max_length=8000)
     attack_types: list[IngestAttackType] = Field(default_factory=list, max_length=16000)
-    # Soft warnings the plugin (v0.1.15+) attaches when something looked
-    # off but not bad enough to block the upload. Currently just
-    # ``"folder_hint_mismatch"`` — ACT's per-encounter HistoryRecord.FolderHint
-    # disagreed with the detected logger_server. Hard tamper signals
-    # (rename, import) go via the separate /parses/tamper-report channel
-    # and never reach here.
+    # Soft signals the client attaches to an upload that is still accepted.
+    # Each client sends its own values:
+    #   * ACT plugin (v0.1.15+): ``"folder_hint_mismatch"`` — ACT's
+    #     per-encounter HistoryRecord.FolderHint disagreed with the detected
+    #     logger_server.
+    #   * EQ2Parser: log-provenance stamps on every upload — exactly one of
+    #     ``"log_writer_eq2"`` (the EQ2 process held the log file) or
+    #     ``"log_writer_unverified"`` (it did not, e.g. a backlog parse),
+    #     plus a bare ``"log_foreign_holder"`` when a process other than EQ2
+    #     or ACT held it (never a process name).
+    # Hard tamper signals (rename, import) go via the separate
+    # /parses/tamper-report channel and never reach here.
     #
     # Caps mirror the plugin-side defensive limits (32 entries × 64 chars)
     # so a hostile/buggy client can't fill the column with megabytes of
@@ -402,8 +431,11 @@ class IngestRequest(BaseModel):
 
 
 class IngestResponse(BaseModel):
-    status: str  # 'inserted', 'revived', or 'skipped'
-    encounter_id: int | None  # our internal id (None for skipped)
+    # 'inserted', 'skipped' (already ingested) or 'quarantined' (the
+    # plausibility gate filed it as a tamper report; still a 201). 'revived'
+    # is handled by the route but no code path produces it today.
+    status: str
+    encounter_id: int | None  # our internal id (None for skipped and quarantined)
     act_encid: str
     combatants: int
     damage_types: int

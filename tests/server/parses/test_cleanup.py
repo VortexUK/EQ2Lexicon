@@ -126,7 +126,9 @@ def test_hidden_non_primary_upload_not_deleted(seeded_db):
 
 def test_winning_primary_preserved_when_longest_is_a_loss(seeded_db):
     base = NOW - 10 * DAY
-    # Longest upload is a LOSS; a shorter upload is the WIN rankings would link.
+    # Longest upload is NOT A WIN; a shorter upload is the WIN rankings would
+    # link. (Level 2 is ACT's partial / unclear, 3 its loss; retention only
+    # asks "is it 1?", so either stands in for "a loss" here.)
     long_loss = _insert(
         seeded_db,
         title="Captain Krasniv",

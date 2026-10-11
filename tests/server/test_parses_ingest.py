@@ -459,6 +459,114 @@ async def test_signature_required_on_token_auth(app):
 
 
 # ---------------------------------------------------------------------------
+# Error text by client: EQ2Parser shows `detail` verbatim in its status line,
+# and its users do not run the ACT plugin. The client is recognised only by a
+# User-Agent prefix (EQ2Parser/<version>); every other client keeps the
+# original wording byte-for-byte.
+# ---------------------------------------------------------------------------
+
+_PLUGIN_MISSING_SIGNATURE_DETAIL = (
+    "X-Lexicon-Signature is required for plugin uploads. "
+    "Update the EQ2 Lexicon ACT plugin to v0.1.8 or later: "
+    "https://github.com/VortexUK/EQ2LexiconACTPlugin/releases/latest"
+)
+_PLUGIN_MISSING_SERVER_DETAIL = (
+    "logger_server is required. Please update the EQ2 Lexicon ACT plugin to v0.1.14 or later."
+)
+
+# Not EQ2Parser: the plugin, a browser-ish string that merely contains the
+# name (prefix match, not substring), a lookalike product, and no header at
+# all (httpx then sends its own python-httpx/<version>).
+_NOT_PARSER_USER_AGENTS = [
+    "EQ2LexiconACTPlugin/0.1.16",
+    "Mozilla/5.0 EQ2Parser/0.5.7",
+    "EQ2ParserPro/1.0",
+    None,
+]
+
+
+def _with_user_agent(kwargs: dict, user_agent: str | None) -> dict:
+    if user_agent is not None:
+        kwargs["headers"]["User-Agent"] = user_agent
+    return kwargs
+
+
+async def _post_unsigned(app, user_agent: str | None):
+    headers = {"Authorization": "Bearer eq2c_unsigned"}
+    if user_agent is not None:
+        headers["User-Agent"] = user_agent
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            return await client.post("/api/parses/ingest", json=_minimal_payload(), headers=headers)
+
+
+async def _post_without_server(app, user_agent: str | None):
+    kwargs = _with_user_agent(_signed_post_kwargs(_minimal_payload(logger_server=None)), user_agent)
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            return await client.post("/api/parses/ingest", **kwargs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_agent", ["EQ2Parser/0.5.7", "eq2parser/0.6.0"])
+async def test_missing_signature_text_for_eq2parser(app, user_agent):
+    """The parser is told the upload was unsigned and to update EQ2Parser,
+    never to update an ACT plugin it does not run. Status stays 401."""
+    r = await _post_unsigned(app, user_agent)
+    assert r.status_code == 401
+    detail = r.json()["detail"]
+    assert "not signed" in detail
+    assert "Update EQ2Parser" in detail
+    assert "ACT plugin" not in detail
+    assert "v0.1.8" not in detail
+    assert "EQ2LexiconACTPlugin" not in detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_agent", _NOT_PARSER_USER_AGENTS)
+async def test_missing_signature_text_unchanged_for_other_clients(app, user_agent):
+    r = await _post_unsigned(app, user_agent)
+    assert r.status_code == 401
+    assert r.json()["detail"] == _PLUGIN_MISSING_SIGNATURE_DETAIL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_agent", ["EQ2Parser/0.5.7", "eq2parser/0.6.0"])
+async def test_missing_logger_server_text_for_eq2parser(app, user_agent):
+    """In the parser a missing logger_server means the log file sits directly
+    in the game's logs folder, not that some plugin is out of date."""
+    r = await _post_without_server(app, user_agent)
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "logs/<server>/" in detail
+    assert "not directly in logs" in detail
+    assert "ACT plugin" not in detail
+    assert "v0.1.14" not in detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_agent", _NOT_PARSER_USER_AGENTS)
+async def test_missing_logger_server_text_unchanged_for_other_clients(app, user_agent):
+    r = await _post_without_server(app, user_agent)
+    assert r.status_code == 400
+    assert r.json()["detail"] == _PLUGIN_MISSING_SERVER_DETAIL
+
+
+@pytest.mark.asyncio
+async def test_user_agent_is_never_echoed_in_the_error_or_the_logs(app, caplog):
+    """The User-Agent only selects the wording; its value reaches neither the
+    response nor a log line."""
+    marker = "zz-echo-probe-9.9.9"
+    with caplog.at_level("DEBUG"):
+        unsigned = await _post_unsigned(app, f"EQ2Parser/{marker}")
+        no_server = await _post_without_server(app, f"EQ2Parser/{marker}")
+    assert unsigned.status_code == 401 and no_server.status_code == 400
+    assert marker not in unsigned.text
+    assert marker not in no_server.text
+    assert marker not in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # Defensive validation
 # ---------------------------------------------------------------------------
 
@@ -838,6 +946,105 @@ async def test_ingest_accepts_wuoshi(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
     assert r.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# X-Lexicon-Reject: marks a refusal that is about THIS upload, not about the
+# caller. EQ2Parser pauses its whole upload queue on a 401/403 unless the
+# header is present, so it must be on the allowlist 403 (an alt logging on a
+# server the site does not serve) and on nothing that is about the account.
+# ---------------------------------------------------------------------------
+
+
+def test_reject_header_name_is_the_wire_contract():
+    """EQ2Parser's LexiconUploadClient hardcodes this name."""
+    from backend.server.api.parses.ingest import REJECT_HEADER
+
+    assert REJECT_HEADER == "X-Lexicon-Reject"
+
+
+@pytest.mark.asyncio
+async def test_disallowed_server_403_is_tagged_server_not_allowed(app):
+    """Status and detail are exactly what they were; the header is added."""
+    from backend.server.config import ALLOWED_SERVERS
+
+    payload = _minimal_payload(logger_server="Halls of Fate")
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(payload))
+    assert r.status_code == 403
+    assert r.json()["detail"] == (
+        f"Server 'Halls of Fate' is not on the allowed list. Allowed: {', '.join(sorted(ALLOWED_SERVERS))}."
+    )
+    assert r.headers.get("X-Lexicon-Reject") == "server-not-allowed"
+
+
+@pytest.mark.asyncio
+async def test_unapproved_account_403_is_not_tagged(app):
+    """The auth layer's own 403 is about the account, so the parser must keep
+    treating it as an account-level refusal: no header."""
+    pending_row = {
+        "token_id": 2,
+        "user_id": "discord-pending",
+        "discord_id": "discord-pending",
+        "discord_name": "PendingBob",
+        "discord_username": "pendingbob",
+        "token_name": "Plugin",
+        "access_status": "pending",
+        "avatar": None,
+        "revoked_at": None,
+    }
+    with patch("backend.server.auth_deps.users_db.lookup_api_token", new=AsyncMock(return_value=pending_row)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # A disallowed server in the body too: auth runs first, and the
+            # account-level refusal must win without the upload-level tag.
+            r = await client.post(
+                "/api/parses/ingest",
+                **_signed_post_kwargs(_minimal_payload(logger_server="Halls of Fate"), token="eq2c_pendingtoken"),
+            )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Account not approved"
+    assert "X-Lexicon-Reject" not in r.headers
+
+
+@pytest.mark.asyncio
+async def test_successful_upload_has_no_reject_header(app):
+    sync_result = ("inserted", 101, 2, 1, 2)
+    with (
+        patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user),
+        patch("backend.server.api.parses.ingest._resolve_uploader_guild_async", new=AsyncMock(return_value="Exordium")),
+        patch("backend.server.api.parses.ingest._resolve_combatant_snapshots", new=AsyncMock(return_value={})),
+        patch("backend.server.api.parses.ingest._ingest_payload_sync", new=MagicMock(return_value=sync_result)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/parses/ingest", **_signed_post_kwargs(_minimal_payload()))
+    assert r.status_code == 201
+    assert "X-Lexicon-Reject" not in r.headers
+
+
+@pytest.mark.asyncio
+async def test_other_ingest_refusals_have_no_reject_header(app):
+    """Only the allowlist 403 is tagged. A 400 (missing or malformed
+    logger_server) and a 401 (no token, unsigned, bad signature) are not."""
+    signed_bad_sig = _signed_post_kwargs(_minimal_payload())
+    signed_bad_sig["headers"]["X-Lexicon-Signature"] = "0" * 64
+    with patch("backend.server.api.parses.ingest.require_user_session_or_token", _fake_require_user):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            missing = await client.post(
+                "/api/parses/ingest", **_signed_post_kwargs(_minimal_payload(logger_server=None))
+            )
+            malformed = await client.post(
+                "/api/parses/ingest", **_signed_post_kwargs(_minimal_payload(logger_server="../etc/passwd"))
+            )
+            unsigned = await client.post(
+                "/api/parses/ingest", json=_minimal_payload(), headers={"Authorization": "Bearer eq2c_unsigned"}
+            )
+            bad_sig = await client.post("/api/parses/ingest", **signed_bad_sig)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        no_token = await client.post("/api/parses/ingest", json=_minimal_payload())
+    assert [r.status_code for r in (missing, malformed, unsigned, bad_sig, no_token)] == [400, 400, 401, 401, 401]
+    for r in (missing, malformed, unsigned, bad_sig, no_token):
+        assert "X-Lexicon-Reject" not in r.headers
 
 
 # ---------------------------------------------------------------------------

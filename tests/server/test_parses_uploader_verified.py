@@ -148,3 +148,29 @@ async def test_attendance_refuses_an_unclaimed_logger(app):
             r = await client.post("/api/attendance/ingest", json=body)
     assert r.status_code == 403, r.text
     assert "not a character claimed by your account" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_attendance_unclaimed_logger_403_is_tagged_no_claim(app):
+    """The refusal is about this logging character, not the token: another
+    character the account has claimed uploads fine. X-Lexicon-Reject tells
+    EQ2Parser not to pause everything. Status and detail are unchanged."""
+    body = {
+        "logger_name": "Menludiir",
+        "logger_server": "Varsoon",
+        "sent_at": 1_750_000_000,
+        "raid_members": [],
+        "online_guildies": [],
+        "zones": [],
+    }
+    with (
+        patch("backend.server.api.attendance.require_user_session_or_token", _user("uv-stranger")),
+        patch("backend.server.api.attendance._ensure_subscriber", new=AsyncMock(return_value=None)),
+        patch("backend.server.api.attendance._validate_payload_signature", new=AsyncMock(return_value=None)),
+        patch("backend.server.api.attendance._resolve_uploader_guild_async", new=AsyncMock(return_value="Exordium")),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/attendance/ingest", json=body)
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "'Menludiir' is not a character claimed by your account on Varsoon."
+    assert r.headers.get("X-Lexicon-Reject") == "no-claim"

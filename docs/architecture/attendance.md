@@ -25,6 +25,24 @@ Before storing, the route probes the guild's raid schedule over the snapshot's
 window. The resulting `scheduled` flag and `team_index` are frozen on the
 session, so later schedule edits never rewrite history.
 
+### Refusals
+
+EQ2Parser pauses its uploads on a 401 or 403 unless the response carries
+`X-Lexicon-Reject`, which marks a refusal as being about this request and not
+about the caller's account (the rule is in
+[parse-ingest.md](parse-ingest.md#refusals-about-the-upload)). On
+`POST /api/attendance/ingest` and `GET /api/attendance/mains`:
+
+| 403 | `X-Lexicon-Reject` | Why |
+|---|---|---|
+| `Account not approved` (auth layer) | none | The token's owner is pending or denied; nothing from this token is accepted. |
+| `Attendance tracking is in limited preview.` | none | The `subscriber` role gate is on the account; no other snapshot would pass. |
+| `Server '…' is not tracked here.` | `server-not-tracked` | The log is from a server the site does not serve; a character on a served server works. |
+| `'…' is not a character claimed by your account on …` (ingest only) | `no-claim` | Another character the account has an approved claim on works. |
+| `'…' has no guild…` | `no-guild` | A guilded character of the same account works. |
+
+The header is additive; status codes and `detail` texts are unchanged.
+
 ## Sessions and the merge-gap window
 
 Several officers often run the parser at once, each uploading snapshots. The

@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from backend.bot import render
 from backend.bot.cogs.parse_posts import collect_new_fights, site_url_for
 from backend.bot.render import build_parse_post, fmt_compact
 from backend.server.parses import db as parses_db
@@ -133,9 +134,13 @@ def test_collect_other_guild_and_hidden_excluded(seeded_db):
 
 
 def test_collect_wipes_never_post(seeded_db):
-    """Kills only — a progression night of wipes stays out of the channel."""
-    _insert_fight(seeded_db, success_level=2)  # wipe
+    """Kills only — a progression night of wipes stays out of the channel.
+    The filter is success_level == 1, so every other level stays out."""
+    _insert_fight(seeded_db, success_level=2)  # partial / unclear
     _insert_fight(seeded_db, started_at=NOW + 500, uploaded_by="RaiderB", success_level=0)  # unknown
+    # Level 3 is the wipe (enemy lived, no player survived). Own title so it
+    # can never mirror-group with a neighbour.
+    _insert_fight(seeded_db, title="Venril Sathir", started_at=NOW + 700, uploaded_by="RaiderD", success_level=3)
     assert collect_new_fights("Varsoon", "Exordium", 0, NOW + 3600) == []
     _insert_fight(seeded_db, started_at=NOW + 900, uploaded_by="RaiderC", success_level=1)
     assert len(collect_new_fights("Varsoon", "Exordium", 0, NOW + 3600)) == 1
@@ -189,9 +194,38 @@ def test_build_parse_post_kill():
 
 
 def test_build_parse_post_wipe_and_empty_roster():
-    fight = {"title": "Trakanon", "zone": None, "duration_s": 61, "success_level": 2, "uploads": [1]}
+    # ACT level 3 = loss: the enemy lived and no player survived.
+    fight = {"title": "Trakanon", "zone": None, "duration_s": 61, "success_level": 3, "uploads": [1]}
     post = build_parse_post(fight, [], None)
     assert post.title.startswith("💀") and post.title.endswith("(wipe)")
+    assert post.color == render._COLOR_WIPE
     assert post.fields[0][1] == "—" and post.fields[1][1] == "—"
     assert post.url is None
     assert "1 upload" in post.footer
+
+
+def test_build_parse_post_partial_is_not_a_wipe():
+    """ACT level 2 = partial / unclear (exactly one of "enemy died" and "a
+    player survived"). It used to get the wipe treatment; that belongs to 3."""
+    fight = {"title": "Trakanon", "zone": None, "duration_s": 61, "success_level": 2, "uploads": [1]}
+    post = build_parse_post(fight, _players(), None)
+    assert post.title == "⚔️ Trakanon — 1m 01s"
+    assert "💀" not in post.title and "(wipe)" not in post.title
+    assert post.color == render._COLOR_NEUTRAL
+
+
+@pytest.mark.parametrize(
+    ("success_level", "emoji", "color", "wipe"),
+    [
+        (0, "⚔️", render._COLOR_NEUTRAL, False),
+        (1, "✅", render._COLOR_KILL, False),
+        (2, "⚔️", render._COLOR_NEUTRAL, False),
+        (3, "💀", render._COLOR_WIPE, True),
+    ],
+)
+def test_build_parse_post_outcome_mapping(success_level, emoji, color, wipe):
+    fight = {"title": "Trakanon", "zone": None, "duration_s": 61, "success_level": success_level, "uploads": [1]}
+    post = build_parse_post(fight, _players(), None)
+    assert post.title.startswith(f"{emoji} Trakanon")
+    assert post.color == color
+    assert post.title.endswith("(wipe)") is wipe

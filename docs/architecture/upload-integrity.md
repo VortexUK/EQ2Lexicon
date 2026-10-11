@@ -27,7 +27,7 @@ HMAC-SHA256 of the raw (uncompressed) request body keyed by the bearer token.
 
 | Auth | Header | Result |
 |---|---|---|
-| token | missing | 401, with the plugin releases URL |
+| token | missing | 401, with the plugin releases URL (EQ2Parser is told to update EQ2Parser instead) |
 | token | present | must verify; mismatch is 401 |
 | session | present | 400 (confused client) |
 | session | absent | allowed |
@@ -43,10 +43,15 @@ Details that matter when changing this code:
 
 ## Server allowlist
 
-`logger_server` is detected by the plugin from its log path and is required.
-Missing → 400 asking the user to update the plugin; malformed → 400; not in
-`ALLOWED_SERVERS` (compared case-insensitively, stored in original casing) →
-403 listing the allowed servers. The validated value is the parse's `world`.
+`logger_server` is detected by the client from its log path and is required.
+Missing → 400 asking the user to update the plugin (for EQ2Parser, where the
+cause is a log sitting directly in the game's `logs` folder, the text says to
+use `logs/<server>/`); malformed → 400; not in `ALLOWED_SERVERS` (compared
+case-insensitively, stored in original casing) → 403 listing the allowed
+servers, with `X-Lexicon-Reject: server-not-allowed` so EQ2Parser does not
+mistake it for a rejected token (see
+[parse-ingest.md](parse-ingest.md#refusals-about-the-upload)). The validated
+value is the parse's `world`.
 
 ## Claim binding
 
