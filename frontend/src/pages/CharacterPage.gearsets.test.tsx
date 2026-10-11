@@ -145,15 +145,19 @@ beforeEach(() => {
 // — every test uses a unique character name for isolation.
 
 describe('CharacterPage gear-set pills', () => {
+  // Explicit timeouts: the first test of the file is its slowest (the first
+  // full CharacterPage render, then role queries over the whole page; about
+  // 150 ms alone) and has overrun vitest's default 5 s when the suite shares
+  // the CPU with other work. Per test only: the global timeout is unchanged.
   it('renders a pill per saved set plus Current, showing current gear by default', async () => {
     stubFetch({ char: mkChar('Pillsa'), sets: [DPS_SET, TANK_SET] })
     renderAt('/character/Pillsa')
-    expect(await screen.findByRole('button', { name: 'Current' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Current' }, { timeout: 15_000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'DPS' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tank' })).toBeInTheDocument()
     expect(screen.getByText('Current Helm')).toBeInTheDocument()
     expect(screen.queryByText('Tanky Helm')).not.toBeInTheDocument()
-  })
+  }, 30_000)
 
   it('clicking a set pill swaps the paperdoll to that set and notes the approximation', async () => {
     stubFetch({ char: mkChar('Pillsb'), sets: [TANK_SET] })
