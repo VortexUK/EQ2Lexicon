@@ -70,8 +70,10 @@ export interface AdminParse {
    *  EQ2Parser: exactly one of `"log_writer_eq2"` /
    *  `"log_writer_unverified"` on every upload, plus a bare
    *  `"log_foreign_holder"` when a process other than EQ2 or ACT held
-   *  the log. null when no warnings on this parse; the admin row
-   *  renders a ⚠ chip when non-empty.
+   *  the log. null when the upload carried none. The admin row renders
+   *  a ⚠ chip only when at least one value needs attention
+   *  (`clientWarnings.ts`: `log_writer_eq2` is the good case and does
+   *  not count); the chip's tooltip lists every value as sent.
    *  The hard tamper signals (rename, import) DON'T appear here —
    *  those land in /admin/tamper-reports instead because they
    *  blocked the leaderboard upload entirely. */
@@ -91,7 +93,14 @@ export type TamperReason =
 
 export interface TamperReport {
   id:                     number
+  /** The world the report is stored under. For an unrouted report it is
+   *  untrusted text left by the uploader's `logger_server`: render it as
+   *  text only. */
   world:                  string
+  /** True when `world` is not a server this site serves, so the report
+   *  belongs to no server's panel and is listed on every one. Optional:
+   *  an older API container (deploys overlap) does not send it. */
+  unrouted?:              boolean
   act_encid:              string
   title:                  string
   zone:                   string | null
@@ -112,7 +121,11 @@ export interface TamperReport {
 
 export interface TamperReportListResponse {
   results:       TamperReport[]
+  /** Pending reports of the active server (what "Acknowledge all" flips). */
   pending_count: number
+  /** Pending unrouted reports, counted apart from `pending_count`.
+   *  Optional for the same reason as `TamperReport.unrouted`. */
+  unrouted_pending_count?: number
 }
 
 export type TamperReportFilter = 'pending' | 'ack' | 'all'

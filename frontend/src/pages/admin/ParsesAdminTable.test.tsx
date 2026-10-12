@@ -14,6 +14,11 @@ import type { AdminParse } from './types'
 interface Recorded { url: string; method: string }
 let calls: Recorded[]
 
+// Allowance for the one test that renders a full batch of rows (see it).
+// Per test only: the global vitest timeout stays at its default.
+const SLOW_TEST_MS = 30_000
+const SLOW_RENDER_MS = 15_000
+
 function parse(id: number, hidden: boolean): AdminParse {
   return {
     id,
@@ -92,17 +97,22 @@ describe('ParsesAdminTable bulk unhide', () => {
     expect(screen.getByRole('button', { name: /Unhide selected \(1\)/ })).toBeEnabled()
   })
 
+  // Explicit timeouts: this renders one row more than a batch (201 rows) in
+  // jsdom and re-renders them as the selection and the reload land (about
+  // 700 ms alone). It has overrun vitest's default 5 s when the suite shares
+  // the CPU with other work. The row count is the point of the test, so it
+  // gets time, not fewer rows.
   it('chunks a large restore at the batch size', async () => {
     const rows = Array.from({ length: PARSE_BATCH_CHUNK_SIZE + 1 }, (_, i) => parse(i + 1, true))
     mockFetch(rows)
     renderTable()
-    await screen.findByText('Boss 1')
+    await screen.findByText('Boss 1', {}, { timeout: SLOW_RENDER_MS })
     fireEvent.click(screen.getByRole('button', { name: /Select all hidden/ }))
     fireEvent.click(screen.getByRole('button', { name: /Unhide selected/ }))
-    await waitFor(() => expect(calls.filter(c => c.method === 'POST')).toHaveLength(2))
+    await waitFor(() => expect(calls.filter(c => c.method === 'POST')).toHaveLength(2), { timeout: SLOW_RENDER_MS })
     const posted = calls.filter(c => c.method === 'POST').map(c => new URL(c.url, 'http://test').searchParams.get('ids')!.split(',').length)
     expect(posted).toEqual([PARSE_BATCH_CHUNK_SIZE, 1])
-  })
+  }, SLOW_TEST_MS)
 
   it('"Hidden only" refetches with hidden=true and drops visible rows', async () => {
     mockFetch([parse(1, true), parse(2, false)])
@@ -122,6 +132,58 @@ describe('ParsesAdminTable bulk unhide', () => {
     fireEvent.click(screen.getByRole('button', { name: /Select all hidden/ }))
     fireEvent.click(screen.getByRole('button', { name: /Unhide selected \(1\)/ }))
     expect(calls.filter(c => c.method === 'POST')).toHaveLength(0)
+  })
+})
+
+// The ⚠ chip once showed for any non-empty client_warnings, and EQ2Parser
+// stamps `log_writer_eq2` (the game held the log: the good case) on every
+// automatic upload, so every parse from the desktop parser carried it. Which
+// values count is decided in clientWarnings.ts.
+describe('ParsesAdminTable client-warning chip', () => {
+  async function chipFor(clientWarnings: string[] | null): Promise<HTMLElement | null> {
+    mockFetch([{ ...parse(1, false), client_warnings: clientWarnings }])
+    renderTable()
+    await screen.findByText('Boss 1')
+    return screen.queryByLabelText(/Client warnings/)
+  }
+
+  it('shows no chip when the upload carried no warnings', async () => {
+    expect(await chipFor(null)).toBeNull()
+  })
+
+  it('shows no chip for the benign EQ2Parser stamp alone', async () => {
+    expect(await chipFor(['log_writer_eq2'])).toBeNull()
+  })
+
+  it.each(['log_writer_unverified', 'log_foreign_holder', 'folder_hint_mismatch'])(
+    'shows the chip for %s',
+    async code => {
+      const chip = await chipFor([code])
+      expect(chip).not.toBeNull()
+      expect(chip).toHaveTextContent('⚠ 1')
+      expect(chip).toHaveAttribute('title', expect.stringContaining(code))
+    },
+  )
+
+  it('shows the chip for a value no client sends today', async () => {
+    const chip = await chipFor(['brand_new_signal_v2'])
+    expect(chip).toHaveTextContent('⚠ 1')
+    expect(chip).toHaveAttribute('title', expect.stringContaining('brand_new_signal_v2'))
+  })
+
+  it('counts only the values needing attention but lists every value as sent', async () => {
+    const chip = await chipFor(['log_writer_eq2', 'log_foreign_holder'])
+    expect(chip).toHaveTextContent('⚠ 1')  // not 2: log_writer_eq2 is not a warning
+    const title = chip!.getAttribute('title')!
+    expect(title).toContain('needing a look: log_foreign_holder.')
+    // The benign stamp is still there for an admin who wants the detail.
+    expect(title).toContain('Everything the client sent: log_writer_eq2, log_foreign_holder')
+    expect(chip).toHaveAttribute('aria-label', title)
+  })
+
+  it('counts two when two values need attention', async () => {
+    const chip = await chipFor(['log_writer_unverified', 'log_foreign_holder'])
+    expect(chip).toHaveTextContent('⚠ 2')
   })
 })
 

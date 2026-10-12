@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui'
 import { fmtLocalDate, fmtLocalDateTime } from '../../formatters'
 import { outcomeLabel } from '../../encounterOutcome'
+import { warningsNeedingAttention } from '../../clientWarnings'
 import { PARSE_BATCH_CHUNK_SIZE } from '../parses/api'
 import {
   type AdminParse,
@@ -22,6 +23,32 @@ const ADMIN_PAGE_LIMIT = 200
 // authoritative is_boss() server-side. Inlined here so the admin chunk
 // doesn't pull in the whole ParsesPage module.
 const isTrashTitle = (title: string): boolean => !/^[A-Z]/.test(title)
+
+// Soft-warning chip for a parse whose uploading client stamped something
+// worth a look. Which stamps are worth a look is decided in ONE place,
+// clientWarnings.ts: EQ2Parser stamps `log_writer_eq2` (the game held the
+// log: the good case) on every automatic upload, so "any stamp at all" put
+// the chip on every parse from the desktop parser. The chip counts only the
+// values needing attention and is absent when there are none; its tooltip
+// still lists every value as the client sent it, the benign one included.
+// The hard tamper signals are NOT here: those landed in the tamper-reports
+// table and never reached encounters.
+function ClientWarningChip({ warnings }: { warnings: string[] | null }) {
+  const attention = warningsNeedingAttention(warnings)
+  if (attention.length === 0) return null
+  const label =
+    `Client warnings needing a look: ${attention.join(', ')}. ` +
+    `Everything the client sent: ${(warnings ?? []).join(', ')}`
+  return (
+    <span
+      className="ml-2 bg-warning/15 text-warning border border-warning/40 rounded px-1.5 py-0.5 text-[0.7rem] uppercase tracking-[0.05em] align-middle"
+      title={label}
+      aria-label={label}
+    >
+      ⚠ {attention.length}
+    </span>
+  )
+}
 
 // ── ParsesAdminTable ──────────────────────────────────────────────────────────
 
@@ -349,24 +376,7 @@ export function ParsesAdminTable() {
                         Hidden{p.hidden_by ? ` · ${p.hidden_by_name ?? p.hidden_by}` : ''}
                       </span>
                     )}
-                    {p.client_warnings && p.client_warnings.length > 0 && (
-                      // Soft-warning chip for parses the uploading client
-                      // stamped at upload time. ACT plugin:
-                      // folder_hint_mismatch. EQ2Parser: log_writer_eq2 or
-                      // log_writer_unverified on every upload, plus a bare
-                      // log_foreign_holder. The hard tamper signals are NOT
-                      // here — those landed in the tamper-reports table and
-                      // never reached encounters. Title tooltip shows the
-                      // codes for admins who want the detail; the chip
-                      // itself stays compact.
-                      <span
-                        className="ml-2 bg-warning/15 text-warning border border-warning/40 rounded px-1.5 py-0.5 text-[0.7rem] uppercase tracking-[0.05em] align-middle"
-                        title={`Client warnings: ${p.client_warnings.join(', ')}`}
-                        aria-label={`Client warnings: ${p.client_warnings.join(', ')}`}
-                      >
-                        ⚠ {p.client_warnings.length}
-                      </span>
-                    )}
+                    <ClientWarningChip warnings={p.client_warnings} />
                   </td>
                   <td className={`${TD_CLS} text-text-muted`}>{p.zone ?? '—'}</td>
                   <td className={`${TD_CLS} text-text-muted`}>{p.guild_name ?? '—'}</td>

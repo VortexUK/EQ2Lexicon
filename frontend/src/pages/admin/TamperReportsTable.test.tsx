@@ -191,6 +191,112 @@ describe('TamperReportsTable', () => {
   })
 })
 
+// A report stored under a server name the site does not serve belongs to no
+// server's panel; the API lists it on every panel with `unrouted: true` and
+// the stored name in `world`. That name is untrusted upload text.
+describe('TamperReportsTable unrouted reports', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const SERVER_COL = 4  // checkbox, Reason, Encounter, Zone, Server
+
+  it('marks an unrouted report and shows the stored server name beside the marker', async () => {
+    mockFetchOnce({
+      results: [{ ...baseRow, id: 21, title: 'a krait stray', world: 'Antonia Bayle', unrouted: true }],
+      pending_count: 0,
+      unrouted_pending_count: 1,
+    })
+
+    render(<TamperReportsTable />)
+
+    const cell = (await screen.findByText('a krait stray')).closest('tr')!.cells[SERVER_COL]
+    expect(cell).toHaveTextContent('Unrouted')
+    expect(cell).toHaveTextContent('Antonia Bayle')
+    // The marker explains itself on hover.
+    expect(screen.getByText('Unrouted')).toHaveAttribute('title', expect.stringMatching(/does not serve/))
+  })
+
+  it('shows a routed report with the plain server name and no marker', async () => {
+    mockFetchOnce({
+      results: [{ ...baseRow, unrouted: false }],
+      pending_count: 1,
+      unrouted_pending_count: 0,
+    })
+
+    render(<TamperReportsTable />)
+
+    const cell = (await screen.findByText('a krait patriarch')).closest('tr')!.cells[SERVER_COL]
+    expect(cell.textContent).toBe('Varsoon')
+    expect(screen.queryByText('Unrouted')).toBeNull()
+    expect(screen.queryByText(/unrouted pending/)).toBeNull()
+  })
+
+  it('treats a row from an older API (no unrouted field) as routed', async () => {
+    mockFetchOnce({ results: [baseRow], pending_count: 1 })
+
+    render(<TamperReportsTable />)
+
+    const cell = (await screen.findByText('a krait patriarch')).closest('tr')!.cells[SERVER_COL]
+    expect(cell.textContent).toBe('Varsoon')
+    expect(screen.queryByText(/unrouted pending/)).toBeNull()
+  })
+
+  it('counts unrouted pending reports apart from the server’s own pending count', async () => {
+    mockFetchOnce({
+      results: [
+        baseRow,
+        { ...baseRow, id: 22, title: 'a krait stray', world: 'unknown', unrouted: true },
+      ],
+      pending_count: 1,
+      unrouted_pending_count: 4,
+    })
+
+    render(<TamperReportsTable />)
+
+    expect(await screen.findByText('1 pending')).toBeInTheDocument()
+    expect(screen.getByText('4 unrouted pending')).toBeInTheDocument()
+    // "Acknowledge all" still names only this server's own pending reports.
+    expect(screen.getByRole('button', { name: 'Acknowledge all 1 pending' })).toBeInTheDocument()
+  })
+
+  it('an unrouted pending report can be acknowledged like any other', async () => {
+    mockFetchSequence([
+      { body: { results: [{ ...baseRow, id: 23, world: 'unknown', unrouted: true }], pending_count: 0, unrouted_pending_count: 1 } },
+      { body: { acknowledged: true } },
+      { body: { results: [], pending_count: 0, unrouted_pending_count: 0 } },
+    ])
+
+    render(<TamperReportsTable />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }))
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/admin/tamper-reports/23/acknowledge',
+        expect.objectContaining({ method: 'POST', credentials: 'include' }),
+      )
+    })
+    expect(await screen.findByText(/No pending tamper reports/)).toBeInTheDocument()
+  })
+
+  it('renders a hostile stored name as text, never as markup', async () => {
+    const hostile = '<img src=x onerror="window.__pwned = 1"><script>window.__pwned = 1</script>'
+    mockFetchOnce({
+      results: [{ ...baseRow, id: 24, title: 'a krait stray', world: hostile, unrouted: true }],
+      pending_count: 0,
+      unrouted_pending_count: 1,
+    })
+
+    const { container } = render(<TamperReportsTable />)
+
+    const cell = (await screen.findByText('a krait stray')).closest('tr')!.cells[SERVER_COL]
+    expect(cell).toHaveTextContent(hostile)       // shown as sent, character for character
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+    expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined()
+  })
+})
+
 describe('TamperReportsTable bulk acknowledge', () => {
   beforeEach(() => {
     vi.restoreAllMocks()

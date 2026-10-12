@@ -25,9 +25,22 @@ import {
   TAMPER_REASON_VARIANT,
 } from './types'
 
+// An "unrouted" report is stored under a server name this site does not serve
+// (the tamper-report route records logger_server without checking it, and a
+// missing one is stored as "unknown"). It belongs to no server's panel, so the
+// API lists it on every panel, after the server's own reports, flagged.
+const UNROUTED_ROW_HINT =
+  'Stored under a server name this site does not serve, so it belongs to no server and is listed on every ' +
+  "server's panel. The name beside this badge is the stored value: what the uploading client sent as its " +
+  'server, or "unknown" when it sent none.'
+const UNROUTED_COUNT_HINT =
+  'Pending reports stored under a server name this site does not serve. They are listed below this ' +
+  "server's own reports and are not cleared by Acknowledge all: acknowledge them by row or by selection."
+
 export function TamperReportsTable() {
   const [rows, setRows] = useState<TamperReport[]>([])
   const [pending, setPending] = useState(0)
+  const [unroutedPending, setUnroutedPending] = useState(0)
   const [filter, setFilter] = useState<TamperReportFilter>('pending')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -48,6 +61,7 @@ export function TamperReportsTable() {
       const data: TamperReportListResponse = await res.json()
       setRows(data.results)
       setPending(data.pending_count)
+      setUnroutedPending(data.unrouted_pending_count ?? 0)
       setSelected(new Set())
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return
@@ -196,6 +210,11 @@ export function TamperReportsTable() {
           // size even when they're viewing the "ack" or "all" filter.
           <Badge variant="danger">{pending} pending</Badge>
         )}
+        {unroutedPending > 0 && (
+          // Counted apart from "pending": that number is this server's own
+          // and is what "Acknowledge all" clears.
+          <Badge variant="warning" title={UNROUTED_COUNT_HINT}>{unroutedPending} unrouted pending</Badge>
+        )}
       </div>
 
       {/* Filter chips — pending is the default working set; "ack" /
@@ -311,7 +330,18 @@ export function TamperReportsTable() {
                     </span>
                   </td>
                   <td className={`${TD_CLS} text-text-muted`}>{r.zone ?? '—'}</td>
-                  <td className={`${TD_CLS} text-text-muted`}>{r.world}</td>
+                  <td className={`${TD_CLS} text-text-muted`}>
+                    {r.unrouted ? (
+                      // r.world is untrusted upload text here: rendered as a
+                      // text node only (React escapes it), never as markup.
+                      <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        <Badge variant="warning" title={UNROUTED_ROW_HINT}>Unrouted</Badge>
+                        <span className="font-mono text-[0.78rem] break-all">{r.world}</span>
+                      </span>
+                    ) : (
+                      r.world
+                    )}
+                  </td>
                   <td className={`${TD_CLS} text-text-muted`}>
                     <div>{r.uploader_logger_name || '—'}</div>
                     {r.uploader_discord_name && (
