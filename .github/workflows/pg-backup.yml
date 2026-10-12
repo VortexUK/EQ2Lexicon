@@ -1,15 +1,28 @@
 name: Nightly Postgres backup
 
-# pg_dump of the five family schemas → Cloudflare R2 (the bucket litestream
-# used pre-migration, repurposed). Restore drill:
+# pg_dump of the family schemas → Cloudflare R2 (the bucket litestream used
+# pre-migration, repurposed). Two dumps, because every byte a dump reads
+# leaves Supabase as billed egress and the item catalogue is about three
+# quarters of it while hardly changing:
+#   daily    every family schema except items   eq2lexicon-<ts>.dump        kept 30 days
+#   monthly  the items schema alone (the 1st)   eq2lexicon-items-<ts>.dump  kept 100 days
+# A full restore is the newest of each:
 #   pg_restore -d "$DATABASE_URL" --clean --if-exists eq2lexicon-<ts>.dump
+#   pg_restore -d "$DATABASE_URL" --clean --if-exists eq2lexicon-items-<ts>.dump
 # Secrets: SUPABASE_DB_URL (session pooler, sslmode=require), R2_ENDPOINT,
 # R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
 
 on:
   schedule:
-    - cron: "17 4 * * *"  # 04:17 UTC daily
+    - cron: "17 4 * * *"  # 04:17 UTC daily: everything but the item catalogue
+    - cron: "47 4 1 * *"  # 04:47 UTC on the 1st: the item catalogue alone
   workflow_dispatch:
+    inputs:
+      what:
+        description: "daily = every schema except items; items = the item catalogue alone"
+        type: choice
+        options: [daily, items]
+        default: daily
 
 jobs:
   dump:
@@ -25,24 +38,40 @@ jobs:
       - name: pg_dump (family schemas only)
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SCHEDULE: ${{ github.event.schedule }}
+          WHAT: ${{ inputs.what }}
         run: |
           ts=$(date -u +%Y%m%dT%H%M%SZ)
-          dump="eq2lexicon-$ts.dump"
           # Only our schemas — Supabase-internal schemas (auth/storage/…)
           # are not ours to dump and would fail on permissions.
+          # items/spells/recipes are NOT re-seedable (a multi-hour Census
+          # crawl to rebuild); aas/classes are migration seeds but cheap to
+          # carry. An item the site cached after the last monthly dump is
+          # fetched from Census again on first use, so a month-old items
+          # dump loses nothing that cannot be had back.
+          if [ "$SCHEDULE" = "47 4 1 * *" ] || [ "$WHAT" = "items" ]; then
+            prefix="eq2lexicon-items"
+            keep_days=100
+            schemas="-n items"
+          else
+            prefix="eq2lexicon"
+            keep_days=30
+            schemas="-n users -n parses -n census -n zones -n raids -n spells -n recipes -n aas -n classes -n public"
+          fi
+          dump="$prefix-$ts.dump"
           # Full path: the runner image preinstalls an older client whose
           # pg_dump wins PATH and aborts on the server version mismatch.
-          # All ten family schemas: items/spells/recipes are NOT re-seedable
-          # (a multi-hour Census crawl to rebuild); aas/classes are migration
-          # seeds but cheap to carry.
-          /usr/lib/postgresql/17/bin/pg_dump -Fc -d "$DATABASE_URL" \
-            -n users -n parses -n census -n zones -n raids \
-            -n items -n spells -n recipes -n aas -n classes -n public \
-            -f "$dump"
+          # $schemas is a list of flags and must split into words.
+          # shellcheck disable=SC2086
+          /usr/lib/postgresql/17/bin/pg_dump -Fc -d "$DATABASE_URL" $schemas -f "$dump"
           ls -la "$dump"
-          echo "DUMP=$dump" >> "$GITHUB_ENV"
+          {
+            echo "DUMP=$dump"
+            echo "PREFIX=$prefix"
+            echo "KEEP_DAYS=$keep_days"
+          } >> "$GITHUB_ENV"
 
-      - name: Upload to R2 and prune dumps older than 30 days
+      - name: Upload to R2 and prune this kind's older dumps
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -51,12 +80,15 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
           aws s3 cp "$DUMP" "s3://$R2_BUCKET/pgdump/$DUMP" --endpoint-url "$R2_ENDPOINT"
-          cutoff=$(date -u -d '30 days ago' +%Y%m%dT%H%M%SZ)
+          cutoff=$(date -u -d "$KEEP_DAYS days ago" +%Y%m%dT%H%M%SZ)
+          # The timestamp must follow the prefix directly, so the daily run
+          # (prefix eq2lexicon) never matches, and never prunes, an
+          # eq2lexicon-items-<ts>.dump.
           aws s3 ls "s3://$R2_BUCKET/pgdump/" --endpoint-url "$R2_ENDPOINT" \
             | awk '{print $4}' \
             | while read -r f; do
                 [ -n "$f" ] || continue
-                tspart=$(printf '%s' "$f" | sed -E 's/^eq2lexicon-([0-9TZ]+)\.dump$/\1/')
+                tspart=$(printf '%s' "$f" | sed -E "s/^$PREFIX-([0-9TZ]+)\.dump\$/\1/")
                 if [ "$tspart" != "$f" ] && [ "$tspart" \< "$cutoff" ]; then
                   echo "pruning $f"
                   aws s3 rm "s3://$R2_BUCKET/pgdump/$f" --endpoint-url "$R2_ENDPOINT"
