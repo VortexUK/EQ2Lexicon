@@ -340,7 +340,7 @@ class CensusClient:
                     aid = _int(adorn.get("id"))
                     if aid is not None:
                         wanted.add(aid)
-        prefetched = await item_db.find_raw_by_ids(sorted(wanted))
+        prefetched = await item_db.find_equip_meta_by_ids(sorted(wanted))
 
         async def _meta(item_id: int) -> dict | None:
             hit = prefetched.get(item_id)

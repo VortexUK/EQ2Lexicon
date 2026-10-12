@@ -117,3 +117,40 @@ async def test_resolve_item_meta_handles_census_unreachable(client, monkeypatch)
 
     got = await client._resolve_item_meta(222)
     assert got is None
+
+
+@pytest.mark.asyncio
+async def test_parse_equipment_reads_one_narrow_batch_and_nothing_else(client, monkeypatch):
+    """Every item and adorn of a character comes from ONE narrow catalogue
+    read (name, tier, icon). The per-id path, which returns whole raw item
+    rows, must not run for ids that batch already answered."""
+    from backend.eq2db.items import catalogue as item_db_module
+
+    asked: list[list[int]] = []
+
+    async def _fake_meta(ids):
+        asked.append(list(ids))
+        return {
+            10: {"displayname": "Test Helm", "tier": "FABLED", "iconid": 55},
+            11: {"displayname": "Test Adornment", "tier": "LEGENDARY", "iconid": 0},
+        }
+
+    monkeypatch.setattr(item_db_module, "find_equip_meta_by_ids", _fake_meta)
+    client._resolve_item_meta = AsyncMock(side_effect=AssertionError("per-id lookup must not run on a batch hit"))
+
+    slots = [
+        {"displayname": "Head", "item": {"id": 10, "adornment_list": [{"id": 11, "color": "white"}]}},
+        {"displayname": "Ammo", "item": {"id": 10}},  # skipped slot
+    ]
+    got = await client._parse_equipment(slots)
+
+    assert asked == [[10, 11]]
+    assert len(got) == 1
+    assert (got[0].slot_name, got[0].item_name, got[0].item_id, got[0].tier, got[0].icon_id) == (
+        "Head",
+        "Test Helm",
+        "10",
+        "FABLED",
+        "55",
+    )
+    assert [(a.color, a.adorn_name, a.adorn_id) for a in got[0].adorn_slots] == [("White", "Test Adornment", "11")]

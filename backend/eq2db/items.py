@@ -622,10 +622,16 @@ class ItemCatalogue(PgCatalogue):
             row = await cur.fetchone()
             return json.loads(row["raw_json"]) if row else None
 
-    async def find_raw_by_ids(self, item_ids: list[int]) -> dict[int, dict]:
-        """{item_id: raw Census JSON dict} for all known ids, ONE query —
-        the batch form of :meth:`find_by_id` (equipment parsing resolves
-        ~25 slots + adorns per character; per-slot lookups were an N+1)."""
+    async def find_equip_meta_by_ids(self, item_ids: list[int]) -> dict[int, dict]:
+        """{item_id: {"displayname", "tier", "iconid"}} for all known ids, ONE
+        query (equipment parsing resolves ~25 slots + adorns per character;
+        per-slot lookups were an N+1).
+
+        The keys are the raw Census names so a hit reads like the dict
+        :meth:`find_by_id` returns, but only these three fields are fetched.
+        The columns hold exactly what raw_json does. Reading raw_json here
+        (about 3.7 KB an item, on every character parse) was more than half
+        of the database's egress."""
         ids = [i for i in item_ids if i]
         if not ids:
             return {}
@@ -633,12 +639,13 @@ class ItemCatalogue(PgCatalogue):
 
         out: dict[int, dict] = {}
         async with pg.aconnection(self.schema, autocommit=True) as db:
-            cur = await db.execute(_SQL["raw_json_by_ids"], (ids,))
+            cur = await db.execute(_SQL["equip_meta_by_ids"], (ids,))
             for row in await cur.fetchall():
-                try:
-                    out[row["id"]] = json.loads(row["raw_json"] or "{}")
-                except (TypeError, ValueError):
-                    continue
+                out[row["id"]] = {
+                    "displayname": row["displayname"],
+                    "tier": row["tier"],
+                    "iconid": row["icon_id"],
+                }
         return out
 
 

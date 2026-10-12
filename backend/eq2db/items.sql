@@ -158,6 +158,11 @@ WHERE typeinfo_name = 'spellscroll' AND spell_name IS NOT NULL AND classes_json 
 -- base-damage bonuses.
 SELECT id, raw_json FROM items WHERE id = ANY(%s);
 
+-- :name equip_meta_by_ids
+-- Equipment parsing needs a name, a tier and an icon per item. It runs on
+-- every character parse, so it must not read raw_json.
+SELECT id, displayname, tier, icon_id FROM items WHERE id = ANY(%s);
+
 -- :name spell_meta_by_names
 -- Rotation simulator: spell duration and power cost exist ONLY on the
 -- spellscroll item rows, keyed "<Spell Name> (<TierName>)" (spell_name ==
