@@ -94,6 +94,11 @@ uv run python scripts/dev/replay_refused_uploads.py              # dry run: uplo
 uv run python scripts/dev/grafana_pull.py panels|data|render     # pull Grafana Cloud metrics (GRAFANA_URL/TOKEN in .env)
 ```
 
+`scripts/dev/undo_located_deaths.sql` is the undo of migration
+`0028_parses_located_deaths.sql` (the located-deaths data repair): one
+transaction, run with psql and `ON_ERROR_STOP`. Its header says what it
+cannot bring back.
+
 `scripts/migrate_to_postgres.py` is the finished one-shot SQLite → Postgres
 cutover copy; it stays until the rollback window closes and is not part of
 any refresh.
