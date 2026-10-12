@@ -67,12 +67,13 @@ _METRIC_FIELD = {"dps": "encdps", "hps": "enchps"}  # speed handled separately
 
 # Cache of the kills dataset. Freshness no longer depends on this ttl:
 # every upload patches its own fight in through sync_encounter, and
-# hide/unhide/delete schedule a rebuild. The hourly full rebuild is the
+# hide/unhide/delete schedule a rebuild. The two-hourly full rebuild is the
 # reconciler — each one still pulls every ranking kill's combatants from
-# Postgres (tens of MB of Supabase egress), so do not shorten it to chase
+# Postgres (tens of MB of Supabase egress; it was hourly until 2026-10-12,
+# when egress ran at twice the plan), so do not shorten it to chase
 # freshness. max_age=6h means a stale board serves instantly with a
 # background rebuild; only a completely cold cache builds inline.
-rankings_cache: TTLCache = TTLCache(ttl=3600, max_age=6 * 3600, name="rankings", maxsize=64)
+rankings_cache: TTLCache = TTLCache(ttl=2 * 3600, max_age=6 * 3600, name="rankings", maxsize=64)
 _KILLS_KEY = "primary_boss_kills"
 
 

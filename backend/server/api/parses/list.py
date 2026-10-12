@@ -513,11 +513,14 @@ async def _compute_permissions(
 
 # /parses list SWR cache: a cold build pays the 15k-row scan + mirror
 # grouping (seconds). Same treatment as the rankings kills
-# dataset: 60s freshness, 6h stale amnesty (stale pages serve instantly with
+# dataset: 120s freshness, 6h stale amnesty (stale pages serve instantly with
 # a background rebuild), single-flight so concurrent cold hits share ONE
 # build, and a startup prewarm of each world's default view. Keys carry the
-# full filter tuple; maxsize bounds searchers' one-off keys.
-_LIST_CACHE = TTLCache(ttl=60, max_age=6 * 3600, name="parses-list", maxsize=32)
+# full filter tuple; maxsize bounds searchers' one-off keys. Each rebuild
+# reads about 15k encounters and 60k roster rows from Postgres (several MB of
+# Supabase egress), which is why the freshness went from 60s to 120s on
+# 2026-10-12: do not shorten it without narrowing what a rebuild reads.
+_LIST_CACHE = TTLCache(ttl=120, max_age=6 * 3600, name="parses-list", maxsize=32)
 _list_build_tasks: dict[str, asyncio.Task] = {}
 
 

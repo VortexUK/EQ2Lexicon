@@ -54,11 +54,11 @@ raid. Pagination uses `before=<started_at>`; `next_before` is set when either
 the fight count or the raw SQL window overflowed.
 
 The list+classify+group build is cached per filter tuple (`_LIST_CACHE`):
-60 s fresh, served stale for up to 6 h with a background rebuild,
+120 s fresh, served stale for up to 6 h with a background rebuild,
 single-flight per key, and prewarmed for each world's default view at startup.
 Mutations that change what the list shows (delete / hide / purge) call
 `invalidate_parses_list_cache()`; uploads deliberately do not — raid nights
-arrive in bursts and the 60 s TTL bounds the lag.
+arrive in bursts and the 120 s TTL bounds the lag.
 
 Per-upload delete permissions are computed from cached guild rosters only. A
 cold roster means officer delete buttons don't render on that load; the

@@ -100,7 +100,7 @@ directly and is deliberately outside this filter.
 
 ## Caching and process locality
 
-- **Kills cache** (`rankings_cache`, per world): ttl 10 minutes, max_age 6
+- **Kills cache** (`rankings_cache`, per world): ttl 2 hours, max_age 6
   hours, stale-while-revalidate. A stale board is served instantly while a
   background rebuild runs; only a completely cold cache blocks. The ttl is long
   on purpose: each rebuild reads every winning kill's combatants from Postgres
