@@ -2,7 +2,7 @@
 
 ## Deployment
 
-- Platform: Railway, Nixpacks builder
+- Platform: Railway, Nixpacks builder. Service settings live in `.railway/railway.ts` and are applied with the Railway CLI (see "Changing Railway settings")
 - Push to `main` branch triggers redeploy
 - New slash commands may take up to 1 hour to propagate globally, but appear instantly in the registered guild IDs above
 - Do not push until the user confirms local testing passes
@@ -29,8 +29,30 @@
 | `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | Twitch app (client-credentials) creds for the raid-schedule "Raiding live" list (`backend/server/raid_live.py`). Both optional — unset ⇒ live list disabled, raid schedule unaffected. |
 | `DB_ITEMS_PATH` / `DB_SPELLS_PATH` / `DB_RECIPES_PATH` | **Retired** (Phases 2-3, 2026-10) — every data family lives in a Postgres schema (`DATABASE_URL`); the Railway volume is gone and no `DB_*_PATH` var does anything (`DB_AAS_PATH` included — aas/classes are migration-seeded, 0011/0012). Catalogue refreshes are script runs (`scripts/download_*.py`, `scripts/build_aas_db.py`) against the DB. |
 | `DB_CLASSES_PATH` | **Ignored** (warning logged if set) — class data lives in the Postgres `classes` schema, seeded by `db/migrations/0011_classes.sql` (Phase 3). The seeds are canonical and carry `census_classid` separately from `icon_id` (the 2026-08 Coercer/Illusionist prod bug was that conflation). |
+| `MALLOC_ARENA_MAX` | `2` on the app service. Caps glibc's per-thread malloc arenas so memory freed after the big rebuilds returns to the system instead of the process growing all day (memory is the largest hosting cost). Must be a Railway service variable: a `[variables]` entry in `nixpacks.toml` reaches the container empty. The app logs the value at startup (`[startup] MALLOC_ARENA_MAX=`). |
 | `R2_ENDPOINT` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Cloudflare R2 bucket for the nightly `pg_dump` backups — set as GITHUB ACTIONS secrets (`.github/workflows/pg-backup.yml`), not Railway vars (litestream is retired). |
 
 ## What triggers a deploy
 
-`watchPatterns` under `[build]` in `railway.toml` decides which paths redeploy the service (gitignore-style, matched from the repo root; a negation needs a preceding `**` include). `ops/`, `docs/`, `.github/`, `.claude/` and root Markdown files are excluded. Confirm against Railway's config-as-code reference before telling anyone a push will or will not deploy. A failed deploy leaves the previous container serving.
+Each service's watch patterns decide which paths redeploy it (gitignore-style, matched from the repo root; a negation needs a preceding `**` include). They are written in `.railway/railway.ts` (`build.watchPatterns`). For the app, `ops/`, `docs/`, `.github/`, `.claude/`, `.railway/` and root Markdown files are excluded; the monitoring service deploys only on `ops/alloy/`. Read the file before telling anyone a push will or will not deploy. A failed deploy leaves the previous container serving.
+
+## Changing Railway settings
+
+Builder, watch patterns, start command, health check, restart policy, domains, regions and the wait-for-CI flag of both services are in `.railway/railway.ts` (Railway's Infrastructure as Code; `railway.toml` was retired on 2026-10-13, ahead of Railway's cutoff of 2026-12-01). **Railway does not read that file when it deploys.** An edit takes effect only when someone applies it:
+
+```powershell
+Set-Location <repo>\.railway
+npm ci                                       # once per checkout: Railway's SDK, which railway.ts imports
+Set-Location <repo>
+$env:Path = "<folder of railway.exe>;$env:Path"  # only if `railway` is not already on PATH; see below
+railway config plan --verbose                # read-only: what an apply would change
+railway config apply                         # asks before changing anything
+```
+
+- The CLI must be callable as `railway`, by bare name. The SDK checks the CLI version by running `railway --version`; if that is not on PATH the plan fails with "requires Railway CLI 5.42.1 or newer", whatever version is installed.
+- An apply redeploys the services whose settings changed. Treat it as a deploy.
+- The plan must say `0 to destroy` unless a service is being removed on purpose. The file describes the whole project: a service left out of `resources`, or renamed, is deleted or created by an apply.
+- `railway config plan` reporting changes when nobody edited the file means someone changed a setting in the dashboard. Either copy the change into the file or apply the file to undo it.
+- Do not write a setting at Railway's default value (the restart policy "on failure, 10 retries" is one). Railway stores a default as unset, so the plan reports that line as a change forever.
+- Variables are not in the file (`variables: { managed: false }`): Railway owns them and an apply never touches them. Never run `railway config pull --include-variables` in this public repo.
+- The build-time settings in `nixpacks.toml` are separate and are read on every build.

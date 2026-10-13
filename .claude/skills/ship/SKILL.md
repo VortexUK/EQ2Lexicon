@@ -56,8 +56,11 @@ from a clean worktree instead of stashing:
 
 1. CI: `gh run watch` for the push, or `gh run list --limit 3`. Railway waits for CI.
 2. Deploy: use the `prod-logs` skill to see the migration lines and the app start.
-3. Which paths trigger a deploy is set by `watchPatterns` under `[build]` in
-   `railway.toml`. Read it before telling the user a push will or will not deploy.
+3. Which paths trigger a deploy is set by each service's `watchPatterns` in
+   `.railway/railway.ts`. Read it before telling the user a push will or will not
+   deploy. Railway does not read that file at deploy time: a commit that edits it
+   changes nothing until the user runs `railway config apply`
+   (`docs/runbooks/deploy.md`, "Changing Railway settings").
 4. A failed deploy leaves the previous container serving. Say so, then diagnose.
 
 Report what was pushed (hash and subject), the CI result and the deploy state. If any of

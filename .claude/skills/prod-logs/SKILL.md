@@ -45,7 +45,8 @@ window, `--exact` to stop similar groups being folded together when you need the
 ## Boundaries
 
 The script only reads logs. Do not use the Railway CLI to redeploy, restart, change
-variables or relink from a session unless the user asks for that specific action. The
+variables, relink or apply configuration (`railway config apply`) from a session unless
+the user asks for that specific action; `railway config plan` is read-only and fine. The
 CLI is located from `RAILWAY_CLI` or `PATH`; if it is missing, say so and ask.
 
 The script redacts tokens, passwords and connection strings. A line that occurred only

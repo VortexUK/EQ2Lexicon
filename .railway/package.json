@@ -1,0 +1,11 @@
+{
+  "name": "eq2lexicon-railway-config",
+  "private": true,
+  "description": "Railway's SDK, which railway.ts imports. Kept here, not at the repo root, so the app build never sees a root package.json. Install with `npm ci` in this folder before `railway config plan`.",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "railway": "3.14.0"
+  }
+}

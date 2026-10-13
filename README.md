@@ -157,7 +157,7 @@ The FastAPI app serves the built frontend automatically when `frontend/dist/` ex
 
 ## Deployment (Railway)
 
-The repo includes a `railway.toml` configured for Nixpacks.  
+The build is Nixpacks (`nixpacks.toml`); the Railway service settings are in `.railway/railway.ts` and are applied with the Railway CLI (see `docs/runbooks/deploy.md`).  
 Set all required environment variables in the Railway dashboard, then push to `main` to trigger a redeploy.
 
 ---

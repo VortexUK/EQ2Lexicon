@@ -22,8 +22,13 @@
 # is the largest line of the hosting bill). Two arenas trades a little
 # allocator contention, which a single-worker app does not feel, for memory
 # that comes back. The app logs the value at startup.
-[variables]
-MALLOC_ARENA_MAX = "2"
+#
+# It is set as a Railway SERVICE VARIABLE, not here. A [variables] entry in
+# this file reaches the container EMPTY on Railway (tried 2026-10-13: the
+# startup line read "MALLOC_ARENA_MAX="): Nixpacks writes it as an ARG plus
+# an ENV that takes the ARG's value, and Railway builds with its own service
+# variables as the ARGs, so a name that is not a service variable arrives
+# blank. Same mechanism as the FNM_DIR note above.
 
 [phases.setup]
 nixPkgs = ["python313Full", "fnm", "uv"]
@@ -47,8 +52,8 @@ cmds = [
   "cd frontend && fnm --fnm-dir /opt/fnm exec --using=22 npm run build"
 ]
 
-# [start].cmd here is only used when railway.toml's startCommand is NOT set
-# — railway.toml takes precedence. This is the fallback for
+# [start].cmd here is only used when the service has no start command of its
+# own — the one in .railway/railway.ts takes precedence. This is the fallback for
 # `nixpacks build && docker run` style usage: a login shell so the PATH set
 # on /root/.profile (which Nixpacks populates with the venv's bin dir) is
 # honoured regardless of where Nixpacks chose to place the venv this build.
