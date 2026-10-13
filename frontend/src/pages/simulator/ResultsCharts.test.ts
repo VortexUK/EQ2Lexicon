@@ -4,10 +4,18 @@
  */
 import { describe, expect, it } from 'vitest'
 
+// Allowance for the first import of the module, which loads all of recharts
+// (see the test). Per test only: the global vitest timeout stays at its default.
+const SLOW_IMPORT_MS = 30_000
+
 describe('ResultsCharts', () => {
+  // Explicit timeout: this is the first thing in the file to import recharts,
+  // so it pays for transforming the whole library. It has overrun vitest's
+  // default 5 s twice in the pre-push gate, when the suite shares the CPU with
+  // the Python checks, and passes alone. The import is the point of the test.
   it('imports without throwing', async () => {
     await expect(import('./ResultsCharts')).resolves.toBeDefined()
-  })
+  }, SLOW_IMPORT_MS)
 
   it('rollingDps is a centered mean that preserves edges', async () => {
     const { rollingDps } = await import('./ResultsCharts')
