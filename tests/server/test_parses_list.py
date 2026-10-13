@@ -562,6 +562,80 @@ def test_invalidate_parses_list_cache_clears_entries():
     assert parses_list._LIST_CACHE.get(key) is None
 
 
+# One dataset is about 30 MB resident, so only each world's default view is
+# kept for hours. Every filtered or later page lives in a small, short-lived
+# cache that the sweep loop empties.
+@pytest.mark.parametrize(
+    ("zone", "size", "search", "before", "filtered"),
+    [
+        (None, None, None, None, False),
+        ("", "", "", 0, False),
+        ("Deathtoll", None, None, None, True),
+        (None, "raid", None, None, True),
+        (None, None, "doomcoil", None, True),
+        (None, None, None, 1791767492, True),
+    ],
+)
+def test_only_the_default_view_goes_in_the_long_lived_cache(zone, size, search, before, filtered):
+    from backend.server.api.parses import list as parses_list
+
+    cache = parses_list._list_cache_for(zone, size, search, before)
+    assert cache is (parses_list._LIST_FILTERED_CACHE if filtered else parses_list._LIST_CACHE)
+
+
+@pytest.mark.asyncio
+async def test_a_filtered_view_is_stored_in_the_filtered_cache_only():
+    from backend.server.api.parses import list as parses_list
+
+    key = parses_list._list_cache_key("Varsoon", "Deathtoll", None, None, None)
+    got = await parses_list._list_swr(
+        key, lambda: ([], [], 0), parses_list._list_cache_for("Deathtoll", None, None, None)
+    )
+    assert got == ([], [], 0)
+    assert parses_list._LIST_FILTERED_CACHE.get(key) is not None
+    assert parses_list._LIST_CACHE.get(key) is None
+
+
+def test_invalidate_clears_filtered_views_too():
+    from backend.server.api.parses import list as parses_list
+
+    key = parses_list._list_cache_key("Varsoon", None, None, "doomcoil", None)
+    parses_list._LIST_FILTERED_CACHE.set(key, ([], [], 0))
+    parses_list.invalidate_parses_list_cache()
+    assert parses_list._LIST_FILTERED_CACHE.get(key) is None
+
+
+def test_sweep_drops_a_filtered_view_nobody_asked_for_again():
+    """Without the sweep an entry is only evicted when someone asks for it,
+    so a view opened once stayed resident until the process restarted."""
+    from backend.server.api.parses import list as parses_list
+
+    default_key = parses_list._list_cache_key("Varsoon", None, None, None, None)
+    paged_key = parses_list._list_cache_key("Varsoon", None, None, None, 1791767492)
+    parses_list._LIST_CACHE.set(default_key, ([], [], 0))
+    parses_list._LIST_FILTERED_CACHE.set(paged_key, ([], [], 0))
+    # Age both entries by 601 s: past the filtered cache's ten minutes, well
+    # inside the default cache's six hours.
+    for cache, key in ((parses_list._LIST_CACHE, default_key), (parses_list._LIST_FILTERED_CACHE, paged_key)):
+        stored_at, value = cache._store[key]
+        cache._store[key] = (stored_at - 601, value)
+
+    parses_list.sweep_parses_list_caches()
+
+    assert paged_key not in parses_list._LIST_FILTERED_CACHE._store
+    assert default_key in parses_list._LIST_CACHE._store
+
+
+def test_filtered_views_are_bounded_to_a_handful():
+    from backend.server.api.parses import list as parses_list
+
+    for cursor in range(1, 40):
+        parses_list._LIST_FILTERED_CACHE.set(
+            parses_list._list_cache_key("Varsoon", None, None, None, cursor), ([], [], 0)
+        )
+    assert len(parses_list._LIST_FILTERED_CACHE._store) <= 6
+
+
 # ---------------------------------------------------------------------------
 # _compute_permissions — officer can_delete honours guild_settings
 # ---------------------------------------------------------------------------

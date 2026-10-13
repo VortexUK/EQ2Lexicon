@@ -360,6 +360,9 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         configure_logging()
         _workers = int(os.getenv("WEB_CONCURRENCY", "1"))
         _log.info("[startup] WEB_CONCURRENCY=%d (must be 1 for in-process SSE + LRU)", _workers)
+        # Set in nixpacks.toml [variables]. Logged because nothing else shows
+        # whether the allocator setting reached the process.
+        _log.info("[startup] MALLOC_ARENA_MAX=%s", os.getenv("MALLOC_ARENA_MAX", "unset"))
         if _workers != 1:
             raise RuntimeError(
                 f"WEB_CONCURRENCY={_workers} is incompatible with the in-process "
@@ -465,10 +468,13 @@ def create_app(session_secret: str | None = None) -> FastAPI:
         gives the lifespan cleanup deterministic shutdown. No try/except
         around the sleep.
         """
+        from backend.server.api.parses.list import sweep_parses_list_caches  # noqa: PLC0415 — as lifespan imports it
+
         while True:
             await asyncio.sleep(CACHE_SWEEP_INTERVAL_S)
             for cache in (character_cache, guild_cache, claim_cache, aa_cache):
                 cache.sweep()
+            sweep_parses_list_caches()
             mark_loop_ok("cache_sweep")
 
     async def _parse_cleanup_loop() -> None:

@@ -13,6 +13,18 @@
 # can't be clobbered. The fixed dir also lets the build phase find the Node the
 # install phase installed (phases are separate shells; the dir persists on the
 # image filesystem).
+#
+# MALLOC_ARENA_MAX: the app is one process that runs its big rebuilds
+# (rankings, the parses list, guild refreshes) on whichever executor thread is
+# free. glibc gives each thread its own malloc arena and rarely hands a
+# part-used arena back to the system, so after a day the process held three to
+# five times what it needs (0.7 GB after a deploy, 3.5 GB a day later; memory
+# is the largest line of the hosting bill). Two arenas trades a little
+# allocator contention, which a single-worker app does not feel, for memory
+# that comes back. The app logs the value at startup.
+[variables]
+MALLOC_ARENA_MAX = "2"
+
 [phases.setup]
 nixPkgs = ["python313Full", "fnm", "uv"]
 

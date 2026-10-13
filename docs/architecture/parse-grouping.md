@@ -53,9 +53,15 @@ with a floor of `PARSE_INNER_CAP_FLOOR`, enough for the worst-case 24-mirror
 raid. Pagination uses `before=<started_at>`; `next_before` is set when either
 the fight count or the raw SQL window overflowed.
 
-The list+classify+group build is cached per filter tuple (`_LIST_CACHE`):
-120 s fresh, served stale for up to 6 h with a background rebuild,
-single-flight per key, and prewarmed for each world's default view at startup.
+The list+classify+group build is cached per filter tuple, 120 s fresh,
+single-flight per key. One dataset is about 30 MB resident, so there are two
+caches. Each world's default view (no filter, first page) lives in
+`_LIST_CACHE`: prewarmed at startup and served stale for up to 6 h with a
+background rebuild. Every other view (a zone, size or search filter, or a
+later page, whose key carries its `before` cursor) lives in
+`_LIST_FILTERED_CACHE`: six entries, ten minutes. Both are emptied of expired
+entries by the cache sweep loop. A filtered view nobody has opened for ten
+minutes builds inline instead of showing a stale page.
 Mutations that change what the list shows (delete / hide / purge) call
 `invalidate_parses_list_cache()`; uploads deliberately do not — raid nights
 arrive in bursts and the 120 s TTL bounds the lag.

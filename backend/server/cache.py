@@ -27,6 +27,7 @@ CacheName = Literal[
     "favorites",
     "progression",
     "parses-list",
+    "parses-list-filtered",
     "item",
     "officer_ranks",
 ]

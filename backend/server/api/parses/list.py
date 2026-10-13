@@ -520,8 +520,33 @@ async def _compute_permissions(
 # reads about 15k encounters and 60k roster rows from Postgres (several MB of
 # Supabase egress), which is why the freshness went from 60s to 120s on
 # 2026-10-12: do not shorten it without narrowing what a rebuild reads.
-_LIST_CACHE = TTLCache(ttl=120, max_age=6 * 3600, name="parses-list", maxsize=32)
+#
+# Two caches, because one dataset is about 30 MB resident. _LIST_CACHE holds
+# each world's DEFAULT view (no filter, first page): the page every visitor
+# lands on, prewarmed, stale for up to 6h. Every other view (a zone, a size,
+# a search, or a later page, whose key carries its `before` cursor) goes to
+# _LIST_FILTERED_CACHE: a handful of entries that live ten minutes. Until
+# 2026-10-13 they shared one cache of 32 entries kept 6h and never swept, so
+# paging back through old parses could leave about 1 GB behind. The cost is
+# that a filtered view nobody has opened for ten minutes builds inline (a
+# few seconds) instead of showing a stale page; a rebuild was due on that
+# request either way, so this adds no database reads.
+_LIST_CACHE = TTLCache(ttl=120, max_age=6 * 3600, name="parses-list", maxsize=8)
+_LIST_FILTERED_CACHE = TTLCache(ttl=120, max_age=600, name="parses-list-filtered", maxsize=6)
 _list_build_tasks: dict[str, asyncio.Task] = {}
+
+
+def _list_cache_for(zone: str | None, size: str | None, search: str | None, before: int | None) -> TTLCache:
+    """The cache a view's dataset belongs in: see the comment above."""
+    return _LIST_FILTERED_CACHE if (zone or size or search or before) else _LIST_CACHE
+
+
+def sweep_parses_list_caches() -> None:
+    """Drop entries past their max_age. Run by app.py's cache sweep loop:
+    without it an entry nobody asks for again is never looked at, so it is
+    never evicted."""
+    _LIST_CACHE.sweep()
+    _LIST_FILTERED_CACHE.sweep()
 
 
 def _build_list_dataset(
@@ -562,15 +587,16 @@ def _build_list_dataset(
     return rows, fights, len(fights)
 
 
-def _list_build_task(key: str, builder: Callable[[], tuple]) -> asyncio.Task:
+def _list_build_task(key: str, builder: Callable[[], tuple], cache: TTLCache | None = None) -> asyncio.Task:
     """Single-flight: one shared build per cache key."""
+    target = cache if cache is not None else _LIST_CACHE
     task = _list_build_tasks.get(key)
     if task is None or task.done():
 
         async def _build() -> tuple:
             try:
                 result = await run_sync(builder)
-                _LIST_CACHE.set(key, result)
+                target.set(key, result)
                 return result
             finally:
                 _list_build_tasks.pop(key, None)
@@ -580,16 +606,19 @@ def _list_build_task(key: str, builder: Callable[[], tuple]) -> asyncio.Task:
     return task
 
 
-async def _list_swr(key: str, builder: Callable[[], tuple]) -> tuple[list[dict], list[dict], int]:
+async def _list_swr(
+    key: str, builder: Callable[[], tuple], cache: TTLCache | None = None
+) -> tuple[list[dict], list[dict], int]:
     """Serve cached (stale included, with a background rebuild); only a
     truly cold key builds inline — shielded so a navigation-aborted request
     can't cancel the build under the other waiters."""
-    cached, is_stale = _LIST_CACHE.get_stale(key)
+    target = cache if cache is not None else _LIST_CACHE
+    cached, is_stale = target.get_stale(key)
     if cached is not None:
         if is_stale:
-            _list_build_task(key, builder)
+            _list_build_task(key, builder, target)
         return cached
-    return await asyncio.shield(_list_build_task(key, builder))
+    return await asyncio.shield(_list_build_task(key, builder, target))
 
 
 # The dataset is always built at the maximum fight cap and sliced per request,
@@ -604,9 +633,10 @@ def _list_cache_key(world: str, zone: str | None, size: str | None, search: str 
 def invalidate_parses_list_cache() -> None:
     """Drop every cached /parses page — call after any mutation that
     changes what the list shows (delete/hide/purge). Uploads are NOT a
-    trigger: raid nights arrive in bursts and the 60s ttl already bounds
+    trigger: raid nights arrive in bursts and the 120s ttl already bounds
     their visibility lag."""
     _LIST_CACHE.clear()
+    _LIST_FILTERED_CACHE.clear()
 
 
 async def prewarm_parses_list() -> None:
@@ -632,6 +662,7 @@ async def prewarm_parses_list() -> None:
 
 def _reset_list_cache_for_test() -> None:
     _LIST_CACHE.clear()
+    _LIST_FILTERED_CACHE.clear()
     _list_build_tasks.clear()
 
 
@@ -667,7 +698,7 @@ async def list_parses(
     # uploads covers 625 fights at the 24-mirror worst case).
     builder = functools.partial(_build_list_dataset, _LIST_INNER_CAP, zone, size, active_world, search, before)
     key = _list_cache_key(active_world, zone, size, search, before)
-    encounters, fights, total_fights = await _list_swr(key, builder)
+    encounters, fights, total_fights = await _list_swr(key, builder, _list_cache_for(zone, size, search, before))
     fights = fights[:limit]
 
     # Permission compute needs the flat upload list (perms are per-upload,
