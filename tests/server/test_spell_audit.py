@@ -33,6 +33,28 @@ def _no_rankings_refresh():
         yield
 
 
+# The audit is retired and off by default (2026-10-18). These tests cover how
+# it behaves when someone switches it back on, so they switch it on; a test
+# about the off state sets it to False itself.
+@pytest.fixture(autouse=True)
+def _audit_switched_on(monkeypatch):
+    monkeypatch.setattr(spell_audit, "SPELL_AUDIT_ENABLED", True)
+
+
+def test_the_audit_is_off_unless_switched_on(monkeypatch):
+    """Ancient and Celestial are normal tiers now: with no SPELL_AUDIT_ENABLED
+    in the environment the filter must be off."""
+    import importlib
+
+    from backend.server import constants
+
+    monkeypatch.delenv("SPELL_AUDIT_ENABLED", raising=False)
+    try:
+        assert importlib.reload(constants).SPELL_AUDIT_ENABLED is False
+    finally:
+        importlib.reload(constants)
+
+
 def _conn() -> Any:
     return parses_db.store.init_db()
 

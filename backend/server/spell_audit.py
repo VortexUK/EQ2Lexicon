@@ -1,5 +1,9 @@
 """Spell audit: keep parses with out-of-era spells OFF THE RANKINGS.
 
+RETIRED 2026-10-18, off by default (SPELL_AUDIT_ENABLED in constants.py):
+Daybreak left the Ancient and Celestial spells in game, so they count as
+normal tiers. What follows describes the filter as it works when switched on.
+
 A 2026-10 TLE event bug let Ancient-tier spells drop and scribe — tiers no
 character on these servers can have legitimately (Master is the era's
 ceiling; Grandmaster is a legitimate per-10-levels pick). A character found

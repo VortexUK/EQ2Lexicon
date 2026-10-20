@@ -132,7 +132,11 @@ SPELL_AUDIT_UNTIL_TS: int | None = (
 # The whole filter is one switch. SPELL_AUDIT_ENABLED=0 stops stamping and
 # sweeping, and at startup removes every bar this feature placed, so all
 # parses rank again. Nothing the filter does is destructive.
-SPELL_AUDIT_ENABLED: bool = os.getenv("SPELL_AUDIT_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+# OFF BY DEFAULT since 2026-10-18: Daybreak left the Ancient and Celestial
+# spells in game and did nothing about them, so they are ordinary tiers now,
+# not an exploit. The code stays so the switch still works both ways; set
+# SPELL_AUDIT_ENABLED=1 only for a new incident of the same kind.
+SPELL_AUDIT_ENABLED: bool = os.getenv("SPELL_AUDIT_ENABLED", "0").strip().lower() not in ("0", "false", "no")
 SPELL_AUDIT_DISALLOWED_TIERS: tuple[str, ...] = tuple(
     t.strip() for t in os.getenv("SPELL_AUDIT_TIERS", "Ancient,Celestial").split(",") if t.strip()
 )
