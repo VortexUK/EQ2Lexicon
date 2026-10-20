@@ -229,10 +229,13 @@ function SpellScrollTooltipPortal({
  * Shows a spell-scroll tooltip on hover (150 ms delay).
  */
 export function SpellTierPip({
-  src, tier, spellName,
+  src, tier, label, spellName,
 }: {
   src: string
   tier: string
+  /** Hover text when it should say more than the tier (a trainer-choice
+   * Grandmaster). The scroll lookup still uses `tier`. */
+  label?: string
   spellName: string
 }) {
   const [showTooltip, setShowTooltip] = useState(false)
@@ -273,8 +276,8 @@ export function SpellTierPip({
     <>
       <img
         src={src}
-        alt={tier}
-        title={tier}
+        alt={label ?? tier}
+        title={label ?? tier}
         style={{ width: 14, height: 14 }}
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}

@@ -155,6 +155,45 @@ async def test_spells_returns_data(app):
 
 
 @pytest.mark.asyncio
+async def test_spells_counts_ancient_and_marks_trainer_choice_grandmasters(app):
+    """Ancient (above Grandmaster) is counted like every other tier: before
+    it was in SPELL_TIER_ORDER an Ancient spell was listed but fell out of
+    the per-tier counts. A Grandmaster from the class trainer is flagged as
+    the trainer's choice; a scribed Grandmaster is not."""
+    char = _fake_char(spell_ids=[4001, 4002, 4003])
+    spell_rows = {
+        4001: _fake_spell_row(4001, name="Siphon Strike VI", tier_name="Ancient", level=77),
+        4002: _fake_spell_row(
+            4002, name="Death Swarm VII", tier_name="Grandmaster", level=72, given_by="classtraining"
+        ),
+        4003: _fake_spell_row(4003, name="Lifetap V", tier_name="Grandmaster", level=60, given_by="spellscroll"),
+    }
+
+    with (
+        patch.object(catalogue, "ready", lambda: True),
+        patch("backend.server.api.character.spells.character_cache") as mock_cache,
+        patch.object(catalogue, "find_by_ids", return_value=spell_rows),
+        patch.object(catalogue, "upgradeable_crcs", side_effect=_all_upgradeable),
+        patch.object(catalogue, "load_blocklist", return_value=_EMPTY_BLOCKLIST),
+    ):
+        mock_cache.get_stale.return_value = (char, False)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/api/character/Sihtric/spells")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["tier_counts"]["Ancient"] == 1
+    assert data["tier_counts"]["Grandmaster"] == 2
+    assert data["tiers_present"][-1] == "Ancient"  # ordered above Grandmaster
+    by_name = {sp["name"]: sp for sp in data["spells"]}
+    assert by_name["Siphon Strike VI"]["tier"] == "Ancient"
+    assert by_name["Death Swarm VII"]["gm_choice"] is True
+    assert by_name["Lifetap V"]["gm_choice"] is False
+    assert by_name["Siphon Strike VI"]["gm_choice"] is False
+
+
+@pytest.mark.asyncio
 async def test_spells_blocklist_applied(app):
     """Blocked spells are excluded from the response."""
     char = _fake_char(spell_ids=[2001, 2002])

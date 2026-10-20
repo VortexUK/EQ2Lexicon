@@ -29,6 +29,10 @@ class SpellEntryResponse(BaseModel):
     spell_type: str
     icon_id: int | None = None
     icon_backdrop: int | None = None
+    # A Grandmaster picked at the class trainer (the per-ten-levels choice,
+    # given_by 'classtraining') rather than scribed from a looted scroll. The
+    # spells tab shows it with its own icon.
+    gm_choice: bool = False
 
 
 class CharacterSpellsResponse(BaseModel):
@@ -90,6 +94,7 @@ async def get_character_spells(request: Request, name: str) -> CharacterSpellsRe
                 spell_type=r.get("type") or "",
                 icon_id=r.get("icon_id"),
                 icon_backdrop=r.get("icon_backdrop"),
+                gm_choice=r.get("tier_name") == "Grandmaster" and r.get("given_by") == "classtraining",
             )
             for r in rows
         ],

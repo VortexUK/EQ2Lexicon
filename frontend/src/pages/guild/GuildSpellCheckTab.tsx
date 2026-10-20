@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSortable } from '../../hooks/useSortable'
 import { SortTh } from '../../components/ui/SortTh'
-import { SPELL_TIER_COLOURS as TIER_COLOURS } from '../../spellConstants'
+import { SPELL_TIER_COLOURS as TIER_COLOURS, EXPERT_OR_BETTER } from '../../spellConstants'
 import { TH_CLS, TD_CLS, GuildSpellCheck, MemberSpellTiers } from './types'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -26,9 +26,9 @@ interface SpellTooltip {
 // ── Raid readiness ────────────────────────────────────────────────────────────
 
 // Mirrors the character spell page: a member is raid-ready when ≥90% of their
-// spells are at Expert tier or better (Expert + Master + Grandmaster).
+// spells are at Expert tier or better (Expert, Master, Grandmaster, Ancient).
 function spellRaidReadiness(m: MemberSpellTiers): { pct: number; ready: boolean; expertPlus: number } {
-  const expertPlus = (m.tiers['Expert'] ?? 0) + (m.tiers['Master'] ?? 0) + (m.tiers['Grandmaster'] ?? 0)
+  const expertPlus = EXPERT_OR_BETTER.reduce((n, t) => n + (m.tiers[t] ?? 0), 0)
   const pct = m.total > 0 ? Math.min(100, Math.round((expertPlus / m.total) * 100)) : 0
   return { pct, ready: pct >= 90, expertPlus }
 }

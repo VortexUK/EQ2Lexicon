@@ -148,7 +148,10 @@ ITEM_DISPLAY: list[tuple[str, str, str]] = [
 ]
 
 # Spell tier order, lowest → highest
-SPELL_TIER_ORDER: list[str] = ["Apprentice", "Journeyman", "Adept", "Expert", "Master", "Grandmaster"]
+# Ancient sits above Grandmaster (spells-catalogue tier 11). TLE servers could
+# not get it until Daybreak allowed it in 2026-10; a tier missing from this list
+# drops out of every per-tier count. Celestial (tier 12) is not here yet.
+SPELL_TIER_ORDER: list[str] = ["Apprentice", "Journeyman", "Adept", "Expert", "Master", "Grandmaster", "Ancient"]
 
 # Flag field names → display labels (order matters for output)
 FLAG_FIELDS: list[tuple[str, str]] = [

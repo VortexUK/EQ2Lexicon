@@ -14,6 +14,9 @@ import {
   SPELL_TIER_ORDER,
   SPELL_TIER_ICON,
   SPELL_TIER_COLOURS,
+  SPELL_GM_CHOICE_ICON,
+  EXPERT_OR_BETTER,
+  MASTER_OR_BETTER,
 } from '../spellConstants'
 
 // ── Shopping-list types (mirrors RecipesPage.tsx) ─────────────────────────────
@@ -424,8 +427,12 @@ export function SpellsTab({ charName }: { charName: string }) {
 
   const { data } = state
   const totalSpells    = data.spells.length
-  const expertOrBetter = (data.tier_counts['Expert'] ?? 0) + (data.tier_counts['Master'] ?? 0) + (data.tier_counts['Grandmaster'] ?? 0)
-  const masterOrBetter = (data.tier_counts['Master'] ?? 0) + (data.tier_counts['Grandmaster'] ?? 0)
+  const countOf        = (tiers: string[]) => tiers.reduce((n, t) => n + (data.tier_counts[t] ?? 0), 0)
+  const expertOrBetter = countOf(EXPERT_OR_BETTER)
+  const masterOrBetter = countOf(MASTER_OR_BETTER)
+  // The Ancient pip only appears when this character has an Ancient spell,
+  // so nobody else's rows gain an always-dim seventh icon.
+  const pipTiers       = SPELL_TIER_ORDER.filter(t => t !== 'Ancient' || data.tiers_present.includes('Ancient'))
   const masteredPct    = totalSpells > 0 ? masterOrBetter / totalSpells * 100 : 0
 
   // Filter the list
@@ -574,14 +581,16 @@ export function SpellsTab({ charName }: { charName: string }) {
                       </td>
                       <td className={`${SPELL_TD_CLS} text-right pr-2`}>
                         <div className="flex items-center justify-end gap-px">
-                          {SPELL_TIER_ORDER.map(t => {
-                            const base = SPELL_TIER_ICON[t]
+                          {pipTiers.map(t => {
+                            const choice = t === 'Grandmaster' && s.gm_choice
+                            const base = choice ? SPELL_GM_CHOICE_ICON : SPELL_TIER_ICON[t]
                             const filename = t === s.tier ? `${base}-lit.png` : `${base}.png`
                             return (
                               <SpellTierPip
                                 key={t}
                                 src={`/spell-icons/${filename}`}
                                 tier={t}
+                                label={choice ? 'Grandmaster (trainer choice)' : undefined}
                                 spellName={s.name}
                               />
                             )
