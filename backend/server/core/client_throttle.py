@@ -16,9 +16,12 @@ from limits.strategies import MovingWindowRateLimiter
 
 _log = logging.getLogger(__name__)
 
-# A raid night is ~20-40 fights, so 30/hour still lets a *working* copy of
-# the app upload normally; a retry loop hits the wall inside a minute.
-DEFAULT_CLIENT_LIMITS = "EQ2AdvancedDesktop=30/hour"
+# No client is limited by default (since 2026-10-21, when EQ2AdvancedDesktop
+# fixed the duplicate-row payloads it was retrying). For a runaway client, set
+# e.g. INGEST_CLIENT_LIMITS="EQ2AdvancedDesktop=30/hour": a raid night is
+# ~20-40 fights, so that still lets a working copy upload normally while a
+# retry loop hits the wall inside a minute.
+DEFAULT_CLIENT_LIMITS = ""
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.server.core.client_throttle import (
+    DEFAULT_CLIENT_LIMITS,
     ClientThrottle,
     client_throttle,
     parse_client_limits,
@@ -107,10 +108,12 @@ def test_configure_replaces_rules_and_clears_counters():
     assert t.check(ua, "tok:abc").limited is False
 
 
-def test_default_instance_covers_the_2026_09_27_client():
-    assert client_throttle.match("EQ2AdvancedDesktop/1.25.77") is not None
-    assert client_throttle.match("EQ2Parser/0.5.5") is None
-    assert client_throttle.match("EQ2LexiconACTPlugin/0.1.16") is None
+def test_by_default_no_client_is_limited():
+    """Since 2026-10-21 the default is empty: EQ2AdvancedDesktop fixed the
+    duplicate-row payloads it was retrying, and nothing else ever floods.
+    The mechanism stays for INGEST_CLIENT_LIMITS to switch back on."""
+    assert parse_client_limits(DEFAULT_CLIENT_LIMITS) == []
+    assert ClientThrottle(parse_client_limits(DEFAULT_CLIENT_LIMITS)).match("EQ2AdvancedDesktop/1.25.120") is None
 
 
 # ---------------------------------------------------------------------------

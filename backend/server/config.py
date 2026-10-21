@@ -40,4 +40,6 @@ OPEN_SIGNUP: bool = os.getenv("OPEN_SIGNUP", "false").strip().lower() in ("1", "
 # separate, tighter budget on top of the generic per-token ingest limit;
 # unlisted clients (the ACT plugin, EQ2Parser) are unaffected. Set to an
 # empty string to disable. See backend/server/core/client_throttle.py.
-INGEST_CLIENT_LIMITS: str = os.getenv("INGEST_CLIENT_LIMITS", "EQ2AdvancedDesktop=30/hour")
+# Empty by default since 2026-10-21: EQ2AdvancedDesktop, the client this was
+# built for, fixed its duplicate-row payloads, so no client is limited.
+INGEST_CLIENT_LIMITS: str = os.getenv("INGEST_CLIENT_LIMITS", "")
