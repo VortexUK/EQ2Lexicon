@@ -426,6 +426,26 @@ _EXCLUDED_BY_WORLD: dict[str, list[dict]] = {}
 _warned_cut_parses: set[int] = set()
 
 
+def curated_encounter(title: str, zone: str | None) -> tuple[str, str] | None:
+    """(canonical zone, encounter name) of the curated encounter whose mob
+    list holds ``title``, or None. Every mob of a multi-mob encounter maps to
+    the same pair ("Kodux" and "Zarda" both give "Zarda and Kodux"). When a
+    mob name sits in more than one curated encounter, the upload's zone picks
+    between them. Shared by the rankings and by fight grouping
+    (parses/fights.py), so both treat the mobs of one encounter as one boss."""
+    boss_index, _, _, _ = _cached_zones_data()
+    candidates = boss_index.get(_normalise_boss_key(title))
+    if not candidates:
+        return None
+    if len(candidates) > 1 and zone:
+        canonical = _zone_canonical_map().get(zone.lower())
+        if canonical:
+            for cz, ct in candidates:
+                if cz == canonical:
+                    return cz, ct
+    return candidates[0]
+
+
 def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str | None, str | None]:
     """Whether an encounter is a rankable boss, and its canonical (zone, title).
 
@@ -436,17 +456,10 @@ def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str |
     through player-shaped names); uncurated zones fall back to is_boss with
     the ACT zone/title kept verbatim."""
     if scope in ("raid", "group"):
-        boss_index, _, _, curated_zones = _cached_zones_data()
-        candidates = boss_index.get(_normalise_boss_key(title))
-        if candidates:
-            if len(candidates) > 1 and zone:
-                canonical = _zone_canonical_map().get(zone.lower())
-                if canonical:
-                    for cz, ct in candidates:
-                        if cz == canonical:
-                            return True, cz, ct
-            cz, ct = candidates[0]
-            return True, cz, ct
+        hit = curated_encounter(title, zone)
+        if hit is not None:
+            return True, hit[0], hit[1]
+        _, _, _, curated_zones = _cached_zones_data()
         if zone and _zone_canonical_map().get(zone.lower()) in curated_zones:
             return False, zone, title
     if is_boss(title):

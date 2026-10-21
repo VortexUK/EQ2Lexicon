@@ -114,6 +114,57 @@ def test_title_codepoint_variants_and_guild_split(conn):
     assert fight_of(conn, c)["guild_name"] == "Others"
 
 
+# A curated multi-mob encounter: uploads titled after either mob are one
+# fight (2026-10-21). Before, "Zarda" and "Kodux" uploads of the same pull were
+# two fights and both could rank.
+_ENCOUNTER = {
+    "zarda": ("The Temple of Kor-Sha", "Zarda and Kodux"),
+    "kodux": ("The Temple of Kor-Sha", "Zarda and Kodux"),
+}
+
+
+def _curated(monkeypatch):
+    from backend.server.api import rankings
+
+    monkeypatch.setattr(rankings, "curated_encounter", lambda title, zone: _ENCOUNTER.get(boss_key(title)))
+
+
+def test_mobs_of_one_curated_encounter_share_a_fight(conn, monkeypatch):
+    _curated(monkeypatch)
+    a = seed(conn, title="Zarda", uploaded_by="Alpha")
+    b = seed(conn, title="Kodux", uploaded_by="Bravo", started_at=BASE + 5)
+    assert fights.attach_encounter(conn, a) == fights.attach_encounter(conn, b)
+    f = fight_of(conn, a)
+    assert f["upload_count"] == 2
+    assert f["title_key"] == boss_key("Zarda and Kodux")
+
+
+def test_fights_grouped_on_the_title_keep_their_key(conn, monkeypatch):
+    """Going forward only: a fight made before the change keeps its raw-title
+    key, so nothing already ranked moves."""
+    old = seed(conn, title="Zarda", uploaded_by="Alpha")
+    old_fight = fights.attach_encounter(conn, old)  # no curated lookup yet: keyed on the title
+    assert fight_of(conn, old)["title_key"] == "zarda"
+
+    _curated(monkeypatch)
+    new = seed(conn, title="Kodux", uploaded_by="Bravo", started_at=BASE + 3600)
+    assert fights.attach_encounter(conn, new) != old_fight
+    assert fight_of(conn, old)["title_key"] == "zarda"
+    assert fight_of(conn, new)["title_key"] == boss_key("Zarda and Kodux")
+
+
+def test_a_failed_curated_lookup_keys_on_the_title(conn, monkeypatch):
+    from backend.server.api import rankings
+
+    def boom(title, zone):
+        raise RuntimeError("zones schema unreadable")
+
+    monkeypatch.setattr(rankings, "curated_encounter", boom)
+    a = seed(conn, title="Kodux", uploaded_by="Alpha")
+    fights.attach_encounter(conn, a)
+    assert fight_of(conn, a)["title_key"] == "kodux"
+
+
 def test_roster_mismatch_does_not_merge(conn):
     a = seed(conn, uploaded_by="Alpha", roster=("P1", "P2", "P3"))
     b = seed(conn, uploaded_by="Bravo", started_at=BASE + 5, roster=("Q1", "Q2", "Q3"))

@@ -48,6 +48,31 @@ def guild_key(guild_name: str | None) -> str:
     return guild_name or ""
 
 
+def fight_title_key(title: str, zone: str | None) -> str:
+    """The boss component of a fight key.
+
+    A title that is one of a curated encounter's mobs keys on the encounter,
+    so uploads of one fight titled after different mobs ("Zarda" and
+    "Kodux", "Ire" and "Malevolence") are one fight and rank once. Any
+    other title keys on itself, as every title did before 2026-10-21.
+
+    Fights grouped before then keep the raw-title key they were made with:
+    regrouping them would move Rise of Kunark rankings mid-tier (the user's
+    call, to revisit after The Shadow Odyssey). The only overlap is a fight
+    being uploaded across the deploy, whose later mirrors may open a second
+    fight once.
+    """
+    # rankings imports this module; import it lazily to keep that one-way.
+    from backend.server.api import rankings  # noqa: PLC0415
+
+    try:
+        hit = rankings.curated_encounter(title, zone)
+    except Exception as exc:  # zones unreadable must never block an upload
+        _log.warning("[fights] curated encounter lookup failed, keying on the title: %s", exc)
+        hit = None
+    return boss_key(hit[1] if hit else title)
+
+
 def _canonical(members: list[dict]) -> dict:
     """Longest upload; earliest start, then lowest id, on a tie."""
     return max(members, key=lambda m: (m["duration_s"], -m["started_at"], -m["id"]))
@@ -129,7 +154,7 @@ def attach_encounter(conn: Any, encounter_id: int) -> int | None:
     e = dict(row)
     if e["fight_id"] is not None:
         return e["fight_id"]
-    world, title_key, guild = e["world"], boss_key(e["title"]), guild_key(e.get("guild_name"))
+    world, title_key, guild = e["world"], fight_title_key(e["title"], e.get("zone")), guild_key(e.get("guild_name"))
     window = PARSE_MIRROR_WINDOW_S
     uploader = e.get("uploaded_by") or "local"
     candidates = conn.execute(
@@ -275,9 +300,10 @@ def _backfill_bulk(conn: Any, world: str) -> int:
                 "SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1", (r["id"],)
             ).fetchone()
             r["player_count"] = int(refreshed["n"]) if refreshed else 0
-    # Same key the incremental path uses: normalised title, '' guild.
+    # Same key the incremental path uses: curated encounter or normalised
+    # title, '' guild.
     for r in rows:
-        r["title"] = boss_key(r["title"])
+        r["title"] = fight_title_key(r["title"], r.get("zone"))
         r["guild_name"] = guild_key(r.get("guild_name"))
     groups = _group_into_fights(rows, conn)
     written = 0

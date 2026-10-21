@@ -3,8 +3,9 @@
 
 -- :name select_encounter_for_attach
 -- The upload being grouped, with the live player count the merge gate sizes
--- its top-N by (N = 3 when either side is raid-sized).
-SELECT e.id, e.world, e.title, e.guild_name, e.uploaded_by, e.started_at, e.duration_s,
+-- its top-N by (N = 3 when either side is raid-sized). The zone picks the
+-- curated encounter when a mob name is in more than one.
+SELECT e.id, e.world, e.title, e.zone, e.guild_name, e.uploaded_by, e.started_at, e.duration_s,
        e.hidden_at, e.uploader_verified, e.success_level, e.fight_id,
        (SELECT COUNT(*) FROM combatants c WHERE c.encounter_id = e.id AND c.is_player = 1) AS player_count
 FROM encounters e
