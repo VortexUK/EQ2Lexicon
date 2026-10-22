@@ -1880,7 +1880,10 @@ def test_reconstruct_survives_a_fight_stored_with_a_year_one_end(parses_db_path)
     assert fights == 2
     by_name = {m["name"]: m for m in members}
     assert by_name["Raidera"]["last_seen"] == T0 + 600
-    assert raid_live.team_scheduled_at(_team_around(T0), -62135596800) is False
+    # The crash itself: converting year 1 into Europe/London time (Paragon's
+    # schedule) underflows the calendar. It must read as outside the window.
+    london = {**_team_around(T0), "primary_tz": "Europe/London"}
+    assert raid_live.team_scheduled_at(london, -62135596800) is False
 
 
 @pytest.mark.asyncio
