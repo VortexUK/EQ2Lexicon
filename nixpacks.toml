@@ -1,3 +1,8 @@
+# Deploys: a push deploys the app only when it changes a watched file (see
+# build.watchPatterns in .railway/railway.ts), so an empty commit never
+# deploys. To deploy the latest commit without a change, use
+# `railway redeploy --service "EQ2 Lexicon" --from-source`.
+#
 # Node is provisioned via fnm, NOT the nodejs_22 Nix package: Vite 8 / rolldown
 # require Node >=22.12 (or >=20.19), but nixpacks' pinned nixpkgs resolves
 # nodejs_22 to 22.10.0 — and that revision predates Node 24, so nodejs_24 isn't
