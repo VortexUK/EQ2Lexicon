@@ -78,8 +78,13 @@ def _slot_active_now(days: list[int], start_min: int, end_min: int, now_weekday:
 
 def team_scheduled_at(team: dict, ts: int) -> bool:
     """Was this team inside a scheduled window at unix time ``ts``? The
-    attendance cross-reference — same ±grace semantics as the live check."""
-    return team_scheduled_now(team, now=datetime.fromtimestamp(ts, tz=UTC))
+    attendance cross-reference — same ±grace semantics as the live check.
+    A timestamp no calendar can hold (a client's year-1 or year-9999
+    placeholder) is never inside a window, rather than an error."""
+    try:
+        return team_scheduled_now(team, now=datetime.fromtimestamp(ts, tz=UTC))
+    except (OverflowError, ValueError, OSError):
+        return False
 
 
 def team_scheduled_now(team: dict, now: datetime | None = None) -> bool:

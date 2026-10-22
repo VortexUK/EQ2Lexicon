@@ -1808,6 +1808,81 @@ def test_parse_roster_sync_clusters_and_filters(parses_db_path):
     assert zones == ["Veeshan's Peak"]
 
 
+def _team_around(ts: int, minutes: int = 180) -> dict:
+    """A raid schedule (UTC) whose window opens 10 minutes before ``ts``."""
+    import datetime as _dt
+
+    t = _dt.datetime.fromtimestamp(ts, _dt.UTC)
+    start = (t.hour * 60 + t.minute - 10) % 1440
+    return {
+        "primary_tz": "UTC",
+        "raids": [{"days": [t.isoweekday()], "start_min": start, "end_min": (start + minutes) % 1440}],
+    }
+
+
+_AFTERNOON = tuple(f"Pugger{c}" for c in "abcdefghijkl")
+
+
+def test_reconstruct_uses_the_raid_schedule_not_the_busiest_cluster(parses_db_path):
+    """2026-10: a Saturday reconstruct picked a 100+ player afternoon raid
+    over the guild's scheduled evening one, because it had more fights."""
+    from backend.server.api.attendance import _parse_roster_sync
+
+    day = session_day_for(T0)
+    for i in range(3):  # the afternoon: more fights, a different crowd, 5-6h earlier
+        _seed_parse_fight(
+            parses_db_path, title=f"Afternoon{'abc'[i]}", started_at=T0 - 6 * 3600 + i * 700, players=_AFTERNOON
+        )
+    _seed_parse_fight(parses_db_path, started_at=T0, players=_SQUAD)
+    _seed_parse_fight(parses_db_path, title="Silverwing", started_at=T0 + 3600, players=_SQUAD)
+
+    # No schedule: the busiest cluster, as before.
+    _, members, _, fights = _parse_roster_sync(_WORLD, _GUILD, day)
+    assert fights == 3 and {m["name"] for m in members} == {n.capitalize() for n in _AFTERNOON}
+
+    _, members, _, fights = _parse_roster_sync(_WORLD, _GUILD, day, [_team_around(T0)])
+    assert fights == 2
+    assert {m["name"] for m in members} == {n.capitalize() for n in _SQUAD}
+
+
+def test_reconstruct_keeps_only_fights_inside_the_raid_window(parses_db_path):
+    """The Paragon case: one long cluster of open-world fights from midday to
+    late night. Only the fights inside the scheduled window count."""
+    from backend.server.api.attendance import _parse_roster_sync
+
+    day = session_day_for(T0)
+    _seed_parse_fight(parses_db_path, title="Earlya", started_at=T0 - 2 * 3600, players=(*_SQUAD, "Puggera"))
+    _seed_parse_fight(parses_db_path, title="Earlyb", started_at=T0 - 3600, players=(*_SQUAD, "Puggera"))
+    _seed_parse_fight(parses_db_path, started_at=T0, players=_SQUAD)
+    _seed_parse_fight(parses_db_path, title="Silverwing", started_at=T0 + 3600, players=_SQUAD)
+    # Past the 3-hour window and its 15-minute grace: not the raid.
+    _seed_parse_fight(parses_db_path, title="Late", started_at=T0 + 210 * 60, players=(*_SQUAD, "Latey"))
+
+    _, members, _, fights = _parse_roster_sync(_WORLD, _GUILD, day, [_team_around(T0)])
+    names = {m["name"] for m in members}
+    assert fights == 2
+    assert "Puggera" not in names and "Latey" not in names
+
+
+def test_reconstruct_survives_a_fight_stored_with_a_year_one_end(parses_db_path):
+    """EQ2Parser up to v0.6.1 stored year 1 as the end of a fight in which no
+    ally dealt damage; reconstructing that night was a 500."""
+    from backend.server import raid_live
+    from backend.server.api.attendance import _parse_roster_sync
+
+    day = session_day_for(T0)
+    _seed_parse_fight(parses_db_path, started_at=T0, players=_SQUAD)
+    bad = _seed_parse_fight(parses_db_path, title="Unknown", started_at=T0 + 600, duration_s=0, players=_SQUAD)
+    with pg_conn(parses_db_path) as conn:
+        conn.execute("UPDATE encounters SET ended_at = -62135596800 WHERE id = %s", (bad,))
+
+    _, members, _, fights = _parse_roster_sync(_WORLD, _GUILD, day, [_team_around(T0)])
+    assert fights == 2
+    by_name = {m["name"]: m for m in members}
+    assert by_name["Raidera"]["last_seen"] == T0 + 600
+    assert raid_live.team_scheduled_at(_team_around(T0), -62135596800) is False
+
+
 @pytest.mark.asyncio
 async def test_reconstruct_route_creates_session_and_is_rerunnable(app, parses_db_path):
     day = session_day_for(T0)

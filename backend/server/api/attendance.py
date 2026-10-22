@@ -253,14 +253,37 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
 _RECONSTRUCT_MIN_PLAYERS = 7
 
 
-def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | None, list[dict], list[str], int]:
+def _raid_night(clusters: list[list[dict]], teams: list[dict]) -> list[dict]:
+    """The fights that make up the raid night.
+
+    With a raid schedule: every fight that starts inside one of the guild's
+    scheduled raid windows, with the schedule's own grace (the same rule the
+    live attendance check uses), and nothing else. Without a schedule, or
+    when no fight falls in one: the cluster with the most fights, as before.
+
+    2026-10-18: Paragon's day was an open-world event fought on and off from
+    12:16 to 02:25 with gaps under the merge gap, so it was one cluster and
+    reconstruction listed 100+ people instead of the 19:00-22:00 raid."""
+    if teams:
+        scheduled = [
+            f for c in clusters for f in c if any(raid_live.team_scheduled_at(t, f["started_at"]) for t in teams)
+        ]
+        if scheduled:
+            return sorted(scheduled, key=lambda f: f["started_at"])
+    return max(clusters, key=len)
+
+
+def _parse_roster_sync(
+    world: str, guild_name: str, day: str, teams: list[dict] | None = None
+) -> tuple[str | None, list[dict], list[str], int]:
     """Rebuild a raid roster for one session-day evening from the guild's
     parse uploads — the "forgot /whoraid" recovery path. Every ally player
     across the evening's raid-sized fights becomes a raid member, their
     first/last-seen spanning the fights they appear in. Fights cluster by
-    the session merge gap and only the largest cluster counts (the raid
-    night, not an afternoon group). Returns (canonical_guild, members,
-    zones, fight_count) — SYNC, runs in the executor."""
+    the session merge gap; :func:`_raid_night` picks the raid night from
+    them, by the guild's raid schedule (``teams``) when it has one. Returns
+    (canonical_guild, members, zones, fight_count) — SYNC, runs in the
+    executor."""
     # API-layer helpers imported locally to keep the module-load DAG
     # cycle-free (same pattern as cleanup.py / parse_posts.py).
     from backend.server.api.parses.list import _PLAYER_COUNT_SQL, _ensure_classified  # noqa: PLC0415
@@ -280,6 +303,10 @@ def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | Non
     try:
         rows = [dict(r) for r in conn.execute(sql, (world, guild_name, win_start, win_start + 86_400)).fetchall()]
         for r in rows:
+            # EQ2Parser up to v0.6.1 stored year 1 as the end of a fight in
+            # which no ally dealt damage; a fight never ends before it starts.
+            if r["ended_at"] is None or r["ended_at"] < r["started_at"]:
+                r["ended_at"] = r["started_at"]
             if _ensure_classified(conn, r["id"], r.get("zone")):
                 refreshed = conn.execute(
                     "SELECT COUNT(*) AS n FROM combatants WHERE encounter_id = %s AND is_player = 1", (r["id"],)
@@ -295,7 +322,7 @@ def _parse_roster_sync(world: str, guild_name: str, day: str) -> tuple[str | Non
             if r["started_at"] - clusters[-1][-1]["ended_at"] > MERGE_GAP_S:
                 clusters.append([])
             clusters[-1].append(r)
-        fights = max(clusters, key=len)
+        fights = _raid_night(clusters, teams or [])
 
         combatants = parses_db.get_combatants_for_encounters(conn, [f["id"] for f in fights])
         members: dict[str, dict] = {}
@@ -347,7 +374,8 @@ async def reconstruct_attendance(request: Request, guild_name: str, body: Recons
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD") from exc
 
-    guild, members, zones, fight_count = await run_sync(_parse_roster_sync, world, guild_name, body.date)
+    teams = await schedule_db.get_schedule(world, guild_name)
+    guild, members, zones, fight_count = await run_sync(_parse_roster_sync, world, guild_name, body.date, teams)
     if guild is None or not members:
         raise HTTPException(
             status_code=404,

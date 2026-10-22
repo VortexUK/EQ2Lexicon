@@ -437,6 +437,12 @@ def _encounter_from_payload(p: IngestEncounter) -> Encounter | None:
     ended = _to_ts(p.endtime)
     if started is None or ended is None:
         return None
+    # EQ2Parser up to v0.6.1 sends year 1 (.NET's empty date) as the end of
+    # a fight in which no ally dealt damage: 1,780 such rows by 2026-10-22,
+    # and attendance reconstruction crashed on one. A fight never ends
+    # before it starts, so it ends where it started.
+    if _to_unix(ended) < _to_unix(started):
+        ended = started
     return Encounter(
         encid=p.encid,
         title=p.title or "",
