@@ -251,6 +251,19 @@ async def ingest_attendance(request: Request, body: AttendanceIngestRequest) -> 
 #: Reconstruction only trusts raid-sized fights (the parses raid bucket) —
 #: a 6-man dungeon earlier that evening is not the raid.
 _RECONSTRUCT_MIN_PLAYERS = 7
+#: ...and only fights the guild's RAIDERS were in: at least this many of the
+#: fight's players are rostered raiders or their alts (raid planner roles +
+#: claims). A guild with no roster needs this many players instead. On
+#: 2026-10-17 an open-world event (Cornhusk, 24 players, 0-2 of Paragon's
+#: raiders) inside the raid window was reconstructed as the raid.
+_RECONSTRUCT_MIN_RAIDERS = 12
+
+
+def _raider_names(role_rows: list[dict], char_mains: dict[str, str]) -> set[str]:
+    """Lower-cased names that count as the guild's raiders: every rostered
+    'raider' plus every character resolve_mains maps to one (their alts)."""
+    raiders = {r["character_name"].lower() for r in role_rows if r.get("role") == "raider"}
+    return raiders | {alt.lower() for alt, main in char_mains.items() if main.lower() in raiders}
 
 
 def _raid_night(clusters: list[list[dict]], teams: list[dict]) -> list[dict]:
@@ -274,7 +287,7 @@ def _raid_night(clusters: list[list[dict]], teams: list[dict]) -> list[dict]:
 
 
 def _parse_roster_sync(
-    world: str, guild_name: str, day: str, teams: list[dict] | None = None
+    world: str, guild_name: str, day: str, teams: list[dict] | None = None, raiders: set[str] | None = None
 ) -> tuple[str | None, list[dict], list[str], int]:
     """Rebuild a raid roster for one session-day evening from the guild's
     parse uploads — the "forgot /whoraid" recovery path. Every ally player
@@ -313,6 +326,20 @@ def _parse_roster_sync(
                 ).fetchone()
                 r["player_count"] = int(refreshed["n"]) if refreshed else 0
         rows = [r for r in rows if (r.get("player_count") or 0) >= _RECONSTRUCT_MIN_PLAYERS]
+        if raiders:
+            players = parses_db.get_combatants_for_encounters(conn, [r["id"] for r in rows])
+            rows = [
+                r
+                for r in rows
+                if sum(
+                    1
+                    for c in players.get(r["id"], [])
+                    if c.get("ally") and c.get("is_player") and (c.get("name") or "").lower() in raiders
+                )
+                >= _RECONSTRUCT_MIN_RAIDERS
+            ]
+        else:
+            rows = [r for r in rows if (r.get("player_count") or 0) >= _RECONSTRUCT_MIN_RAIDERS]
         if not rows:
             return None, [], [], 0
 
@@ -374,24 +401,28 @@ async def reconstruct_attendance(request: Request, guild_name: str, body: Recons
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD") from exc
 
+    # Raid-planner roles + approved claims: who counts as a raider (a fight
+    # needs _RECONSTRUCT_MIN_RAIDERS of them) and, below, alt→main
+    # attribution. Same resolution as the parser's DKP substitution.
+    role_rows = await planning_db.get_roles(world, guild_name)
+    claims = await planning_db.claims_map(world)
+    primaries = await planning_db.primary_claims(world)
+    _, char_mains = derive.resolve_mains(role_rows, claims, primaries)
+    raiders = _raider_names(role_rows, char_mains)
     teams = await schedule_db.get_schedule(world, guild_name)
-    guild, members, zones, fight_count = await run_sync(_parse_roster_sync, world, guild_name, body.date, teams)
+    guild, members, zones, fight_count = await run_sync(
+        _parse_roster_sync, world, guild_name, body.date, teams, raiders
+    )
     if guild is None or not members:
         raise HTTPException(
             status_code=404,
-            detail="No raid-sized parses found for that evening — nothing to reconstruct from.",
+            detail=f"No fight with at least {_RECONSTRUCT_MIN_RAIDERS} of the guild's raiders found for that evening — nothing to reconstruct from.",
         )
 
     # Best-effort alt→main attribution: a player who swapped characters
     # mid-night (or raided purely on an alt) credits their MAIN — one roster
-    # row under the main's name with the alts' intervals merged in.
-    # Resolution comes from approved claims + raid-planner roles (the same
-    # table the parser's DKP substitution uses); unclaimed characters keep
-    # their own row.
-    role_rows = await planning_db.get_roles(world, guild)
-    claims = await planning_db.claims_map(world)
-    primaries = await planning_db.primary_claims(world)
-    _, char_mains = derive.resolve_mains(role_rows, claims, primaries)
+    # row under the main's name with the alts' intervals merged in;
+    # unclaimed characters keep their own row.
     mains_lower = {alt.lower(): main for alt, main in char_mains.items()}
     merged: dict[str, dict] = {}
     for m in members:

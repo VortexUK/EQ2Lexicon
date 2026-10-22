@@ -1773,7 +1773,9 @@ def _seed_parse_fight(
 
 
 # Letter-only names — the character-name validator rejects digits.
-_SQUAD = tuple(f"Raider{c}" for c in "abcdefgh")
+# Twelve: a fight needs _RECONSTRUCT_MIN_RAIDERS (12) players when the guild
+# has no raid roster, as these tests do unless they pass one.
+_SQUAD = tuple(f"Raider{c}" for c in "abcdefghijkl")
 
 
 def test_parse_roster_sync_clusters_and_filters(parses_db_path):
@@ -1801,7 +1803,7 @@ def test_parse_roster_sync_clusters_and_filters(parses_db_path):
     assert guild == _GUILD  # canonical casing from the parses, not the URL
     assert fights == 2
     by_name = {m["name"]: m for m in members}
-    assert len(by_name) == 9
+    assert len(by_name) == 13
     assert "Bonecruncher" not in by_name and "Mistrunner" not in by_name
     assert (by_name["Raidera"]["first_seen"], by_name["Raidera"]["last_seen"]) == (T0, T0 + 3600 + 600)
     assert (by_name["Latey"]["first_seen"], by_name["Latey"]["last_seen"]) == (T0 + 3600, T0 + 3600 + 600)
@@ -1864,6 +1866,46 @@ def test_reconstruct_keeps_only_fights_inside_the_raid_window(parses_db_path):
     assert "Puggera" not in names and "Latey" not in names
 
 
+def test_reconstruct_needs_twelve_of_the_guilds_raiders_in_a_fight(parses_db_path):
+    """2026-10-17: an open-world event inside the raid window (24 players, 0-2
+    of the guild's raiders) was reconstructed as the raid. A fight counts only
+    when at least 12 of its players are the guild's raiders."""
+    from backend.server.api.attendance import _parse_roster_sync
+
+    day = session_day_for(T0)
+    raiders = {n.lower() for n in _SQUAD}
+    _seed_parse_fight(parses_db_path, started_at=T0, players=(*_SQUAD, "Pugger"))  # the raid: 12 raiders
+    # In the window with 24 players, but only two of them raiders.
+    _seed_parse_fight(
+        parses_db_path,
+        title="Cornhusk",
+        started_at=T0 + 1800,
+        players=(*_SQUAD[:2], *_AFTERNOON, *(f"Eventer{c}" for c in "abcdefghij")),
+    )
+
+    _, members, _, fights = _parse_roster_sync(_WORLD, _GUILD, day, [_team_around(T0)], raiders)
+    names = {m["name"] for m in members}
+    assert fights == 1
+    assert "Pugger" in names  # a pug in the raid itself still attended
+    assert not any(n.startswith(("Puggera", "Eventer")) for n in names)
+
+    # Eleven raiders is not enough: nothing to reconstruct.
+    eleven = {n.lower() for n in _SQUAD[:11]}
+    assert _parse_roster_sync(_WORLD, _GUILD, day, [_team_around(T0)], eleven)[3] == 0
+
+
+def test_raider_names_are_rostered_raiders_and_their_alts():
+    from backend.server.api.attendance import _raider_names
+
+    roles = [
+        {"character_name": "Mainy", "role": "raider"},
+        {"character_name": "Benchy", "role": "bench"},
+        {"character_name": "Alty", "role": "raid_alt"},
+    ]
+    char_mains = {"Mainy": "Mainy", "Alty": "Mainy", "Benchy": "Benchy", "Unrostered": "Mainy"}
+    assert _raider_names(roles, char_mains) == {"mainy", "alty", "unrostered"}
+
+
 def test_reconstruct_survives_a_fight_stored_with_a_year_one_end(parses_db_path):
     """EQ2Parser up to v0.6.1 stored year 1 as the end of a fight in which no
     ally dealt damage; reconstructing that night was a 500."""
@@ -1902,7 +1944,7 @@ async def test_reconstruct_route_creates_session_and_is_rerunnable(app, parses_d
 
     assert r1.status_code == 200, r1.text
     body = r1.json()
-    assert body["status"] == "created" and body["raid_members"] == 8 and body["fights"] == 2
+    assert body["status"] == "created" and body["raid_members"] == 12 and body["fights"] == 2
     # Re-running merges into the same session instead of duplicating it.
     assert r2.status_code == 200
     assert r2.json()["status"] == "merged" and r2.json()["session_id"] == body["session_id"]
@@ -1912,7 +1954,7 @@ async def test_reconstruct_route_creates_session_and_is_rerunnable(app, parses_d
     assert (session["started_at"], session["ended_at"]) == (T0, T0 + 3600 + 600)
     obs = await attendance_db.observations_for_session(body["session_id"])
     raid_names = {o["character_name"] for o in obs if o["kind"] == "raid"}
-    assert raid_names == {f"Raider{c}" for c in "abcdefgh"}
+    assert raid_names == {f"Raider{c}" for c in "abcdefghijkl"}
 
     assert missing.status_code == 404
     assert bad.status_code == 400
@@ -1939,9 +1981,9 @@ async def test_reconstruct_attributes_alts_to_their_mains(app, parses_db_path):
     await _claim("u-pure", "Altc")
 
     day = session_day_for(T0)
-    _seed_parse_fight(parses_db_path, started_at=T0, players=(*_SQUAD[:7], "Betabonk", "Altc"))
+    _seed_parse_fight(parses_db_path, started_at=T0, players=(*_SQUAD[:10], "Betabonk", "Altc"))
     _seed_parse_fight(
-        parses_db_path, title="Silverwing", started_at=T0 + 3600, players=(*_SQUAD[:7], "Sennspank", "Altc")
+        parses_db_path, title="Silverwing", started_at=T0 + 3600, players=(*_SQUAD[:10], "Sennspank", "Altc")
     )
 
     _, p_officer = _member_gate_patches(officer=True)
@@ -1949,7 +1991,7 @@ async def test_reconstruct_attributes_alts_to_their_mains(app, parses_db_path):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             res = await c.post(f"/api/guild/{_GUILD}/attendance/reconstruct", json={"date": day})
     assert res.status_code == 200, res.text
-    assert res.json()["raid_members"] == 9  # 7 squad + Betabonk + Mainc
+    assert res.json()["raid_members"] == 12  # 10 squad + Betabonk + Mainc
 
     obs = await attendance_db.observations_for_session(res.json()["session_id"])
     raid = {o["character_name"]: o for o in obs if o["kind"] == "raid"}
