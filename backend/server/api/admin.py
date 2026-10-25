@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.server import server_context, spell_audit
@@ -459,26 +459,62 @@ async def list_parses_admin(
     search: str | None = None,
     limit: int = 200,
     before: int | None = None,
+    before_id: int | None = None,
     hidden: bool = False,
+    status: Literal["all", "visible", "hidden"] = "all",
+    id: int | None = None,
+    title: str | None = Query(None, max_length=200),
+    zone: str | None = Query(None, max_length=200),
+    guild: str | None = Query(None, max_length=200),
+    uploader: str | None = Query(None, max_length=200),
+    since: int | None = None,
+    until: int | None = None,
+    min_players: int | None = Query(None, ge=0),
+    result: int | None = Query(None, ge=0, le=3),
 ) -> list[AdminParseItem]:
     """All parse encounters (including hidden/soft-deleted) for the sanitize
     view, scoped to the active server, newest first. Admin only. ``before``
     is the pagination cursor (only rows strictly older than that unix
     timestamp) — the frontend's "Load older" passes the last row's
-    started_at back to page through the full history. ``hidden=true``
-    lists only soft-deleted rows (the bulk-restore workflow).
+    started_at back to page through the full history, with ``before_id``
+    (the row's id) so uploads sharing that start second are not skipped. ``status`` narrows to
+    visible or hidden (soft-deleted, the bulk-restore workflow) rows;
+    ``hidden=true`` is the older spelling of ``status=hidden``.
+
+    One filter per table column, ANDed (see
+    ``ParsesStore.list_encounters_for_admin``): ``id``, ``title``, ``zone``,
+    ``guild``, ``uploader``, ``since``/``until`` (unix seconds),
+    ``min_players``, ``result`` (success_level).
+
     Hard-purge uses the existing DELETE /api/parses/{id}?purge=1 and
     /api/parses/batch?ids=...&purge=1; restore uses POST
     /api/parses/batch/unhide?ids=..."""
     _require_admin(request)
     limit = max(1, min(limit, ADMIN_PARSE_LIST_MAX_LIMIT))
     world = current_world()
+    hidden_only = hidden or status == "hidden"
 
     def _query() -> list[dict]:
         conn = parses_db.init_db()
         try:
             return parses_db.list_encounters_for_admin(
-                conn, search=search, limit=limit, world=world, before=before, hidden_only=hidden
+                conn,
+                search=search,
+                limit=limit,
+                world=world,
+                before=before,
+                before_id=before_id,
+                hidden_only=hidden_only,
+                visible_only=status == "visible" and not hidden_only,
+                encounter_id=id,
+                title=title,
+                zone=zone,
+                guild=guild,
+                uploader=uploader,
+                since=since,
+                until=until,
+                min_players=min_players,
+                result=result,
             )
         finally:
             conn.close()

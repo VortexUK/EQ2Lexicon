@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import psycopg.errors
 import pytest
@@ -405,6 +405,86 @@ class TestInsertHelpers:
 
         # A numeric term that is nobody's id (and matches no text) finds nothing.
         assert parses_db.store.list_encounters_for_admin(parses_db_conn, search="999999") == []
+
+    def test_list_encounters_for_admin_column_filters_combine(self, parses_db_conn):
+        """Each column filter narrows on its own column, and they AND together:
+        zone + uploader picks the one row matching both, where the old single
+        search box could only match one column at a time."""
+        from dataclasses import replace
+
+        base = _sample_encounter()
+        rows = [
+            ("e1", "Cornhusk", "The Thundering Steppes", "Uploaderone", 13, 1),
+            ("e2", "Cornhusk", "The Thundering Steppes", "Uploadertwo", 14, 3),
+            ("e3", "Kpul D`Vngur", "Shard of Hate", "Uploaderone", 15, 1),
+        ]
+        ids = {}
+        for encid, title, zone, who, hour, success in rows:
+            start = datetime(2026, 5, 24, hour, 0, 0)
+            enc = replace(
+                base,
+                encid=encid,
+                title=title,
+                zone=zone,
+                started_at=start,
+                ended_at=start + timedelta(seconds=46),
+                success_level=success,
+            )
+            ids[encid] = parses_db.store.insert_encounter(
+                parses_db_conn, enc, source_dsn="eq2act", ingested_at=1, uploaded_by=who, guild_name="Exordium"
+            )
+        parses_db.store.soft_delete_encounter(parses_db_conn, ids["e2"], hidden_at=99)
+        started = {r["id"]: r["started_at"] for r in parses_db.store.list_encounters_for_admin(parses_db_conn)}
+        e2_start = started[ids["e2"]]
+
+        def found(**kw) -> set[str]:
+            got = {r["id"] for r in parses_db.store.list_encounters_for_admin(parses_db_conn, **kw)}
+            return {k for k, v in ids.items() if v in got}
+
+        assert found(zone="thundering") == {"e1", "e2"}
+        assert found(zone="thundering", uploader="one") == {"e1"}
+        assert found(title="vngur") == {"e3"}
+        assert found(guild="EXORD") == {"e1", "e2", "e3"}
+        assert found(encounter_id=ids["e3"]) == {"e3"}
+        assert found(since=e2_start) == {"e2", "e3"}
+        assert found(until=e2_start) == {"e1"}
+        assert found(result=3) == {"e2"}
+        assert found(zone="thundering", visible_only=True) == {"e1"}
+        assert found(zone="thundering", hidden_only=True) == {"e2"}
+        # LIKE wildcards in the input match literally, not as patterns.
+        assert found(zone="%") == set()
+        assert found(zone="_") == set()
+
+    def test_list_encounters_for_admin_keyset_cursor_keeps_same_second_siblings(self, parses_db_conn):
+        """Every uploader of one fight shares its start second. Paging with
+        (before, before_id) returns the siblings the started_at-only cursor
+        would skip."""
+        from dataclasses import replace
+
+        base = _sample_encounter()
+        ids = [
+            parses_db.store.insert_encounter(
+                parses_db_conn, replace(base, encid=f"m{i}"), source_dsn="eq2act", ingested_at=1
+            )
+            for i in range(3)
+        ]
+        first = parses_db.store.list_encounters_for_admin(parses_db_conn, limit=1)
+        assert [r["id"] for r in first] == [max(ids)]
+        cursor = first[0]
+        rest = parses_db.store.list_encounters_for_admin(
+            parses_db_conn, before=cursor["started_at"], before_id=cursor["id"]
+        )
+        assert [r["id"] for r in rest] == sorted(ids, reverse=True)[1:]
+        # The started_at-only cursor drops them (why the keyset form exists).
+        assert parses_db.store.list_encounters_for_admin(parses_db_conn, before=cursor["started_at"]) == []
+
+    def test_list_encounters_for_admin_min_players(self, parses_db_conn):
+        """min_players compares the same player count the row shows."""
+        enc = _sample_encounter()
+        eid = parses_db.store.insert_encounter(parses_db_conn, enc, source_dsn="eq2act", ingested_at=1)
+        shown = parses_db.store.list_encounters_for_admin(parses_db_conn)[0]["player_count"]
+        assert [r["id"] for r in parses_db.store.list_encounters_for_admin(parses_db_conn, min_players=shown)] == [eid]
+        assert parses_db.store.list_encounters_for_admin(parses_db_conn, min_players=shown + 1) == []
 
 
 class TestUniqueConstraints:

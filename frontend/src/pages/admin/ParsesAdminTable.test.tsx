@@ -48,7 +48,7 @@ function mockFetch(rows: AdminParse[]) {
         const ids = new URL(url, 'http://test').searchParams.get('ids')!.split(',')
         return { ok: true, status: 200, json: async () => ({ unhidden: ids.length }) }
       }
-      const hiddenOnly = new URL(url, 'http://test').searchParams.get('hidden') === 'true'
+      const hiddenOnly = new URL(url, 'http://test').searchParams.get('status') === 'hidden'
       return { ok: true, status: 200, json: async () => (hiddenOnly ? rows.filter(r => r.hidden) : rows) }
     }) as unknown as typeof fetch,
   )
@@ -114,13 +114,13 @@ describe('ParsesAdminTable bulk unhide', () => {
     expect(posted).toEqual([PARSE_BATCH_CHUNK_SIZE, 1])
   }, SLOW_TEST_MS)
 
-  it('"Hidden only" refetches with hidden=true and drops visible rows', async () => {
+  it('the "Hidden only" status filter refetches with status=hidden and drops visible rows', async () => {
     mockFetch([parse(1, true), parse(2, false)])
     renderTable()
     await screen.findByText('Boss 2')
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Hidden only' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by status' }), { target: { value: 'hidden' } })
     await waitFor(() => expect(screen.queryByText('Boss 2')).toBeNull())
-    expect(calls[calls.length - 1].url).toBe('/api/admin/parses?search=&hidden=true')
+    expect(calls[calls.length - 1].url).toBe('/api/admin/parses?status=hidden')
     expect(screen.getByText('Boss 1')).toBeInTheDocument()
   })
 
@@ -133,6 +133,62 @@ describe('ParsesAdminTable bulk unhide', () => {
     fireEvent.click(screen.getByRole('button', { name: /Unhide selected \(1\)/ }))
     expect(calls.filter(c => c.method === 'POST')).toHaveLength(0)
   })
+})
+
+// One filter per column, ANDed by the server. The table once had a single
+// search box, so zone OR uploader OR title, never two at once.
+describe('ParsesAdminTable column filters', () => {
+  const lastGet = () => {
+    const gets = calls.filter(c => c.method === 'GET')
+    return new URL(gets[gets.length - 1].url, 'http://test').searchParams
+  }
+
+  it('sends every column filter together in one request', async () => {
+    mockFetch([parse(1, false)])
+    renderTable()
+    await screen.findByText('Boss 1')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter by zone' }), { target: { value: 'thundering' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter by uploader' }), { target: { value: 'menl' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by result' }), { target: { value: '1' } })
+    await waitFor(() => expect(lastGet().get('uploader')).toBe('menl'))
+    const q = lastGet()
+    expect(q.get('zone')).toBe('thundering')
+    expect(q.get('result')).toBe('1')
+  })
+
+  it('waits for typing to pause before refetching', async () => {
+    mockFetch([parse(1, false)])
+    renderTable()
+    await screen.findByText('Boss 1')
+    const before = calls.length
+    const box = screen.getByRole('textbox', { name: 'Filter by title' })
+    for (const v of ['c', 'co', 'cor', 'corn']) fireEvent.change(box, { target: { value: v } })
+    await waitFor(() => expect(lastGet().get('title')).toBe('corn'))
+    expect(calls.length - before).toBe(1)
+  })
+
+  it('"Load all matching" pages with the keyset cursor until a short page', async () => {
+    const first = Array.from({ length: 200 }, (_, i) => parse(i + 1, false))
+    const second = Array.from({ length: 50 }, (_, i) => parse(i + 201, false))
+    calls = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        calls.push({ url, method: 'GET' })
+        const q = new URL(url, 'http://test').searchParams
+        return { ok: true, status: 200, json: async () => (q.get('before') ? second : first) }
+      }) as unknown as typeof fetch,
+    )
+    renderTable()
+    await screen.findByText('Boss 1', {}, { timeout: SLOW_RENDER_MS })
+    fireEvent.click(screen.getByRole('button', { name: 'Load all matching' }))
+    await screen.findByText('Boss 250', {}, { timeout: SLOW_RENDER_MS })
+    const q = lastGet()
+    expect(q.get('limit')).toBe('1000')
+    expect(q.get('before')).toBe(String(first[199].started_at))
+    expect(q.get('before_id')).toBe('200')
+    expect(screen.queryByRole('button', { name: 'Load all matching' })).toBeNull()  // nothing more to load
+  }, SLOW_TEST_MS)
 })
 
 // The ⚠ chip once showed for any non-empty client_warnings, and EQ2Parser

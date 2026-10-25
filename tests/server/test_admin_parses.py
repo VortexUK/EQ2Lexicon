@@ -94,3 +94,33 @@ async def test_admin_parses_hidden_filter_reaches_the_store(app):
     assert r.status_code == 200 and r.json() == []
     assert list_mock.call_args.kwargs["hidden_only"] is True
     assert list_mock.call_args.kwargs["search"] == "exordium"
+
+
+@pytest.mark.asyncio
+async def test_admin_parses_column_filters_reach_the_store(app):
+    """Each column's filter is its own query parameter and reaches the store
+    unchanged, so the table can combine zone AND uploader AND result."""
+    list_mock = MagicMock(return_value=[])
+    with (
+        patch("backend.server.api.admin._require_admin", _fake_admin),
+        patch("backend.server.api.admin.parses_db.list_encounters_for_admin", list_mock),
+        patch("backend.server.api.admin.parses_db.init_db", MagicMock(return_value=MagicMock())),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get(
+                "/api/admin/parses?status=visible&id=7&title=corn&zone=thundering&guild=exo"
+                "&uploader=men&since=100&until=200&min_players=24&result=1&limit=1000"
+            )
+            bad = await client.get("/api/admin/parses?result=9")
+    assert r.status_code == 200
+    kw = list_mock.call_args_list[0].kwargs
+    assert kw["visible_only"] is True and kw["hidden_only"] is False
+    assert (kw["encounter_id"], kw["title"], kw["zone"], kw["guild"], kw["uploader"]) == (
+        7,
+        "corn",
+        "thundering",
+        "exo",
+        "men",
+    )
+    assert (kw["since"], kw["until"], kw["min_players"], kw["result"], kw["limit"]) == (100, 200, 24, 1, 1000)
+    assert bad.status_code == 422

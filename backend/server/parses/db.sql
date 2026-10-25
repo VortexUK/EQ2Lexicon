@@ -143,19 +143,25 @@ LIMIT %s;
 -- :name recent_encounters_all
 SELECT * FROM encounters WHERE world = %s ORDER BY started_at DESC LIMIT %s;
 
--- {where} = "WHERE …" composed in Python; embeds a correlated subquery for
--- the player_count column. (Comment kept OUTSIDE the block — the composed
+-- The admin view's player count of encounter e: allied single-word names.
+-- An expression, not a statement: list_encounters_for_admin selects it and
+-- its min-players filter compares it, so both read the same number.
+-- :name admin_player_count
+(SELECT COUNT(*) FROM combatants c
+   WHERE c.encounter_id = e.id AND c.ally = 1
+     AND c.name != '' AND c.name != 'Unknown'
+     AND strpos(c.name, ' ') = 0)
+
+-- {where} = "WHERE …" and {player_count} = the admin_player_count block,
+-- both composed in Python. (Comment kept OUTSIDE the block — the composed
 -- fragment contains %s and psycopg counts placeholders inside comments.)
 -- :name list_encounters_for_admin
 SELECT e.id, e.title, e.zone, e.guild_name, e.uploaded_by, e.started_at,
        e.duration_s, e.success_level, e.hidden_at, e.hidden_by, e.client_warnings,
-       (SELECT COUNT(*) FROM combatants c
-          WHERE c.encounter_id = e.id AND c.ally = 1
-            AND c.name != '' AND c.name != 'Unknown'
-            AND strpos(c.name, ' ') = 0) AS player_count
+       {player_count} AS player_count
 FROM encounters e
 {where}
-ORDER BY e.started_at DESC
+ORDER BY e.started_at DESC, e.id DESC
 LIMIT %s;
 
 -- :name delete_encounter

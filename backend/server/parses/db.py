@@ -346,19 +346,39 @@ class ParsesStore(PgCatalogue):
         world: str | None = None,
         before: int | None = None,
         hidden_only: bool = False,
+        before_id: int | None = None,
+        visible_only: bool = False,
+        encounter_id: int | None = None,
+        title: str | None = None,
+        zone: str | None = None,
+        guild: str | None = None,
+        uploader: str | None = None,
+        since: int | None = None,
+        until: int | None = None,
+        min_players: int | None = None,
+        result: int | None = None,
     ) -> list[dict]:
         """All encounters INCLUDING hidden (soft-deleted) ones, newest first, for
-        the admin sanitize view. Optional case-insensitive search over
-        title / uploaded_by / guild_name. Includes a player_count and the hidden_at
+        the admin sanitize view. Includes a player_count and the hidden_at
         marker so an admin can spot a bogus parse even when it's hidden but still
         polluting the leaderboards.
 
         ``world`` scopes to a single EQ2 server; ``None`` returns all worlds
         (routes should always pass the active server world).
         ``before`` is the pagination cursor: only rows strictly older than that
-        unix timestamp (pass the previous page's last started_at).
+        unix timestamp (pass the previous page's last started_at). With
+        ``before_id`` (that row's id) it is a keyset cursor instead, which
+        also keeps the rows sharing the last row's start second.
         ``hidden_only`` narrows to soft-deleted rows — the restore workflow
-        after a mistaken guild-wide delete."""
+        after a mistaken guild-wide delete; ``visible_only`` to the rest.
+
+        Column filters, all combined with AND: ``encounter_id`` exact;
+        ``title`` / ``zone`` / ``guild`` / ``uploader`` case-insensitive
+        substring (LIKE wildcards in the input match literally); ``since`` /
+        ``until`` bound started_at (inclusive / exclusive); ``min_players``
+        on the same player count the row shows; ``result`` the success_level.
+        ``search`` is the older single box over title / uploader / guild (or
+        an exact id), still ANDed with the rest."""
         clauses: list[str] = []
         params: list = []
         if world is not None:
@@ -366,9 +386,42 @@ class ParsesStore(PgCatalogue):
             params.append(world)
         if hidden_only:
             clauses.append("e.hidden_at IS NOT NULL")
-        if before is not None:
+        if visible_only:
+            clauses.append("e.hidden_at IS NULL")
+        if before is not None and before_id is not None:
+            # Keyset cursor: every uploader of one fight shares its start
+            # second, so started_at alone would skip the siblings of the
+            # page's last row. Matches the (started_at, id) DESC order.
+            clauses.append("(e.started_at < %s OR (e.started_at = %s AND e.id < %s))")
+            params += [before, before, before_id]
+        elif before is not None:
             clauses.append("e.started_at < %s")
             params.append(before)
+        if encounter_id is not None:
+            clauses.append("e.id = %s")
+            params.append(encounter_id)
+        for column, value in (
+            ("e.title", title),
+            ("e.zone", zone),
+            ("e.guild_name", guild),
+            ("e.uploaded_by", uploader),
+        ):
+            if value and value.strip():
+                clauses.append(f"LOWER(COALESCE({column}, '')) LIKE %s ESCAPE '\\'")
+                params.append(ParsesStore._like_contains(value.strip()))
+        if since is not None:
+            clauses.append("e.started_at >= %s")
+            params.append(since)
+        if until is not None:
+            clauses.append("e.started_at < %s")
+            params.append(until)
+        if result is not None:
+            clauses.append("e.success_level = %s")
+            params.append(result)
+        player_count = _SQL["admin_player_count"]
+        if min_players is not None and min_players > 0:
+            clauses.append(f"{player_count} >= %s")
+            params.append(min_players)
         if search:
             like = f"%{search.lower()}%"
             # A numeric search (optionally "#123" — how ids render in the UI)
@@ -388,8 +441,14 @@ class ParsesStore(PgCatalogue):
                 )
                 params += [like, like, like]
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        sql = _SQL["list_encounters_for_admin"].format(where=where)
+        sql = _SQL["list_encounters_for_admin"].format(where=where, player_count=player_count)
         return [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
+
+    @staticmethod
+    def _like_contains(text: str) -> str:
+        """Lower-case *text*, escape LIKE wildcards (with ``ESCAPE '\\'``) and
+        wrap it for a substring match, so "a_b" or "50%" match literally."""
+        return "%" + text.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
     @staticmethod
     def delete_encounter(conn: Any, encounter_id: int) -> bool:
