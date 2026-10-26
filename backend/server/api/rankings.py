@@ -3,8 +3,8 @@ GET /api/rankings/filters  — the smart-dropdown tree (scopes -> zones -> bosse
 GET /api/rankings          — a ranked board for one (size, zone, boss, metric[, class]).
 
 Computed-on-read over the existing parses tables (no separate ranking store).
-Boss kills are detected with parses.boss.is_boss, mirror-grouped to their
-primary upload, then ranked. Hidden (soft-deleted) parses and uploads whose
+Only kills of curated encounters (the zones catalogue's rosters) rank:
+each is mirror-grouped to its primary upload, then ranked. Hidden (soft-deleted) parses and uploads whose
 logger was not a character claimed by the uploading account never rank.
 """
 
@@ -29,7 +29,7 @@ from backend.server.core.executor import run_sync
 from backend.server.limiter import limiter
 from backend.server.metrics import RANKINGS_KILLS_DATASET_SIZE, RANKINGS_REBUILD_SECONDS
 from backend.server.parses import fights
-from backend.server.parses.boss import boss_key, is_boss
+from backend.server.parses.boss import boss_key
 from backend.server.parses.db import store as parses_db
 from backend.server.server_context import current_server, current_world
 from backend.sql_loader import load_sql
@@ -330,8 +330,8 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
     The trees are keyed by zone type, not "has encounters": curated dungeons
     have bosses too and must not appear under the Raids dropdown.
 
-    Empty when no rosters are curated yet (dev/pre-seed), so everything falls
-    back to the is_boss heuristic and parse-derived dropdowns.
+    Empty when no rosters are curated yet (dev/pre-seed), and then nothing
+    ranks: only curated encounters do.
 
     PROCESS-LOCAL: invalidate_zones_cache() only clears this worker's LRU.
     Safe because a startup check in backend/server/app.py pins
@@ -368,8 +368,7 @@ def _cached_zones_data() -> tuple[dict[str, list[tuple[str, str]]], list[dict], 
 
         raid_tree = _tree_for_type("raid_x4")
         dungeon_tree = _tree_for_type("dungeon")
-        # Zones with a curated roster — inside these, the roster is
-        # AUTHORITATIVE and the is_boss heuristic never applies.
+        # Zones with a curated roster (the character rankings tab reads it).
         curated_zones = {e["zone"] for e in raid_tree} | {e["zone"] for e in dungeon_tree}
         return dict(boss_index), raid_tree, dungeon_tree, curated_zones
     finally:
@@ -446,34 +445,29 @@ def curated_encounter(title: str, zone: str | None) -> tuple[str, str] | None:
     return candidates[0]
 
 
-def _resolve_boss(title: str, zone: str | None, scope: str) -> tuple[bool, str | None, str | None]:
+def _resolve_boss(title: str, zone: str | None) -> tuple[bool, str | None, str | None]:
     """Whether an encounter is a rankable boss, and its canonical (zone, title).
 
-    A title matching a curated encounter mob is a boss, remapped to its
-    canonical (zone, encounter name) — collapsing ACT zone-name variants and
-    the mobs of a multi-mob encounter into one entry. Inside a curated zone
-    an unmatched title never ranks (the is_boss heuristic would wave
-    through player-shaped names); uncurated zones fall back to is_boss with
-    the ACT zone/title kept verbatim."""
-    if scope in ("raid", "group"):
-        hit = curated_encounter(title, zone)
-        if hit is not None:
-            return True, hit[0], hit[1]
-        _, _, _, curated_zones = _cached_zones_data()
-        if zone and _zone_canonical_map().get(zone.lower()) in curated_zones:
-            return False, zone, title
-    if is_boss(title):
-        return True, zone, title
+    Only curated encounters rank. A title matching a curated encounter mob is
+    a boss, remapped to its canonical (zone, encounter name) — collapsing ACT
+    zone-name variants and the mobs of a multi-mob encounter into one entry.
+    Anything else never ranks, in any zone: the capitalised-title guess
+    (``is_boss``) that uncurated zones once fell back to filled an "Other"
+    expansion with named trash, public quests, contested bosses and
+    instance-numbered zone names (retired 2026-10-26). A zone ranks once a
+    curator adds its roster."""
+    hit = curated_encounter(title, zone)
+    if hit is not None:
+        return True, hit[0], hit[1]
     return False, zone, title
 
 
-def _build_filters(kills: list[dict]) -> dict:
+def _build_filters() -> dict:
     """Scope → zone → boss tree for the dropdowns.
 
-    Raid: the curated ``raid_x4`` tree (bosses listed even with no kills),
-    plus heuristic-matched raid kills in uncurated zones under an "Other"
-    expansion. Group: the curated ``dungeon`` tree only — group kills in
-    uncurated zones never reach the dropdown.
+    Raid: the curated ``raid_x4`` tree. Group: the curated ``dungeon`` tree.
+    Bosses are listed even with no kills, and nothing else is: only curated
+    encounters rank (``_resolve_boss``), so the tree needs no kills at all.
 
     Also returns ``raid_expansions`` (newest first) and ``default_expansion``
     for the expansion selector — the server's current_xpac when it has raids,
@@ -501,23 +495,7 @@ def _build_filters(kills: list[dict]) -> dict:
             exp_names[short] = entry.get("expansion_name") or short
             exp_order.append(short)
 
-    has_other_raid = False
-    for k in kills:
-        if k.get("scope") != "raid":
-            # Group kills don't build the dropdown (the curated dungeon tree
-            # does); they still rank once a zone is selected.
-            continue
-        zone = k.get("zone") or "(unknown zone)"
-        z = raid_zones.setdefault(zone, {"bosses": [], "expansion": None})
-        if z["expansion"] is None:
-            z["expansion"] = "Other"
-            has_other_raid = True
-        if k["title"] not in z["bosses"]:
-            z["bosses"].append(k["title"])
-
     raid_expansions = [{"short": s, "name": exp_names[s]} for s in exp_order]
-    if has_other_raid:
-        raid_expansions.append({"short": "Other", "name": "Other"})
 
     # current_server().current_xpac may be the short code ("EoF") or the full
     # expansion name ("Echoes of Faydwer"), case-insensitive; unknown/unset →
@@ -639,7 +617,7 @@ def _gate_row(row: dict) -> tuple[dict, str] | None:
     scope = _scope_for(d.get("player_count") or 0)
     if scope is None:
         return None
-    ok, czone, ctitle = _resolve_boss(d["title"], d["zone"], scope)
+    ok, czone, ctitle = _resolve_boss(d["title"], d["zone"])
     if not ok:
         return None
     d["zone"] = czone
@@ -988,26 +966,10 @@ async def prewarm_rankings_kills() -> None:
 @router.get("/rankings/filters")
 @limiter.limit("60/minute")
 async def get_ranking_filters(request: Request) -> dict:
-    """The dropdown tree. Its authoritative content is STATIC (the zones catalogue,
-    cached for the process lifetime) — kills only contribute the "Other"
-    bucket for heuristic-matched zones not yet curated. So the heavy
-    kills scan must never block (or 500) the dropdowns: serve whatever
-    the cache holds — fresh, stale, or nothing — and refresh it in the
-    background. A cold start briefly shows the curated tree without the
-    "Other" bucket, which is the right trade."""
+    """The dropdown tree: the curated zones catalogue alone (cached for the
+    process lifetime), so it never waits on the kills scan."""
     _require_user(request)
-    # Resolve world in the async handler (contextvar is set here); do NOT read
-    # current_world() inside the executor thread — contextvars don't cross threads.
-    world = current_world()
-    kills, is_stale = rankings_cache.get_stale(f"{_KILLS_KEY}:{world}")
-    _, raid_tree, dungeon_tree, _ = _cached_zones_data()
-    if kills is None and not raid_tree and not dungeon_tree:
-        # No curated zones catalogue (dev/tests): the dropdowns are ENTIRELY
-        # parse-derived there, so the scan is the only source — block once.
-        kills = await run_sync(_cached_kills, world)
-    elif kills is None or is_stale:
-        asyncio.create_task(_kills_background_refresh(world))
-    return _build_filters(kills or [])
+    return _build_filters()
 
 
 @router.get("/rankings/excluded")

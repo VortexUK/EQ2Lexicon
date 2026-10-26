@@ -139,9 +139,7 @@ class ExportAbilitiesResponse(BaseModel):
 async def export_filters(request: Request) -> dict:
     """Valid sizes/zones/bosses (+ classes per board) for /rankings params."""
     await _require_api_consumer(request)
-    world = current_world()
-    kills = await _kills_swr(world)
-    return {"schema_version": 1, "world": world, **_build_filters(kills)}
+    return {"schema_version": 1, "world": current_world(), **_build_filters()}
 
 
 @router.get("/export/v1/rankings", response_model=ExportRankingsResponse)

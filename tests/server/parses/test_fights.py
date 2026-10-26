@@ -283,9 +283,12 @@ def test_backfill_is_a_noop_when_everything_is_grouped(conn):
 # ── incremental rankings sync ────────────────────────────────────────────────
 
 
-def test_sync_fight_replaces_the_fights_kill_in_the_cached_dataset(conn):
+def test_sync_fight_replaces_the_fights_kill_in_the_cached_dataset(conn, monkeypatch):
     from backend.server.api import rankings as rk
 
+    # Only curated encounters rank: curate the seeded boss (Tarinax, Vetrovia).
+    zones_data = ({boss_key("Tarinax"): [("Vetrovia", "Tarinax")]}, [], [], {"Vetrovia"})
+    monkeypatch.setattr(rk, "_cached_zones_data", lambda: zones_data)
     key = f"{rk._KILLS_KEY}:{WORLD}"
     rk.rankings_cache.set(key, [])  # warm (empty) cache: sync must keep it live
     a = seed(conn, uploaded_by="Alpha", duration_s=60, roster=tuple(f"P{i}" for i in range(8)))

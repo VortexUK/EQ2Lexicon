@@ -42,11 +42,11 @@ The zones catalogue (curator-managed encounter rosters) is authoritative:
 - A fight title matching a curated encounter mob is a boss, remapped to the
   canonical zone + encounter name. This collapses ACT zone-name variants and
   makes all mobs of a multi-mob encounter resolve to one entry.
-- Inside a **curated** zone, an unmatched title never ranks. The `is_boss`
-  heuristic would accept player-shaped names, so it is not consulted there.
-- In an **uncurated** zone the `is_boss` heuristic applies and the ACT
-  zone/title is kept verbatim, so kills in zones the curators have not reached
-  still surface.
+- Any other title never ranks, in any zone. Until 2026-10-26 uncurated zones
+  fell back to the `is_boss` capitalised-title guess and listed those kills
+  under an "Other" expansion; it filled with named trash, public quests,
+  contested bosses and instance-numbered zone names ("Sebilis 2"), so it was
+  retired. A zone ranks once a curator adds its roster.
 
 Name matching goes through `_normalise_boss_key` (NFC, lowercase, apostrophe
 and space variants collapsed). The frontend mirror is `normaliseBossName` in
@@ -59,11 +59,12 @@ shape (`GET /api/zones/raid-bosses`, built by `_raid_boss_names` from
 `_cached_zones_data()` returns two dropdown trees, keyed by **zone type**:
 
 - **Raid tree** — zones typed `raid_x4`, with every curated boss listed even
-  before anyone has killed it. Heuristic-matched raid kills in uncurated zones
-  are appended under an "Other" expansion.
+  before anyone has killed it.
 - **Dungeon tree** — zones with the `dungeon` overlay type (curated max-level
-  group instances). Group kills in uncurated zones never reach the dropdown,
-  though they remain in the database.
+  group instances).
+
+Kills never add to either tree, so `_build_filters()` reads the catalogue
+alone. Kills in uncurated zones stay in the database; they just never rank.
 
 The trees are split by type rather than "has encounters" because curated
 dungeons have bosses too and must not appear under Raids.

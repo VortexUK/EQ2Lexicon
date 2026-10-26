@@ -1,6 +1,20 @@
 from __future__ import annotations
 
-from backend.server.api.rankings import _apply_percentiles, _scope_for
+from backend.server.api.rankings import _apply_percentiles, _normalise_boss_key, _scope_for
+
+
+def _zones_data(encounters: set[tuple[str, str]]) -> tuple[dict, list[dict], list[dict], set[str]]:
+    """A ``_cached_zones_data()`` value curating exactly ``encounters`` — a set
+    of ``(zone, boss)`` raid pairs, each a single-mob encounter named after its
+    mob. Only curated encounters rank, so a fixture kill ranks only when its
+    (zone, title) is listed here."""
+    index: dict[str, list[tuple[str, str]]] = {}
+    bosses_by_zone: dict[str, list[str]] = {}
+    for zone, boss in sorted(encounters):
+        index.setdefault(_normalise_boss_key(boss), []).append((zone, boss))
+        bosses_by_zone.setdefault(zone, []).append(boss)
+    raid_tree = [{"zone": z, "expansion": None, "expansion_name": None, "bosses": b} for z, b in bosses_by_zone.items()]
+    return index, raid_tree, [], set(bosses_by_zone)
 
 
 class TestApplyPercentiles:
@@ -298,29 +312,15 @@ class TestGuildDpsBoard:
 
 
 class TestFilters:
-    def test_tree_groups_raid_kills_drops_uncurated_group_kills(self):
-        """Raid kills land under the 'raid' scope. Group-scope kills for
-        zones that aren't in the curated dungeon overlay are
-        silently dropped from the dropdown — they're still in the DB and
-        queryable on a leaderboard, just not surfaced as a filter option."""
+    def test_tree_without_curated_zones_is_empty(self):
+        """Curation is the only source of dropdown entries: with an empty
+        zones catalogue there are no raid or group scopes and no expansions
+        (kills never add zones, bosses or an "Other" bucket)."""
         from unittest.mock import patch
 
-        kills = [
-            {"scope": "raid", "zone": "Vetrovia", "title": "Tarinax"},
-            {"scope": "raid", "zone": "Vetrovia", "title": "Cazel"},
-            # Non-curated group kill — should NOT create a 'group' scope.
-            {"scope": "group", "zone": "Crypt", "title": "Bonebreaker"},
-        ]
-        # Empty zones catalogue state: no curated raids or dungeons. With nothing
-        # curated, the group dropdown should be absent entirely (not just
-        # empty) — curation is the only source of dungeon entries now.
         with patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())):
-            tree = _build_filters(kills)
-        raid = next(s for s in tree["scopes"] if s["key"] == "raid")
-        zone = raid["zones"][0]
-        assert zone["zone"] == "Vetrovia" and set(zone["bosses"]) == {"Cazel", "Tarinax"}
-        # Only 'raid' scope present — no 'group' since no dungeons curated.
-        assert {s["key"] for s in tree["scopes"]} == {"raid"}
+            tree = _build_filters()
+        assert tree == {"scopes": [], "raid_expansions": [], "default_expansion": None}
 
     def test_tree_includes_dungeons_from_curated_overlay(self):
         """Dungeons come from the zones catalogue 'dungeon' type overlay, with
@@ -344,8 +344,8 @@ class TestFilters:
             },
         ]
         with patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], dungeon_tree, set())):
-            # Zero kills — curated dungeons should still appear in the tree.
-            tree = _build_filters([])
+            # No kills involved — curated dungeons appear in the tree regardless.
+            tree = _build_filters()
         group_scope = next((s for s in tree["scopes"] if s["key"] == "group"), None)
         assert group_scope is not None, "group scope missing despite curated dungeons"
         names = {z["zone"] for z in group_scope["zones"]}
@@ -354,26 +354,21 @@ class TestFilters:
         # can xpac-filter the Dungeons dropdown parallel to Raids.
         assert all(z["expansion"] == "EoF" for z in group_scope["zones"])
 
-    def test_raid_tree_comes_from_zones_db_with_kills_appended(self):
+    def test_raid_tree_comes_from_zones_db_only_no_other_expansion(self):
         from unittest.mock import patch
 
-        # the zones catalogue supplies the full raid structure (wing order preserved);
-        # group + unpopulated raid kills are merged on top.
+        # the zones catalogue supplies the full raid structure (wing order
+        # preserved) and nothing else: no "Other" expansion for uncurated zones.
         raid_tree = [{"zone": "Veeshan's Peak", "expansion": "RoK", "bosses": ["Kluzen", "Nexona", "Phara Dar"]}]
-        kills = [
-            {"scope": "raid", "zone": "Some Unpopulated Raid", "title": "Mystery Boss"},
-            {"scope": "group", "zone": "Crypt", "title": "Bonebreaker"},
-        ]
         with patch("backend.server.api.rankings._cached_zones_data", return_value=({}, raid_tree, [], set())):
-            tree = _build_filters(kills)
+            tree = _build_filters()
+        assert {s["key"] for s in tree["scopes"]} == {"raid"}
         raid = next(s for s in tree["scopes"] if s["key"] == "raid")
-        # the zones catalogue zone first, bosses in wing order (not alphabetical).
-        assert raid["zones"][0]["zone"] == "Veeshan's Peak"
+        # the zones catalogue zone only, bosses in wing order (not alphabetical).
+        assert [z["zone"] for z in raid["zones"]] == ["Veeshan's Peak"]
         assert raid["zones"][0]["bosses"] == ["Kluzen", "Nexona", "Phara Dar"]
         assert raid["zones"][0]["expansion"] == "RoK"
-        # heuristic-matched raid kill for an unlisted zone still appears, under "Other".
-        other = next(z for z in raid["zones"] if z["zone"] == "Some Unpopulated Raid")
-        assert other["expansion"] == "Other"
+        assert [e["short"] for e in tree["raid_expansions"]] == ["RoK"]
 
     def test_expansion_list_and_default(self):
         from unittest.mock import patch
@@ -392,7 +387,7 @@ class TestFilters:
 
         with patch("backend.server.api.rankings._cached_zones_data", return_value=({}, raid_tree, [], set())):
             with patch("backend.server.api.rankings.current_server", return_value=_srv(None)):
-                f = _build_filters([])
+                f = _build_filters()
                 # newest expansion first; each raid zone tagged with its expansion.
                 assert [e["short"] for e in f["raid_expansions"]] == ["RoK", "EoF"]
                 assert f["raid_expansions"][0]["name"] == "Rise of Kunark"
@@ -401,18 +396,18 @@ class TestFilters:
                 assert {z["zone"]: z["expansion"] for z in raid["zones"]} == {"VP": "RoK", "EH": "EoF"}
 
             with patch("backend.server.api.rankings.current_server", return_value=_srv("EoF")):
-                assert _build_filters([])["default_expansion"] == "EoF"  # short code
+                assert _build_filters()["default_expansion"] == "EoF"  # short code
 
             with patch("backend.server.api.rankings.current_server", return_value=_srv("Echoes of Faydwer")):
-                assert _build_filters([])["default_expansion"] == "EoF"  # full name
+                assert _build_filters()["default_expansion"] == "EoF"  # full name
 
             with patch("backend.server.api.rankings.current_server", return_value=_srv("echoes of faydwer")):
-                assert _build_filters([])["default_expansion"] == "EoF"  # case-insensitive
+                assert _build_filters()["default_expansion"] == "EoF"  # case-insensitive
 
             with patch("backend.server.api.rankings.current_server", return_value=_srv("ZZZ")):
-                assert _build_filters([])["default_expansion"] == "RoK"  # invalid → most recent
+                assert _build_filters()["default_expansion"] == "RoK"  # invalid → most recent
 
-    def test_resolve_boss_uses_zones_db_for_raids(self):
+    def test_resolve_boss_uses_zones_db_and_uncurated_never_ranks(self):
         from unittest.mock import patch
 
         from backend.server.api.rankings import _resolve_boss
@@ -422,18 +417,18 @@ class TestFilters:
             "d'lizta cheroon": [("The Poet's Palace", "D'Lizta Cheroon")],
         }
         with patch("backend.server.api.rankings._cached_zones_data", return_value=(index, [], [], set())):
-            # Raid: matches the zones catalogue → canonical zone + encounter.
-            assert _resolve_boss("Phara Dar", "ACT Zone Name", "raid") == (True, "Veeshan's Peak", "Phara Dar")
-            # Raid, unknown to the zones catalogue → heuristic fallback keeps ACT zone/title.
-            assert _resolve_boss("Tarinax", "Vetrovia", "raid") == (True, "Vetrovia", "Tarinax")
-            # Heuristic correctly rejects trash ("a "/"an " prefixes).
-            assert _resolve_boss("a decaying skeleton", "Vetrovia", "raid")[0] is False
-            # Group scope now consults the zones catalogue too; "Phara Dar" IS in the index
-            # but its canonical zone is "Veeshan's Peak", not "Crypt" — so the
-            # index resolves it (zone mismatch means candidates[0] is used).
-            assert _resolve_boss("Phara Dar", "Crypt", "group") == (True, "Veeshan's Peak", "Phara Dar")
+            # Matches the zones catalogue → canonical zone + encounter.
+            assert _resolve_boss("Phara Dar", "ACT Zone Name") == (True, "Veeshan's Peak", "Phara Dar")
+            # Unknown to the zones catalogue → never ranks; ACT zone/title kept verbatim.
+            assert _resolve_boss("Tarinax", "Vetrovia") == (False, "Vetrovia", "Tarinax")
+            # Trash never ranks either.
+            assert _resolve_boss("a decaying skeleton", "Vetrovia")[0] is False
+            # "Phara Dar" IS in the index but its canonical zone is "Veeshan's
+            # Peak", not "Crypt" — a single candidate resolves regardless of
+            # the upload's zone.
+            assert _resolve_boss("Phara Dar", "Crypt") == (True, "Veeshan's Peak", "Phara Dar")
             # Apostrophe-variant normalisation: parse ships U+2019, index key uses ASCII ' — must match.
-            assert _resolve_boss("D’Lizta Cheroon", "Poet's Palace", "raid") == (
+            assert _resolve_boss("D’Lizta Cheroon", "Poet's Palace") == (
                 True,
                 "The Poet's Palace",
                 "D'Lizta Cheroon",
@@ -512,6 +507,11 @@ def _ins(conn, encid, title, *, success, players, guild, duration):
     conn.commit()
 
 
+#: The fixture's curated encounters: both bosses are curated, so the loss is
+#: excluded for losing (not for being uncurated); the trash is uncurated.
+_VETROVIA = _zones_data({("Vetrovia", "Tarinax"), ("Vetrovia", "Cazel")})
+
+
 @pytest.fixture()
 def rankings_db(parses_db_path):
     conn = pdb.store.init_db()
@@ -527,7 +527,9 @@ def rankings_db(parses_db_path):
     rk.rankings_cache.delete(f"{rk._KILLS_KEY}:{world}")
     # Also clear the bare key.
     rk.rankings_cache.delete(rk._KILLS_KEY)
-    return parses_db_path
+    # Only curated encounters rank: curate exactly the fixture's bosses.
+    with patch("backend.server.api.rankings._cached_zones_data", return_value=_VETROVIA):
+        yield parses_db_path
 
 
 def test_loader_keeps_only_winning_boss_kills(rankings_db):
@@ -554,8 +556,10 @@ async def test_filters_endpoint(app, rankings_db):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/api/rankings/filters")
     assert r.status_code == 200
-    scopes = {s["key"] for s in r.json()["scopes"]}
-    assert "raid" in scopes
+    scopes = {s["key"]: s for s in r.json()["scopes"]}
+    assert set(scopes) == {"raid"}
+    # The curated tree alone: the uncurated trash kill never adds a zone or boss.
+    assert [(z["zone"], z["bosses"]) for z in scopes["raid"]["zones"]] == [("Vetrovia", ["Cazel", "Tarinax"])]
 
 
 @pytest.mark.asyncio
@@ -759,7 +763,10 @@ async def test_rankings_leaderboard_is_world_scoped(app, users_schema, parses_db
 
     with (
         patch("backend.server.api.rankings._require_user", _fake_user),
-        patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())),
+        patch(
+            "backend.server.api.rankings._cached_zones_data",
+            return_value=_zones_data({("Vetrovia", "Tarinax"), ("Emerald Halls", "Wuoshi")}),
+        ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r_v = await c.get(
@@ -790,9 +797,9 @@ async def test_rankings_leaderboard_is_world_scoped(app, users_schema, parses_db
 
 
 def test_resolve_boss_dungeon_multi_mob_consolidates():
-    """For dungeon scope (group), curated multi-mob encounters collapse to
-    one canonical (zone, encounter_name) — same as raids. Killing any mob
-    in the encounter resolves to the same rankings entry."""
+    """Curated multi-mob encounters (here a dungeon's) collapse to one
+    canonical (zone, encounter_name) — same as raids. Killing any mob in the
+    encounter resolves to the same rankings entry."""
     from unittest.mock import patch
 
     from backend.server.api.rankings import _normalise_boss_key, _resolve_boss
@@ -803,31 +810,32 @@ def test_resolve_boss_dungeon_multi_mob_consolidates():
     }
     with patch("backend.server.api.rankings._cached_zones_data", return_value=(fake_boss_index, [], [], set())):
         # Both mobs in the encounter resolve to the same canonical.
-        ok_a, zone_a, title_a = _resolve_boss("Mob Alpha", "Halls of Fate", "group")
-        ok_b, zone_b, title_b = _resolve_boss("Mob Bravo", "Halls of Fate", "group")
+        ok_a, zone_a, title_a = _resolve_boss("Mob Alpha", "Halls of Fate")
+        ok_b, zone_b, title_b = _resolve_boss("Mob Bravo", "Halls of Fate")
 
     assert ok_a is True
     assert ok_b is True
     assert (zone_a, title_a) == (zone_b, title_b) == ("Halls of Fate", "Mob Alpha + Mob Bravo")
 
 
-def test_resolve_boss_dungeon_uncurated_falls_back_to_is_boss_heuristic():
-    """For dungeon scope, an unknown mob name still falls back to the
-    is_boss heuristic — uncurated dungeons still surface their kills."""
+def test_resolve_boss_uncurated_never_ranks():
+    """An uncurated mob name never ranks, whatever its shape: the is_boss
+    capitalised-title fallback is retired, so an empty catalogue ranks
+    nothing and the ACT zone/title are passed back verbatim."""
     from unittest.mock import patch
 
     from backend.server.api.rankings import _resolve_boss
 
     with patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())):
-        # Capital first letter — is_boss returns True; rankings show it.
-        ok, zone, title = _resolve_boss("Random Group Mob", "Some Zone", "group")
-    assert ok is True
+        # Capital first letter — the old heuristic would have ranked it.
+        ok, zone, title = _resolve_boss("Random Group Mob", "Some Zone")
+    assert ok is False
     assert zone == "Some Zone"
     assert title == "Random Group Mob"
 
 
 def test_resolve_boss_raid_still_uses_curated_lookup():
-    """Regression — raid scope continues to consult boss_index as before."""
+    """Regression — a curated raid boss resolves through boss_index."""
     from unittest.mock import patch
 
     from backend.server.api.rankings import _normalise_boss_key, _resolve_boss
@@ -836,44 +844,35 @@ def test_resolve_boss_raid_still_uses_curated_lookup():
         _normalise_boss_key("Vyemm"): [("Plane of War", "Vyemm")],
     }
     with patch("backend.server.api.rankings._cached_zones_data", return_value=(fake_boss_index, [], [], set())):
-        ok, zone, title = _resolve_boss("Vyemm", "Plane of War", "raid")
+        ok, zone, title = _resolve_boss("Vyemm", "Plane of War")
     assert ok is True
     assert (zone, title) == ("Plane of War", "Vyemm")
 
 
-def test_resolve_boss_curated_zone_rejects_unmatched_titles():
-    """Inside a CURATED zone the roster is
-    authoritative — a player-shaped kill title (article-less, exactly what
-    the is_boss heuristic waves through) must not rank or reach the boss
-    dropdown. Uncurated zones keep the heuristic fallback."""
+def test_resolve_boss_unmatched_titles_never_rank_in_any_zone():
+    """Only the curated roster ranks — a player-shaped kill title
+    (article-less, exactly what the retired is_boss heuristic waved through)
+    must not rank or reach the boss dropdown, inside a curated zone or out
+    of one."""
     from unittest.mock import patch
 
-    from backend.server.api.rankings import _normalise_boss_key, _resolve_boss
+    from backend.server.api.rankings import _resolve_boss
 
-    fake_boss_index = {
-        _normalise_boss_key("Queen Lenya Thex"): [("Throne of New Tunaria", "Queen Lenya Thex")],
-    }
-    with (
-        patch(
-            "backend.server.api.rankings._cached_zones_data",
-            return_value=(fake_boss_index, [], [], {"Throne of New Tunaria"}),
-        ),
-        patch(
-            "backend.server.api.rankings._zone_canonical_map",
-            return_value={"throne of new tunaria": "Throne of New Tunaria"},
-        ),
+    with patch(
+        "backend.server.api.rankings._cached_zones_data",
+        return_value=_zones_data({("Throne of New Tunaria", "Queen Lenya Thex")}),
     ):
         # A player kill shaped like a named: rejected in the curated zone.
-        ok, _, _ = _resolve_boss("Ripclaw", "Throne of New Tunaria", "raid")
+        ok, _, _ = _resolve_boss("Ripclaw", "Throne of New Tunaria")
         assert ok is False
 
         # The curated roster itself still resolves.
-        ok, zone, title = _resolve_boss("Queen Lenya Thex", "Throne of New Tunaria", "raid")
+        ok, zone, title = _resolve_boss("Queen Lenya Thex", "Throne of New Tunaria")
         assert (ok, zone, title) == (True, "Throne of New Tunaria", "Queen Lenya Thex")
 
-        # An uncurated zone still surfaces via the heuristic.
-        ok, zone, title = _resolve_boss("Ripclaw", "Uncurated Keep", "raid")
-        assert (ok, zone, title) == (True, "Uncurated Keep", "Ripclaw")
+        # An uncurated zone no longer surfaces it either.
+        ok, zone, title = _resolve_boss("Ripclaw", "Uncurated Keep")
+        assert (ok, zone, title) == (False, "Uncurated Keep", "Ripclaw")
 
 
 # ---------------------------------------------------------------------------
@@ -920,7 +919,6 @@ def test_loader_excludes_cut_multi_mob_parse(rankings_db):
     requirements = {("Vetrovia", "Tarinax"): frozenset({"tarinax", "xygoz"})}
     with (
         patch("backend.server.api.rankings._encounter_required_mobs", return_value=requirements),
-        patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())),
         patch.object(rk.zones_db, "find_by_name", return_value=None),
     ):
         # The fixture's Tarinax kill has no enemy rows at all → both named
@@ -950,7 +948,6 @@ async def test_rankings_excluded_endpoint_admin_only(app, rankings_db):
     requirements = {("Vetrovia", "Tarinax"): frozenset({"tarinax", "xygoz"})}
     with (
         patch("backend.server.api.rankings._encounter_required_mobs", return_value=requirements),
-        patch("backend.server.api.rankings._cached_zones_data", return_value=({}, [], [], set())),
         patch.object(rk.zones_db, "find_by_name", return_value=None),
         patch("backend.server.auth_deps.require_admin", return_value=admin),
     ):
