@@ -43,3 +43,16 @@ OPEN_SIGNUP: bool = os.getenv("OPEN_SIGNUP", "false").strip().lower() in ("1", "
 # Empty by default since 2026-10-21: EQ2AdvancedDesktop, the client this was
 # built for, fixed its duplicate-row payloads, so no client is limited.
 INGEST_CLIENT_LIMITS: str = os.getenv("INGEST_CLIENT_LIMITS", "")
+
+# Zones whose uploads POST /api/parses/ingest accepts and discards: answered
+# as "skipped" (so clients neither retry nor pause their queue), never stored.
+# ";" or "," separated zone names as the log writes them, matched
+# case-insensitively. Defaults to The Thundering Steppes while its 2026
+# Halloween public quest runs: hundreds of players per fight, 4,300 uploads
+# and two thirds of all combatant rows in two weeks (purged 2026-10-25).
+# Set to an empty string to accept every zone again.
+INGEST_SKIP_ZONES: frozenset[str] = frozenset(
+    z.strip().lower()
+    for z in os.getenv("INGEST_SKIP_ZONES", "The Thundering Steppes").replace(";", ",").split(",")
+    if z.strip()
+)

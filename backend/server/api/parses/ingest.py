@@ -32,11 +32,13 @@ from backend.server.api.parses.models import (
 from backend.server.auth_deps import require_user_session_or_token
 from backend.server.cache import character_cache
 from backend.server.config import ALLOWED_SERVERS as _ALLOWED_SERVERS
+from backend.server.config import INGEST_SKIP_ZONES as _INGEST_SKIP_ZONES
 from backend.server.config import WORLD as _WORLD
 from backend.server.core.audit_log import audit_log
 from backend.server.core.census_lifecycle import shared_census_client
 from backend.server.core.client_throttle import client_throttle
 from backend.server.core.executor import run_sync
+from backend.server.core.log_coalesce import Coalescer
 from backend.server.core.session_user import TokenUser
 from backend.server.core.validation import sanitize_world as _sanitize_world
 from backend.server.core.validation import validate_character_name as _validate_character_name
@@ -61,6 +63,10 @@ from backend.server.parses.models import (
 from backend.server.parses.pet_detection import classify_combatants
 
 _log = logging.getLogger(__name__)
+
+# One log line per skipped zone per window, however many uploads it drops.
+_skip_zone_log = Coalescer()
+_SKIP_ZONE_LOG_EVERY_S = 600
 
 # The background snapshot resolver hits Census once per never-seen player
 # name (serial). A real raid is ≤24 players + a few mercs, and the first
@@ -1135,6 +1141,29 @@ async def ingest_parse(
     # under. The gate has already established a concrete world, so there is
     # no current_world() fallback to fall through to on this HTTP path.
     parse_world = sanitized_server
+
+    # Skipped zones (INGEST_SKIP_ZONES): accepted and discarded before any
+    # other work. "skipped" is the answer clients already treat as done, so
+    # they neither retry the upload nor pause their queue.
+    zone_key = (body.encounter.zone or "").strip().lower()
+    if zone_key and zone_key in _INGEST_SKIP_ZONES:
+        log_it, suppressed = _skip_zone_log.allow(zone_key, _SKIP_ZONE_LOG_EVERY_S)
+        if log_it:
+            _log.info(
+                "[parses-ingest] upload from skipped zone discarded (zone=%s world=%s, +%d since last line)",
+                body.encounter.zone,
+                parse_world,
+                suppressed,
+            )
+        return IngestResponse(
+            status="skipped",
+            encounter_id=None,
+            act_encid=body.encounter.encid,
+            combatants=0,
+            damage_types=0,
+            attack_types=0,
+            guild_name=None,
+        )
 
     # Plausibility gate — the server-side honesty floor. Runs BEFORE any
     # Census/DB work so an impossible or absurd payload is cheap to reject.
